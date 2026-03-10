@@ -1,0 +1,11 @@
+export const fmt$ = v =>
+  v == null ? "—" : "$" + Number(v).toLocaleString("en-US", { minimumFractionDigits: 0 });
+
+export const fmtD = d =>
+  d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+
+export const tod = () => new Date().toISOString().slice(0, 10);
+
+export const over = d => d && d < tod();
+
+export const inits = n => n.split(" ").map(x => x[0]).join("").slice(0, 2).toUpperCase();

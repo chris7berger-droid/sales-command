@@ -1,0 +1,227 @@
+SALES COMMAND — HANDOFF DOCUMENT v16
+Generated: March 14, 2026
+====================================================
+
+HOW TO USE THIS DOCUMENT
+Start every new Claude thread with:
+"Continue building Sales Command. Here is the handoff doc v16 and the architecture doc."
+Upload this file + HDSP_CommandSuite_Architecture.docx
+
+====================================================
+PROJECT OVERVIEW
+====================================================
+App: Sales Command (part of HDSP Command Suite)
+Company: HDSP (High Desert Surface Prep)
+Purpose: Replace Glide CRM and PandaDoc
+Stack: React + Vite (localhost:5173) + Supabase
+GitHub: chris7berger-droid/sales-command
+Supabase Project ID: pbgvgjjuhnpsumnowuym
+Dev environment: Mac, VS Code, Chrome
+Supabase client path: src/lib/supabase.js (import { supabase } from "../lib/supabase")
+
+====================================================
+COMPLETED THIS SESSION (v16)
+====================================================
+
+JOB NUMBER AUTO-INCREMENT — DONE
+- Changed from 7001 base to 10000 base (5-digit numbers)
+- Formula: (last.job_number || 9999) + 1 : 10000
+
+CALL LOG ROW CLICK — DONE
+- Job number is now clickable (underlined teal) to open CallLogDetail
+- View button still exists as secondary click target
+
+PROPOSALS LIST UUID FIX — DONE
+- Proposal # column now shows call_log.display_job_number instead of UUID
+- Fix: r: (v, row) => row.call_log?.display_job_number || v
+
+PROPOSAL TOTAL WRITE-BACK FIX — DONE
+- Materials were calculating at $0 due to wrong field name (unit_cost vs price_per_unit)
+- Fixed: item.price_per_unit in handleSave matTotal calculation
+- Travel total still broken — see NEXT TASKS below
+
+WTC SAVE BUTTON STATE — DONE
+- Removed setTimeout that was resetting saved state after 2 seconds
+- Button now stays "Saved" until user makes an edit
+- useState(!!wtcIdProp) so existing WTCs load as already saved
+- All tab onChange handlers now call setSaved(false) on any edit
+
+TRAVEL TAB REBUILT — DONE
+- Was: 4 flat dollar fields (drive, fly, stay, per_diem)
+- Now: price x quantity for each:
+  - Drive: $ per mile x miles
+  - Fly: $ per ticket x tickets
+  - Stay: $ per night x nights
+  - Per Diem: $ per day x days x crew count
+- calcTravel() updated to match new field names
+- New travel state fields: drive_rate, drive_miles, fly_rate, fly_tickets,
+  stay_rate, stay_nights, per_diem_rate, per_diem_days, per_diem_crew
+
+WTC LOCK BEHAVIOR FIXED — DONE
+- Removed "Change Order Required" language from Unlock button (was wrong)
+- Unlock button now simply says "Unlock WTC"
+- When locked: amber warning banner shows on all tabs except Summary
+- Transparent click-blocker overlay prevents editing locked fields
+- Users directed to Summary tab to unlock
+
+====================================================
+NEXT TASKS (in priority order)
+====================================================
+
+1. FIX: Travel total not writing back to proposals.total
+   - Root cause: handleSave travelTotal still uses old field names
+     (travel.drive, travel.fly, travel.stay, travel.per_diem)
+   - Fix needed in handleSave around line 1619:
+     const travelTotal = (travel.drive || 0) + (travel.fly || 0) +
+       (travel.stay || 0) + (travel.per_diem || 0);
+   - Must be replaced with calcTravel(travel) or new field names
+
+2. FIX: Sales SOW locked message still says "change order required to edit"
+   - grep for "change order required to edit" in WTCCalculator.jsx and remove/fix
+
+3. FEATURE: Call Log detail — add Attachments section (docs and pics)
+   - Supabase storage, upload button, thumbnail/file list display
+
+4. VERIFY: Proposal detail summary matches WTC summary after travel fix
+
+5. FEATURE: SC-30 — Email send for proposal signing (known backlog)
+
+====================================================
+SUPABASE COLUMN REFERENCE (verified — do not guess)
+====================================================
+
+table: team_members
+  columns: id, name (NOT full_name), email, phone, role, auth_id, active
+
+table: proposals
+  columns: id, total (NOT total_price), approved_at (NOT accepted_at), status,
+           created_at, customer, intro_completed, attachments_added,
+           recipients_assigned, wtc_verified, call_log_id
+
+table: call_log
+  columns: id, display_job_number, stage, bid_due, follow_up, created_at,
+           jobsite_address, customer_name, sales_name, job_number, job_name,
+           is_change_order, parent_job_id, co_number, co_standalone,
+           jobsite_city, jobsite_state, jobsite_zip,
+           billing_address, billing_city, billing_state, billing_zip,
+           billing_address_same
+
+table: proposal_wtc
+  columns: id, proposal_id, work_type_id (INTEGER 1-40, FK to work_types.id),
+           burden_rate, ot_burden_rate, tax_rate, prevailing_wage,
+           regular_hours, ot_hours, markup_pct, materials (jsonb),
+           size, unit, sales_sow, field_sow (jsonb), sub_areas (jsonb),
+           travel (jsonb), discount, discount_reason, locked, created_at
+
+table: work_types
+  columns: id (integer 1-40), name
+
+table: work_type_sow_templates
+  columns: work_type_id, sales_sow_template, updated_at
+
+====================================================
+WTC CALCULATOR ARCHITECTURE (key facts)
+====================================================
+
+- WTCCalculator.jsx lives in src/pages/ NOT src/components/
+- Props: proposalId (UUID), wtcId: wtcIdProp (UUID or null), workTypeId, onClose
+- wtcId is STATE: const [wtcId, setWtcId] = useState(wtcIdProp)
+- const [saved, setSaved] = useState(!!wtcIdProp)
+- work_type_id is INTEGER (1-40), not UUID
+- WTC has 7 tabs: Bidding Info, Labor, Materials, Scope of Work, Travel, Discount, Summary
+- Summary tab has 3-step action flow: Save Draft -> Lock & Approve -> Generate PDF
+- PDFPreviewModal is built inside WTCCalculator.jsx
+- SOW auto-loads from work_type_sow_templates only if sales_sow is currently empty
+- On save: writes proposalPrice back to proposals.total
+- Travel state fields: drive_rate, drive_miles, fly_rate, fly_tickets,
+  stay_rate, stay_nights, per_diem_rate, per_diem_days, per_diem_crew
+- calcTravel(t) uses new field names — travelTotal in handleSave must also use calcTravel(travel)
+- Lock behavior: locked WTCs show amber banner + click blocker on tabs 1-6
+- Unlock button on Summary tab unlocks without requiring Change Order
+
+====================================================
+KEY ARCHITECTURE DECISIONS
+====================================================
+
+- proposals.total is computed from WTC and written on every Save Draft
+- ProposalDetail re-fetches proposal from Supabase when WTC closes (setP pattern)
+- Managers page: Manager role only — Admin intentionally excluded
+- Home stat cards: role-filtered — reps see their numbers, managers/admin see all
+- sales_name (text) in call_log is the rep identifier — matches team_members.name exactly
+- SalesDash page: not needed — Home handles rep view, Managers handles manager view
+- Change Orders require full WTC — separate flow, NOT triggered by unlocking a WTC
+- Signing font: Great Vibes (Google Font) — confirmed in "Signature font approval" thread
+- CustomerSigningPage component built inside WTCCalculator.jsx
+- DocuSeal fully replaced with self-hosted signing flow
+
+====================================================
+SIGNING FLOW STATUS (SC-30)
+====================================================
+- CustomerSigningPage UI: BUILT inside WTCCalculator.jsx
+- Great Vibes font: confirmed and loaded
+- PDFPreviewModal: BUILT inside WTCCalculator.jsx
+- Email send + signature capture + signed PDF storage: NOT BUILT (backlog SC-30)
+
+====================================================
+CURRENT APP STATE
+====================================================
+
+WORKING PAGES (live Supabase data):
+- Home — stat cards, pipeline bar, goal scorecards (role-filtered)
+- Call Log — full CRUD, stage management, clickable job number, detail view
+- Proposals — list (with job number), detail, WTC (save/load/lock), Generate PDF
+- Invoices — live
+- Managers — live monthly table, YTD stats (Manager role only)
+- Customers — live
+- Our Team — live with add/edit/deactivate
+
+PLACEHOLDER PAGES:
+- Sales Dash — not needed (Home handles rep view)
+- Jobs — Placeholder
+- Feedback — Placeholder (SC-55 backlog)
+
+====================================================
+WORKFLOW RULES (always follow — no exceptions)
+====================================================
+
+1. NEVER use drag and drop for files
+   Always: create new file in VS Code -> paste code
+
+2. ALWAYS provide code as text in chat
+   Never as downloads or attachments
+
+3. NEVER give a half-baked solution mid-figuring-it-out
+   Always fully think through the complete solution first,
+   then deliver in clean sequential steps. No pivots.
+
+4. Supabase SQL Editor: button is "Create new snippet" (not "New query")
+
+5. Complex file edits: use Python inline scripts via bash
+   str_replace is unreliable with mixed quotes/JSX
+
+6. Always edit actual project files (e.g. src/pages/CallLog.jsx)
+   Never a downloaded copy
+
+7. When something looks wrong, ask for screenshot before assuming
+
+8. Always check column names against the reference above before writing queries
+
+9. When a feature idea comes up out of scope, name it, give it an SC tag,
+   add it to the backlog, and keep moving
+
+10. Before assuming anything is broken, have Chris run a targeted grep or sed
+    command in VS Code terminal to see exactly what's in the file
+
+====================================================
+DESIGN PHILOSOPHY
+====================================================
+
+- Favor fast obvious clicks over fewest clicks
+- UI flows step by step, one question at a time
+- Never overwhelm user with a full form at once
+- buildStepList() architecture for wizards — never incrementing counter
+- Change Orders always require full WTC, can wrap into parent job or stand alone
+
+====================================================
+END OF HANDOFF v16
+====================================================

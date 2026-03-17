@@ -237,63 +237,81 @@ function ProposalPDFModal({ proposal, onClose }) {
         <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
 
           {view === "preview" && (
-            <div>
-              {/* Company header */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28, paddingBottom: 20, borderBottom: "2px solid #E5E7EB" }}>
+            <div style={{ fontFamily: "Arial, sans-serif", color: "#1c1814", background: "white" }}>
+
+              {/* Header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: 16, borderBottom: "4px solid #30cfac", marginBottom: 24 }}>
                 <div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: "#111827", letterSpacing: "-0.02em" }}>{COMPANY.name}</div>
-                  <div style={{ fontSize: 13, color: "#6B7280", marginTop: 3 }}>{COMPANY.tagline}</div>
-                  <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 6 }}>{COMPANY.phone} · {COMPANY.email} · {COMPANY.website}</div>
-                  <div style={{ fontSize: 11, color: "#9CA3AF" }}>{COMPANY.license}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#1c1814", letterSpacing: "0.02em", textTransform: "uppercase" }}>{COMPANY.name}</div>
+                  <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3 }}>{COMPANY.tagline}</div>
+                </div>
+                <div style={{ textAlign: "right", fontSize: 11, color: "#4a4238", lineHeight: 1.7 }}>
+                  <div>{COMPANY.phone}</div>
+                  <div>{COMPANY.email}</div>
+                  <div>{COMPANY.website}</div>
+                  <div style={{ color: "#887c6e" }}>{COMPANY.license}</div>
+                </div>
+              </div>
+
+              {/* Prepared For + Proposal # */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid rgba(28,24,20,0.12)" }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Prepared For</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#1c1814" }}>{proposal.customer || "—"}</div>
+                  {proposal.call_log?.jobsite_address && (
+                    <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3 }}>
+                      {proposal.call_log.jobsite_address}
+                      {proposal.call_log.jobsite_city ? ", " + proposal.call_log.jobsite_city : ""}
+                      {proposal.call_log.jobsite_state ? ", " + proposal.call_log.jobsite_state : ""}
+                      {proposal.call_log.jobsite_zip ? " " + proposal.call_log.jobsite_zip : ""}
+                    </div>
+                  )}
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 11, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Proposal Total</div>
-                  <div style={{ fontSize: 32, fontWeight: 800, color: "#4CAF50", letterSpacing: "-0.02em" }}>{fmt$(proposalPrice)}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Proposal #</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1814" }}>{proposal.call_log?.display_job_number || "—"}-P{proposal.proposal_number || 1}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Date</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1814" }}>{new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
                 </div>
               </div>
 
-              {/* Cost breakdown */}
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Cost Breakdown</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
-                  {[
-                    { label: "Labor",     value: fmt$(totals.labor) },
-                    { label: "Materials", value: fmt$(totals.materials) },
-                    { label: "Travel",    value: fmt$(totals.travel) },
-                    { label: "Discount",  value: totals.discount > 0 ? `-${fmt$(totals.discount)}` : "—" },
-                  ].map(({ label, value }) => (
-                    <div key={label} style={{ background: "#F9FAFB", borderRadius: 8, padding: "12px 14px", border: "1px solid #E5E7EB" }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: "#111827" }}>{value}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Sales SOW */}
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Scope of Work</div>
-                <div style={{ background: "#E8F5E9", border: "1.5px solid rgba(76,175,80,0.4)", borderRadius: 10, padding: "16px 18px" }}>
+              {/* Scope of Work */}
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Scope of Work</div>
+                <div style={{ border: "1.5px solid rgba(28,24,20,0.2)", borderRadius: 8, padding: "16px 18px", background: "white" }}>
                   {combinedSOW
-                    ? <pre style={{ margin: 0, fontSize: 13, color: "#374151", lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>{combinedSOW}</pre>
-                    : <div style={{ fontSize: 13, color: "#9CA3AF", fontStyle: "italic" }}>No scope of work written yet. Add it in the WTC → Scope of Work tab.</div>
+                    ? <pre style={{ margin: 0, fontSize: 13, color: "#2d2720", lineHeight: 1.75, whiteSpace: "pre-wrap", fontFamily: "Arial, sans-serif" }}>{combinedSOW}</pre>
+                    : <div style={{ fontSize: 13, color: "#887c6e", fontStyle: "italic" }}>No scope of work written yet. Add it in the WTC tab.</div>
                   }
                 </div>
               </div>
 
-              {/* Signature block */}
-              <div style={{ borderTop: "2px solid #E5E7EB", paddingTop: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-                <div>
-                  <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 32 }}>Customer Signature</div>
-                  <div style={{ borderBottom: "1.5px solid #9CA3AF", marginBottom: 6 }} />
-                  <div style={{ fontSize: 11, color: "#9CA3AF" }}>Signature · Date</div>
+              {/* Proposal Total */}
+              <div style={{ border: "2px solid #30cfac", borderRadius: 8, padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#4a4238", letterSpacing: "0.08em", textTransform: "uppercase" }}>Proposal Total</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: "#1c1814", letterSpacing: "-0.01em" }}>{fmt$(proposalPrice)}</div>
+              </div>
+
+              {/* Signature block — customer only */}
+              <div style={{ borderTop: "1.5px solid rgba(28,24,20,0.15)", paddingTop: 20 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 20 }}>Customer Acceptance</div>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 32, marginBottom: 16 }}>
+                  <div>
+                    <div style={{ borderBottom: "1.5px solid #2d2720", marginBottom: 6, height: 32 }} />
+                    <div style={{ fontSize: 11, color: "#887c6e" }}>Authorized Signature</div>
+                  </div>
+                  <div>
+                    <div style={{ borderBottom: "1.5px solid #2d2720", marginBottom: 6, height: 32 }} />
+                    <div style={{ fontSize: 11, color: "#887c6e" }}>Date</div>
+                  </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 32 }}>Authorized By</div>
-                  <div style={{ borderBottom: "1.5px solid #9CA3AF", marginBottom: 6 }} />
-                  <div style={{ fontSize: 11, color: "#9CA3AF" }}>HDSP Representative · Date</div>
+                <div style={{ borderBottom: "1.5px solid #2d2720", marginBottom: 6, height: 32, width: "60%" }} />
+                <div style={{ fontSize: 11, color: "#887c6e", marginBottom: 20 }}>Printed Name</div>
+                <div style={{ fontSize: 11, color: "#887c6e", fontStyle: "italic", textAlign: "center" }}>
+                  *This proposal is valid for 90 days from the date above.*
                 </div>
               </div>
+
             </div>
           )}
 

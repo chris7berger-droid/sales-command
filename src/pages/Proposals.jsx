@@ -38,6 +38,12 @@ function NewProposalModal({ onClose, onCreated }) {
     if (!selJob) { setError("Select a job first"); return; }
     setSaving(true);
     setError(null);
+    const { data: existing } = await supabase
+      .from("proposals")
+      .select("id")
+      .eq("call_log_id", selJob.id);
+    const proposalNumber = (existing?.length || 0) + 1;
+
     const { data, error: err } = await supabase
       .from("proposals")
       .insert([{
@@ -45,6 +51,7 @@ function NewProposalModal({ onClose, onCreated }) {
         customer: selJob.customer_name || selJob.job_name,
         status: "Draft",
         total: 0,
+        proposal_number: proposalNumber,
       }])
       .select("*, call_log(jobsite_address, display_job_number)")
       .single();
@@ -417,7 +424,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} onClose
         </button>
         <div style={{ width: 1, height: 18, background: C.border }} />
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-          Proposal {p.call_log?.display_job_number || p.id}
+          Proposal {p.call_log?.display_job_number || p.id} P{p.proposal_number || 1}
 
         </h2>
         <Pill label={p.status} cm={PROP_C} />
@@ -537,7 +544,7 @@ export default function Proposals({ teamMember }) {
         ) : (
           <DataTable
             cols={[
-              { k: "id",         l: "Proposal #", r: (v, row) => <span style={{ fontWeight: 800, color: C.tealDark, fontFamily: F.display }}>{row.call_log?.display_job_number || v}</span> },
+              { k: "id",         l: "Proposal #", r: (v, row) => <span style={{ fontWeight: 800, color: C.tealDark, fontFamily: F.display }}>{row.call_log?.display_job_number || v} P{row.proposal_number || 1}</span> },
               { k: "customer",   l: "Customer" },
               { k: "status",     l: "Status",     r: v => <Pill label={v} cm={PROP_C} /> },
               { k: "total",      l: "Total",      r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$(v)}</span> },

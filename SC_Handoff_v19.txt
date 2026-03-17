@@ -1,10 +1,10 @@
-SALES COMMAND — HANDOFF DOCUMENT v18
+SALES COMMAND — HANDOFF DOCUMENT v19
 Generated: March 17, 2026
 ====================================================
 
 HOW TO USE THIS DOCUMENT
 Start every new Claude thread with:
-"Continue building Sales Command. Here is the handoff doc v18 and the architecture doc."
+"Continue building Sales Command. Here is the handoff doc v19 and the architecture doc."
 Upload this file + HDSP_CommandSuite_Architecture.docx
 
 ====================================================
@@ -20,48 +20,49 @@ Dev environment: Mac, VS Code, Chrome
 Supabase client path: src/lib/supabase.js (import { supabase } from "../lib/supabase")
 
 ====================================================
-COMPLETED THIS SESSION (v18)
+COMPLETED THIS SESSION (v19)
 ====================================================
 
-WTC BRAND RESKIN — DONE
-- Full SubConPro brand token system applied to WTCCalculator.jsx
-- T object replaced with SubConPro linen/teal tokens
-- Dark header + tab bar: #1c1814
-- Linen main background: #b5a896
-- Card panels: #c8bcaa / #bfb3a1
-- Teal accent: #30cfac (buttons, active tab, badges)
-- All green tokens replaced with teal
-- All blue tokens replaced with teal
-- All input fields: #bfb3a1 (linen)
-- WTC Summary bar: dark panel #1c1814 with teal border
-- Proposal Price bar: dark panel #1c1814 with teal border
-- Lock & Approve button: teal
-- Next/Back buttons: teal primary, linen secondary
-- Summary bottom bar: dark panel with teal accents
-- Scope of Work tab: teal film removed, neutral linen backgrounds
-- Field Scope section: teal border, dark text labels
-- Materials tab: linen inputs, linen search bar
-- PDF modal: white background preserved (ink-friendly), teal buttons
-- PDF cost breakdown cards: white (not linen)
-- AUTO (1.5x) label: dark text
-- OT Burden Rate border: gray (not permanent teal)
-- Committed and pushed to GitHub: commit 3f87faa
+PDF REDESIGN — DONE (WTCCalculator.jsx PDFPreviewModal)
+- Printer-friendly white layout — no dark panels, no black backgrounds
+- Header: HDSP company name + tagline left, address/phone/email/license right
+- Teal 4px border-bottom separates header from body
+- Prepared For section: customer name + jobsite address (fetched from proposals + call_log join)
+- Proposal # and Date top right
+- Scope of Work: clean bordered white box, no green tint
+- Proposal Total: teal-bordered box, dark text (not colored) — ink-friendly
+- Signature block: Customer Acceptance only — Authorized by HDSP removed
+- 90-day validity note at bottom
+- proposalNumber state + loadJobInfo() useEffect added to WTCCalculator
+  fetches: proposals.proposal_number, proposals.customer,
+           call_log.job_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip
+- proposalData now includes: proposalNumber, jobInfo
+- Committed: 958f6ba
+
+PDF REDESIGN — STILL NEEDED (Proposals.jsx ProposalPDFModal)
+- There is a SECOND separate PDF modal in src/pages/Proposals.jsx at line 144
+- This is the one launched from the Proposal Detail page "Generate PDF" button
+- It loads ALL WTCs for a proposal, combines SOWs, aggregates totals
+- Still has old blue/green styling — needs to be restyled to match new design
+- This is the CANONICAL PDF modal (supports multi-WTC proposals)
+- The WTC modal version is single-WTC only
+- Next session: redesign ProposalPDFModal in Proposals.jsx to match new style
+  and ensure it also shows customer name + jobsite address
 
 ====================================================
 NEXT TASKS (in priority order)
 ====================================================
 
-1. PDF REDESIGN
-   - Current PDF is plain white with basic layout
-   - Keep white background (ink-friendly for printing)
-   - Redesign layout: better typography, HDSP branding, cleaner sections
-   - Add proposal number to header
-   - Improve cost breakdown section
-   - Better signature block
-   - PDF is generated inside PDFPreviewModal in WTCCalculator.jsx
+1. FINISH PDF REDESIGN — Proposals.jsx ProposalPDFModal
+   - Restyle to match new printer-friendly design from WTCCalculator PDFPreviewModal
+   - proposal object already has: customer, call_log(jobsite_address), proposal_number
+   - Remove cost breakdown (industry standard — just SOW + total)
+   - Remove "Authorized By HDSP" sig block
+   - Keep multi-WTC SOW combining logic (combinedSOW)
+   - Use calcTravelLocal (already in Proposals.jsx) not calcTravel from WTC
 
 2. SC-30: Email delivery of proposal + signing flow
-   - DNS records NOW ADDED to AWS Route 53 for hdspnv.com
+   - DNS records ADDED to AWS Route 53 for hdspnv.com
    - Resend account: chris7berger@gmail.com
    - Need to verify DNS in Resend dashboard first
    - Email logic: Supabase Edge Function
@@ -136,6 +137,25 @@ WTC CALCULATOR ARCHITECTURE (key facts)
 - calcTravel(t) uses new field names
 - Lock behavior: locked WTCs show amber banner + click blocker on tabs 1-6
 - Unlock button on Summary tab unlocks without requiring Change Order
+- proposalNumber + jobInfo state added — loaded via loadJobInfo() useEffect
+- proposalData = { labor, materials, travel, discount, sow, proposalNumber, jobInfo }
+
+====================================================
+PDF MODAL ARCHITECTURE (two modals — know the difference)
+====================================================
+
+1. PDFPreviewModal in WTCCalculator.jsx (~line 1246)
+   - Single WTC only
+   - Launched from WTC Summary tab → Generate PDF
+   - Gets data from proposalData prop (in-memory state)
+   - Has proposalNumber + jobInfo from loadJobInfo() fetch
+
+2. ProposalPDFModal in Proposals.jsx (~line 144)
+   - Multi-WTC — fetches ALL WTCs for proposal, combines SOWs
+   - Launched from Proposal Detail page → Generate PDF button
+   - Gets proposal object directly (has customer, call_log join)
+   - CANONICAL version — this is what customers will receive
+   - Still has old blue/green styling — needs redesign next session
 
 ====================================================
 SUBCONPRO BRAND TOKENS (applied to WTC)
@@ -174,6 +194,7 @@ FILE LOCATIONS (critical)
 - src/lib/tokens.js
 - src/App.jsx
 - fix_wtc_tokens.py — in project root, reuse for future WTC fixes
+- fix_jobinfo.py — in project root (used this session)
 
 NOTE: There is an orphaned src/CallLogDetail.jsx in the root — ignore it,
 the app uses src/components/CallLogDetail.jsx
@@ -197,6 +218,7 @@ KEY ARCHITECTURE DECISIONS
 - proposal_number auto-increments per call_log_id, stored on proposals table
 - SC-56 backlog: multi-tenant email settings (not urgent until go-to-market)
 - PDF modal keeps white background — ink-friendly for customer printing
+- No cost breakdown on customer PDF — industry standard is SOW + total only
 
 ====================================================
 SIGNING FLOW STATUS (SC-30)
@@ -265,6 +287,9 @@ WORKFLOW RULES (always follow — no exceptions)
     line-length issues in multi-line strings. Always test that replace found
     the string before assuming it worked.
 
+14. zsh will choke on ! inside python3 -c strings — always save as .py file
+    when script contains !proposalId or similar negation patterns
+
 ====================================================
 DESIGN PHILOSOPHY
 ====================================================
@@ -277,7 +302,8 @@ DESIGN PHILOSOPHY
 - PDF stays white background — customers print proposals, ink costs matter
 - No teal text on brown/linen backgrounds — use dark #1c1814 instead
 - Teal is for buttons, borders, badges, active states only
+- No cost breakdown on customer-facing PDF — SOW + total only
 
 ====================================================
-END OF HANDOFF v18
+END OF HANDOFF v19
 ====================================================

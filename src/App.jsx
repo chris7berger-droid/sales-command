@@ -1,11 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { C, F, GLOBAL_CSS } from "./lib/tokens";
 import { SalesCommandMark, AppWordmark } from "./components/Logo";
+import { getSession, onAuthStateChange, signOut, getCurrentTeamMember } from "./lib/auth";
+import Login from "./pages/Login";
 import Home from "./pages/Home";
 import CallLog from "./pages/CallLog";
+import WTCCalculator from "./pages/WTCCalculator";
 import Proposals from "./pages/Proposals";
 import Invoices from "./pages/Invoices";
 import Managers from "./pages/Managers";
+import SalesDash from "./pages/SalesDash";
 import Customers from "./pages/Customers";
 import Team from "./pages/Team";
 
@@ -15,11 +19,12 @@ const NAV = [
   { id: "proposals", label: "Proposals",  icon: "📄" },
   { id: "invoices",  label: "Invoices",   icon: "💵" },
   { id: "dashboard", label: "Sales Dash", icon: "📊" },
-  { id: "managers",  label: "Managers",   icon: "🏆" },
+  { id: "managers",  label: "Managers",   icon: "🏆", roles: ["Manager"] },
   { id: "jobs",      label: "Jobs",       icon: "🏗️" },
   { id: "customers", label: "Customers",  icon: "🏢" },
   { id: "team",      label: "Our Team",   icon: "👥" },
   { id: "feedback",  label: "Feedback",   icon: "💬" },
+  
 ];
 
 function Placeholder({ label }) {
@@ -33,18 +38,52 @@ function Placeholder({ label }) {
 }
 
 export default function App() {
-  const [active, setActive] = useState("home");
-  const [open, setOpen]     = useState(true);
+  const [active,     setActive]     = useState("home");
+  const [open,       setOpen]       = useState(true);
+  const [session,    setSession]    = useState(undefined);
+  const [teamMember, setTeamMember] = useState(null);
+
+  useEffect(() => {
+    getSession().then(s => setSession(s ?? null));
+
+    const sub = onAuthStateChange(async (s) => {
+      setSession(s ?? null);
+      if (s) {
+        const member = await getCurrentTeamMember();
+        setTeamMember(member);
+      } else {
+        setTeamMember(null);
+      }
+    });
+
+    return () => sub.unsubscribe();
+  }, []);
+
+  if (session === undefined) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0f0f14", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Mono', monospace", fontSize: 13, color: "#4a4a6a", letterSpacing: "0.1em" }}>
+        LOADING…
+      </div>
+    );
+  }
+
+  if (!session) return <Login />;
+
+  const displayName = teamMember?.name ?? session.user.email;
+  const displayRole     = teamMember?.role      ?? "Member";
+  const displayInitials = displayName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 
   const page = () => {
     switch (active) {
-      case "home":      return <Home />;
-      case "calllog":   return <CallLog />;
-      case "proposals": return <Proposals />;
+      case "home": return <Home displayName={displayName} displayRole={displayRole} />;
+      case "sales-dash": return <SalesDash displayName={displayName} />;
+      case "calllog":   return <CallLog teamMember={teamMember} />;
+      case "proposals": return <Proposals teamMember={teamMember} />;
       case "invoices":  return <Invoices />;
-      case "managers":  return <Managers />;
+      case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
       case "customers": return <Customers />;
       case "team":      return <Team />;
+      case "wtc":       return <WTCCalculator proposalId="7413 P1" wtcId="ca6cc109-df9f-4743-b018-50843718ac4a" />;
       default:          return <Placeholder label={NAV.find(n => n.id === active)?.label || active} />;
     }
   };
@@ -54,7 +93,6 @@ export default function App() {
       <style>{GLOBAL_CSS}</style>
       <div style={{ display: "flex", height: "100vh", background: C.linen, overflow: "hidden" }}>
 
-        {/* Sidebar */}
         <div style={{ width: open ? 228 : 56, flexShrink: 0, background: C.dark, display: "flex", flexDirection: "column", transition: "width 0.22s cubic-bezier(0.4,0,0.2,1)", overflow: "hidden", borderRight: `1px solid ${C.darkBorder}` }}>
 
           <div style={{ padding: open ? "18px 16px 14px" : "18px 10px 14px", borderBottom: `1px solid ${C.darkBorder}`, display: "flex", alignItems: "center", gap: 11, flexShrink: 0 }}>
@@ -63,7 +101,7 @@ export default function App() {
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", padding: "8px 5px" }}>
-            {NAV.map(n => {
+            {NAV.filter(n => !n.roles || n.roles.includes(displayRole)).map(n => {
               const on = active === n.id;
               return (
                 <button key={n.id} onClick={() => setActive(n.id)} title={n.label} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: open ? "8px 11px" : "8px 14px", borderRadius: 7, border: "none", background: on ? C.tealGlow : "transparent", color: on ? C.teal : "rgba(255,255,255,0.42)", cursor: "pointer", textAlign: "left", marginBottom: 2, transition: "all 0.12s", fontFamily: F.display, borderLeft: on ? `2px solid ${C.teal}` : "2px solid transparent" }}
@@ -84,17 +122,19 @@ export default function App() {
             </button>
             {open && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px 4px" }}>
-                <div style={{ width: 30, height: 30, borderRadius: "50%", background: C.tealGlow, border: `1.5px solid ${C.tealBorder}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11.5, fontWeight: 900, color: C.teal, flexShrink: 0, fontFamily: F.display }}>JK</div>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: "rgba(255,255,255,0.82)", fontFamily: F.display, letterSpacing: "0.04em" }}>Jordan Kim</div>
-                  <div style={{ fontSize: 10.5, color: C.teal, fontFamily: F.ui, opacity: 0.65 }}>Manager</div>
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: C.tealGlow, border: `1.5px solid ${C.tealBorder}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11.5, fontWeight: 900, color: C.teal, flexShrink: 0, fontFamily: F.display }}>{displayInitials}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: "rgba(255,255,255,0.82)", fontFamily: F.display, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{displayName}</div>
+                  <div style={{ fontSize: 10.5, color: C.teal, fontFamily: F.ui, opacity: 0.65 }}>{displayRole}</div>
+                  <button onClick={signOut} style={{ marginTop: 4, fontSize: 10, fontFamily: "'DM Mono', monospace", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(255,255,255,0.2)", background: "none", border: "none", cursor: "pointer", textTransform: "uppercase", padding: 0 }}>
+                    Sign out
+                  </button>
                 </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Main */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ height: 50, background: C.linenCard, borderBottom: `1px solid ${C.borderStrong}`, display: "flex", alignItems: "center", padding: "0 28px", justifyContent: "space-between", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -103,7 +143,7 @@ export default function App() {
               <span style={{ fontSize: 13, fontWeight: 800, color: C.textHead, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: F.display }}>{NAV.find(n => n.id === active)?.label}</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>React · Supabase · DocuSeal · Stripe</span>
+              <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>React · Supabase · Stripe</span>
               <span style={{ background: C.tealGlow, border: `1px solid ${C.tealBorder}`, color: C.tealDark, fontSize: 10.5, fontWeight: 800, padding: "3px 10px", borderRadius: 20, fontFamily: F.display, letterSpacing: "0.08em" }}>SCAFFOLD v1.1</span>
             </div>
           </div>

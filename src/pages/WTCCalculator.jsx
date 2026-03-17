@@ -1245,133 +1245,173 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
   );
 }function PDFPreviewModal({ open, onClose, proposal }) {
   const [view, setView] = useState("preview");
-  const [selectedContact, setSelectedContact] = useState(null);
   const [sendDone, setSendDone] = useState(false);
 
   useEffect(() => {
-    if (!open) { setView("preview"); setSelectedContact(null); setSendDone(false); }
+    if (!open) { setView("preview"); setSendDone(false); }
   }, [open]);
 
   if (!open) return null;
 
-  const { labor, materials, travel, discount, sow } = proposal;
+  const { labor, materials, travel, discount, sow, proposalNumber, jobInfo = {} } = proposal;
   const matTotal      = (materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
   const travelTotal   = calcTravel(travel || {});
   const proposalPrice = (labor.total || 0) + matTotal + travelTotal - ((discount || {}).amount || 0);
+  const today         = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
   const COMPANY = {
     name: "High Desert Surface Prep",
     tagline: "Industrial & Commercial Concrete Coatings",
-    phone: "(775) 555-0192",
-    email: "estimates@hdsp.com",
-    website: "www.hdsp.com",
-    license: "NV Lic #0087342",
+    phone: "(775) 300-1900",
+    email: "estimates@hdspnv.com",
+    website: "www.hdspnv.com",
+    license: "NV Lic #55772B & #81196",
+    address: "1460 Pittman Ave, Sparks NV 89431",
+  };
+
+  const S = {
+    page:        { background: "#ffffff", fontFamily: "'Inter', sans-serif", color: "#1c1814" },
+    topBar:      { padding: "24px 36px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "4px solid #30cfac" },
+    topBarLeft:  { fontSize: 20, fontWeight: 800, color: "#1c1814", letterSpacing: "-0.01em" },
+    topBarRight: { textAlign: "right", fontSize: 11, color: "#6b6358", lineHeight: 1.8 },
+    tealBar:     { background: "#30cfac", height: 4 },
+    body:        { padding: "32px 36px" },
+    metaRow:     { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28, paddingBottom: 24, borderBottom: "1.5px solid #e8e3de" },
+    metaLeft:    { fontSize: 13, color: "#4a4238", lineHeight: 1.9 },
+    metaRight:   { textAlign: "right" },
+    label:       { fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 2 },
+    propNum:     { fontSize: 13, fontWeight: 700, color: "#1c1814" },
+    preparedHdr: { fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 },
+    preparedVal: { fontSize: 14, fontWeight: 700, color: "#1c1814", marginBottom: 2 },
+    preparedSub: { fontSize: 12, color: "#4a4238", lineHeight: 1.7 },
+    sowHdr:      { fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 },
+    sowBox:      { border: "1.5px solid #e8e3de", borderRadius: 8, padding: "20px 24px", marginBottom: 32 },
+    sowText:     { margin: 0, fontSize: 13, color: "#2d2720", lineHeight: 1.8, whiteSpace: "pre-wrap", fontFamily: "inherit" },
+    totalRow:    { display: "flex", justifyContent: "space-between", alignItems: "center", border: "2px solid #30cfac", borderRadius: 10, padding: "18px 24px", marginBottom: 32 },
+    totalLabel:  { fontSize: 13, fontWeight: 700, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase" },
+    totalAmt:    { fontSize: 28, fontWeight: 800, color: "#1c1814", letterSpacing: "-0.02em" },
+    sigGrid:     { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, paddingTop: 24, borderTop: "1.5px solid #e8e3de" },
+    sigLabel:    { fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 40 },
+    sigLine:     { borderBottom: "1.5px solid #6b6358", marginBottom: 6 },
+    sigSub:      { fontSize: 10, color: "#887c6e" },
+    validity:    { fontSize: 11, color: "#887c6e", textAlign: "center", marginTop: 24, fontStyle: "italic" },
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,20,35,0.7)", backdropFilter: "blur(4px)" }}
+    <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,20,35,0.75)", backdropFilter: "blur(4px)" }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: "white", borderRadius: 16, width: "min(860px,95vw)", maxHeight: "93vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.35)", overflow: "hidden" }}>
+      <div style={{ background: "white", borderRadius: 16, width: "min(780px,95vw)", maxHeight: "93vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.4)", overflow: "hidden" }}>
 
-        {/* Modal header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 24px", borderBottom: "1px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 8, background: T.green, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <span style={{ color: "white", fontSize: 16 }}>📄</span>
+        {/* Modal chrome */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid #e8e3de", background: "#faf9f7", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 7, background: "#1c1814", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ color: "#30cfac", fontSize: 15 }}>📄</span>
             </div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: T.gray900 }}>Proposal Preview</div>
-              <div style={{ fontSize: 11, color: T.gray500 }}>Proposal · {fmt(proposalPrice)}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1814" }}>Proposal Preview</div>
+              <div style={{ fontSize: 11, color: "#887c6e" }}>{jobInfo.customerName || "Customer"}{proposalNumber ? ` · Proposal #${proposalNumber}` : ""}</div>
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {view === "preview" && !sendDone && (
               <>
-                <button onClick={() => window.print()} style={{ background: "none", border: `1.5px solid ${T.gray200}`, borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: T.gray600, cursor: "pointer", fontFamily: "inherit" }}>🖨 Print</button>
-                <button onClick={() => setView("send")} style={{ background: T.green, border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "#ffffff", cursor: "pointer", fontFamily: "inherit" }}>📨 Send to Customer →</button>
+                <button onClick={() => window.print()} style={{ background: "none", border: "1.5px solid #e8e3de", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4a4238", cursor: "pointer", fontFamily: "inherit" }}>🖨 Print</button>
+                <button onClick={() => setView("send")} style={{ background: "#30cfac", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "#ffffff", cursor: "pointer", fontFamily: "inherit" }}>📨 Send to Customer →</button>
               </>
             )}
             {view === "send" && !sendDone && (
-              <button onClick={() => setView("preview")} style={{ background: "none", border: `1.5px solid ${T.gray200}`, borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: T.gray600, cursor: "pointer", fontFamily: "inherit" }}>← Back to Preview</button>
+              <button onClick={() => setView("preview")} style={{ background: "none", border: "1.5px solid #e8e3de", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4a4238", cursor: "pointer", fontFamily: "inherit" }}>← Back</button>
             )}
-            <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, color: T.gray400, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>×</button>
+            <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, color: "#887c6e", cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>×</button>
           </div>
         </div>
 
-        {/* Modal body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+        {/* Scrollable body */}
+        <div style={{ flex: 1, overflowY: "auto" }}>
 
           {view === "preview" && (
-            <div>
-              {/* Company header */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28, paddingBottom: 20, borderBottom: `2px solid ${T.gray200}` }}>
+            <div style={S.page}>
+              {/* Header — printer friendly */}
+              <div style={S.topBar}>
                 <div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: T.gray900, letterSpacing: "-0.02em" }}>{COMPANY.name}</div>
-                  <div style={{ fontSize: 13, color: T.gray500, marginTop: 3 }}>{COMPANY.tagline}</div>
-                  <div style={{ fontSize: 12, color: T.gray400, marginTop: 6 }}>{COMPANY.phone} · {COMPANY.email} · {COMPANY.website}</div>
-                  <div style={{ fontSize: 11, color: T.gray400 }}>{COMPANY.license}</div>
+                  <div style={S.topBarLeft}>{COMPANY.name}</div>
+                  <div style={{ fontSize: 11, color: "#6b6358", marginTop: 2 }}>{COMPANY.tagline}</div>
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 11, color: T.gray400, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Proposal Total</div>
-                  <div style={{ fontSize: 32, fontWeight: 800, color: T.green, letterSpacing: "-0.02em" }}>{fmt(proposalPrice)}</div>
+                <div style={S.topBarRight}>
+                  <div>{COMPANY.address}</div>
+                  <div>{COMPANY.phone} · {COMPANY.email}</div>
+                  <div>{COMPANY.license}</div>
                 </div>
               </div>
 
-              {/* Financial summary */}
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.gray400, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Cost Breakdown</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
-                  {[
-                    { label: "Labor", value: fmt(labor.total || 0) },
-                    { label: "Materials", value: fmt(matTotal) },
-                    { label: "Travel", value: fmt(travelTotal) },
-                    { label: "Discount", value: (discount?.amount || 0) > 0 ? `-${fmt(discount.amount)}` : "—" },
-                  ].map(({ label, value }) => (
-                    <div key={label} style={{ background: "#ffffff", borderRadius: 8, padding: "12px 14px", border: "1px solid #E5E7EB" }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: T.gray400, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: T.gray900 }}>{value}</div>
+
+              <div style={S.body}>
+                {/* Meta row — Prepared For + Proposal # + Date */}
+                <div style={S.metaRow}>
+                  <div>
+                    <div style={S.preparedHdr}>Prepared For</div>
+                    <div style={S.preparedVal}>{jobInfo.customerName || "—"}</div>
+                    {jobInfo.jobsiteAddress && <div style={S.preparedSub}>{jobInfo.jobsiteAddress}</div>}
+                  </div>
+                  <div style={S.metaRight}>
+                    {proposalNumber && (
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={S.label}>Proposal #</div>
+                        <div style={S.propNum}>{proposalNumber}</div>
+                      </div>
+                    )}
+                    <div>
+                      <div style={S.label}>Date</div>
+                      <div style={S.propNum}>{today}</div>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
 
-              {/* Sales SOW */}
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.gray400, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Scope of Work</div>
-                <div style={{ background: T.greenLight, border: `1.5px solid ${T.green}40`, borderRadius: 10, padding: "16px 18px" }}>
-                  {sow.sales_sow
-                    ? <pre style={{ margin: 0, fontSize: 13, color: T.gray700, lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>{sow.sales_sow}</pre>
-                    : <div style={{ fontSize: 13, color: T.gray400, fontStyle: "italic" }}>No scope of work written yet.</div>
-                  }
+                {/* Scope of Work */}
+                <div style={{ marginBottom: 28 }}>
+                  <div style={S.sowHdr}>Scope of Work</div>
+                  <div style={S.sowBox}>
+                    {sow.sales_sow
+                      ? <pre style={S.sowText}>{sow.sales_sow}</pre>
+                      : <div style={{ fontSize: 13, color: "#887c6e", fontStyle: "italic" }}>No scope of work written yet.</div>
+                    }
+                  </div>
                 </div>
-              </div>
 
-              {/* Signature block */}
-              <div style={{ borderTop: `2px solid ${T.gray200}`, paddingTop: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-                <div>
-                  <div style={{ fontSize: 11, color: T.gray400, marginBottom: 32 }}>Customer Signature</div>
-                  <div style={{ borderBottom: `1.5px solid ${T.gray400}`, marginBottom: 6 }} />
-                  <div style={{ fontSize: 11, color: T.gray400 }}>Signature · Date</div>
+                {/* Total price */}
+                <div style={S.totalRow}>
+                  <div style={S.totalLabel}>PROPOSAL TOTAL</div>
+                  <div style={S.totalAmt}>{fmt(proposalPrice)}</div>
                 </div>
-                <div>
-                  <div style={{ fontSize: 11, color: T.gray400, marginBottom: 32 }}>Authorized By</div>
-                  <div style={{ borderBottom: `1.5px solid ${T.gray400}`, marginBottom: 6 }} />
-                  <div style={{ fontSize: 11, color: T.gray400 }}>HDSP Representative · Date</div>
+
+                {/* Signature block */}
+                <div style={S.sigGrid}>
+                  <div>
+                    <div style={S.sigLabel}>Customer Acceptance</div>
+                    <div style={S.sigLine} />
+                    <div style={S.sigSub}>Signature &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Date</div>
+                    <div style={{ ...S.sigLine, marginTop: 28 }} />
+                    <div style={S.sigSub}>Printed Name</div>
+                  </div>
+
                 </div>
+
+                <div style={S.validity}>*This proposal is valid for 90 days from the date above.*</div>
               </div>
             </div>
           )}
 
           {view === "send" && !sendDone && (
-            <div style={{ maxWidth: 520, margin: "0 auto" }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: T.gray900, marginBottom: 6 }}>Send Proposal to Customer</div>
-              <div style={{ fontSize: 13, color: T.gray500, marginBottom: 24 }}>Select the contact who will receive and sign this proposal.</div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.gray400, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Select Recipient</div>
-              <div style={{ background: "#ffffff", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: T.gray500, fontStyle: "italic" }}>
+            <div style={{ padding: "32px", maxWidth: 520, margin: "0 auto" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#1c1814", marginBottom: 6 }}>Send Proposal to Customer</div>
+              <div style={{ fontSize: 13, color: "#887c6e", marginBottom: 24 }}>Select the contact who will receive and sign this proposal.</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#887c6e", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Select Recipient</div>
+              <div style={{ background: "#faf9f7", border: "1.5px solid #e8e3de", borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#887c6e", fontStyle: "italic" }}>
                 Recipients will be pulled from the linked customer record. Wire-up coming in SC-30.
               </div>
               <button onClick={() => setSendDone(true)}
-                style={{ width: "100%", background: T.green, color: "white", border: "none", borderRadius: 8, padding: "13px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                style={{ width: "100%", background: "#30cfac", color: "white", border: "none", borderRadius: 8, padding: "13px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                 📨 Send Proposal
               </button>
             </div>
@@ -1380,8 +1420,8 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
           {sendDone && (
             <div style={{ textAlign: "center", padding: "40px 20px" }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: T.gray900, marginBottom: 8 }}>Proposal Sent</div>
-              <div style={{ fontSize: 14, color: T.gray500, marginBottom: 24 }}>The customer will receive an email with a link to review and sign.</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#1c1814", marginBottom: 8 }}>Proposal Sent</div>
+              <div style={{ fontSize: 14, color: "#887c6e", marginBottom: 24 }}>The customer will receive an email with a link to review and sign.</div>
               <Btn onClick={onClose} variant="secondary">Close</Btn>
             </div>
           )}
@@ -1649,7 +1689,34 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   };
   const [showPDF,     setShowPDF]     = useState(false);
   const [showSigning, setShowSigning] = useState(false);
-  const proposalData = { labor: laborComputed, materials, travel, discount, sow };
+  const [proposalNumber, setProposalNumber] = useState(null);
+  const [jobInfo, setJobInfo] = useState({ customerName: "", jobsiteAddress: "", jobName: "" });
+
+  useEffect(() => {
+    if (!proposalId) return;
+    async function loadJobInfo() {
+      const { data } = await supabase
+        .from("proposals")
+        .select("proposal_number, customer, call_log(job_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip)")
+        .eq("id", proposalId)
+        .single();
+      if (data?.proposal_number) setProposalNumber(data.proposal_number);
+      if (data) {
+        setJobInfo({
+          customerName: data.customer || "",
+          jobName: data.call_log?.job_name || "",
+          jobsiteAddress: [
+            data.call_log?.jobsite_address,
+            data.call_log?.jobsite_city,
+            data.call_log?.jobsite_state,
+            data.call_log?.jobsite_zip,
+          ].filter(Boolean).join(", "),
+        });
+      }
+    }
+    loadJobInfo();
+  }, [proposalId]);
+  const proposalData = { labor: laborComputed, materials, travel, discount, sow, proposalNumber, jobInfo };
 
   const tabs = TABS.map(t => t.key);
   const idx = tabs.indexOf(tab);

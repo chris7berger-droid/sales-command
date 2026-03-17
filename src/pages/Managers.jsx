@@ -1,18 +1,87 @@
+import { useState, useEffect } from "react";
 import { C, F } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
-import { mgrData } from "../lib/mockData";
+import { supabase } from "../lib/supabase";
 import SectionHeader from "../components/SectionHeader";
 import StatCard from "../components/StatCard";
 
+const ANNUAL_GOAL = 750000;
+
+function buildMonthRows(callLog, proposals) {
+  // Get all months present in either dataset
+  const monthSet = new Set();
+  (callLog || []).forEach(r => { if (r.created_at) monthSet.add(r.created_at.slice(0, 7)); });
+  (proposals || []).forEach(p => { if (p.created_at) monthSet.add(p.created_at.slice(0, 7)); });
+
+  const SENT_STATUSES     = ["Sent", "Viewed", "Approved Internally", "Approved"];
+  const ACCEPTED_STATUSES = ["Approved Internally", "Approved"];
+
+  return [...monthSet].sort().reverse().map(month => {
+    const calls    = (callLog   || []).filter(r => r.created_at?.startsWith(month));
+    const sent     = (proposals || []).filter(p => p.created_at?.startsWith(month) && SENT_STATUSES.includes(p.status));
+    const accepted = (proposals || []).filter(p => p.created_at?.startsWith(month) && ACCEPTED_STATUSES.includes(p.status));
+    const billed   = (proposals || []).filter(p => p.approved_at?.startsWith(month));
+
+    return {
+      month:          formatMonth(month),
+      monthKey:       month,
+      newCalls:       calls.length,
+      propsSent:      sent.length,
+      propsAccepted:  accepted.length,
+      dollarsBid:     sent.reduce((s, p)     => s + (p.total || 0), 0),
+      dollarsAcc:     accepted.reduce((s, p) => s + (p.total || 0), 0),
+      billings:       billed.reduce((s, p)   => s + (p.total || 0), 0),
+    };
+  });
+}
+
+function formatMonth(ym) {
+  const [y, m] = ym.split("-");
+  return new Date(parseInt(y), parseInt(m) - 1, 1)
+    .toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
 export default function Managers() {
+  const [rows,    setRows]    = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      const [{ data: callLog }, { data: proposals }] = await Promise.all([
+        supabase.from("call_log").select("created_at"),
+        supabase.from("proposals").select("total, created_at, approved_at, status"),
+      ]);
+      setRows(buildMonthRows(callLog, proposals));
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  // Totals
+  const totNewCalls      = rows.reduce((s, r) => s + r.newCalls,      0);
+  const totSent          = rows.reduce((s, r) => s + r.propsSent,      0);
+  const totAccepted      = rows.reduce((s, r) => s + r.propsAccepted,  0);
+  const totDollarsBid    = rows.reduce((s, r) => s + r.dollarsBid,     0);
+  const totDollarsAcc    = rows.reduce((s, r) => s + r.dollarsAcc,     0);
+  const totBillings      = rows.reduce((s, r) => s + r.billings,       0);
+  const totCapPct        = totSent     > 0 ? Math.round((totAccepted / totSent)     * 100) : 0;
+  const totDollarCapPct  = totDollarsBid > 0 ? Math.round((totDollarsAcc / totDollarsBid) * 100) : 0;
+
+  // YTD = current year accepted
+  const thisYear = new Date().getFullYear().toString();
+  const ytd = rows
+    .filter(r => r.monthKey?.startsWith(thisYear))
+    .reduce((s, r) => s + r.dollarsAcc, 0);
+  const toGoal = ANNUAL_GOAL - ytd;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <SectionHeader title="Manager Dashboard" />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
-        <StatCard label="YTD Actual"  value={fmt$(206000)}        sub="Accepted proposals" accent={C.teal} />
-        <StatCard label="Annual Goal" value={fmt$(750000)}        sub="FY 2026"            accent={C.textFaint} />
-        <StatCard label="To Goal"     value={fmt$(206000-750000)} sub="Remaining"          accent={C.red} />
+        <StatCard label="YTD Actual"  value={loading ? "…" : fmt$(ytd)}                          sub="Accepted proposals" accent={C.teal} />
+        <StatCard label="Annual Goal" value={fmt$(ANNUAL_GOAL)}                                   sub="FY 2026"            accent={C.textFaint} />
+        <StatCard label="To Goal"     value={loading ? "…" : toGoal > 0 ? fmt$(toGoal) : "🎯 Hit!"} sub="Remaining"       accent={toGoal > 0 ? C.red : C.green} />
       </div>
 
       <div style={{ overflowX: "auto", borderRadius: 10, border: `1px solid ${C.borderStrong}`, boxShadow: "0 2px 10px rgba(28,24,20,0.08)" }}>
@@ -27,7 +96,9 @@ export default function Managers() {
             </tr>
           </thead>
           <tbody>
-            {mgrData.map((r, i) => (
+            {loading
+              ? <tr><td colSpan={9} style={{ padding: 24, textAlign: "center", color: C.textFaint, fontFamily: F.ui }}>Loading…</td></tr>
+              : rows.map((r, i) => (
               <tr key={i} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? C.linenLight : C.linen }}>
                 <td style={{ padding: "11px 14px", fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em" }}>{r.month}</td>
                 {[r.newCalls, r.propsSent, r.propsAccepted].map((val, j) => (
@@ -40,7 +111,7 @@ export default function Managers() {
                   <td key={j} style={{ padding: "11px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: val === 0 ? C.textFaint : C.textBody }}>{val > 0 ? fmt$(val) : "—"}</td>
                 ))}
                 <td style={{ padding: "11px 14px", textAlign: "right", fontWeight: 700, color: r.dollarsBid > 0 ? C.tealDark : C.textFaint }}>
-                  {r.dollarsBid > 0 ? `${Math.round((r.dollarsAcc / r.dollarsBid) * 100)}%` : "—"}
+                  {r.dollarsBid > 0 ? `${Math.round((r.propsAccepted / r.propsSent) * 100)}%` : "—"}
                 </td>
                 <td style={{ padding: "11px 14px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.billings === 0 ? C.textFaint : C.textBody }}>
                   {r.billings > 0 ? fmt$(r.billings) : "—"}
@@ -51,14 +122,14 @@ export default function Managers() {
           <tfoot>
             <tr style={{ background: C.dark, borderTop: `2px solid ${C.teal}` }}>
               <td style={{ padding: "11px 14px", fontWeight: 900, color: C.teal, fontFamily: F.display, letterSpacing: "0.08em" }}>TOTAL</td>
-              {[20, 12, 7].map((val, j) => (
-                <td key={j} style={{ padding: "11px 14px", textAlign: "right", fontWeight: 800, color: "#fff" }}>{val}</td>
+              {[totNewCalls, totSent, totAccepted].map((val, j) => (
+                <td key={j} style={{ padding: "11px 14px", textAlign: "right", fontWeight: 800, color: "#fff" }}>{val || "—"}</td>
               ))}
-              <td style={{ padding: "11px 14px", textAlign: "right", fontWeight: 800, color: C.teal }}>58%</td>
-              <td style={{ padding: "11px 14px", textAlign: "right", fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>{fmt$(318000)}</td>
-              <td style={{ padding: "11px 14px", textAlign: "right", fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>{fmt$(206000)}</td>
-              <td style={{ padding: "11px 14px", textAlign: "right", fontWeight: 800, color: C.teal }}>65%</td>
-              <td style={{ padding: "11px 14px", textAlign: "right", fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>{fmt$(251700)}</td>
+              <td style={{ padding: "11px 14px", textAlign: "right", fontWeight: 800, color: C.teal }}>{totCapPct > 0 ? `${totCapPct}%` : "—"}</td>
+              <td style={{ padding: "11px 14px", textAlign: "right", fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>{totDollarsBid > 0 ? fmt$(totDollarsBid) : "—"}</td>
+              <td style={{ padding: "11px 14px", textAlign: "right", fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>{totDollarsAcc > 0 ? fmt$(totDollarsAcc) : "—"}</td>
+              <td style={{ padding: "11px 14px", textAlign: "right", fontWeight: 800, color: C.teal }}>{totDollarCapPct > 0 ? `${totDollarCapPct}%` : "—"}</td>
+              <td style={{ padding: "11px 14px", textAlign: "right", fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>{totBillings > 0 ? fmt$(totBillings) : "—"}</td>
             </tr>
           </tfoot>
         </table>

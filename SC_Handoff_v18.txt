@@ -1,0 +1,283 @@
+SALES COMMAND — HANDOFF DOCUMENT v18
+Generated: March 17, 2026
+====================================================
+
+HOW TO USE THIS DOCUMENT
+Start every new Claude thread with:
+"Continue building Sales Command. Here is the handoff doc v18 and the architecture doc."
+Upload this file + HDSP_CommandSuite_Architecture.docx
+
+====================================================
+PROJECT OVERVIEW
+====================================================
+App: Sales Command (part of HDSP Command Suite)
+Company: HDSP (High Desert Surface Prep)
+Purpose: Replace Glide CRM and PandaDoc
+Stack: React + Vite (localhost:5173) + Supabase
+GitHub: chris7berger-droid/sales-command
+Supabase Project ID: pbgvgjjuhnpsumnowuym
+Dev environment: Mac, VS Code, Chrome
+Supabase client path: src/lib/supabase.js (import { supabase } from "../lib/supabase")
+
+====================================================
+COMPLETED THIS SESSION (v18)
+====================================================
+
+WTC BRAND RESKIN — DONE
+- Full SubConPro brand token system applied to WTCCalculator.jsx
+- T object replaced with SubConPro linen/teal tokens
+- Dark header + tab bar: #1c1814
+- Linen main background: #b5a896
+- Card panels: #c8bcaa / #bfb3a1
+- Teal accent: #30cfac (buttons, active tab, badges)
+- All green tokens replaced with teal
+- All blue tokens replaced with teal
+- All input fields: #bfb3a1 (linen)
+- WTC Summary bar: dark panel #1c1814 with teal border
+- Proposal Price bar: dark panel #1c1814 with teal border
+- Lock & Approve button: teal
+- Next/Back buttons: teal primary, linen secondary
+- Summary bottom bar: dark panel with teal accents
+- Scope of Work tab: teal film removed, neutral linen backgrounds
+- Field Scope section: teal border, dark text labels
+- Materials tab: linen inputs, linen search bar
+- PDF modal: white background preserved (ink-friendly), teal buttons
+- PDF cost breakdown cards: white (not linen)
+- AUTO (1.5x) label: dark text
+- OT Burden Rate border: gray (not permanent teal)
+- Committed and pushed to GitHub: commit 3f87faa
+
+====================================================
+NEXT TASKS (in priority order)
+====================================================
+
+1. PDF REDESIGN
+   - Current PDF is plain white with basic layout
+   - Keep white background (ink-friendly for printing)
+   - Redesign layout: better typography, HDSP branding, cleaner sections
+   - Add proposal number to header
+   - Improve cost breakdown section
+   - Better signature block
+   - PDF is generated inside PDFPreviewModal in WTCCalculator.jsx
+
+2. SC-30: Email delivery of proposal + signing flow
+   - DNS records NOW ADDED to AWS Route 53 for hdspnv.com
+   - Resend account: chris7berger@gmail.com
+   - Need to verify DNS in Resend dashboard first
+   - Email logic: Supabase Edge Function
+   - Signing page: public React route /sign/:token
+   - PDF storage: Supabase Storage bucket "signed-proposals"
+   - New table needed: proposal_signatures
+     (id, proposal_id, signer_name, signer_email, signed_at, ip_address, pdf_url)
+   - New column needed: proposals.signing_token (uuid)
+   - Flow: rep clicks Send → generates token → sends email via Resend edge function
+     → customer clicks link → lands on /sign/:token → signs → status updates to Sold
+     → confirmation email to customer + rep
+
+3. SC-57: Proposal header showing full UUID — verify still needed after P# fix
+
+4. End-to-end test run — create customer → log call → create proposal →
+   build WTC → generate PDF
+
+5. SC-56 (backlog): Multi-tenant email settings page
+
+====================================================
+SUPABASE COLUMN REFERENCE (verified — do not guess)
+====================================================
+
+table: team_members
+  columns: id, name (NOT full_name), email, phone, role, auth_id, active
+
+table: proposals
+  columns: id, total (NOT total_price), approved_at (NOT accepted_at), status,
+           created_at, customer, intro_completed, attachments_added,
+           recipients_assigned, wtc_verified, call_log_id, proposal_number,
+           signing_token (to be added for SC-30)
+
+table: call_log
+  columns: id, display_job_number, stage, bid_due, follow_up, created_at,
+           jobsite_address, customer_name, sales_name, job_number, job_name,
+           is_change_order, parent_job_id, co_number, co_standalone,
+           jobsite_city, jobsite_state, jobsite_zip,
+           billing_address, billing_city, billing_state, billing_zip,
+           billing_address_same
+
+table: proposal_wtc
+  columns: id, proposal_id, work_type_id (INTEGER 1-40, FK to work_types.id),
+           burden_rate, ot_burden_rate, tax_rate, prevailing_wage,
+           regular_hours, ot_hours, markup_pct, materials (jsonb),
+           size, unit, sales_sow, field_sow (jsonb), sub_areas (jsonb),
+           travel (jsonb), discount, discount_reason, locked, created_at
+
+table: work_types
+  columns: id (integer 1-40), name
+
+table: work_type_sow_templates
+  columns: work_type_id, sales_sow_template, updated_at
+
+====================================================
+WTC CALCULATOR ARCHITECTURE (key facts)
+====================================================
+
+- WTCCalculator.jsx lives in src/pages/ NOT src/components/
+- Props: proposalId (UUID), wtcId: wtcIdProp (UUID or null), workTypeId, onClose
+- wtcId is STATE: const [wtcId, setWtcId] = useState(wtcIdProp)
+- autosaveTimer = useRef(null) — debounced 1.5s autosave on any state change
+- First change on new WTC creates Supabase record automatically
+- const [saved, setSaved] = useState(!!wtcIdProp) — still present for lock state
+- work_type_id is INTEGER (1-40), not UUID
+- WTC has 7 tabs: Bidding Info, Labor, Materials, Scope of Work, Travel, Discount, Summary
+- Summary tab has 2-step action flow: Lock & Approve → Generate PDF
+- PDFPreviewModal is built inside WTCCalculator.jsx (function PDFPreviewModal at line ~1246)
+- SOW auto-loads from work_type_sow_templates only if sales_sow is currently empty
+- On autosave: writes proposalPrice back to proposals.total
+- Travel state fields: drive_rate, drive_miles, fly_rate, fly_tickets,
+  stay_rate, stay_nights, per_diem_rate, per_diem_days, per_diem_crew
+- calcTravel(t) uses new field names
+- Lock behavior: locked WTCs show amber banner + click blocker on tabs 1-6
+- Unlock button on Summary tab unlocks without requiring Change Order
+
+====================================================
+SUBCONPRO BRAND TOKENS (applied to WTC)
+====================================================
+
+T object in WTCCalculator.jsx:
+  green: "#30cfac"        — teal primary accent
+  greenDark: "#1a8a72"    — teal dark
+  greenLight: "rgba(48,207,172,0.12)" — teal glow
+  gray50: "#b5a896"       — linen background
+  gray100: "#bfb3a1"      — light card
+  gray200: "rgba(28,24,20,0.12)" — border
+  gray300: "rgba(28,24,20,0.2)"  — strong border
+  gray400: "#887c6e"      — muted text
+  gray500: "#6b6358"      — tertiary text
+  gray600: "#4a4238"      — secondary text
+  gray700: "#2d2720"      — body text
+  gray800: "#1c1814"      — headings
+  gray900: "#1c1814"      — near black
+  white: "#c8bcaa"        — card layer
+  dark: "#1c1814"         — dark panel
+  darkRaised: "#28231d"
+  darkCard: "#322c25"
+  red: "#e53935"
+  amber: "#F59E0B"
+
+====================================================
+FILE LOCATIONS (critical)
+====================================================
+
+- src/pages/WTCCalculator.jsx
+- src/pages/CallLog.jsx
+- src/pages/Proposals.jsx
+- src/components/CallLogDetail.jsx (NOT src/pages/ or src/ root)
+- src/lib/supabase.js
+- src/lib/tokens.js
+- src/App.jsx
+- fix_wtc_tokens.py — in project root, reuse for future WTC fixes
+
+NOTE: There is an orphaned src/CallLogDetail.jsx in the root — ignore it,
+the app uses src/components/CallLogDetail.jsx
+
+====================================================
+KEY ARCHITECTURE DECISIONS
+====================================================
+
+- proposals.total is computed from WTC and written on every autosave
+- ProposalDetail re-fetches proposal from Supabase when WTC closes (setP pattern)
+- Managers page: Manager role only — Admin intentionally excluded
+- Home stat cards: role-filtered — reps see their numbers, managers/admin see all
+- sales_name (text) in call_log is the rep identifier — matches team_members.name exactly
+- SalesDash page: not needed — Home handles rep view, Managers handles manager view
+- Change Orders always require full WTC — separate flow, NOT triggered by unlocking
+- Signing font: Great Vibes (Google Font)
+- CustomerSigningPage component built inside WTCCalculator.jsx
+- DocuSeal fully replaced with self-hosted signing flow
+- Delete permissions: Admin or assigned rep (sales_name match)
+- Cannot delete call_log if proposals exist — must delete proposal first
+- proposal_number auto-increments per call_log_id, stored on proposals table
+- SC-56 backlog: multi-tenant email settings (not urgent until go-to-market)
+- PDF modal keeps white background — ink-friendly for customer printing
+
+====================================================
+SIGNING FLOW STATUS (SC-30)
+====================================================
+- CustomerSigningPage UI: BUILT inside WTCCalculator.jsx
+- Great Vibes font: confirmed and loaded
+- PDFPreviewModal: BUILT inside WTCCalculator.jsx
+- Resend account: CREATED (chris7berger@gmail.com)
+- DNS records: ADDED to AWS Route 53 for hdspnv.com
+- DNS verification: Verify in Resend dashboard before starting SC-30
+- Email send + signature capture + signed PDF storage: NOT BUILT (next session)
+
+====================================================
+CURRENT APP STATE
+====================================================
+
+WORKING PAGES (live Supabase data):
+- Home — stat cards, pipeline bar, goal scorecards (role-filtered)
+- Call Log — full CRUD, stage management, clickable job number, detail view, delete
+- Proposals — list (P# numbering), detail, WTC (autosave/lock), Generate PDF, delete
+- Invoices — live
+- Managers — live monthly table, YTD stats (Manager role only)
+- Customers — live
+- Our Team — live with add/edit/deactivate
+
+PLACEHOLDER PAGES:
+- Sales Dash — not needed (Home handles rep view)
+- Jobs — Placeholder
+- Feedback — Placeholder (SC-55 backlog)
+
+====================================================
+WORKFLOW RULES (always follow — no exceptions)
+====================================================
+
+1. NEVER use drag and drop for files
+   Always: create new file in VS Code -> paste code
+
+2. ALWAYS provide code as text in chat — never as downloads
+
+3. NEVER give a half-baked solution mid-figuring-it-out
+   Always fully think through complete solution first
+
+4. Supabase SQL Editor: button is "Create new snippet" (not "New query")
+
+5. Complex file edits: use Python inline scripts via bash
+   str_replace is unreliable with mixed quotes/JSX
+
+6. Always edit actual project files
+   Never a downloaded copy
+
+7. When something looks wrong, ask for screenshot before assuming
+
+8. Always check column names against reference above before writing queries
+
+9. Tag out-of-scope features with SC tag and add to backlog
+
+10. Before assuming anything is broken, have Chris run targeted grep/sed
+    to see exactly what's in the file
+
+11. Spoon-feed instructions — one step at a time, short bullets
+    Ask for confirmation before moving to next step
+
+12. Handoff doc lives in GitHub repo root — update and push at end of session
+
+13. When writing Python fix scripts — use old/new variable pattern to avoid
+    line-length issues in multi-line strings. Always test that replace found
+    the string before assuming it worked.
+
+====================================================
+DESIGN PHILOSOPHY
+====================================================
+
+- Favor fast obvious clicks over fewest clicks
+- UI flows step by step, one question at a time
+- Never overwhelm user with a full form at once
+- buildStepList() architecture for wizards
+- Change Orders always require full WTC
+- PDF stays white background — customers print proposals, ink costs matter
+- No teal text on brown/linen backgrounds — use dark #1c1814 instead
+- Teal is for buttons, borders, badges, active states only
+
+====================================================
+END OF HANDOFF v18
+====================================================

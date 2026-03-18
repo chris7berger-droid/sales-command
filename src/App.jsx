@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import PublicSigningPage from "./pages/PublicSigningPage";
 import { C, F, GLOBAL_CSS } from "./lib/tokens";
 import { SalesCommandMark, AppWordmark } from "./components/Logo";
 import { getSession, onAuthStateChange, signOut, getCurrentTeamMember } from "./lib/auth";
@@ -88,6 +90,24 @@ export default function App() {
     }
   };
 
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/sign/:token" element={<PublicSigningPage />} />
+        <Route path="*" element={
+          <AppShell
+            active={active} setActive={setActive}
+            open={open} setOpen={setOpen}
+            displayName={displayName} displayRole={displayRole}
+            displayInitials={displayInitials} page={page}
+          />
+        } />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+function AppShell({ active, setActive, open, setOpen, displayName, displayRole, displayInitials, page }) {
   return (
     <>
       <style>{GLOBAL_CSS}</style>

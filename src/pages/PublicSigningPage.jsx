@@ -57,43 +57,106 @@ export default function PublicSigningPage() {
       const ipRes = await fetch("https://api.ipify.org?format=json").catch(() => ({ json: async () => ({ ip: "unknown" }) }));
       const { ip } = await ipRes.json();
 
-      // Generate PDF
+      // Generate branded PDF
       const { jsPDF } = await import("jspdf");
       const doc = new jsPDF({ unit: "pt", format: "letter" });
       const pageW = doc.internal.pageSize.getWidth();
       const margin = 48;
       const contentW = pageW - margin * 2;
+      const teal = [48, 207, 172];
+      const dark = [28, 24, 20];
+      const gray = [106, 99, 88];
       let y = 48;
 
-      // Header
-      doc.setFontSize(18); doc.setFont("helvetica", "bold");
-      doc.text("High Desert Surface Prep", margin, y); y += 22;
+      // Header — company name
+      doc.setFontSize(20); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...dark);
+      doc.text("High Desert Surface Prep", margin, y); y += 24;
       doc.setFontSize(10); doc.setFont("helvetica", "normal");
-      doc.text("Industrial & Commercial Concrete Coatings", margin, y); y += 30;
+      doc.setTextColor(...gray);
+      doc.text("Industrial & Commercial Concrete Coatings", margin, y); y += 10;
 
-      // Job info
-      doc.setFontSize(13); doc.setFont("helvetica", "bold");
-      doc.text(proposal.call_log?.customer_name || "", margin, y); y += 18;
+      // Teal header underline
+      doc.setDrawColor(...teal);
+      doc.setLineWidth(3);
+      doc.line(margin, y + 4, pageW - margin, y + 4); y += 22;
+
+      // Prepared for
+      doc.setFontSize(8); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...gray);
+      doc.text("PREPARED FOR", margin, y); y += 14;
+      doc.setFontSize(14); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...dark);
+      doc.text(proposal.call_log?.customer_name || proposal.customer || "", margin, y); y += 18;
       doc.setFontSize(10); doc.setFont("helvetica", "normal");
-      doc.text(proposal.call_log?.job_name || proposal.call_log?.display_job_number || "", margin, y); y += 30;
+      doc.setTextColor(...gray);
+      doc.text(proposal.call_log?.job_name || proposal.call_log?.display_job_number || "", margin, y); y += 28;
 
-      // SOW
-      doc.setFontSize(9); doc.setFont("helvetica", "bold");
+      // Divider
+      doc.setDrawColor(220, 215, 210);
+      doc.setLineWidth(0.5);
+      doc.line(margin, y, pageW - margin, y); y += 20;
+
+      // Scope of Work
+      doc.setFontSize(8); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...gray);
       doc.text("SCOPE OF WORK", margin, y); y += 14;
-      doc.setFont("helvetica", "normal");
-      const sowLines = doc.splitTextToSize(combinedSow || "No scope of work provided.", contentW);
+      doc.setFontSize(10); doc.setFont("helvetica", "normal");
+      doc.setTextColor(...dark);
+      const sowText = combinedSow || "No scope of work provided.";
+      const sowLines = doc.splitTextToSize(sowText, contentW);
       sowLines.forEach(line => {
-        if (y > 700) { doc.addPage(); y = 48; }
-        doc.text(line, margin, y); y += 13;
+        if (y > 680) { doc.addPage(); y = 48; }
+        doc.text(line, margin, y); y += 14;
       });
-      y += 16;
+      y += 20;
 
-      // Total
-      doc.setFontSize(12); doc.setFont("helvetica", "bold");
-      doc.text("Total Investment: " + fmt(proposal.total || 0), margin, y); y += 30;
+      // Total box
+      doc.setDrawColor(...teal);
+      doc.setLineWidth(2);
+      doc.roundedRect(margin, y, contentW, 44, 4, 4, "S");
+      doc.setFontSize(10); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...gray);
+      doc.text("PROPOSAL TOTAL", margin + 16, y + 17);
+      const totalStr = fmt(proposal.total || 0);
+      doc.setFontSize(18); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...dark);
+      const totalW = doc.getTextWidth(totalStr);
+      doc.text(totalStr, pageW - margin - 16 - totalW, y + 28);
+      y += 64;
 
-      // Signature block
+      // Divider
+      doc.setDrawColor(220, 215, 210);
+      doc.setLineWidth(0.5);
+      doc.line(margin, y, pageW - margin, y); y += 20;
+
+      // Signature label
+      doc.setFontSize(8); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...gray);
+      doc.text("CUSTOMER ACCEPTANCE", margin, y); y += 18;
+
+      // Render cursive signature via canvas
+      const canvas = document.createElement("canvas");
+      canvas.width = 400; canvas.height = 80;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#1E40AF";
+      ctx.font = "52px 'Great Vibes', cursive";
+      ctx.fillText(name.trim(), 8, 60);
+      const sigDataUrl = canvas.toDataURL("image/png");
+      doc.addImage(sigDataUrl, "PNG", margin, y, 200, 40);
+      y += 48;
+
+      // Signature line
+      doc.setDrawColor(...dark);
+      doc.setLineWidth(0.75);
+      doc.line(margin, y, margin + 220, y); y += 10;
       doc.setFontSize(9); doc.setFont("helvetica", "normal");
+      doc.setTextColor(...gray);
+      doc.text("Authorized Signature", margin, y); y += 24;
+
+      // Sig metadata
+      doc.setFontSize(9);
       doc.text("Electronically signed by: " + name.trim(), margin, y); y += 14;
       doc.text("Date: " + new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }), margin, y); y += 14;
       doc.text("IP Address: " + ip, margin, y); y += 14;

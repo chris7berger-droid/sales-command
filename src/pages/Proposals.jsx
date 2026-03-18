@@ -485,6 +485,7 @@ const missingJobsite = !p.call_log?.jobsite_address;
 
   const [proposal, setProposal] = useState(p);
 const [wtcs, setWtcs] = useState([]);
+const [signedPdfUrl, setSignedPdfUrl] = useState(null);
 
 useEffect(() => {
   async function loadWtcs() {
@@ -496,6 +497,21 @@ useEffect(() => {
     setWtcs(data || []);
   }
   loadWtcs();
+}, [p.id]);
+
+useEffect(() => {
+  async function loadSignedPdf() {
+    const { data } = await supabase
+      .from("proposal_signatures")
+      .select("pdf_url")
+      .eq("proposal_id", p.id)
+      .not("pdf_url", "is", null)
+      .order("signed_at", { ascending: false })
+      .limit(1)
+      .single();
+    if (data?.pdf_url) setSignedPdfUrl(data.pdf_url);
+  }
+  loadSignedPdf();
 }, [p.id]);
 
   async function toggleCheck(field) {
@@ -624,6 +640,13 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} onClose
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui }}>{val}</span>
               </div>
             ))}
+            {signedPdfUrl && (
+              <div style={{ marginTop: 14 }}>
+                <a href={signedPdfUrl} target="_blank" rel="noopener noreferrer" style={{ display: "block", textAlign: "center", background: C.teal, color: C.dark, borderRadius: 8, padding: "10px 0", fontSize: 12, fontWeight: 800, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none" }}>
+                  ⬇ Download Signed PDF
+                </a>
+              </div>
+            )}
           </div>
         </div>
       </div>

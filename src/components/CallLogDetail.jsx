@@ -1,6 +1,7 @@
 // SC-20 — Call Log Row Detail View
 import { useState } from "react";
 import { C, F } from "../lib/tokens";
+import Btn from "./Btn";
 import { supabase } from "../lib/supabase";
 
 const STAGES = ["New Inquiry", "Wants Bid", "Has Bid", "Sold", "Lost"];
@@ -120,14 +121,10 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           {onNewProposal && (
-            <button onClick={onNewProposal} style={{ background: "none", border: `1.5px solid ${C.teal}`, borderRadius: 7, padding: "5px 14px", fontSize: 12, fontWeight: 700, color: C.teal, cursor: "pointer", fontFamily: F.display }}>
-              + New Proposal
-            </button>
+            <Btn sz="sm" onClick={onNewProposal}>+ New Proposal</Btn>
           )}
           {canDelete && (
-            <button onClick={handleDelete} style={{ background: "none", border: `1.5px solid ${C.red}`, borderRadius: 7, padding: "5px 14px", fontSize: 12, fontWeight: 700, color: C.red, cursor: "pointer", fontFamily: F.display }}>
-              🗑 Delete
-            </button>
+            <Btn sz="sm" v="ghost" onClick={handleDelete} style={{ color: C.red, borderColor: C.red }}>🗑 Delete</Btn>
           )}
         </div>
       </div>

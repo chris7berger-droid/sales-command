@@ -1,0 +1,228 @@
+SALES COMMAND — HANDOFF DOCUMENT v23
+Generated: March 18, 2026
+====================================================
+
+HOW TO USE THIS DOCUMENT
+Start every new Claude thread with:
+"Continue building Sales Command. Here is the handoff doc v23 and the architecture doc."
+Upload this file + HDSP_CommandSuite_Architecture.docx
+
+====================================================
+COMPLETED THIS SESSION (v23)
+====================================================
+
+SC-30 SEND FLOW — FULLY WORKING
+- Fixed routing: Send Proposal button now opens ProposalPDFModal
+- Fixed JWT: Edge Function "Verify JWT with legacy secret" = OFF
+- Email sends correctly to chris@hdspnv.com (hardcoded fallback)
+- Customer signing page works end-to-end
+- Signature saves to proposal_signatures table
+- proposals.status updates to Sold on signing
+- Cannot sign twice — already-Sold proposals show success screen
+- Proposal detail refreshes status after PDF modal closes
+
+SIGNED PDF GENERATION — BUILT, NOT YET VERIFIED
+- jsPDF installed
+- PublicSigningPage.jsx: generates PDF on signing, uploads to
+  signed-proposals Supabase Storage bucket, saves URL to
+  proposal_signatures.pdf_url
+- Storage bucket still empty in tests — upload may be failing silently
+- Need to test with console open BEFORE clicking sign
+- Download link in Proposal Detail NOT YET BUILT
+
+NEW PROPOSAL FROM CALL LOG — DONE
+- + New Proposal button added to CallLogDetail top right
+- Clicking it navigates to Proposals page with NewProposalModal
+  pre-opened and job pre-selected
+- Files changed: CallLogDetail.jsx, CallLog.jsx, Proposals.jsx, App.jsx
+- Btn component now imported in CallLogDetail.jsx
+
+BACKLOG ITEMS TAGGED
+- SC-58: Security hardening (RLS policies, leaked password protection)
+- SC-59: UI polish pass (← Call Log back link, stage pill styling,
+  and other cosmetic fixes across all pages)
+
+====================================================
+NEXT TASKS (in priority order)
+====================================================
+
+1. DEBUG signed PDF upload (pick up here)
+   - Create new test proposal with a WTC that has a Sales SOW written
+   - Send to yourself → open signing link
+   - Open browser console (Cmd+Option+J) BEFORE clicking sign
+   - Sign and screenshot console immediately after
+   - Look for errors related to jsPDF or Supabase storage upload
+   - Check Supabase Storage → signed-proposals bucket after signing
+
+2. Build download link in Proposal Detail
+   - Query proposal_signatures for this proposal
+   - If pdf_url exists, show "Download Signed PDF" button
+   - Button opens pdf_url in new tab
+
+3. Remove hardcoded chris@hdspnv.com fallback email
+   - Wire real customer email from call_log or customers table
+
+4. End-to-end app test:
+   create customer → log call → create proposal → build WTC →
+   generate PDF → send → customer signs → status = Sold →
+   download signed PDF
+
+5. SC-57: Proposal header showing full UUID — verify still needed
+6. SC-56 (backlog): Multi-tenant email settings page
+
+====================================================
+SUPABASE COLUMN REFERENCE (verified — do not guess)
+====================================================
+
+table: team_members
+  columns: id, name (NOT full_name), email, phone, role, auth_id, active
+
+table: proposals
+  columns: id, total (NOT total_price), approved_at (NOT accepted_at),
+           status, created_at, customer, intro_completed, attachments_added,
+           recipients_assigned, wtc_verified, call_log_id, proposal_number,
+           signing_token
+
+table: call_log
+  columns: id, display_job_number, stage, bid_due, follow_up, created_at,
+           jobsite_address, customer_name, sales_name, job_number, job_name,
+           is_change_order, parent_job_id, co_number, co_standalone,
+           jobsite_city, jobsite_state, jobsite_zip,
+           billing_address, billing_city, billing_state, billing_zip,
+           billing_address_same
+
+table: proposal_wtc
+  columns: id, proposal_id, work_type_id (INTEGER 1-40), burden_rate,
+           ot_burden_rate, tax_rate, prevailing_wage, regular_hours,
+           ot_hours, markup_pct, materials (jsonb), size, unit,
+           sales_sow, field_sow (jsonb), sub_areas (jsonb),
+           travel (jsonb), discount, discount_reason, locked, created_at
+
+table: proposal_signatures
+  columns: id, proposal_id, signer_name, signer_email, signed_at,
+           ip_address, pdf_url
+
+====================================================
+FILE LOCATIONS (critical)
+====================================================
+
+- src/pages/WTCCalculator.jsx
+- src/pages/CallLog.jsx
+- src/pages/Proposals.jsx
+- src/pages/PublicSigningPage.jsx
+- src/components/CallLogDetail.jsx
+- src/lib/supabase.js
+- src/lib/tokens.js
+- src/App.jsx
+
+NOTE: There is an orphaned src/CallLogDetail.jsx in the root — ignore it
+
+====================================================
+WTC CALCULATOR ARCHITECTURE (key facts)
+====================================================
+
+- WTCCalculator.jsx lives in src/pages/ NOT src/components/
+- CustomerSigningPage is built inside WTCCalculator.jsx (internal preview only)
+- PDFPreviewModal is built inside WTCCalculator.jsx
+- PublicSigningPage.jsx is the customer-facing signing page (separate file)
+- autosave: debounced 1.5s, upsert pattern
+- work_type_id is INTEGER (1-40), not UUID
+- WTC has 7 tabs: Bidding Info, Labor, Materials, Scope of Work, Travel, Discount, Summary
+- Summary tab: Lock & Approve → Generate PDF
+- On autosave: writes proposalPrice back to proposals.total
+
+====================================================
+PDF MODAL ARCHITECTURE (two modals)
+====================================================
+
+1. PDFPreviewModal in WTCCalculator.jsx
+   - Single WTC only
+   - Launched from WTC Summary tab
+
+2. ProposalPDFModal in Proposals.jsx
+   - Multi-WTC, fetches ALL WTCs
+   - Launched from Proposal Detail → Generate PDF or Send Proposal
+   - Has Send tab wired to send-proposal Edge Function
+   - CANONICAL customer version
+
+====================================================
+SIGNING FLOW STATUS (SC-30)
+====================================================
+
+FULLY WORKING:
+- PublicSigningPage.jsx — public route /sign/:token
+- send-proposal Edge Function — deployed, JWT verify OFF
+- Email delivery via Resend to chris@hdspnv.com
+- proposal_signatures table — saving correctly
+- proposals.status → Sold on signing
+- Double-sign prevention working
+
+NEEDS VERIFICATION:
+- jsPDF PDF generation and upload to signed-proposals bucket
+- pdf_url saving to proposal_signatures.pdf_url
+
+NOT YET BUILT:
+- Download signed PDF button in Proposal Detail
+
+====================================================
+EDGE FUNCTION SETTINGS (critical)
+====================================================
+
+- send-proposal: "Verify JWT with legacy secret" = OFF
+  (do not turn back on — was causing 401 errors)
+
+====================================================
+NAVIGATION — NEW PROPOSAL FROM CALL LOG
+====================================================
+
+Flow: Call Log detail → + New Proposal button → navigates to
+Proposals page → NewProposalModal opens with job pre-selected
+
+Files involved:
+- App.jsx: passes onNewProposal and initialProposal props
+- CallLog.jsx: accepts onNewProposal, passes to CallLogDetail
+- CallLogDetail.jsx: accepts onNewProposal, shows Btn in header
+- Proposals.jsx: accepts initialProposal, auto-opens modal
+
+====================================================
+WORKFLOW RULES (always follow)
+====================================================
+
+1. NEVER use drag and drop for files
+2. ALWAYS provide code as text in chat — never as downloads
+3. NEVER give half-baked solution mid-figuring-it-out
+4. Supabase SQL Editor: button is "Create new snippet"
+5. Complex file edits: use Python scripts via terminal
+6. Always git commit immediately after Python scripts succeed
+7. When something looks wrong, ask for screenshot before assuming
+8. Always check column names against reference before writing queries
+9. Spoon-feed instructions — one step at a time
+10. When writing Python fix scripts — use python3 << 'PYEOF' heredoc
+11. After every Python script succeeds — immediately git commit
+12. VS Code Cmd+S won't save if search bar is open — press Escape first
+13. Never paste multi-line Python heredocs with single quotes inside
+    the heredoc string — use double quotes inside or escape them
+
+====================================================
+DESIGN PHILOSOPHY
+====================================================
+
+- Favor fast obvious clicks over fewest clicks
+- PDF stays white background — customers print proposals
+- No cost breakdown on customer-facing PDF
+- Teal for buttons, borders, badges, active states only
+- SC-59 polish pass planned after feature-complete
+
+====================================================
+CURRENT APP STATE
+====================================================
+
+WORKING PAGES:
+- Home, Call Log, Proposals, Invoices, Managers, Customers, Our Team
+
+PLACEHOLDER PAGES:
+- Sales Dash, Jobs, Feedback
+
+====================================================
+END OF HANDOFF v23
+====================================================

@@ -57,17 +57,77 @@ export default function PublicSigningPage() {
       const ipRes = await fetch("https://api.ipify.org?format=json").catch(() => ({ json: async () => ({ ip: "unknown" }) }));
       const { ip } = await ipRes.json();
 
+      // Generate PDF
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ unit: "pt", format: "letter" });
+      const pageW = doc.internal.pageSize.getWidth();
+      const margin = 48;
+      const contentW = pageW - margin * 2;
+      let y = 48;
+
+      // Header
+      doc.setFontSize(18); doc.setFont("helvetica", "bold");
+      doc.text("High Desert Surface Prep", margin, y); y += 22;
+      doc.setFontSize(10); doc.setFont("helvetica", "normal");
+      doc.text("Industrial & Commercial Concrete Coatings", margin, y); y += 30;
+
+      // Job info
+      doc.setFontSize(13); doc.setFont("helvetica", "bold");
+      doc.text(proposal.call_log?.customer_name || "", margin, y); y += 18;
+      doc.setFontSize(10); doc.setFont("helvetica", "normal");
+      doc.text(proposal.call_log?.job_name || proposal.call_log?.display_job_number || "", margin, y); y += 30;
+
+      // SOW
+      doc.setFontSize(9); doc.setFont("helvetica", "bold");
+      doc.text("SCOPE OF WORK", margin, y); y += 14;
+      doc.setFont("helvetica", "normal");
+      const sowLines = doc.splitTextToSize(combinedSow || "No scope of work provided.", contentW);
+      sowLines.forEach(line => {
+        if (y > 700) { doc.addPage(); y = 48; }
+        doc.text(line, margin, y); y += 13;
+      });
+      y += 16;
+
+      // Total
+      doc.setFontSize(12); doc.setFont("helvetica", "bold");
+      doc.text("Total Investment: " + fmt(proposal.total || 0), margin, y); y += 30;
+
+      // Signature block
+      doc.setFontSize(9); doc.setFont("helvetica", "normal");
+      doc.text("Electronically signed by: " + name.trim(), margin, y); y += 14;
+      doc.text("Date: " + new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }), margin, y); y += 14;
+      doc.text("IP Address: " + ip, margin, y); y += 14;
+      doc.setFont("helvetica", "italic");
+      doc.text("This electronic signature is legally binding.", margin, y);
+
+      const pdfBlob = doc.output("blob");
+      const fileName = "signed-proposal-" + proposal.id + "-" + Date.now() + ".pdf";
+
+      // Upload to Supabase Storage
+      const { data: uploadData, error: uploadErr } = await supabase.storage
+        .from("signed-proposals")
+        .upload(fileName, pdfBlob, { contentType: "application/pdf", upsert: false });
+
+      let pdfUrl = null;
+      if (!uploadErr) {
+        const { data: urlData } = supabase.storage.from("signed-proposals").getPublicUrl(fileName);
+        pdfUrl = urlData?.publicUrl || null;
+      }
+
+      // Save signature record
       await supabase.from("proposal_signatures").insert({
         proposal_id: proposal.id,
         signer_name: name.trim(),
         signer_email: null,
         ip_address: ip,
+        pdf_url: pdfUrl,
       });
 
       await supabase.from("proposals").update({ status: "Sold" }).eq("id", proposal.id);
 
       setSigned(true);
     } catch (e) {
+      console.error(e);
       alert("Something went wrong. Please try again.");
     }
     setSigning(false);

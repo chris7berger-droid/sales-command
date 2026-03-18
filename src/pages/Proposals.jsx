@@ -9,10 +9,10 @@ import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
 
-function NewProposalModal({ onClose, onCreated }) {
+function NewProposalModal({ onClose, onCreated, preselectedJob }) {
   const [jobs, setJobs]       = useState([]);
   const [search, setSearch]   = useState("");
-  const [selJob, setSelJob]   = useState(null);
+  const [selJob, setSelJob]   = useState(preselectedJob || null);
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState(null);
 
@@ -519,7 +519,7 @@ useEffect(() => {
     onDeleted && onDeleted();
   }
 
-if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number)").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={() => setShowPDF(false)} />;
+if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number)").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number)").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
   if (showSend) return <SendPlaceholder proposal={p} onBack={() => setShowSend(false)} />;
   if (showRecipients) return <RecipientsPlaceholder proposal={p} onBack={() => setShowRecipients(false)} />;
 
@@ -631,11 +631,21 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} onClose
   );
 }
 
-export default function Proposals({ teamMember }) {
+export default function Proposals({ teamMember, initialProposal, onClearInitial }) {
   const [proposals, setProposals] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [sel, setSel]             = useState(null);
   const [showModal, setShowModal] = useState(false);
+
+  const [preselectedJob, setPreselectedJob] = useState(null);
+
+  useEffect(() => {
+    if (initialProposal?.job) {
+      setPreselectedJob(initialProposal.job);
+      setShowModal(true);
+      onClearInitial && onClearInitial();
+    }
+  }, [initialProposal]);
 
   const load = async () => {
     const { data } = await supabase
@@ -654,8 +664,9 @@ export default function Proposals({ teamMember }) {
     <>
       {showModal && (
         <NewProposalModal
-          onClose={() => setShowModal(false)}
-          onCreated={(newProposal) => { setShowModal(false); setSel(newProposal); }}
+          onClose={() => { setShowModal(false); setPreselectedJob(null); }}
+          onCreated={(newProposal) => { setShowModal(false); setPreselectedJob(null); setSel(newProposal); }}
+          preselectedJob={preselectedJob}
         />
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>

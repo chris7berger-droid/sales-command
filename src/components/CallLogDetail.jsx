@@ -40,7 +40,7 @@ function stageColor(stage) {
   return map[stage] || { bg: "rgba(255,255,255,0.06)", color: C.textFaint };
 }
 
-export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onDeleted, teamMember }) {
+export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onDeleted, teamMember, onNewProposal }) {
   const [form, setForm] = useState({
     stage:            job.stage            || "",
     bid_due:          job.bid_due          || "",
@@ -118,11 +118,18 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         {job.is_change_order && (
           <span style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#9b59b6", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui }}>CO</span>
         )}
-        {canDelete && (
-          <button onClick={handleDelete} style={{ marginLeft: "auto", background: "none", border: `1.5px solid ${C.red}`, borderRadius: 7, padding: "5px 14px", fontSize: 12, fontWeight: 700, color: C.red, cursor: "pointer", fontFamily: F.display }}>
-            🗑 Delete
-          </button>
-        )}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          {onNewProposal && (
+            <button onClick={onNewProposal} style={{ background: "none", border: `1.5px solid ${C.teal}`, borderRadius: 7, padding: "5px 14px", fontSize: 12, fontWeight: 700, color: C.teal, cursor: "pointer", fontFamily: F.display }}>
+              + New Proposal
+            </button>
+          )}
+          {canDelete && (
+            <button onClick={handleDelete} style={{ background: "none", border: `1.5px solid ${C.red}`, borderRadius: 7, padding: "5px 14px", fontSize: 12, fontWeight: 700, color: C.red, cursor: "pointer", fontFamily: F.display }}>
+              🗑 Delete
+            </button>
+          )}
+        </div>
       </div>
       <div style={{ color: C.textFaint, fontSize: 13, fontFamily: F.ui, marginBottom: 28 }}>
         {job.customer_name || "—"}{job.customer_type ? ` · ${job.customer_type}` : ""}

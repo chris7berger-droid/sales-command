@@ -514,7 +514,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-export default function CallLog({ teamMember }) {
+export default function CallLog({ teamMember, onNewProposal }) {
   const [rows, setRows]           = useState([]);
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -552,6 +552,7 @@ export default function CallLog({ teamMember }) {
         onSaved={() => { setSelJob(null); load(); }}
         onDeleted={() => { setSelJob(null); load(); }}
         teamMember={teamMember}
+        onNewProposal={onNewProposal ? () => onNewProposal(selJob) : undefined}
       />
     );
   }

@@ -1,28 +1,36 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { signIn } from '../lib/auth'
+import { supabase } from '../lib/supabase'
 
-// ─── Matches Sales Command design tokens (src/lib/tokens.js) ────────────────
 const C = {
-  bg:         '#0f0f14',
-  surface:    '#16161f',
-  border:     '#1e1e30',
-  borderHov:  '#2e2e50',
-  textPri:    '#e2e2e8',
-  textSec:    '#8888aa',
-  textMuted:  '#4a4a6a',
-  accent:     '#a0f0a0',
-  accentDim:  'rgba(160,240,160,0.12)',
-  accentBord: 'rgba(160,240,160,0.3)',
+  linen:      '#b5a896',
+  linenCard:  '#bfb3a1',
+  linenDeep:  '#a89b88',
+  teal:       '#30cfac',
+  tealDark:   '#1a8a72',
+  textHead:   '#1c1814',
+  textBody:   '#2d2720',
+  textFaint:  '#887c6e',
+  border:     'rgba(28,24,20,0.12)',
+  borderStrong: 'rgba(28,24,20,0.2)',
   danger:     '#ef4444',
-  dangerDim:  'rgba(239,68,68,0.12)',
-  dangerBord: 'rgba(239,68,68,0.3)',
 }
 
 export default function Login() {
-  const [email,    setEmail]    = useState('')
-  const [password, setPassword] = useState('')
+  const [email,    setEmail]    = useState("")
+  const [password, setPassword] = useState("")
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState(null)
+  const [mode,     setMode]     = useState("login") // login | forgot | reset
+  const [message,  setMessage]  = useState(null)
+  const [newPassword, setNewPassword] = useState("")
+
+  useEffect(() => {
+    const hash = window.location.hash
+    if (hash.includes("type=recovery")) {
+      setMode("reset")
+    }
+  }, [])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -30,192 +38,129 @@ export default function Login() {
     setLoading(true)
     try {
       await signIn(email.trim(), password)
-      // App.jsx auth listener will detect the new session and redirect automatically
     } catch (err) {
-      setError(err.message || 'Login failed. Check your email and password.')
+      setError(err.message || "Login failed. Check your email and password.")
     } finally {
       setLoading(false)
     }
   }
 
+  async function handleForgot(e) {
+    e.preventDefault()
+    setError(null)
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: "https://www.scmybiz.com"
+      })
+      if (error) throw error
+      setMessage("Check your email for a password reset link.")
+    } catch (err) {
+      setError(err.message || "Failed to send reset email.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleReset(e) {
+    e.preventDefault()
+    setError(null)
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword })
+      if (error) throw error
+      setMessage("Password updated! Redirecting...")
+      setTimeout(() => { window.location.href = "https://www.scmybiz.com" }, 1500)
+    } catch (err) {
+      setError(err.message || "Failed to update password.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const inputStyle = {
+    width: "100%", padding: "11px 14px", borderRadius: 8,
+    border: `1.5px solid ${C.borderStrong}`, background: C.linenCard,
+    fontSize: 14, color: C.textBody, outline: "none", boxSizing: "border-box",
+    fontFamily: "inherit",
+  }
+
+  const btnStyle = {
+    width: "100%", padding: "12px", borderRadius: 8, border: "none",
+    background: C.teal, color: "white", fontSize: 15, fontWeight: 700,
+    cursor: "pointer", fontFamily: "inherit", marginTop: 8,
+  }
+
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: C.bg,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: "'DM Sans', sans-serif",
-      padding: '24px',
-    }}>
-      <div style={{ width: '100%', maxWidth: 400 }}>
-
-        {/* Logo / wordmark */}
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 10,
-            marginBottom: 8,
-          }}>
-            <div style={{
-              width: 36,
-              height: 36,
-              borderRadius: 9,
-              background: C.accentDim,
-              border: `1px solid ${C.accentBord}`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 18,
-            }}>📋</div>
-            <span style={{
-              fontFamily: "'DM Mono', monospace",
-              fontWeight: 800,
-              fontSize: 16,
-              color: C.accent,
-              letterSpacing: '0.06em',
-            }}>SALES COMMAND</span>
+    <div style={{ minHeight: "100vh", background: C.linen, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ width: "100%", maxWidth: 400, background: C.linenCard, borderRadius: 16, border: `1px solid ${C.borderStrong}`, padding: "40px 36px", boxShadow: "0 8px 40px rgba(28,24,20,0.13)" }}>
+        
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: "Barlow Condensed, sans-serif", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            Sales <span style={{ color: C.tealDark }}>Command</span>
           </div>
-          <div style={{
-            fontFamily: "'DM Mono', monospace",
-            fontSize: 11,
-            color: C.textMuted,
-            letterSpacing: '0.1em',
-          }}>HDSP · COMMAND SUITE</div>
+          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>High Desert Surface Prep</div>
         </div>
 
-        {/* Card */}
-        <div style={{
-          background: C.surface,
-          border: `1px solid ${C.border}`,
-          borderRadius: 14,
-          padding: '32px 28px',
-        }}>
-          <div style={{
-            fontSize: 20,
-            fontWeight: 800,
-            color: C.textPri,
-            marginBottom: 6,
-          }}>Sign in</div>
-          <div style={{
-            fontSize: 13,
-            color: C.textSec,
-            marginBottom: 28,
-          }}>Enter your HDSP credentials to continue.</div>
-
-          {/* Error banner */}
-          {error && (
-            <div style={{
-              background: C.dangerDim,
-              border: `1px solid ${C.dangerBord}`,
-              borderRadius: 8,
-              padding: '10px 14px',
-              fontSize: 13,
-              color: C.danger,
-              marginBottom: 20,
-            }}>{error}</div>
-          )}
-
-          {/* Form */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            {/* Email */}
-            <div>
-              <label style={labelStyle}>Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="you@hdsp.com"
-                autoComplete="email"
-                style={inputStyle}
-                onFocus={e => e.target.style.borderColor = C.accentBord}
-                onBlur={e  => e.target.style.borderColor = C.border}
-              />
-            </div>
-
-            {/* Password */}
-            <div>
-              <label style={labelStyle}>Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-                autoComplete="current-password"
-                style={inputStyle}
-                onFocus={e => e.target.style.borderColor = C.accentBord}
-                onBlur={e  => e.target.style.borderColor = C.border}
-              />
-            </div>
-
-            {/* Submit */}
-            <button
-              onClick={handleSubmit}
-              disabled={loading || !email || !password}
-              style={{
-                marginTop: 8,
-                width: '100%',
-                padding: '12px',
-                borderRadius: 9,
-                border: `1px solid ${C.accentBord}`,
-                background: loading ? C.accentDim : C.accentDim,
-                color: C.accent,
-                fontFamily: "'DM Mono', monospace",
-                fontWeight: 700,
-                fontSize: 13,
-                letterSpacing: '0.08em',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: (!email || !password) ? 0.45 : 1,
-                transition: 'opacity 0.15s',
-              }}
-            >
-              {loading ? 'SIGNING IN…' : 'SIGN IN'}
-            </button>
-
+        {message && (
+          <div style={{ background: "rgba(48,207,172,0.1)", border: `1px solid ${C.teal}`, borderRadius: 8, padding: "12px 16px", fontSize: 13, color: C.tealDark, marginBottom: 20, textAlign: "center" }}>
+            {message}
           </div>
-        </div>
+        )}
 
-        {/* Footer note */}
-        <div style={{
-          textAlign: 'center',
-          marginTop: 20,
-          fontFamily: "'DM Mono', monospace",
-          fontSize: 11,
-          color: C.textMuted,
-        }}>
-          No account? Contact your HDSP administrator.
-        </div>
+        {error && (
+          <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: "12px 16px", fontSize: 13, color: C.danger, marginBottom: 20 }}>
+            {error}
+          </div>
+        )}
+
+        {mode === "login" && (
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Email</div>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} required />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Password</div>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} required />
+            </div>
+            <button type="submit" disabled={loading} style={btnStyle}>{loading ? "Signing in..." : "Sign In"}</button>
+            <div style={{ textAlign: "center", marginTop: 4 }}>
+              <button type="button" onClick={() => { setMode("forgot"); setError(null); setMessage(null); }} style={{ background: "none", border: "none", color: C.tealDark, fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                Forgot password?
+              </button>
+            </div>
+          </form>
+        )}
+
+        {mode === "forgot" && (
+          <form onSubmit={handleForgot} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 13, color: C.textFaint, marginBottom: 4 }}>Enter your email and we will send you a reset link.</div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Email</div>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} required />
+            </div>
+            <button type="submit" disabled={loading} style={btnStyle}>{loading ? "Sending..." : "Send Reset Link"}</button>
+            <div style={{ textAlign: "center", marginTop: 4 }}>
+              <button type="button" onClick={() => { setMode("login"); setError(null); setMessage(null); }} style={{ background: "none", border: "none", color: C.tealDark, fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                Back to sign in
+              </button>
+            </div>
+          </form>
+        )}
+
+        {mode === "reset" && (
+          <form onSubmit={handleReset} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 13, color: C.textFaint, marginBottom: 4 }}>Enter your new password.</div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>New Password</div>
+              <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} style={inputStyle} required minLength={6} />
+            </div>
+            <button type="submit" disabled={loading} style={btnStyle}>{loading ? "Updating..." : "Set New Password"}</button>
+          </form>
+        )}
 
       </div>
     </div>
   )
-}
-
-// ─── Shared styles ───────────────────────────────────────────────────────────
-
-const labelStyle = {
-  display: 'block',
-  fontSize: 11,
-  fontWeight: 700,
-  fontFamily: "'DM Mono', monospace",
-  letterSpacing: '0.08em',
-  color: '#8888aa',
-  marginBottom: 7,
-  textTransform: 'uppercase',
-}
-
-const inputStyle = {
-  width: '100%',
-  padding: '10px 13px',
-  background: '#0f0f14',
-  border: '1px solid #1e1e30',
-  borderRadius: 8,
-  color: '#e2e2e8',
-  fontSize: 14,
-  fontFamily: "'DM Sans', sans-serif",
-  outline: 'none',
-  transition: 'border-color 0.15s',
-  boxSizing: 'border-box',
 }

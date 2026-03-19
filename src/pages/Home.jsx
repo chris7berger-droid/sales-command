@@ -49,6 +49,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep" 
   const [billing,       setBilling]       = useState(0);
   const [ytd,           setYtd]           = useState(0);
   const [proposalsSent, setProposalsSent] = useState(0);
+  const [soldTotal,       setSoldTotal]       = useState(0);
   const [loading,       setLoading]       = useState(true);
 
   useEffect(() => {
@@ -90,6 +91,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep" 
       setBilling(monthBill);
       setYtd(ytdBill);
       setProposalsSent(sent);
+      setSoldTotal((isRep ? (props || []).filter(p => p.call_log?.sales_name === displayName) : (props || [])).filter(p => p.status === "Sold").length);
       setLoading(false);
     }
     load();
@@ -138,7 +140,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep" 
         <StatCard label="New Inquiries" value={loading ? "…" : sc["New Inquiry"] || 0} sub="This month" accent={C.teal} />
         <StatCard label="Wants Bid"     value={loading ? "…" : sc["Wants Bid"]   || 0} sub="Active"     accent={C.amber} />
         <StatCard label="Has Bid"       value={loading ? "…" : sc["Has Bid"]     || 0} sub="Awaiting"   accent={C.purple} />
-        <StatCard label="Sold"          value={loading ? "…" : sc["Sold"]        || 0} sub="This month" accent={C.green} />
+        <StatCard label="Sold"          value={loading ? "…" : soldTotal} sub="All time" accent={C.green} />
       </div>
 
       {/* PIPELINE BAR */}

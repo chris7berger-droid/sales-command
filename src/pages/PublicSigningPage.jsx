@@ -30,7 +30,7 @@ export default function PublicSigningPage() {
     async function load() {
       const { data: prop, error: propErr } = await supabase
         .from("proposals")
-        .select("*, call_log(job_name, display_job_number, customer_name)")
+        .select("*, call_log_id, call_log(job_name, display_job_number, customer_name)")
         .eq("signing_token", token)
         .single();
 
@@ -187,6 +187,9 @@ export default function PublicSigningPage() {
       });
 
       await supabase.from("proposals").update({ status: "Sold" }).eq("id", proposal.id);
+      if (proposal.call_log_id) {
+        await supabase.from("call_log").update({ stage: "Sold" }).eq("id", proposal.call_log_id);
+      }
 
       setSigned(true);
     } catch (e) {

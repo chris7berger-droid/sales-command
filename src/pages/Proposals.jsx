@@ -176,6 +176,10 @@ function ProposalPDFModal({ proposal, onClose }) {
       );
       if (!res.ok) throw new Error(await res.text());
       setSendDone(true);
+      if (proposal.call_log_id) {
+        await supabase.from("call_log").update({ stage: "Has Bid" }).eq("id", proposal.call_log_id);
+      }
+      await supabase.from("proposals").update({ status: "Sent" }).eq("id", proposal.id);
     } catch (e) {
       setSendError(e.message || "Send failed. Please try again.");
     }
@@ -413,6 +417,10 @@ function SendPlaceholder({ proposal, onBack }) {
       );
       if (!res.ok) throw new Error(await res.text());
       setSent(true);
+      if (proposal.call_log_id) {
+        await supabase.from("call_log").update({ stage: "Has Bid" }).eq("id", proposal.call_log_id);
+      }
+      await supabase.from("proposals").update({ status: "Sent" }).eq("id", proposal.id);
     } catch (e) {
       setError(e.message || "Send failed. Please try again.");
     }

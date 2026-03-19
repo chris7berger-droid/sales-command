@@ -1565,6 +1565,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   useEffect(() => { isLoading.current = false; }, []);
   useEffect(() => {
     if (isLoading.current) return;
+    if (proposalSold) return;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => { handleSave(); }, 1500);
     return () => clearTimeout(autosaveTimer.current);
@@ -1713,16 +1714,18 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const [showSigning, setShowSigning] = useState(false);
   const [proposalNumber, setProposalNumber] = useState(null);
   const [jobInfo, setJobInfo] = useState({ customerName: "", jobsiteAddress: "", jobName: "" });
+  const [proposalSold, setProposalSold] = useState(false);
 
   useEffect(() => {
     if (!proposalId) return;
     async function loadJobInfo() {
       const { data } = await supabase
         .from("proposals")
-        .select("proposal_number, customer, call_log(job_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip)")
+        .select("proposal_number, customer, status, call_log(job_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip)")
         .eq("id", proposalId)
         .single();
       if (data?.proposal_number) setProposalNumber(data.proposal_number);
+      if (data?.status === "Sold") setProposalSold(true);
       if (data) {
         setJobInfo({
           customerName: data.customer || "",
@@ -1774,25 +1777,25 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
 
       {/* Content area */}
       <div style={{ maxWidth: 940, margin: "0 auto", padding: "28px 20px" }}>
-        {locked && tab !== "summary" && (
+        {(locked || proposalSold) && tab !== "summary" && (
           <div style={{ background: "#FFF8E1", border: "1px solid #F59E0B", borderRadius: 10, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 20 }}>🔒</span>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e" }}>This WTC is locked</div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e" }}>{proposalSold ? "This proposal is Sold — WTC is read-only" : "This WTC is locked"}</div>
               <div style={{ fontSize: 12, color: "#92400e", marginTop: 2 }}>Go to the Summary tab and click Unlock WTC to make edits.</div>
             </div>
           </div>
         )}
         <div style={{ background: "#c8bcaa", borderRadius: 14, border: `1px solid rgba(28,24,20,0.15)`, padding: "28px 32px", marginBottom: 20, position: "relative" }}>
-          {locked && tab !== "summary" && (
+          {(locked || proposalSold) && tab !== "summary" && (
             <div style={{ position: "absolute", inset: 0, borderRadius: 14, zIndex: 10, cursor: "not-allowed" }} onClick={() => {}} />
           )}
-          {tab === "bidding" && <BiddingTab data={bidding} onChange={v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={handleWorkTypeChange} />}
-          {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={v => { setLabor(v); setSaved(false); }} />}
-          {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={v => { setMaterials(v); setSaved(false); }} />}
+          {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} />}
+          {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={proposalSold ? undefined : v => { setLabor(v); setSaved(false); }} />}
+          {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={proposalSold ? undefined : v => { setMaterials(v); setSaved(false); }} />}
           {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} />}
-          {tab === "travel"  && <TravelTab data={travel} onChange={v => { setTravel(v); setSaved(false); }} />}
-          {tab === "discount" && <DiscountTab data={discount} onChange={v => { setDiscount(v); setSaved(false); }} />}
+          {tab === "travel"  && <TravelTab data={travel} onChange={proposalSold ? undefined : v => { setTravel(v); setSaved(false); }} />}
+          {tab === "discount" && <DiscountTab data={discount} onChange={proposalSold ? undefined : v => { setDiscount(v); setSaved(false); }} />}
           {tab === "summary" && <SummaryTab labor={laborComputed} materials={materials} travel={travel} discount={discount} sow={sow} bidding={bidding} onSave={handleSave} saved={saved} locked={locked} onLock={handleLock} onGeneratePDF={() => setShowPDF(true)} />}
         </div>
 <Summary labor={laborComputed} materials={materials} travel={travel} discount={discount} size={sow.size} unit={sow.unit} />

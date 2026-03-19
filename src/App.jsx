@@ -71,7 +71,7 @@ export default function App() {
 
   if (!session && !window.location.pathname.startsWith("/sign/")) return <Login />;
 
-  const displayName = teamMember?.name ?? session.user.email;
+  const displayName = teamMember?.name ?? session?.user?.email ?? "";
   const displayRole     = teamMember?.role      ?? "Member";
   const displayInitials = displayName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 

@@ -1,0 +1,182 @@
+SALES COMMAND — HANDOFF DOCUMENT v27
+Generated: March 19, 2026
+====================================================
+
+HOW TO USE THIS DOCUMENT
+Start every new Claude thread with:
+"Continue building Sales Command. Here is the handoff doc v27 and the architecture doc."
+Upload this file + HDSP_CommandSuite_Architecture.docx
+
+====================================================
+COMPLETED THIS SESSION (v27)
+====================================================
+
+SC-61: WTC READ-ONLY WHEN SOLD — COMPLETE ✅
+- proposalSold state added to WTCCalculator
+- status fetched from proposals table on load
+- Banner shows "This proposal is Sold — WTC is read-only"
+- All tab onChange handlers disabled when Sold
+- Autosave blocked when Sold
+
+SEND PROPOSAL BLOCKED ON SOLD — COMPLETE ✅
+- Send Proposal button hidden in Proposals.jsx header when status = Sold
+- Send to Customer button hidden inside ProposalPDFModal when status = Sold
+- PublicSigningPage already blocked re-signing (status = Sold → shows accepted screen)
+
+WTC GENERATE PDF → OPENS CORRECT MODAL — COMPLETE ✅
+- Generate Proposal PDF button in WTC Summary now closes WTC and opens
+  ProposalPDFModal in Proposals.jsx (the working send modal)
+- Dead PDFPreviewModal send flow eliminated
+
+SUPABASE URL CONFIGURATION — COMPLETE ✅
+- Site URL set to https://www.scmybiz.com
+- Redirect URL added: https://www.scmybiz.com
+- Password reset emails now point to production URL
+
+LOGIN PAGE — COMPLETE ✅
+- Fully rebranded to Sales Command / HDSP linen + teal design
+- Forgot password flow added (sends reset email via Supabase)
+- Reset password form added (detects type=recovery in URL hash)
+
+====================================================
+NEXT TASKS (in priority order)
+====================================================
+
+1. Reset Chris's password — send recovery email from Supabase Auth,
+   click link, set new password on scmybiz.com reset form
+
+2. End-to-end regression test on production (scmybiz.com):
+   create customer → log call → create proposal → build WTC →
+   generate PDF → send → customer signs → status = Sold →
+   download signed PDF
+
+3. SC-58: Security hardening (RLS audit, leaked password protection)
+
+4. Backlog:
+   SC-55: Goal Setting Flow
+   SC-56: Multi-tenant email settings
+   SC-62: Attachments on Call Log detail
+
+====================================================
+PRODUCTION ENVIRONMENT
+====================================================
+
+Production URL: https://www.scmybiz.com
+Vercel project: sales-command (chris7berger-droid)
+GitHub repo: chris7berger-droid/sales-command (branch: main)
+Auto-deploys on every push to main
+
+Vercel env vars set:
+  VITE_SUPABASE_URL
+  VITE_SUPABASE_ANON_KEY
+
+====================================================
+SUPABASE COLUMN REFERENCE (verified — do not guess)
+====================================================
+
+table: team_members
+  columns: id, name (NOT full_name), email, phone, role, auth_id, active
+
+table: proposals
+  columns: id, total (NOT total_price), approved_at (NOT accepted_at),
+           status, created_at, customer, intro_completed, attachments_added,
+           recipients_assigned, wtc_verified, call_log_id, proposal_number,
+           signing_token
+
+table: call_log
+  columns: id, display_job_number, stage, bid_due, follow_up, created_at,
+           jobsite_address, customer_name, sales_name, job_number, job_name,
+           is_change_order, parent_job_id, co_number, co_standalone,
+           jobsite_city, jobsite_state, jobsite_zip,
+           billing_address, billing_city, billing_state, billing_zip,
+           billing_address_same, customer_id
+
+table: customers
+  columns: id, name, customer_type, first_name, last_name, phone, email,
+           contact_phone, contact_email, billing_same, billing_name,
+           billing_phone, billing_email, business_address, business_city,
+           business_state, business_zip
+
+table: proposal_wtc
+  columns: id, proposal_id, work_type_id (INTEGER 1-40), burden_rate,
+           ot_burden_rate, tax_rate, prevailing_wage, regular_hours,
+           ot_hours, markup_pct, materials (jsonb), size, unit,
+           sales_sow, field_sow (jsonb), sub_areas (jsonb),
+           travel (jsonb), discount, discount_reason, locked, created_at,
+           start_date (date), end_date (date)
+
+table: proposal_signatures
+  columns: id, proposal_id, signer_name, signer_email, signed_at,
+           ip_address, pdf_url
+
+====================================================
+SUPABASE STORAGE
+====================================================
+
+bucket: signed-proposals
+  - Public bucket: ON
+  - Files named: signed-proposal-{proposal_id}-{timestamp}.pdf
+
+====================================================
+SUPABASE AUTH CONFIG
+====================================================
+
+Site URL: https://www.scmybiz.com
+Redirect URLs: https://www.scmybiz.com
+Edge Function send-proposal: "Verify JWT with legacy secret" = OFF
+
+====================================================
+FILE LOCATIONS
+====================================================
+
+- src/pages/WTCCalculator.jsx
+- src/pages/CallLog.jsx
+- src/pages/Proposals.jsx
+- src/pages/PublicSigningPage.jsx
+- src/pages/Home.jsx
+- src/pages/Login.jsx
+- src/components/CallLogDetail.jsx
+- src/lib/supabase.js
+- src/lib/tokens.js
+- src/App.jsx
+- vercel.json (project root)
+
+====================================================
+SIGNING FLOW ARCHITECTURE (SC-30)
+====================================================
+
+Proposal Detail → Send Proposal → ProposalPDFModal (Send tab)
+→ send-proposal Edge Function → Resend email → customer gets link
+→ /sign/:token → PublicSigningPage.jsx → customer types name
+→ jsPDF generates branded PDF → signed-proposals bucket
+→ pdf_url saved to proposal_signatures
+→ proposals.status = Sold
+→ call_log.stage = Sold
+→ Proposal Detail shows Download Signed PDF button
+
+====================================================
+WORKFLOW RULES
+====================================================
+
+1. NEVER use drag and drop for files
+2. ALWAYS provide code as text in chat — never as downloads
+3. NEVER give half-baked solution mid-figuring-it-out
+4. Always grep before edits
+5. Python scripts via python3 << PYEOF heredoc
+6. Git commit after every script succeeds
+7. Ask for screenshot before assuming error cause
+8. One step at a time
+9. git push + handoff doc at session end
+
+====================================================
+BACKLOG
+====================================================
+
+SC-55: Goal Setting Flow
+SC-56: Multi-tenant email domain settings
+SC-58: Security hardening
+SC-62: Attachments on Call Log detail
+
+====================================================
+END OF HANDOFF v27
+====================================================

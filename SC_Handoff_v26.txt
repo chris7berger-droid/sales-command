@@ -1,0 +1,326 @@
+SALES COMMAND — HANDOFF DOCUMENT v26
+Generated: March 19, 2026
+====================================================
+
+HOW TO USE THIS DOCUMENT
+Start every new Claude thread with:
+"Continue building Sales Command. Here is the handoff doc v26 and the architecture doc."
+Upload this file + HDSP_CommandSuite_Architecture.docx + CLAUDE_COMMUNICATION_PROTOCOL.txt
+
+====================================================
+COMPLETED THIS SESSION (v26)
+====================================================
+
+HOME PAGE FIXES — COMPLETE ✅
+- Scaffold v1.1 label removed from App.jsx (line 167)
+- Has Bid and Sold stat cards now show all-time totals (rows not monthRows)
+- Sold stat card wired to actual signed proposals count (soldTotal state)
+- Monthly Billings and Yearly Sales wired to proposal_wtc.end_date
+- Pipeline bar now reflects call_log stage (synced with proposal status)
+- Conversion rate calculating correctly from closed deals
+
+SC-60: REQUIRED START/END DATE ON WTC — COMPLETE ✅
+- start_date and end_date columns added to proposal_wtc table
+- BiddingTab shows required date fields with red validation
+- Fields save/load from Supabase
+- Home billing cards filter by end_date (monthly = this month, yearly = this year)
+- Proposals list shows Start and End columns (shows "Multiple" if >1 WTC)
+
+CALL LOG STAGE SYNC — COMPLETE ✅
+- When proposal is Sent → call_log.stage = "Has Bid"
+- When proposal is Signed (Sold) → call_log.stage = "Sold"
+- PublicSigningPage.jsx updated to sync stage on signing
+- Proposals.jsx both handleSend functions updated to sync stage
+- Existing sold jobs backfilled via SQL
+
+BID DUE BANNER — COMPLETE ✅
+- Alert banner on Home page is now clickable
+- Clicking navigates to Call Log with bid_due filter applied
+- Yellow filter banner shows in Call Log with "✕ Show All" button
+- Clears filter and returns to full list
+
+SC-59-C: NEW PROPOSAL BUTTON — COMPLETE ✅
+- onNewProposal wired from App.jsx → CallLog → CallLogDetail
+- initialProposal state in App.jsx passes job to Proposals page
+- New Proposal button shows in CallLogDetail header
+
+CALL LOG DETAIL — COMPLETE ✅
+- All New Inquiry fields now editable: customer name, job name,
+  stage, sales rep, bid due, follow up, jobsite address (full),
+  billing address (with same-as-jobsite checkbox), notes
+- Work types fully editable (toggle buttons, saves via delete+reinsert)
+- Orphaned src/CallLogDetail.jsx deleted
+
+SC-61 TAGGED — BACKLOG
+- Lock WTC fields read-only when proposal status = Sold
+
+SC-62 TAGGED — BACKLOG
+- Attachments/photos on Call Log detail page
+
+====================================================
+NEXT TASKS (in priority order)
+====================================================
+
+1. SC-61: Lock WTC read-only when proposal = Sold (CRITICAL before go-live)
+
+2. Continue page-by-page polish pass:
+   - Proposals page review
+   - WTC review (SC-59-D, SC-59-E)
+   - SC-59-G: Status auto-refresh after signing
+   - SC-59-F: Outlook email rendering
+
+3. SC-62: Attachments on Call Log detail
+
+4. End-to-end regression test (full flow on production):
+   create customer → log call → create proposal → build WTC →
+   generate PDF → send → customer signs → status = Sold →
+   download signed PDF
+
+5. SC-57: Proposal header showing full UUID — verify still needed
+
+6. SC-58: Security hardening (RLS policies, leaked password protection)
+
+7. SC-55 (backlog): Goal Setting Flow — manager sets goals per rep,
+   Home page reads from Supabase instead of hardcoded constants
+
+8. SC-56 (backlog): Multi-tenant email settings page
+
+9. SC-62 (backlog): Attachments/photos on Call Log detail
+
+====================================================
+PRODUCTION ENVIRONMENT
+====================================================
+
+Production URL: https://www.scmybiz.com
+Vercel project: sales-command (chris7berger-droid's project)
+GitHub repo: chris7berger-droid/sales-command (branch: main)
+Auto-deploys on every push to main
+
+Vercel env vars set:
+  VITE_SUPABASE_URL
+  VITE_SUPABASE_ANON_KEY
+
+====================================================
+SUPABASE COLUMN REFERENCE (verified — do not guess)
+====================================================
+
+table: team_members
+  columns: id, name (NOT full_name), email, phone, role, auth_id, active
+
+table: proposals
+  columns: id, total (NOT total_price), approved_at (NOT accepted_at),
+           status, created_at, customer, intro_completed, attachments_added,
+           recipients_assigned, wtc_verified, call_log_id, proposal_number,
+           signing_token
+
+table: call_log
+  columns: id, display_job_number, stage, bid_due, follow_up, created_at,
+           jobsite_address, customer_name, sales_name, job_number, job_name,
+           is_change_order, parent_job_id, co_number, co_standalone,
+           jobsite_city, jobsite_state, jobsite_zip,
+           billing_address, billing_city, billing_state, billing_zip,
+           billing_address_same, customer_id
+
+table: customers
+  columns: id, name, customer_type, first_name, last_name, phone, email,
+           contact_phone, contact_email, billing_same, billing_name,
+           billing_phone, billing_email, business_address, business_city,
+           business_state, business_zip
+
+table: proposal_wtc
+  columns: id, proposal_id, work_type_id (INTEGER 1-40), burden_rate,
+           ot_burden_rate, tax_rate, prevailing_wage, regular_hours,
+           ot_hours, markup_pct, materials (jsonb), size, unit,
+           sales_sow, field_sow (jsonb), sub_areas (jsonb),
+           travel (jsonb), discount, discount_reason, locked, created_at,
+           start_date (date), end_date (date)
+
+table: proposal_signatures
+  columns: id, proposal_id, signer_name, signer_email, signed_at,
+           ip_address, pdf_url
+
+====================================================
+SUPABASE STORAGE
+====================================================
+
+bucket: signed-proposals
+  - Public bucket: ON
+  - RLS policies: public INSERT + public SELECT on storage.objects
+  - Files named: signed-proposal-{proposal_id}-{timestamp}.pdf
+  - Public URL format: https://pbgvgjjuhnpsumnowuym.supabase.co/storage/v1/object/public/signed-proposals/{filename}
+
+====================================================
+SUPABASE RLS POLICIES (proposals table — public)
+====================================================
+
+- Allow public read by signing_token (FOR SELECT TO public)
+- Allow public update status by signing_token (FOR UPDATE TO public)
+
+====================================================
+FILE LOCATIONS (critical)
+====================================================
+
+- src/pages/WTCCalculator.jsx
+- src/pages/CallLog.jsx
+- src/pages/Proposals.jsx
+- src/pages/PublicSigningPage.jsx
+- src/pages/Home.jsx
+- src/components/CallLogDetail.jsx
+- src/lib/supabase.js
+- src/lib/tokens.js
+- src/App.jsx
+- vercel.json (project root)
+
+NOTE: Orphaned src/CallLogDetail.jsx has been deleted
+
+====================================================
+WTC CALCULATOR ARCHITECTURE (key facts)
+====================================================
+
+- WTCCalculator.jsx lives in src/pages/ NOT src/components/
+- CustomerSigningPage is built inside WTCCalculator.jsx (internal preview only)
+- PDFPreviewModal is built inside WTCCalculator.jsx
+- PublicSigningPage.jsx is the customer-facing signing page (separate file)
+- autosave: debounced 1.5s, upsert pattern
+- work_type_id is INTEGER (1-40), not UUID
+- WTC has 7 tabs: Bidding Info, Labor, Materials, Scope of Work, Travel, Discount, Summary
+- Summary tab: Lock & Approve → Generate PDF
+- On autosave: writes proposalPrice back to proposals.total
+- start_date and end_date fields on Bidding Info tab (required)
+
+====================================================
+PDF MODAL ARCHITECTURE (two modals)
+====================================================
+
+1. PDFPreviewModal in WTCCalculator.jsx
+   - Single WTC only
+   - Launched from WTC Summary tab
+
+2. ProposalPDFModal in Proposals.jsx
+   - Multi-WTC, fetches ALL WTCs
+   - Launched from Proposal Detail → Generate PDF or Send Proposal
+   - Has Send tab wired to send-proposal Edge Function
+   - CANONICAL customer version
+
+====================================================
+SIGNING FLOW ARCHITECTURE (SC-30)
+====================================================
+
+FLOW:
+Proposal Detail → Send Proposal → ProposalPDFModal (Send tab)
+→ send-proposal Edge Function → Resend email → customer gets link
+→ /sign/:token → PublicSigningPage.jsx → customer types name
+→ jsPDF generates branded PDF → canvas renders cursive signature
+→ PDF uploaded to signed-proposals bucket
+→ pdf_url saved to proposal_signatures
+→ proposals.status = Sold
+→ call_log.stage = Sold (synced in PublicSigningPage.jsx)
+→ Proposal Detail shows ⬇ Download Signed PDF button
+
+KEY FILES:
+- PublicSigningPage.jsx — customer signing page + PDF generation
+- Proposals.jsx — ProposalPDFModal (send tab) + Download button
+- supabase/functions/send-proposal — email delivery Edge Function
+
+EDGE FUNCTION SETTINGS (critical):
+- send-proposal: "Verify JWT with legacy secret" = OFF
+  (do not turn back on — was causing 401 errors)
+
+====================================================
+STAGE SYNC RULES
+====================================================
+
+- Proposal Sent → call_log.stage = "Has Bid"
+- Proposal Signed (Sold) → call_log.stage = "Sold"
+- Draft → no stage change (never regress)
+- Sync happens in: Proposals.jsx (handleSend) + PublicSigningPage.jsx (on sign)
+
+====================================================
+HOME PAGE DATA LOGIC
+====================================================
+
+- New Inquiries: call_log stage = "New Inquiry", this month (created_at)
+- Wants Bid: call_log stage = "Wants Bid", all active
+- Has Bid: call_log stage = "Has Bid", all time
+- Sold: proposals.status = "Sold", all time count
+- Monthly Billings: proposals status=Sold, proposal_wtc.end_date this month
+- Yearly Sales: proposals status=Sold, proposal_wtc.end_date this year
+- Conversion Rate: sold / (sold + lost) from call_log stages this month
+- Proposals Sent: proposals status in [Sent, Viewed, Approved] this month
+
+====================================================
+BID DUE FILTER
+====================================================
+
+- bidDueFilter state in App.jsx
+- Clicking Home banner sets bidDueFilter=true, navigates to calllog
+- CallLog filters rows to bid_due === today when bidDueFilter=true
+- Yellow banner in CallLog shows "Show All" button to clear filter
+- onClearBidDueFilter prop clears state in App.jsx
+
+====================================================
+NAVIGATION — NEW PROPOSAL FROM CALL LOG
+====================================================
+
+Flow: Call Log detail → + New Proposal button → navigates to
+Proposals page → NewProposalModal opens with job pre-selected
+
+Files involved:
+- App.jsx: initialProposal state, onNewProposal passed to CallLog
+- CallLog.jsx: accepts onNewProposal, passes to CallLogDetail
+- CallLogDetail.jsx: accepts onNewProposal, shows Btn in header
+- Proposals.jsx: accepts initialProposal, auto-opens modal
+
+====================================================
+WORKFLOW RULES (always follow)
+====================================================
+
+1. NEVER use drag and drop for files
+2. ALWAYS provide code as text in chat — never as downloads
+3. NEVER give half-baked solution mid-figuring-it-out
+4. Supabase SQL Editor: button is "Create new snippet"
+5. Complex file edits: use Python scripts via terminal
+6. Always git commit immediately after Python scripts succeed
+7. When something looks wrong, ask for screenshot before assuming
+8. Always check column names against reference before writing queries
+9. Spoon-feed instructions — one step at a time
+10. When writing Python fix scripts — use python3 << 'PYEOF' heredoc
+11. After every Python script succeeds — immediately git commit
+12. VS Code Cmd+S won't save if search bar is open — press Escape first
+13. Never paste multi-line Python heredocs with single quotes inside
+    the heredoc string — use double quotes inside or escape them
+14. git rm to delete files — never rm alone (causes restore issues)
+
+====================================================
+DESIGN PHILOSOPHY
+====================================================
+
+- Favor fast obvious clicks over fewest clicks
+- PDF stays white background — customers print proposals
+- No cost breakdown on customer-facing PDF
+- Teal for buttons, borders, badges, active states only
+- SC-59 polish pass in progress
+
+====================================================
+CURRENT APP STATE
+====================================================
+
+WORKING PAGES:
+- Home, Call Log, Proposals, Invoices, Managers, Customers, Our Team
+
+PLACEHOLDER PAGES:
+- Sales Dash, Jobs, Feedback
+
+====================================================
+BACKLOG
+====================================================
+
+SC-55: Goal Setting Flow — manager sets goals per rep in Supabase,
+       Home page reads goals dynamically
+SC-56: Multi-tenant email domain settings (post-market launch)
+SC-61: Lock WTC fields read-only when proposal status = Sold (CRITICAL)
+SC-62: Attachments/photos on Call Log detail page
+
+====================================================
+END OF HANDOFF v26
+====================================================

@@ -65,16 +65,22 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep" 
       const monthLog = (log || []).filter(r => r.created_at?.startsWith(month));
       setMonthRows(monthLog);
 
-      let propQuery = supabase.from("proposals").select('total, approved_at, created_at, status, call_log_id, call_log(sales_name)');
+      let propQuery = supabase.from("proposals").select('total, approved_at, created_at, status, call_log_id, call_log(sales_name), proposal_wtc(end_date)');
       const { data: props } = await propQuery;
       const filteredProps = isRep ? (props || []).filter(p => p.call_log?.sales_name === displayName) : (props || []);
 
+      const getEndDate = p => {
+        const wtcs = p.proposal_wtc || [];
+        const dates = wtcs.map(w => w.end_date).filter(Boolean).sort();
+        return dates[dates.length - 1] || null;
+      };
+
       const monthBill = filteredProps
-        .filter(p => p.approved_at?.startsWith(month))
+        .filter(p => p.status === "Sold" && getEndDate(p)?.startsWith(month))
         .reduce((sum, p) => sum + (p.total || 0), 0);
 
       const ytdBill = filteredProps
-        .filter(p => p.approved_at?.startsWith(year))
+        .filter(p => p.status === "Sold" && getEndDate(p)?.startsWith(year))
         .reduce((sum, p) => sum + (p.total || 0), 0);
 
       const sent = filteredProps

@@ -148,7 +148,7 @@ function ProposalPDFModal({ proposal, onClose }) {
   const [sendDone, setSendDone] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState(null);
-  const signingUrl = `${window.location.origin}/sign/${proposal.signing_token}`;
+  const signingUrl = `https://www.scmybiz.com/sign/${proposal.signing_token}`;
 
   async function handleSend() {
     setSending(true);
@@ -385,7 +385,7 @@ function SendPlaceholder({ proposal, onBack }) {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(null);
 
-  const signingUrl = `${window.location.origin}/sign/${proposal.signing_token}`;
+  const signingUrl = `https://www.scmybiz.com/sign/${proposal.signing_token}`;
 
   async function handleSend() {
     setSending(true);

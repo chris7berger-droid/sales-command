@@ -42,7 +42,7 @@ function GoalCard({ label, actual, goal, fmt = v => v, accent = C.teal }) {
   );
 }
 
-export default function Home({ displayName = "there", displayRole = "Sales Rep" }) {
+export default function Home({ displayName = "there", displayRole = "Sales Rep", setActive, setBidDueFilter }) {
  
   const [rows,          setRows]          = useState([]);
   const [monthRows,     setMonthRows]     = useState([]);
@@ -125,7 +125,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep" 
 
       {/* ALERT BANNER */}
       {(bids > 0 || fups > 0) && (
-        <div style={{ background: "rgba(249,168,37,0.12)", border: "1.5px solid rgba(249,168,37,0.4)", borderRadius: 10, padding: "11px 18px", display: "flex", gap: 12, alignItems: "center" }}>
+        <div onClick={() => { if (setBidDueFilter) setBidDueFilter(true); if (setActive) setActive("calllog"); }} style={{ background: "rgba(249,168,37,0.12)", border: "1.5px solid rgba(249,168,37,0.4)", borderRadius: 10, padding: "11px 18px", display: "flex", gap: 12, alignItems: "center", cursor: "pointer" }}>
           <span style={{ fontSize: 16 }}>⚠</span>
           <span style={{ fontSize: 13.5, color: "#7a5000", fontWeight: 700, fontFamily: F.ui }}>
             {bids > 0 && `${bids} bid${bids > 1 ? "s" : ""} due today`}

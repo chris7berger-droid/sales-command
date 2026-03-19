@@ -514,7 +514,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-export default function CallLog({ teamMember, onNewProposal }) {
+export default function CallLog({ teamMember, onNewProposal, bidDueFilter, onClearBidDueFilter }) {
   const [rows, setRows]           = useState([]);
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -557,8 +557,9 @@ export default function CallLog({ teamMember, onNewProposal }) {
     );
   }
 
+  const tod = new Date().toISOString().slice(0, 10);
   const filtered = rows.filter(r =>
-    (filter === "All" || r.stage === filter) &&
+    (bidDueFilter ? r.bid_due === tod : (filter === "All" || r.stage === filter)) &&
     ((r.display_job_number || r.job_name)?.toLowerCase().includes(q.toLowerCase()) ||
      String(r.job_number || r.id).includes(q))
   );

@@ -44,7 +44,6 @@ export default function App() {
   const [open,       setOpen]       = useState(true);
   const [session,    setSession]    = useState(undefined);
   const [teamMember, setTeamMember] = useState(null);
-  const [initialProposal, setInitialProposal] = useState(null);
 
   useEffect(() => {
     getSession().then(s => setSession(s ?? null));
@@ -70,7 +69,7 @@ export default function App() {
     );
   }
 
-  if (!session) return <Login />;
+  if (!session && !window.location.pathname.startsWith("/sign/")) return <Login />;
 
   const displayName = teamMember?.name ?? session.user.email;
   const displayRole     = teamMember?.role      ?? "Member";
@@ -80,8 +79,8 @@ export default function App() {
     switch (active) {
       case "home": return <Home displayName={displayName} displayRole={displayRole} />;
       case "sales-dash": return <SalesDash displayName={displayName} />;
-      case "calllog":   return <CallLog teamMember={teamMember} onNewProposal={(job) => { setInitialProposal({ job }); setActive("proposals"); }} />;
-      case "proposals": return <Proposals teamMember={teamMember} initialProposal={initialProposal} onClearInitial={() => setInitialProposal(null)} />;
+      case "calllog":   return <CallLog teamMember={teamMember} />;
+      case "proposals": return <Proposals teamMember={teamMember} />;
       case "invoices":  return <Invoices />;
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
       case "customers": return <Customers />;

@@ -89,7 +89,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep" 
     load();
   }, [displayName, displayRole]);
 
-  const sc           = STAGES.reduce((a, s) => ({ ...a, [s]: monthRows.filter(r => r.stage === s).length }), {});
+  const sc = STAGES.reduce((a, s) => ({ ...a, [s]: (["Has Bid","Sold"].includes(s) ? rows : monthRows).filter(r => r.stage === s).length }), {});
   const pCol         = { "New Inquiry": C.teal, "Wants Bid": C.amber, "Has Bid": C.purple, Sold: C.green, Lost: C.red };
   const tot          = STAGES.reduce((a, s) => a + (sc[s] || 0), 0) || 1;
   const bids         = rows.filter(r => r.bid_due === tod()).length;

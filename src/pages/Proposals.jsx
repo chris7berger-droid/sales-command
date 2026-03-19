@@ -53,7 +53,7 @@ function NewProposalModal({ onClose, onCreated, preselectedJob }) {
         total: 0,
         proposal_number: proposalNumber,
       }])
-      .select("*, call_log(jobsite_address, display_job_number)")
+      .select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))")
       .single();
     setSaving(false);
     if (err) { setError(err.message); return; }
@@ -164,7 +164,7 @@ function ProposalPDFModal({ proposal, onClose }) {
             "Authorization": `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({
-            customerEmail: proposal.call_log?.customer_email || "chris@hdspnv.com",
+            customerEmail: proposal.call_log?.customers?.contact_email || "",
             customerName:  proposal.call_log?.customer_name  || "Customer",
             repEmail:      "",
             repName:       proposal.call_log?.sales_name || "",
@@ -401,7 +401,7 @@ function SendPlaceholder({ proposal, onBack }) {
             "Authorization": `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({
-            customerEmail: proposal.call_log?.customer_email || "chris@hdspnv.com",
+            customerEmail: proposal.call_log?.customers?.contact_email || "",
             customerName:  proposal.call_log?.customer_name  || "Customer",
             repEmail:      proposal.rep_email || "",
             repName:       proposal.rep_name  || "",
@@ -535,7 +535,7 @@ useEffect(() => {
     onDeleted && onDeleted();
   }
 
-if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number)").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number)").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
+if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
   if (showSend) return <SendPlaceholder proposal={p} onBack={() => setShowSend(false)} />;
   if (showRecipients) return <RecipientsPlaceholder proposal={p} onBack={() => setShowRecipients(false)} />;
 
@@ -673,7 +673,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial 
   const load = async () => {
     const { data } = await supabase
       .from("proposals")
-      .select("*, call_log(jobsite_address, display_job_number)")
+      .select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))")
       .order("created_at", { ascending: false });
     setProposals(data || []);
     setLoading(false);

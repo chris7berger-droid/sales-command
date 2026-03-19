@@ -164,7 +164,7 @@ function AppShell({ active, setActive, open, setOpen, displayName, displayRole, 
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>React · Supabase · Stripe</span>
-              <span style={{ background: C.tealGlow, border: `1px solid ${C.tealBorder}`, color: C.tealDark, fontSize: 10.5, fontWeight: 800, padding: "3px 10px", borderRadius: 20, fontFamily: F.display, letterSpacing: "0.08em" }}>SCAFFOLD v1.1</span>
+             
             </div>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>

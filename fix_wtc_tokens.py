@@ -10,4 +10,16 @@ src = src.replace(
 with open(path, "w") as f:
     f.write(src)
 
-print("Done.")
+print("Done.")chrisberger@Mac sales-command % python3 fix_pdf.py
+/Library/Developer/CommandLineTools/usr/bin/python3: can't open file '/Users/chrisberger/sales-command/fix_pdf.py': [Errno 2] No such file or directory
+chrisberger@Mac sales-command % 
+
+
+
+
+
+
+
+
+
+

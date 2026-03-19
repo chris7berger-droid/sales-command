@@ -578,7 +578,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} onClose
             <Btn sz="sm" v="ghost" onClick={handleDelete} style={{ color: C.red, borderColor: C.red }}>🗑 Delete</Btn>
           )}
           <Btn sz="sm" v="ghost" onClick={() => setShowPDF(true)}>Generate PDF</Btn>
-<Btn sz="sm" onClick={() => setShowPDF(true)}>Send Proposal</Btn>
+          {p.status !== "Sold" && <Btn sz="sm" onClick={() => setShowPDF(true)}>Send Proposal</Btn>}
         </div>
       </div>
 

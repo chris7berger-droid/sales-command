@@ -50,7 +50,11 @@ export default function App() {
   useEffect(() => {
     getSession().then(s => setSession(s ?? null));
 
-    const sub = onAuthStateChange(async (s) => {
+    const sub = onAuthStateChange(async (event, s) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setSession(null);
+        return;
+      }
       setSession(s ?? null);
       if (s) {
         const member = await getCurrentTeamMember();

@@ -26,10 +26,12 @@ export default function Login() {
   const [newPassword, setNewPassword] = useState("")
 
   useEffect(() => {
-    const hash = window.location.hash
-    if (hash.includes("type=recovery")) {
-      setMode("reset")
-    }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setMode("reset")
+      }
+    })
+    return () => subscription.unsubscribe()
   }, [])
 
   async function handleSubmit(e) {

@@ -262,7 +262,7 @@ function ProposalPDFModal({ proposal, onClose }) {
             {view === "preview" && !sendDone && (
               <>
                 <button onClick={() => window.print()} style={{ background: "none", border: "1.5px solid #E5E7EB", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4B5563", cursor: "pointer", fontFamily: "inherit" }}>🖨 Print</button>
-                <button onClick={() => setView("send")} style={{ background: "#1976D2", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "white", cursor: "pointer", fontFamily: "inherit" }}>📨 Send to Customer →</button>
+                {proposal.status !== "Sold" && <button onClick={() => setView("send")} style={{ background: "#1976D2", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "white", cursor: "pointer", fontFamily: "inherit" }}>📨 Send to Customer →</button>}
               </>
             )}
             {view === "send" && !sendDone && (
@@ -543,7 +543,7 @@ useEffect(() => {
     onDeleted && onDeleted();
   }
 
-if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
+if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); if (openPDF) setShowPDF(true); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
   if (showSend) return <SendPlaceholder proposal={p} onBack={() => setShowSend(false)} />;
   if (showRecipients) return <RecipientsPlaceholder proposal={p} onBack={() => setShowRecipients(false)} />;
 

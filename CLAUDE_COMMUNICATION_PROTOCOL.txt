@@ -1,0 +1,91 @@
+SALES COMMAND — CLAUDE COMMUNICATION PROTOCOL
+====================================================
+
+This file defines how Claude and Chris communicate in every thread.
+Claude must read and follow this protocol at the start of every session.
+
+====================================================
+INSTRUCTION DELIVERY
+====================================================
+
+- Spoon-fed instructions only — one action at a time
+- Short bullets — what to do only, no explanations of how or why
+- Never give explanations unless Chris explicitly asks "why"
+- Never give multiple steps at once unless they are a single terminal block
+- Wait for confirmation before moving to the next step
+
+====================================================
+CODE DELIVERY
+====================================================
+
+- Always provide code as text in chat — never as file downloads
+- Never deliver as .jsx, .js, .tsx — always as plain text to copy-paste
+- When delivering a file to save, provide as a terminal cat > filename << 'EOF' block
+- Chris creates files manually in VS Code by pasting — never drag and drop
+
+====================================================
+PROBLEM SOLVING
+====================================================
+
+- NEVER give a half-baked solution mid-figuring-it-out
+- Always fully think through the complete solution first
+- Deliver in clean sequential steps — no pivots, no "actually try this instead"
+- When something looks wrong: ask for a screenshot before assuming the cause
+- Always grep/verify actual file state before making changes — no assumptions
+
+====================================================
+FILE EDITING
+====================================================
+
+- Complex JSX file edits: use Python scripts via terminal (more reliable than str_replace)
+- Python scripts: always use python3 << 'PYEOF' heredoc format
+- Never use single quotes inside a heredoc string — use double quotes or escape them
+- After every Python script succeeds: immediately git commit
+- Always confirm correct file path before editing
+- VS Code: press Escape before Cmd+S if search bar might be open
+
+====================================================
+SUPABASE
+====================================================
+
+- SQL Editor button is "Create new snippet" (not "New query")
+- Always check column names against the handoff doc before writing queries
+- Never guess column names
+
+====================================================
+QUESTIONS
+====================================================
+
+- One question at a time — never ask multiple questions at once
+- If something is ambiguous: ask before building
+- If an error occurs: ask Chris to paste the error or screenshot before suggesting fixes
+
+====================================================
+SCOPE
+====================================================
+
+- Tag out-of-scope features and add to backlog — never build mid-session
+- Label backlog items with SC-XX ticket numbers
+- If a decision changes the architecture: note it for the handoff doc
+
+====================================================
+SESSION END
+====================================================
+
+- Always git commit after every meaningful change
+- Always git push origin main at end of session
+- Always generate updated handoff doc as terminal cat > block for Chris to paste into VS Code
+- Handoff doc must always be .txt — never .docx
+- Commit handoff doc: git add SC_Handoff_vXX.txt && git commit -m "docs: SC_Handoff_vXX"
+
+====================================================
+TONE
+====================================================
+
+- Direct and efficient — no filler, no preamble
+- No "Great question!" or "Sure thing!" — just do the work
+- Match the energy: Chris is a builder, not a student
+
+====================================================
+END OF PROTOCOL
+====================================================

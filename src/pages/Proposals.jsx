@@ -673,7 +673,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial 
   const load = async () => {
     const { data } = await supabase
       .from("proposals")
-      .select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))")
+      .select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email)), proposal_wtc(start_date, end_date)")
       .order("created_at", { ascending: false });
     setProposals(data || []);
     setLoading(false);
@@ -705,6 +705,18 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial 
               { k: "total",      l: "Total",      r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$(v)}</span> },
               { k: "created_at", l: "Created",    r: v => fmtD(v?.slice(0,10)) },
               { k: "approved_at",l: "Approved",   r: v => v ? fmtD(v?.slice(0,10)) : <span style={{ color: C.textFaint }}>—</span> },
+              { k: "proposal_wtc", l: "Start", r: v => {
+                const dates = (v || []).map(w => w.start_date).filter(Boolean);
+                if (dates.length === 0) return <span style={{ color: C.textFaint }}>—</span>;
+                if (dates.length > 1) return <span style={{ color: C.textFaint, fontStyle: "italic" }}>Multiple</span>;
+                return fmtD(dates[0]);
+              }},
+              { k: "proposal_wtc", l: "End", r: v => {
+                const dates = (v || []).map(w => w.end_date).filter(Boolean);
+                if (dates.length === 0) return <span style={{ color: C.textFaint }}>—</span>;
+                if (dates.length > 1) return <span style={{ color: C.textFaint, fontStyle: "italic" }}>Multiple</span>;
+                return fmtD(dates[0]);
+              }},
               { k: "_a", l: "", r: (_, row) => (
                 <div style={{ display: "flex", gap: 5 }}>
                   <Btn sz="sm" v="secondary" onClick={() => setSel(row)}>Open</Btn>

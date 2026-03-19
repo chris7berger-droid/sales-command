@@ -42,6 +42,7 @@ function Placeholder({ label }) {
 export default function App() {
   const [active,     setActive]     = useState("home");
   const [bidDueFilter, setBidDueFilter] = useState(false);
+  const [initialProposal, setInitialProposal] = useState(null);
   const [open,       setOpen]       = useState(true);
   const [session,    setSession]    = useState(undefined);
   const [teamMember, setTeamMember] = useState(null);
@@ -80,8 +81,8 @@ export default function App() {
     switch (active) {
       case "home": return <Home displayName={displayName} displayRole={displayRole} setActive={setActive} setBidDueFilter={setBidDueFilter} />;
       case "sales-dash": return <SalesDash displayName={displayName} />;
-      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} />;
-      case "proposals": return <Proposals teamMember={teamMember} />;
+      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} />;
+      case "proposals": return <Proposals teamMember={teamMember} initialProposal={initialProposal} onClearInitial={() => setInitialProposal(null)} />;
       case "invoices":  return <Invoices />;
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
       case "customers": return <Customers />;

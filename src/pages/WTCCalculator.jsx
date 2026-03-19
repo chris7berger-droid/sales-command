@@ -438,6 +438,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
   const setOT = v => onChange({ ...data, ot_burden_rate: parseFloat(v) || 0, ot_overridden: true });
   const otIsAuto = !data.ot_overridden && Math.abs(data.ot_burden_rate - data.burden_rate * 1.5) < 0.02;
 
+  const setDate = k => v => onChange({ ...data, [k]: v });
   return (
     <div>
       <SectionHeader label="Bidding Information" hint="Rates used to compute all labor costs across this WTC" />
@@ -478,6 +479,24 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
           </div>
         </div>
         <Field label="Tax Rate" value={data.tax_rate} onChange={set("tax_rate")} suffix="%" type="number" />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px", marginTop: 8 }}>
+        <div style={{ marginBottom: 14 }}>
+          <Label>Tentative Start Date <span style={{ color: T.red }}>*</span></Label>
+          <input type="date" value={data.start_date || ""} onChange={e => setDate("start_date")(e.target.value)}
+            style={{ width: "100%", border: `1.5px solid ${data.start_date ? T.gray200 : T.red}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: T.gray900, background: "#bfb3a1", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+            onFocus={e => e.target.style.borderColor = T.green}
+            onBlur={e => e.target.style.borderColor = data.start_date ? T.gray200 : T.red} />
+          {!data.start_date && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required — use tentative date if unknown</div>}
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <Label>Tentative End Date <span style={{ color: T.red }}>*</span></Label>
+          <input type="date" value={data.end_date || ""} onChange={e => setDate("end_date")(e.target.value)}
+            style={{ width: "100%", border: `1.5px solid ${data.end_date ? T.gray200 : T.red}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: T.gray900, background: "#bfb3a1", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+            onFocus={e => e.target.style.borderColor = T.green}
+            onBlur={e => e.target.style.borderColor = data.end_date ? T.gray200 : T.red} />
+          {!data.end_date && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required — use tentative date if unknown</div>}
+        </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: -4, marginBottom: 20, padding: "12px 16px", background: T.gray50, borderRadius: 8, border: `1px solid ${T.gray200}` }}>
         <input type="checkbox" id="pw" checked={data.prevailing_wage || false}
@@ -1532,7 +1551,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const autosaveTimer = useRef(null);
   const [workTypes,  setWorkTypes] = useState([]);
   const [selectedWorkTypeId, setSelectedWorkTypeId] = useState(workTypeId ?? null);
-  const [bidding,  setBidding]  = useState({ burden_rate: 56.50, ot_burden_rate: 84.75, tax_rate: 8.25, prevailing_wage: false, ot_overridden: false });
+  const [bidding,  setBidding]  = useState({ burden_rate: 56.50, ot_burden_rate: 84.75, tax_rate: 8.25, prevailing_wage: false, ot_overridden: false, start_date: "", end_date: "" });
   const [labor,    setLabor]    = useState({ regular_hours: 0, ot_hours: 0, markup_pct: 0 });
   const [materials,setMaterials]= useState([]);
   const [sow,      setSow]      = useState({ size: 0, unit: "SQFT", sales_sow: "", field_sow: [] });
@@ -1598,6 +1617,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
         reason: data.discount_reason ?? "",
       });
       setLocked(data.locked ?? false);
+      setBidding(prev => ({ ...prev, start_date: data.start_date ?? "", end_date: data.end_date ?? "" }));
       if (data.work_type_id) setSelectedWorkTypeId(data.work_type_id);
       setSaved(true);
     }
@@ -1653,6 +1673,8 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       travel:          travel,
       discount:        discount.amount,
       discount_reason: discount.reason,
+      start_date:      bidding.start_date || null,
+      end_date:        bidding.end_date || null,
       locked:          locked,
     };
     if (wtcId) {

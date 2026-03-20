@@ -285,7 +285,11 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
             <ChoiceBtn label="New Customer" selected={data.customerMode === "new"} onClick={() => set("customerMode", "new")} />
           </div>
           {data.customerMode === "existing" && (
-            <select value={data.customerId} onChange={e => set("customerId", e.target.value)} style={inputStyle}>
+            <select value={data.customerId} onChange={e => {
+              const chosen = customers.find(c => c.id === e.target.value)
+              set("customerId", e.target.value)
+              if (chosen) set("customerType", chosen.customer_type)
+            }} style={inputStyle}>
               <option value="">— Select Customer —</option>
               {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>

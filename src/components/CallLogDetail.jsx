@@ -287,7 +287,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                 href={att.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: C.teal, fontSize: 13, fontFamily: F.ui, fontWeight: 600, textDecoration: "none" }}
+                style={{ background: C.dark, color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", padding: "6px 14px", borderRadius: 6, textDecoration: "none", display: "inline-block" }}
               >
                 {att.name}
               </a>

@@ -60,26 +60,38 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     (job.job_work_types || []).map(jw => jw.work_type_id)
   );
   const [attachments, setAttachments] = useState([]);
+  const [uploading, setUploading] = useState(false);
 
-  useEffect(() => {
-    async function fetchAttachments() {
-      const { data, error: listErr } = await supabase.storage
-        .from("job-attachments")
-        .list(String(job.id));
-      if (listErr || !data) return;
-      setAttachments(
-        data.map(file => {
-          const { data: urlData } = supabase.storage
-            .from("job-attachments")
-            .getPublicUrl(`${job.id}/${file.name}`);
-          // strip the leading timestamp prefix for display
-          const display = file.name.replace(/^\d+-/, "");
-          return { name: display, url: urlData.publicUrl };
-        })
-      );
+  async function fetchAttachments() {
+    const { data, error: listErr } = await supabase.storage
+      .from("job-attachments")
+      .list(String(job.id));
+    if (listErr || !data) return;
+    setAttachments(
+      data.map(file => {
+        const { data: urlData } = supabase.storage
+          .from("job-attachments")
+          .getPublicUrl(`${job.id}/${file.name}`);
+        const display = file.name.replace(/^\d+-/, "");
+        return { name: display, url: urlData.publicUrl };
+      })
+    );
+  }
+
+  useEffect(() => { fetchAttachments(); }, [job.id]);
+
+  async function handleUpload(e) {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    setUploading(true);
+    for (const file of files) {
+      const path = `${job.id}/${Date.now()}-${file.name}`;
+      await supabase.storage.from("job-attachments").upload(path, file);
     }
-    fetchAttachments();
-  }, [job.id]);
+    await fetchAttachments();
+    setUploading(false);
+    e.target.value = "";
+  }
 
   function toggleWorkType(id) {
     setSelectedWorkTypes(prev =>
@@ -277,24 +289,29 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       </div>
 
       {/* Attachments */}
-      {attachments.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={labelStyle}>Attachments</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {attachments.map(att => (
-              <a
-                key={att.url}
-                href={att.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ background: C.dark, color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", padding: "6px 14px", borderRadius: 6, textDecoration: "none", display: "inline-block" }}
-              >
-                {att.name}
-              </a>
-            ))}
-          </div>
+      <div style={{ marginBottom: 24 }}>
+        <div style={labelStyle}>Attachments</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+          {attachments.map(att => (
+            <a
+              key={att.url}
+              href={att.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ background: C.dark, color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", padding: "6px 14px", borderRadius: 6, textDecoration: "none", display: "inline-block" }}
+            >
+              {att.name}
+            </a>
+          ))}
+          {attachments.length === 0 && (
+            <span style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>No attachments yet</span>
+          )}
         </div>
-      )}
+        <label style={{ background: C.dark, color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", padding: "6px 14px", borderRadius: 6, cursor: uploading ? "not-allowed" : "pointer", display: "inline-block", opacity: uploading ? 0.6 : 1 }}>
+          {uploading ? "Uploading…" : "+ Upload Files"}
+          <input type="file" multiple onChange={handleUpload} disabled={uploading} style={{ display: "none" }} />
+        </label>
+      </div>
 
       {/* Save */}
       {error && <div style={{ color: C.red, fontSize: 13, fontFamily: F.ui, marginBottom: 10 }}>{error}</div>}

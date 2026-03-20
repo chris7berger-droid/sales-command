@@ -14,6 +14,7 @@ import Managers from "./pages/Managers";
 import SalesDash from "./pages/SalesDash";
 import Customers from "./pages/Customers";
 import Team from "./pages/Team";
+import RegressionTest from "./components/RegressionTest";
 
 const NAV = [
   { id: "home",      label: "Home",       icon: "⌂"  },
@@ -179,6 +180,7 @@ function AppShell({ active, setActive, open, setOpen, displayName, displayRole, 
         </div>
 
       </div>
+      <RegressionTest />
     </>
   );
 }

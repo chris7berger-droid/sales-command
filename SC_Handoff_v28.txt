@@ -1,0 +1,242 @@
+SALES COMMAND — HANDOFF DOCUMENT v28
+Generated: March 20, 2026
+====================================================
+
+HOW TO USE THIS DOCUMENT
+Start every new Claude thread with:
+"Continue building Sales Command. Here is the handoff doc v28 and the architecture doc."
+Upload this file + HDSP_CommandSuite_Architecture.docx
+
+====================================================
+COMPLETED THIS SESSION (v28)
+====================================================
+
+JOB WALK / BID OFF PLANS — NOW PER-WTC
+- Moved from proposal-level to per-WTC (proposal_wtc.job_walk_type)
+- Two-option toggle: "Job Walk" or "Bid Off Plans", only one selectable
+- Green checkmark circle clickable to clear selection
+- DB: ALTER TABLE proposal_wtc ADD COLUMN IF NOT EXISTS job_walk_type text;
+
+WTC CARDS REDESIGN — COMPLETE
+- Each WTC card shows "WTC 1 — [Work Type Name]" with calculated price
+- Sequential numbering (WTC 1, WTC 2, WTC 3) not work_type_id
+- Work type names loaded from work_types table
+- Each WTC card has expandable inline progress checklist
+- Auto-expands when only one WTC exists
+- Single WTC Progress panel removed from right column
+
+WTC DELETE — COMPLETE
+- Delete button on each WTC card (red, right-aligned)
+- Confirms before deleting, verifies deletion succeeded
+
+WTC TAB BAR STICKY — COMPLETE
+- Tab bar (1 Bidding Info, 2 Labor, etc.) sticks below header on scroll
+
+PROPOSAL DELETE FIX — COMPLETE
+- Was silently failing due to RLS blocking DELETE operations
+- Cascade delete: proposal_signatures -> proposal_wtc -> proposals
+- Verification check confirms delete actually worked
+- DB: RLS DELETE policies needed (see migrations below)
+
+WTC PROGRESS PERCENTAGE READABILITY — COMPLETE
+- In-progress color changed from amber to dark text, green at 100%
+
+BACK TO PROPOSALS FROM WTC — COMPLETE
+- "Proposals" button in WTC header navigates to proposal list
+- "Close" button returns to proposal detail
+
+PREVAILING WAGE RATE FIELDS — COMPLETE
+- PW checkbox swaps labels: "Burden Rate" -> "PW Rate", "OT Burden Rate" -> "PW OT Rate"
+- Separate pw_rate/pw_ot_rate stored (toggling PW preserves both sets)
+- PW OT auto-calculates at 1.5x, all labor calcs use PW rates when active
+- DB: ALTER TABLE proposal_wtc ADD COLUMN IF NOT EXISTS pw_rate numeric DEFAULT 0;
+- DB: ALTER TABLE proposal_wtc ADD COLUMN IF NOT EXISTS pw_ot_rate numeric DEFAULT 0;
+
+PROPOSAL PDF PRINT FORMATTING — COMPLETE
+- @media print CSS hides modal chrome, overlay, regression tracker
+- Content flows naturally across multiple pages
+- Letter size, 0.6" margins
+
+PROPOSAL PDF — PER-WTC TOTALS — COMPLETE
+- Each WTC section shows teal-lined header: ── WORK TYPE 1 ──
+- Each WTC shows its own subtotal below its SOW
+- Combined Proposal Total at bottom
+- Per-WTC totals account for prevailing wage rates
+- WTC totals only shown when multiple WTCs exist
+
+SUB-AREA INPUT STYLING — COMPLETE
+- Sub-area name, size, and unit inputs changed from white to #bfb3a1
+
+REGRESSION TRACKER HIDDEN FROM PRINT — COMPLETE
+- data-regression-tracker attribute added, hidden via @media print
+
+CRITICAL LESSON: QUERY SAFETY
+- ALWAYS use select("*") for proposal_wtc queries in Proposals.jsx
+- Selecting specific columns that don't exist yet causes silent query
+  failure, making WTC data appear deleted
+- New columns must be added to Supabase BEFORE deploying code that
+  queries them by name
+
+====================================================
+DB MIGRATIONS (all applied March 20, 2026)
+====================================================
+
+-- All migrations below have been run in Supabase:
+ALTER TABLE proposals ADD COLUMN IF NOT EXISTS job_walk_type text;
+ALTER TABLE proposal_wtc ADD COLUMN IF NOT EXISTS pw_rate numeric DEFAULT 0;
+ALTER TABLE proposal_wtc ADD COLUMN IF NOT EXISTS pw_ot_rate numeric DEFAULT 0;
+ALTER TABLE proposal_wtc ADD COLUMN IF NOT EXISTS job_walk_type text;
+CREATE POLICY "Allow authenticated delete" ON proposals FOR DELETE TO authenticated USING (true);
+CREATE POLICY "Allow authenticated delete" ON proposal_wtc FOR DELETE TO authenticated USING (true);
+CREATE POLICY "Allow authenticated delete" ON proposal_signatures FOR DELETE TO authenticated USING (true);
+
+====================================================
+NEXT TASKS (in priority order)
+====================================================
+
+1. End-to-end regression test on production (scmybiz.com):
+   create customer -> log call -> create proposal -> build WTC ->
+   generate PDF -> send -> customer signs -> status = Sold ->
+   download signed PDF
+
+2. SC-58: Security hardening (RLS audit, leaked password protection)
+
+3. Backlog:
+   SC-55: Goal Setting Flow
+   SC-56: Multi-tenant email settings
+   SC-62: Attachments on Call Log detail
+
+====================================================
+PRODUCTION ENVIRONMENT
+====================================================
+
+Production URL: https://www.scmybiz.com
+Vercel project: sales-command (chris7berger-droid)
+GitHub repo: chris7berger-droid/sales-command (branch: main)
+Auto-deploys on every push to main
+
+Vercel env vars set:
+  VITE_SUPABASE_URL
+  VITE_SUPABASE_ANON_KEY
+
+====================================================
+SUPABASE COLUMN REFERENCE (verified — do not guess)
+====================================================
+
+table: team_members
+  columns: id, name (NOT full_name), email, phone, role, auth_id, active
+
+table: proposals
+  columns: id, total (NOT total_price), approved_at (NOT accepted_at),
+           status, created_at, customer, intro_completed, attachments_added,
+           recipients_assigned, wtc_verified, call_log_id, proposal_number,
+           signing_token, job_walk_type (legacy — now on proposal_wtc)
+
+table: call_log
+  columns: id, display_job_number, stage, bid_due, follow_up, created_at,
+           jobsite_address, customer_name, sales_name, job_number, job_name,
+           is_change_order, parent_job_id, co_number, co_standalone,
+           jobsite_city, jobsite_state, jobsite_zip,
+           billing_address, billing_city, billing_state, billing_zip,
+           billing_address_same, customer_id
+
+table: customers
+  columns: id, name, customer_type, first_name, last_name, phone, email,
+           contact_phone, contact_email, billing_same, billing_name,
+           billing_phone, billing_email, business_address, business_city,
+           business_state, business_zip
+
+table: proposal_wtc
+  columns: id, proposal_id, work_type_id (INTEGER 1-40), burden_rate,
+           ot_burden_rate, tax_rate, prevailing_wage, regular_hours,
+           ot_hours, markup_pct, materials (jsonb), size, unit,
+           sales_sow, field_sow (jsonb), sub_areas (jsonb),
+           travel (jsonb), discount, discount_reason, locked, created_at,
+           start_date (date), end_date (date), pw_rate, pw_ot_rate,
+           job_walk_type
+
+table: proposal_signatures
+  columns: id, proposal_id, signer_name, signer_email, signed_at,
+           ip_address, pdf_url
+
+table: work_types
+  columns: id, name
+
+====================================================
+SUPABASE STORAGE
+====================================================
+
+bucket: signed-proposals
+  - Public bucket: ON
+  - Files named: signed-proposal-{proposal_id}-{timestamp}.pdf
+
+bucket: job-attachments
+  - Public bucket: ON
+  - Files stored as: {call_log_id}/{timestamp}-{filename}
+
+====================================================
+SUPABASE AUTH CONFIG
+====================================================
+
+Site URL: https://www.scmybiz.com
+Redirect URLs: https://www.scmybiz.com
+Edge Function send-proposal: "Verify JWT with legacy secret" = OFF
+
+====================================================
+FILE LOCATIONS
+====================================================
+
+- src/pages/WTCCalculator.jsx
+- src/pages/CallLog.jsx
+- src/pages/Proposals.jsx
+- src/pages/PublicSigningPage.jsx
+- src/pages/Home.jsx
+- src/pages/Login.jsx
+- src/components/CallLogDetail.jsx
+- src/components/RegressionTest.jsx
+- src/lib/supabase.js
+- src/lib/tokens.js
+- src/App.jsx
+- vercel.json (project root)
+
+====================================================
+SIGNING FLOW ARCHITECTURE (SC-30)
+====================================================
+
+Proposal Detail -> Send Proposal -> ProposalPDFModal (Send tab)
+-> send-proposal Edge Function -> Resend email -> customer gets link
+-> /sign/:token -> PublicSigningPage.jsx -> customer types name
+-> jsPDF generates branded PDF -> signed-proposals bucket
+-> pdf_url saved to proposal_signatures
+-> proposals.status = Sold
+-> call_log.stage = Sold
+-> Proposal Detail shows Download Signed PDF button
+
+====================================================
+WORKFLOW RULES
+====================================================
+
+1. NEVER use drag and drop for files
+2. ALWAYS provide code as text in chat — never as downloads
+3. NEVER give half-baked solution mid-figuring-it-out
+4. Always grep before edits
+5. Python scripts via python3 << PYEOF heredoc
+6. Git commit after every script succeeds
+7. Ask for screenshot before assuming error cause
+8. One step at a time
+9. git push + handoff doc at session end
+10. ALWAYS use select("*") for proposal_wtc queries — never list
+    specific columns (prevents silent failures on missing columns)
+
+====================================================
+BACKLOG
+====================================================
+
+SC-55: Goal Setting Flow
+SC-56: Multi-tenant email domain settings
+SC-58: Security hardening
+SC-62: Attachments on Call Log detail
+
+====================================================
+END OF HANDOFF v28
+====================================================

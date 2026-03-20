@@ -26,7 +26,7 @@ export default function RegressionTest() {
   const pct = Math.round((done / STEPS.length) * 100);
 
   return (
-    <div style={{ position: "fixed", bottom: 18, right: 18, zIndex: 9999 }}>
+    <div data-regression-tracker style={{ position: "fixed", bottom: 18, right: 18, zIndex: 9999 }}>
       {open && (
         <div style={{
           width: 280, marginBottom: 10, background: C.dark, border: `1px solid ${C.tealBorder}`,

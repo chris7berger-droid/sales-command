@@ -430,13 +430,28 @@ function TaskAutocomplete({ value, onChange, allPriorTasks, placeholder }) {
 
 function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeChange }) {
   const set = k => v => onChange({ ...data, [k]: parseFloat(v) || 0 });
+  const pw = data.prevailing_wage;
   const setBurden = v => {
     const rate = parseFloat(v) || 0;
     const auto = !data.ot_overridden;
-    onChange({ ...data, burden_rate: rate, ot_burden_rate: auto ? Math.round(rate * 1.5 * 100) / 100 : data.ot_burden_rate });
+    if (pw) {
+      const pwAuto = !data.pw_ot_overridden;
+      onChange({ ...data, pw_rate: rate, pw_ot_rate: pwAuto ? Math.round(rate * 1.5 * 100) / 100 : data.pw_ot_rate });
+    } else {
+      onChange({ ...data, burden_rate: rate, ot_burden_rate: auto ? Math.round(rate * 1.5 * 100) / 100 : data.ot_burden_rate });
+    }
   };
-  const setOT = v => onChange({ ...data, ot_burden_rate: parseFloat(v) || 0, ot_overridden: true });
-  const otIsAuto = !data.ot_overridden && Math.abs(data.ot_burden_rate - data.burden_rate * 1.5) < 0.02;
+  const setOT = v => {
+    if (pw) {
+      onChange({ ...data, pw_ot_rate: parseFloat(v) || 0, pw_ot_overridden: true });
+    } else {
+      onChange({ ...data, ot_burden_rate: parseFloat(v) || 0, ot_overridden: true });
+    }
+  };
+  const rateVal = pw ? (data.pw_rate || 0) : (data.burden_rate || 0);
+  const otVal = pw ? (data.pw_ot_rate || 0) : (data.ot_burden_rate || 0);
+  const otOverridden = pw ? data.pw_ot_overridden : data.ot_overridden;
+  const otIsAuto = !otOverridden && Math.abs(otVal - rateVal * 1.5) < 0.02;
 
   const setDate = k => v => onChange({ ...data, [k]: v });
   return (
@@ -456,13 +471,19 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         </select>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 20px" }}>
-        <Field label="Burden Rate" value={data.burden_rate} onChange={setBurden} prefix="$" type="number" />
+        <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" />
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-            <Label>OT Burden Rate</Label>
+            <Label>{pw ? "PW OT Rate" : "OT Burden Rate"}</Label>
             {otIsAuto
               ? <span style={{ fontSize: 10, fontWeight: 600, color: T.gray700, letterSpacing: "0.04em" }}>AUTO (1.5×)</span>
-              : <button onClick={() => onChange({ ...data, ot_burden_rate: Math.round(data.burden_rate * 1.5 * 100) / 100, ot_overridden: false })}
+              : <button onClick={() => {
+                  if (pw) {
+                    onChange({ ...data, pw_ot_rate: Math.round((data.pw_rate || 0) * 1.5 * 100) / 100, pw_ot_overridden: false });
+                  } else {
+                    onChange({ ...data, ot_burden_rate: Math.round(data.burden_rate * 1.5 * 100) / 100, ot_overridden: false });
+                  }
+                }}
                   style={{ fontSize: 10, fontWeight: 600, color: T.gray400, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0 }}
                   onMouseEnter={e => e.target.style.color = T.green}
                   onMouseLeave={e => e.target.style.color = T.gray400}>
@@ -472,7 +493,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
           </div>
           <div style={{ position: "relative" }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.gray400, fontSize: 13, pointerEvents: "none" }}>$</span>
-            <input type="number" value={data.ot_burden_rate || ""} onChange={e => setOT(e.target.value)} placeholder="0"
+            <input type="number" value={otVal || ""} onChange={e => setOT(e.target.value)} placeholder="0"
               style={{ width: "100%", border: `1.5px solid ${T.gray200}`, borderRadius: 8, padding: "8px 10px 8px 28px", fontSize: 14, color: T.gray900, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#bfb3a1" }}
               onFocus={e => e.target.style.borderColor = T.green}
               onBlur={e => e.target.style.borderColor = T.gray200} />
@@ -512,7 +533,9 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
 
 function LaborTab({ data, bidding, sow, onChange }) {
   const set = k => v => onChange({ ...data, [k]: parseFloat(v) || 0 });
-  const c = calcLabor({ ...data, burden_rate: bidding.burden_rate, ot_burden_rate: bidding.ot_burden_rate, size: sow.size });
+  const effRate = bidding.prevailing_wage ? (bidding.pw_rate || 0) : (bidding.burden_rate || 0);
+  const effOtRate = bidding.prevailing_wage ? (bidding.pw_ot_rate || 0) : (bidding.ot_burden_rate || 0);
+  const c = calcLabor({ ...data, burden_rate: effRate, ot_burden_rate: effOtRate, size: sow.size });
   return (
     <div>
       <SectionHeader label="Labor" hint="Markup is applied to total labor cost only — not materials" />
@@ -849,7 +872,7 @@ function SowTab({ data, onChange, locked, wtcMaterials }) {
   const UNITS = ["SQFT", "LF", "EA", "HR", "TON", "CY"];
   const unitSelect = (val, onCh, w = 100) => (
     <select value={val || "SQFT"} onChange={e => onCh(e.target.value)}
-      style={{ width: w, border: `1.5px solid ${T.gray200}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: T.gray900, background: T.white, outline: "none", fontFamily: "inherit", flexShrink: 0 }}>
+      style={{ width: w, border: `1.5px solid ${T.gray200}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: T.gray900, background: "#bfb3a1", outline: "none", fontFamily: "inherit", flexShrink: 0 }}>
       {UNITS.map(u => <option key={u}>{u}</option>)}
     </select>
   );
@@ -884,12 +907,12 @@ function SowTab({ data, onChange, locked, wtcMaterials }) {
         <div key={area.id} style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8 }}>
           <input type="text" value={area.label} placeholder="e.g. Cove Base, Drain Details"
             onChange={e => updateSubArea(area.id, "label", e.target.value)}
-            style={{ flex: 2, border: `1.5px solid ${T.gray200}`, borderRadius: 8, padding: "8px 12px", fontSize: 14, color: T.gray900, outline: "none", fontFamily: "inherit" }}
+            style={{ flex: 2, border: `1.5px solid ${T.gray200}`, borderRadius: 8, padding: "8px 12px", fontSize: 14, color: T.gray900, outline: "none", fontFamily: "inherit", background: "#bfb3a1" }}
             onFocus={e => e.target.style.borderColor = T.green}
             onBlur={e => e.target.style.borderColor = T.gray200} />
           <input type="number" value={area.size || ""} placeholder="Size"
             onChange={e => updateSubArea(area.id, "size", e.target.value)}
-            style={{ width: 110, border: `1.5px solid ${T.gray200}`, borderRadius: 8, padding: "8px 12px", fontSize: 14, color: T.gray900, outline: "none", fontFamily: "inherit", flexShrink: 0 }}
+            style={{ width: 110, border: `1.5px solid ${T.gray200}`, borderRadius: 8, padding: "8px 12px", fontSize: 14, color: T.gray900, outline: "none", fontFamily: "inherit", flexShrink: 0, background: "#bfb3a1" }}
             onFocus={e => e.target.style.borderColor = T.green}
             onBlur={e => e.target.style.borderColor = T.gray200} />
           {unitSelect(area.unit, v => updateSubArea(area.id, "unit", v))}
@@ -1543,7 +1566,7 @@ gvLink.href = "https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap
 document.head.appendChild(gvLink);
 
 // ── Main WTC Calculator ────────────────────────────────────────────────────
-export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId, onClose, initialTab }) {
+export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId, onClose, onBackToList, initialTab }) {
   const [tab,        setTab]      = useState(initialTab || "bidding");
   const [wtcId, setWtcId] = useState(wtcIdProp);
   const [locked,     setLocked]   = useState(false);
@@ -1558,7 +1581,9 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const [travel,   setTravel]   = useState({ drive_rate: 0, drive_miles: 0, fly_rate: 0, fly_tickets: 0, stay_rate: 0, stay_nights: 0, per_diem_rate: 0, per_diem_days: 0, per_diem_crew: 0 });
   const [discount, setDiscount] = useState({ amount: 0, reason: "" });
 
-  const laborComputed = calcLabor({ ...labor, burden_rate: bidding.burden_rate, ot_burden_rate: bidding.ot_burden_rate, size: sow.size });
+  const effRate = bidding.prevailing_wage ? (bidding.pw_rate || 0) : (bidding.burden_rate || 0);
+  const effOtRate = bidding.prevailing_wage ? (bidding.pw_ot_rate || 0) : (bidding.ot_burden_rate || 0);
+  const laborComputed = calcLabor({ ...labor, burden_rate: effRate, ot_burden_rate: effOtRate, size: sow.size });
 
   // ── Autosave ─────────────────────────────────────────────────────────────
   const isLoading = useRef(true);
@@ -1587,6 +1612,9 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
         tax_rate:        data.tax_rate        ?? 8.25,
         prevailing_wage: data.prevailing_wage ?? false,
         ot_overridden:   false,
+        pw_rate:         data.pw_rate         ?? 0,
+        pw_ot_rate:      data.pw_ot_rate      ?? 0,
+        pw_ot_overridden: false,
       });
       setLabor({
         regular_hours: data.regular_hours ?? 0,
@@ -1662,6 +1690,8 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       ot_burden_rate:  bidding.ot_burden_rate,
       tax_rate:        bidding.tax_rate,
       prevailing_wage: bidding.prevailing_wage,
+      pw_rate:         bidding.pw_rate || 0,
+      pw_ot_rate:      bidding.pw_ot_rate || 0,
       regular_hours:   labor.regular_hours,
       ot_hours:        labor.ot_hours,
       markup_pct:      labor.markup_pct,
@@ -1692,7 +1722,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       return sum + base + tax + markup;
     }, 0);
     const travelTotal = calcTravel(travel);
-    const laborTotal = calcLabor({ ...labor, burden_rate: bidding.burden_rate, ot_burden_rate: bidding.ot_burden_rate, size: sow.size }).total || 0;
+    const laborTotal = calcLabor({ ...labor, burden_rate: effRate, ot_burden_rate: effOtRate, size: sow.size }).total || 0;
     const calculatedTotal = laborTotal + matTotal + travelTotal - (discount.amount || 0);
     if (proposalId) {
       console.log("Updating proposals.total:", proposalId, calculatedTotal);
@@ -1758,12 +1788,13 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
           <div style={{ fontSize: 20, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>Work Type Calculator</div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          {onBackToList && <Btn onClick={onBackToList} variant="secondary" small>← Proposals</Btn>}
           {onClose && <Btn onClick={onClose} variant="ghost">✕ Close</Btn>}
         </div>
       </div>
 
       {/* Tab bar */}
-      <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "0 28px", display: "flex", gap: 0 }}>
+      <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "0 28px", display: "flex", gap: 0, position: "sticky", top: 62, zIndex: 99 }}>
         {TABS.map(t => {
           const active = tab === t.key;
           return (

@@ -242,13 +242,56 @@ function ProposalPDFModal({ proposal, onClose }) {
 
   return (
     <div
+      data-pdf-overlay data-pdf-printable
       style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,20,35,0.7)", backdropFilter: "blur(4px)" }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{ background: "white", borderRadius: 16, width: "min(860px,95vw)", maxHeight: "93vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.35)", overflow: "hidden" }}>
+      <style>{`
+        @media print {
+          html, body, #root {
+            height: auto !important;
+            overflow: visible !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          body > #root { display: contents !important; }
+          [data-pdf-overlay] {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            background: white !important;
+            backdrop-filter: none !important;
+            display: block !important;
+            overflow: visible !important;
+          }
+          [data-pdf-modal-inner] {
+            position: static !important;
+            max-height: none !important;
+            height: auto !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            width: 100% !important;
+            border: none !important;
+            display: block !important;
+            overflow: visible !important;
+          }
+          [data-pdf-header] { display: none !important; }
+          [data-regression-tracker] { display: none !important; }
+          [data-pdf-body] {
+            padding: 20px !important;
+            height: auto !important;
+            flex: none !important;
+            overflow: visible !important;
+          }
+          @page { margin: 0.6in; size: letter; }
+        }
+      `}</style>
+      <div data-pdf-modal-inner data-pdf-printable style={{ background: "white", borderRadius: 16, width: "min(860px,95vw)", maxHeight: "93vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.35)", overflow: "hidden" }}>
 
         {/* Modal header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 24px", borderBottom: "1px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
+        <div data-pdf-header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 24px", borderBottom: "1px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 36, height: 36, borderRadius: 8, background: "#1976D2", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <span style={{ color: "white", fontSize: 16 }}>📄</span>
@@ -273,7 +316,7 @@ function ProposalPDFModal({ proposal, onClose }) {
         </div>
 
         {/* Modal body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+        <div data-pdf-body style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
 
           {view === "preview" && (
             <div style={{ fontFamily: "Arial, sans-serif", color: "#1c1814", background: "white" }}>
@@ -317,12 +360,43 @@ function ProposalPDFModal({ proposal, onClose }) {
               {/* Scope of Work */}
               <div style={{ marginBottom: 28 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Scope of Work</div>
-                <div style={{ border: "1.5px solid rgba(28,24,20,0.2)", borderRadius: 8, padding: "16px 18px", background: "white" }}>
-                  {combinedSOW
-                    ? <pre style={{ margin: 0, fontSize: 13, color: "#2d2720", lineHeight: 1.75, whiteSpace: "pre-wrap", fontFamily: "Arial, sans-serif" }}>{combinedSOW}</pre>
-                    : <div style={{ fontSize: 13, color: "#887c6e", fontStyle: "italic" }}>No scope of work written yet. Add it in the WTC tab.</div>
-                  }
-                </div>
+                {wtcs.filter(w => (w.sales_sow || "").trim()).length === 0 ? (
+                  <div style={{ border: "1.5px solid rgba(28,24,20,0.2)", borderRadius: 8, padding: "16px 18px", background: "white" }}>
+                    <div style={{ fontSize: 13, color: "#887c6e", fontStyle: "italic" }}>No scope of work written yet. Add it in the WTC tab.</div>
+                  </div>
+                ) : (
+                  wtcs.filter(w => (w.sales_sow || "").trim()).map((wtc, i, arr) => {
+                    const wtcLabor = calcLaborLocal({
+                      regular_hours: wtc.regular_hours || 0, ot_hours: wtc.ot_hours || 0,
+                      markup_pct: wtc.markup_pct || 0,
+                      burden_rate: wtc.prevailing_wage ? (wtc.pw_rate || 0) : (wtc.burden_rate || 0),
+                      ot_burden_rate: wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0),
+                    });
+                    const wtcMats = (wtc.materials || []).reduce((s, item) => s + calcMaterialRowLocal(item), 0);
+                    const wtcTrav = Object.values(wtc.travel || {}).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+                    const wtcTotal = wtcLabor.total + wtcMats + wtcTrav - (wtc.discount || 0);
+                    return (
+                      <div key={wtc.id} style={{ marginBottom: i < arr.length - 1 ? 24 : 0 }}>
+                        {arr.length > 1 && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, marginTop: i > 0 ? 8 : 0 }}>
+                            <div style={{ height: 3, flex: 1, background: "#30cfac", borderRadius: 2 }} />
+                            <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1814", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Work Type {i + 1}</div>
+                            <div style={{ height: 3, flex: 1, background: "#30cfac", borderRadius: 2 }} />
+                          </div>
+                        )}
+                        <div style={{ border: "1.5px solid rgba(28,24,20,0.2)", borderRadius: 8, padding: "16px 18px", background: "white" }}>
+                          <pre style={{ margin: 0, fontSize: 13, color: "#2d2720", lineHeight: 1.75, whiteSpace: "pre-wrap", fontFamily: "Arial, sans-serif" }}>{(wtc.sales_sow || "").trim()}</pre>
+                        </div>
+                        {arr.length > 1 && (
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, padding: "8px 18px", background: "rgba(48,207,172,0.08)", borderRadius: 6, border: "1px solid rgba(48,207,172,0.25)" }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#4a4238", letterSpacing: "0.06em", textTransform: "uppercase" }}>Work Type {i + 1} Total</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: "#1c1814" }}>{fmt$(wtcTotal)}</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
 
               {/* Proposal Total */}
@@ -492,22 +566,35 @@ const [showRecipients, setShowRecipients] = useState(false);
 const [wtcInitialTab, setWtcInitialTab] = useState(null);
 const missingJobsite = !p.call_log?.jobsite_address;
 
-  const [proposal, setProposal] = useState(p);
 const [wtcs, setWtcs] = useState([]);
+const [workTypeNames, setWorkTypeNames] = useState({});
 const [signedPdfUrl, setSignedPdfUrl] = useState(null);
 const [attachments, setAttachments] = useState([]);
+const [expandedWtc, setExpandedWtc] = useState("auto");
 
 useEffect(() => {
   async function loadWtcs() {
     const { data } = await supabase
       .from("proposal_wtc")
-      .select("id, work_type_id, locked, created_at, regular_hours, materials, travel, field_sow, sales_sow")
+      .select("*")
       .eq("proposal_id", p.id)
       .order("created_at", { ascending: true });
     setWtcs(data || []);
   }
   loadWtcs();
 }, [p.id]);
+
+useEffect(() => {
+  async function loadWorkTypeNames() {
+    const { data } = await supabase.from("work_types").select("id, name").order("name");
+    if (data) {
+      const map = {};
+      data.forEach(wt => { map[wt.id] = wt.name; });
+      setWorkTypeNames(map);
+    }
+  }
+  loadWorkTypeNames();
+}, []);
 
 useEffect(() => {
   async function loadSignedPdf() {
@@ -544,44 +631,62 @@ useEffect(() => {
   loadAttachments();
 }, [p.call_log_id]);
 
-  async function toggleJobWalk() {
-    const newVal = !proposal.job_walk_complete;
-    await supabase.from("proposals").update({ job_walk_complete: newVal }).eq("id", proposal.id);
-    setProposal(prev => ({ ...prev, job_walk_complete: newVal }));
+  async function setJobWalkType(wtcId, currentVal, type) {
+    const newVal = currentVal === type ? null : type;
+    await supabase.from("proposal_wtc").update({ job_walk_type: newVal }).eq("id", wtcId);
+    setWtcs(prev => prev.map(w => w.id === wtcId ? { ...w, job_walk_type: newVal } : w));
   }
 
-  function openWtcTab(tab) {
-    if (wtcs.length > 0) {
-      setActiveWtcId(wtcs[0].id);
-    } else {
-      setActiveWtcId(null);
-    }
+  async function deleteWtc(wtcId) {
+    if (!window.confirm("Delete this WTC? This cannot be undone.")) return;
+    await supabase.from("proposal_wtc").delete().eq("id", wtcId);
+    const { data: still } = await supabase.from("proposal_wtc").select("id").eq("id", wtcId).maybeSingle();
+    if (still) { alert("Delete failed — you may not have permission."); return; }
+    setWtcs(prev => prev.filter(w => w.id !== wtcId));
+  }
+
+  function openWtcTab(wtcId, tab) {
+    setActiveWtcId(wtcId);
     setWtcInitialTab(tab);
     setShowWTC(true);
   }
 
-  const wtc = wtcs[0] || {};
-  const travelData = wtc.travel || {};
-  const hasTravelEntries = Object.values(travelData).some(v => typeof v === "number" && v > 0);
+  function getWtcChecks(wtc) {
+    const travelData = wtc.travel || {};
+    const hasTravelEntries = Object.values(travelData).some(v => typeof v === "number" && v > 0);
+    return [
+      { l: "Job Walk / Bid Off Plans", done: !!wtc.job_walk_type, custom: true },
+      { l: "Labor",                    done: (wtc.regular_hours || 0) > 0,                        tab: "labor" },
+      { l: "Materials",                done: Array.isArray(wtc.materials) && wtc.materials.length > 0, tab: "materials" },
+      { l: "Travel",                   done: hasTravelEntries,                                     tab: "travel" },
+      { l: "Field SOW",               done: Array.isArray(wtc.field_sow) && wtc.field_sow.length > 0, tab: "sow" },
+      { l: "Sales SOW",               done: !!(wtc.sales_sow),                                    tab: "sow" },
+      { l: "Review & Lock",           done: !!wtc.locked,                                          tab: "summary" },
+    ];
+  }
 
-  const checks = [
-    { l: "Job Walk / Bid Off Plans", done: !!proposal.job_walk_complete, toggle: toggleJobWalk },
-    { l: "Labor",                    done: (wtc.regular_hours || 0) > 0,                        tab: "labor" },
-    { l: "Materials",                done: Array.isArray(wtc.materials) && wtc.materials.length > 0, tab: "materials" },
-    { l: "Travel",                   done: hasTravelEntries,                                     tab: "travel" },
-    { l: "Field SOW",               done: Array.isArray(wtc.field_sow) && wtc.field_sow.length > 0, tab: "sow" },
-    { l: "Sales SOW",               done: !!(wtc.sales_sow),                                    tab: "sow" },
-    { l: "Review & Lock",           done: !!wtc.locked,                                          tab: "summary" },
-  ];
-  const pct = Math.round((checks.filter(c => c.done).length / checks.length) * 100);
+  function calcWtcPrice(wtc) {
+    const rate = wtc.prevailing_wage ? (wtc.pw_rate || 0) : (wtc.burden_rate || 0);
+    const otRate = wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0);
+    const labor = calcLaborLocal({ regular_hours: wtc.regular_hours, ot_hours: wtc.ot_hours, markup_pct: wtc.markup_pct, burden_rate: rate, ot_burden_rate: otRate });
+    const mats = (wtc.materials || []).reduce((s, i) => s + calcMaterialRowLocal(i), 0);
+    const trav = Object.values(wtc.travel || {}).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+    const disc = wtc.discount || 0;
+    return labor.total + mats + trav - disc;
+  }
   const canDelete = teamMember && (teamMember.role === "Admin" || teamMember.name === p.call_log?.sales_name);
   async function handleDelete() {
     if (!window.confirm("Delete this proposal? This cannot be undone.")) return;
+    await supabase.from("proposal_signatures").delete().eq("proposal_id", p.id);
+    await supabase.from("proposal_wtc").delete().eq("proposal_id", p.id);
     await supabase.from("proposals").delete().eq("id", p.id);
+    // Verify it was actually deleted (RLS may silently block)
+    const { data: still } = await supabase.from("proposals").select("id").eq("id", p.id).maybeSingle();
+    if (still) { alert("Delete failed — you may not have permission to delete this proposal."); return; }
     onDeleted && onDeleted();
   }
 
-if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("id, work_type_id, locked, created_at, regular_hours, materials, travel, field_sow, sales_sow").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) setShowPDF(true); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
+if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) setShowPDF(true); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
   if (showSend) return <SendPlaceholder proposal={p} onBack={() => setShowSend(false)} />;
   if (showRecipients) return <RecipientsPlaceholder proposal={p} onBack={() => setShowRecipients(false)} />;
 
@@ -627,22 +732,84 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             {wtcs.length === 0 && (
               <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui, padding: "10px 0" }}>No work types yet.</div>
             )}
-            {wtcs.map((wtc) => (
-              <div key={wtc.id} style={{ background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: 15, color: C.textHead, fontFamily: F.display }}>Work Type {wtc.work_type_id || "—"}</div>
-                    <div style={{ fontSize: 12, color: C.textFaint, marginTop: 3, fontFamily: F.ui }}>Created {fmtD(wtc.created_at?.slice(0,10))}</div>
+            {wtcs.map((wtc, wtcIdx) => {
+              const checks = getWtcChecks(wtc);
+              const pct = Math.round((checks.filter(c => c.done).length / checks.length) * 100);
+              const price = calcWtcPrice(wtc);
+              const wtcLabel = `WTC ${wtcIdx + 1}`;
+              const typeName = workTypeNames[wtc.work_type_id];
+              const isExpanded = expandedWtc === wtc.id || (expandedWtc === "auto" && wtcs.length === 1);
+              return (
+                <div key={wtc.id} style={{ background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 15, color: C.textHead, fontFamily: F.display }}>
+                        {wtcLabel}{typeName ? ` — ${typeName}` : ""}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginTop: 4 }}>{fmt$(price)}</div>
+                      <div style={{ fontSize: 11, color: C.textFaint, marginTop: 2, fontFamily: F.ui }}>Created {fmtD(wtc.created_at?.slice(0,10))}</div>
+                    </div>
+                    <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                      <div style={{ fontSize: 11, color: wtc.locked ? C.green : C.amber, fontWeight: 700, fontFamily: F.ui }}>{wtc.locked ? "🔒 Locked" : "⏳ In Progress"}</div>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: pct === 100 ? C.green : C.textHead, fontFamily: F.display }}>{pct}%</div>
+                    </div>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 11, color: wtc.locked ? C.green : C.amber, fontWeight: 700, fontFamily: F.ui }}>{wtc.locked ? "🔒 Locked" : "⏳ In Progress"}</div>
+                  <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
+                    <Btn sz="sm" v="secondary" onClick={() => { setActiveWtcId(wtc.id); setShowWTC(true); }}>Edit WTC</Btn>
+                    <button onClick={() => setExpandedWtc(isExpanded ? null : wtc.id)} style={{
+                      background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 6, padding: "4px 12px",
+                      fontSize: 11, fontWeight: 700, color: C.textFaint, cursor: "pointer", fontFamily: F.display,
+                      letterSpacing: "0.05em", textTransform: "uppercase",
+                    }}>{isExpanded ? "Hide Checklist" : "Checklist"}</button>
+                    <button onClick={() => deleteWtc(wtc.id)} style={{
+                      background: "none", border: `1px solid ${C.red || "#e53935"}`, borderRadius: 6, padding: "4px 10px",
+                      fontSize: 11, fontWeight: 700, color: C.red || "#e53935", cursor: "pointer", fontFamily: F.display,
+                      letterSpacing: "0.05em", textTransform: "uppercase", marginLeft: "auto",
+                    }}>Delete</button>
                   </div>
+                  {isExpanded && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                      <div style={{ height: 4, background: C.border, borderRadius: 4, marginBottom: 12 }}>
+                        <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? C.green : C.teal, borderRadius: 4, transition: "width 0.3s" }} />
+                      </div>
+                      {checks.map((c, i) => (
+                        <div key={i} style={{ padding: "6px 0", borderBottom: i < checks.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                          <div
+                            onClick={() => c.tab && openWtcTab(wtc.id, c.tab)}
+                            style={{ display: "flex", alignItems: "center", gap: 10, cursor: c.tab ? "pointer" : "default" }}
+                          >
+                            <div
+                              onClick={c.custom && c.done ? (e) => { e.stopPropagation(); setJobWalkType(wtc.id, wtc.job_walk_type, wtc.job_walk_type); } : undefined}
+                              style={{ width: 18, height: 18, borderRadius: "50%", flexShrink: 0, background: c.done ? C.teal : C.linen, border: `1.5px solid ${c.done ? C.teal : C.borderStrong}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: c.custom && c.done ? "pointer" : undefined }}
+                            >
+                              {c.done && <span style={{ fontSize: 10, color: C.dark, fontWeight: 900 }}>✓</span>}
+                            </div>
+                            <span style={{ fontSize: 12.5, color: c.done ? C.textBody : C.textFaint, fontWeight: c.done ? 600 : 400, fontFamily: F.ui, flex: 1 }}>{c.l}</span>
+                            {c.tab && <span style={{ fontSize: 11, color: C.textFaint }}>›</span>}
+                          </div>
+                          {c.custom && (
+                            <div style={{ display: "flex", gap: 6, marginTop: 6, marginLeft: 28 }}>
+                              {[["job_walk", "Job Walk"], ["bid_off_plans", "Bid Off Plans"]].map(([val, label]) => {
+                                const on = wtc.job_walk_type === val;
+                                return (
+                                  <button key={val} onClick={() => setJobWalkType(wtc.id, wtc.job_walk_type, val)} style={{
+                                    padding: "4px 12px", borderRadius: 20, fontSize: 10.5, fontWeight: 700,
+                                    fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
+                                    cursor: "pointer", border: `1.5px solid ${on ? C.teal : C.borderStrong}`,
+                                    background: on ? C.dark : "transparent", color: on ? C.teal : C.textFaint,
+                                    transition: "all 0.12s",
+                                  }}>{label}</button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
-                  <Btn sz="sm" v="secondary" onClick={() => { setActiveWtcId(wtc.id); setShowWTC(true); }}>Edit WTC</Btn>
-                </div>
-              </div>
-            ))}
+              );
+            })}
             <Btn sz="sm" v="ghost" onClick={() => { setActiveWtcId(null); setShowWTC(true); }}>+ Add Work Type</Btn>
           </div>
 
@@ -660,29 +827,6 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>WTC Progress</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: pct === 100 ? C.green : C.amber, fontFamily: F.display }}>{pct}%</div>
-            </div>
-            <div style={{ height: 4, background: C.border, borderRadius: 4, marginBottom: 16 }}>
-              <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? C.green : C.teal, borderRadius: 4, transition: "width 0.3s" }} />
-            </div>
-            {checks.map((c, i) => (
-              <div
-                key={i}
-                onClick={() => c.toggle ? c.toggle() : c.tab && openWtcTab(c.tab)}
-                style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < checks.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer" }}
-              >
-                <div style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0, background: c.done ? C.teal : C.linen, border: `1.5px solid ${c.done ? C.teal : C.borderStrong}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {c.done && <span style={{ fontSize: 11, color: C.dark, fontWeight: 900 }}>✓</span>}
-                </div>
-                <span style={{ fontSize: 13.5, color: c.done ? C.textBody : C.textFaint, fontWeight: c.done ? 600 : 400, fontFamily: F.ui, flex: 1 }}>{c.l}</span>
-                {c.tab && <span style={{ fontSize: 11, color: C.textFaint }}>›</span>}
-              </div>
-            ))}
-          </div>
-
           {attachments.length > 0 && (
             <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
               <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Attachments</div>

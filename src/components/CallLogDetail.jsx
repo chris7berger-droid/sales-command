@@ -56,6 +56,15 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState(null);
   const [saved,  setSaved]  = useState(false);
+  const [selectedWorkTypes, setSelectedWorkTypes] = useState(
+    (job.job_work_types || []).map(jw => jw.work_type_id)
+  );
+
+  function toggleWorkType(id) {
+    setSelectedWorkTypes(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  }
 
   const set = (field, val) => setForm(f => ({ ...f, [field]: val }));
 
@@ -93,6 +102,15 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       .eq("id", job.id);
     setSaving(false);
     if (err) { setError(err.message); return; }
+
+    // Save work types — delete existing, re-insert selected
+    await supabase.from("job_work_types").delete().eq("call_log_id", job.id);
+    if (selectedWorkTypes.length > 0) {
+      await supabase.from("job_work_types").insert(
+        selectedWorkTypes.map(wt_id => ({ call_log_id: job.id, work_type_id: wt_id }))
+      );
+    }
+
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
     onSaved && onSaved();
@@ -104,7 +122,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
 
       {/* Back */}
-      <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "0 0 20px 0", alignSelf: "flex-start" }}>
+      <button onClick={onBack} style={{ background: C.dark, border: "none", cursor: "pointer", color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 14px", borderRadius: 6, marginBottom: 20, alignSelf: "flex-start" }}>
         ← Call Log
       </button>
 
@@ -190,16 +208,31 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
 
       </div>
 
-      {/* Work Types (read-only) */}
-      {job.job_work_types?.length > 0 && (
+      {/* Work Types (editable) */}
+      {workTypes?.length > 0 && (
         <div style={{ marginBottom: 24 }}>
           <div style={labelStyle}>Work Types</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {job.job_work_types.map(jw => (
-              <span key={jw.id} style={{ background: C.dark, border: `1px solid ${C.tealBorder}`, borderRadius: 20, padding: "4px 14px", fontSize: 12, color: C.teal, fontFamily: F.ui, fontWeight: 600 }}>
-                {workTypes.find(w => w.id === jw.work_type_id)?.name || "—"}
-              </span>
-            ))}
+            {workTypes.map(wt => {
+              const selected = selectedWorkTypes.includes(wt.id);
+              return (
+                <button
+                  key={wt.id}
+                  type="button"
+                  onClick={() => toggleWorkType(wt.id)}
+                  style={{
+                    background: selected ? C.dark : "transparent",
+                    border: `1.5px solid ${selected ? C.teal : C.borderStrong}`,
+                    borderRadius: 20, padding: "4px 14px", fontSize: 12,
+                    color: selected ? C.teal : C.textFaint,
+                    fontFamily: F.ui, fontWeight: 600, cursor: "pointer",
+                    transition: "all 0.12s",
+                  }}
+                >
+                  {wt.name}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

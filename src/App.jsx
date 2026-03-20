@@ -43,6 +43,7 @@ function Placeholder({ label }) {
 export default function App() {
   const [active,     setActive]     = useState("home");
   const [bidDueFilter, setBidDueFilter] = useState(false);
+  const [stageFilter, setStageFilter] = useState(null);
   const [initialProposal, setInitialProposal] = useState(null);
   const [open,       setOpen]       = useState(true);
   const [session,    setSession]    = useState(undefined);
@@ -84,9 +85,9 @@ export default function App() {
 
   const page = () => {
     switch (active) {
-      case "home": return <Home displayName={displayName} displayRole={displayRole} setActive={setActive} setBidDueFilter={setBidDueFilter} />;
+      case "home": return <Home displayName={displayName} displayRole={displayRole} setActive={setActive} setBidDueFilter={setBidDueFilter} onStageFilter={stage => { setStageFilter(stage); setActive("calllog"); }} />;
       case "sales-dash": return <SalesDash displayName={displayName} />;
-      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} />;
+      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} stageFilter={stageFilter} onClearStageFilter={() => setStageFilter(null)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} />;
       case "proposals": return <Proposals teamMember={teamMember} initialProposal={initialProposal} onClearInitial={() => setInitialProposal(null)} />;
       case "invoices":  return <Invoices />;
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;

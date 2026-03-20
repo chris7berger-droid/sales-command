@@ -42,7 +42,7 @@ function GoalCard({ label, actual, goal, fmt = v => v, accent = C.teal }) {
   );
 }
 
-export default function Home({ displayName = "there", displayRole = "Sales Rep", setActive, setBidDueFilter }) {
+export default function Home({ displayName = "there", displayRole = "Sales Rep", setActive, setBidDueFilter, onStageFilter }) {
  
   const [rows,          setRows]          = useState([]);
   const [monthRows,     setMonthRows]     = useState([]);
@@ -137,10 +137,10 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
 
       {/* STAT CARDS */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(172px,1fr))", gap: 12 }}>
-        <StatCard label="New Inquiries" value={loading ? "…" : sc["New Inquiry"] || 0} sub="This month" accent={C.teal} />
-        <StatCard label="Wants Bid"     value={loading ? "…" : sc["Wants Bid"]   || 0} sub="Active"     accent={C.amber} />
-        <StatCard label="Has Bid"       value={loading ? "…" : sc["Has Bid"]     || 0} sub="Awaiting"   accent={C.purple} />
-        <StatCard label="Sold"          value={loading ? "…" : soldTotal} sub="All time" accent={C.green} />
+        <StatCard label="New Inquiries" value={loading ? "…" : sc["New Inquiry"] || 0} sub="This month" accent={C.teal}   onClick={() => onStageFilter && onStageFilter("New Inquiry")} />
+        <StatCard label="Wants Bid"     value={loading ? "…" : sc["Wants Bid"]   || 0} sub="Active"     accent={C.amber}  onClick={() => onStageFilter && onStageFilter("Wants Bid")} />
+        <StatCard label="Has Bid"       value={loading ? "…" : sc["Has Bid"]     || 0} sub="Awaiting"   accent={C.purple} onClick={() => onStageFilter && onStageFilter("Has Bid")} />
+        <StatCard label="Sold"          value={loading ? "…" : soldTotal} sub="All time" accent={C.green}  onClick={() => onStageFilter && onStageFilter("Sold")} />
       </div>
 
       {/* PIPELINE BAR */}

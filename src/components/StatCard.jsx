@@ -1,14 +1,16 @@
 import { C, F } from "../lib/tokens";
 
-export default function StatCard({ label, value, sub, accent = C.teal }) {
+export default function StatCard({ label, value, sub, accent = C.teal, onClick }) {
   return (
-    <div style={{
+    <div onClick={onClick} style={{
       background: C.linenCard,
       border: `1px solid ${C.borderStrong}`,
       borderRadius: 10,
       padding: "18px 22px",
       borderTop: `3px solid ${accent}`,
       boxShadow: "0 2px 8px rgba(28,24,20,0.08)",
+      cursor: onClick ? "pointer" : "default",
+      transition: "transform 0.1s",
     }}>
       <div style={{
         fontSize: 11,

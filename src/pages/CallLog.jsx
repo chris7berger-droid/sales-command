@@ -518,13 +518,13 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-export default function CallLog({ teamMember, onNewProposal, bidDueFilter, onClearBidDueFilter }) {
+export default function CallLog({ teamMember, onNewProposal, bidDueFilter, onClearBidDueFilter, stageFilter, onClearStageFilter }) {
   const [rows, setRows]           = useState([]);
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
   const [workTypes, setWorkTypes] = useState([]);
   const [loading, setLoading]     = useState(true);
-  const [filter, setFilter]       = useState("All");
+  const [filter, setFilter]       = useState(stageFilter || "All");
   const [q, setQ]                 = useState("");
   const [showModal, setShowModal] = useState(false);
   const [selJob, setSelJob]       = useState(null);  // SC-20
@@ -544,6 +544,13 @@ export default function CallLog({ teamMember, onNewProposal, bidDueFilter, onCle
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (stageFilter) {
+      setFilter(stageFilter);
+      onClearStageFilter && onClearStageFilter();
+    }
+  }, [stageFilter]);
 
   // SC-20 — show detail page when a job is selected
   if (selJob) {
@@ -591,12 +598,15 @@ export default function CallLog({ teamMember, onNewProposal, bidDueFilter, onCle
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <input placeholder="Search job # or name…" value={q} onChange={e => setQ(e.target.value)}
             style={{ padding: "8px 14px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenLight, fontSize: 13.5, outline: "none", width: 240, color: C.textBody, fontFamily: F.ui }} />
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-            {["All", ...STAGES].map(st => (
-              <button key={st} onClick={() => setFilter(st)} style={{ padding: "5px 13px", borderRadius: 20, border: `1.5px solid ${filter === st ? C.teal : C.border}`, background: filter === st ? C.dark : "transparent", color: filter === st ? C.teal : C.textMuted, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                {st}
-              </button>
-            ))}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {["All", ...STAGES].map(st => {
+              const count = st === "All" ? rows.length : rows.filter(r => r.stage === st).length;
+              return (
+                <button key={st} onClick={() => setFilter(st)} style={{ padding: "7px 16px", borderRadius: 20, border: `1.5px solid ${filter === st ? C.teal : C.border}`, background: filter === st ? C.dark : "transparent", color: filter === st ? C.teal : C.textMuted, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                  {st} <span style={{ opacity: 0.6, marginLeft: 4 }}>({count})</span>
+                </button>
+              );
+            })}
           </div>
         </div>
         {loading ? (

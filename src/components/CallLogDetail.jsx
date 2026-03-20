@@ -1,5 +1,5 @@
 // SC-20 — Call Log Row Detail View
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { C, F } from "../lib/tokens";
 import Btn from "./Btn";
 import { supabase } from "../lib/supabase";
@@ -59,6 +59,27 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [selectedWorkTypes, setSelectedWorkTypes] = useState(
     (job.job_work_types || []).map(jw => jw.work_type_id)
   );
+  const [attachments, setAttachments] = useState([]);
+
+  useEffect(() => {
+    async function fetchAttachments() {
+      const { data, error: listErr } = await supabase.storage
+        .from("job-attachments")
+        .list(String(job.id));
+      if (listErr || !data) return;
+      setAttachments(
+        data.map(file => {
+          const { data: urlData } = supabase.storage
+            .from("job-attachments")
+            .getPublicUrl(`${job.id}/${file.name}`);
+          // strip the leading timestamp prefix for display
+          const display = file.name.replace(/^\d+-/, "");
+          return { name: display, url: urlData.publicUrl };
+        })
+      );
+    }
+    fetchAttachments();
+  }, [job.id]);
 
   function toggleWorkType(id) {
     setSelectedWorkTypes(prev =>
@@ -254,6 +275,26 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           <div style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>{job.job_number}</div>
         </div>
       </div>
+
+      {/* Attachments */}
+      {attachments.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={labelStyle}>Attachments</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {attachments.map(att => (
+              <a
+                key={att.url}
+                href={att.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: C.teal, fontSize: 13, fontFamily: F.ui, fontWeight: 600, textDecoration: "none" }}
+              >
+                {att.name}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Save */}
       {error && <div style={{ color: C.red, fontSize: 13, fontFamily: F.ui, marginBottom: 10 }}>{error}</div>}

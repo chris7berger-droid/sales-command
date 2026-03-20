@@ -1543,8 +1543,8 @@ gvLink.href = "https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap
 document.head.appendChild(gvLink);
 
 // ── Main WTC Calculator ────────────────────────────────────────────────────
-export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId, onClose }) {
-  const [tab,        setTab]      = useState("bidding");
+export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId, onClose, initialTab }) {
+  const [tab,        setTab]      = useState(initialTab || "bidding");
   const [wtcId, setWtcId] = useState(wtcIdProp);
   const [locked,     setLocked]   = useState(false);
   const [saved,      setSaved]    = useState(!!wtcIdProp);

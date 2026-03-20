@@ -489,17 +489,19 @@ const [activeWtcId, setActiveWtcId] = useState(null);
 const [showPDF, setShowPDF] = useState(false);
 const [showSend, setShowSend] = useState(false);
 const [showRecipients, setShowRecipients] = useState(false);
+const [wtcInitialTab, setWtcInitialTab] = useState(null);
 const missingJobsite = !p.call_log?.jobsite_address;
 
   const [proposal, setProposal] = useState(p);
 const [wtcs, setWtcs] = useState([]);
 const [signedPdfUrl, setSignedPdfUrl] = useState(null);
+const [attachments, setAttachments] = useState([]);
 
 useEffect(() => {
   async function loadWtcs() {
     const { data } = await supabase
       .from("proposal_wtc")
-      .select("id, work_type_id, locked, created_at")
+      .select("id, work_type_id, locked, created_at, regular_hours, materials, travel, field_sow, sales_sow")
       .eq("proposal_id", p.id)
       .order("created_at", { ascending: true });
     setWtcs(data || []);
@@ -522,18 +524,54 @@ useEffect(() => {
   loadSignedPdf();
 }, [p.id]);
 
-  async function toggleCheck(field) {
-    const newVal = !proposal[field];
-    await supabase.from("proposals").update({ [field]: newVal }).eq("id", proposal.id);
-    setProposal(prev => ({ ...prev, [field]: newVal }));
+useEffect(() => {
+  if (!p.call_log_id) return;
+  async function loadAttachments() {
+    const { data, error } = await supabase.storage
+      .from("job-attachments")
+      .list(String(p.call_log_id));
+    if (error || !data) return;
+    setAttachments(
+      data.map(file => {
+        const { data: urlData } = supabase.storage
+          .from("job-attachments")
+          .getPublicUrl(`${p.call_log_id}/${file.name}`);
+        const display = file.name.replace(/^\d+-/, "");
+        return { name: display, url: urlData.publicUrl };
+      })
+    );
+  }
+  loadAttachments();
+}, [p.call_log_id]);
+
+  async function toggleJobWalk() {
+    const newVal = !proposal.job_walk_complete;
+    await supabase.from("proposals").update({ job_walk_complete: newVal }).eq("id", proposal.id);
+    setProposal(prev => ({ ...prev, job_walk_complete: newVal }));
   }
 
+  function openWtcTab(tab) {
+    if (wtcs.length > 0) {
+      setActiveWtcId(wtcs[0].id);
+    } else {
+      setActiveWtcId(null);
+    }
+    setWtcInitialTab(tab);
+    setShowWTC(true);
+  }
+
+  const wtc = wtcs[0] || {};
+  const travelData = wtc.travel || {};
+  const hasTravelEntries = Object.values(travelData).some(v => typeof v === "number" && v > 0);
+
   const checks = [
-    { l: "Proposal created",              done: true,                        field: null },
-    { l: "Introduction completed",        done: proposal.intro_completed,    field: "intro_completed" },
-    { l: "Attachments added",             done: proposal.attachments_added,  field: "attachments_added" },
-    { l: "Recipients assigned",           done: proposal.recipients_assigned,field: "recipients_assigned" },
-    { l: "Work Type Calculator verified", done: proposal.wtc_verified,       field: "wtc_verified" },
+    { l: "Job Walk / Bid Off Plans", done: !!proposal.job_walk_complete, toggle: toggleJobWalk },
+    { l: "Labor",                    done: (wtc.regular_hours || 0) > 0,                        tab: "labor" },
+    { l: "Materials",                done: Array.isArray(wtc.materials) && wtc.materials.length > 0, tab: "materials" },
+    { l: "Travel",                   done: hasTravelEntries,                                     tab: "travel" },
+    { l: "Field SOW",               done: Array.isArray(wtc.field_sow) && wtc.field_sow.length > 0, tab: "sow" },
+    { l: "Sales SOW",               done: !!(wtc.sales_sow),                                    tab: "sow" },
+    { l: "Review & Lock",           done: !!wtc.locked,                                          tab: "summary" },
   ];
   const pct = Math.round((checks.filter(c => c.done).length / checks.length) * 100);
   const canDelete = teamMember && (teamMember.role === "Admin" || teamMember.name === p.call_log?.sales_name);
@@ -543,7 +581,7 @@ useEffect(() => {
     onDeleted && onDeleted();
   }
 
-if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); if (openPDF) setShowPDF(true); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
+if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("id, work_type_id, locked, created_at, regular_hours, materials, travel, field_sow, sales_sow").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) setShowPDF(true); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
   if (showSend) return <SendPlaceholder proposal={p} onBack={() => setShowSend(false)} />;
   if (showRecipients) return <RecipientsPlaceholder proposal={p} onBack={() => setShowRecipients(false)} />;
 
@@ -624,21 +662,45 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} onClose
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Checklist</div>
+              <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>WTC Progress</div>
               <div style={{ fontSize: 14, fontWeight: 800, color: pct === 100 ? C.green : C.amber, fontFamily: F.display }}>{pct}%</div>
             </div>
             <div style={{ height: 4, background: C.border, borderRadius: 4, marginBottom: 16 }}>
-              <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? C.green : C.teal, borderRadius: 4 }} />
+              <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? C.green : C.teal, borderRadius: 4, transition: "width 0.3s" }} />
             </div>
             {checks.map((c, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < checks.length - 1 ? `1px solid ${C.border}` : "none" }}>
+              <div
+                key={i}
+                onClick={() => c.toggle ? c.toggle() : c.tab && openWtcTab(c.tab)}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < checks.length - 1 ? `1px solid ${C.border}` : "none", cursor: "pointer" }}
+              >
                 <div style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0, background: c.done ? C.teal : C.linen, border: `1.5px solid ${c.done ? C.teal : C.borderStrong}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {c.done && <span style={{ fontSize: 11, color: C.dark, fontWeight: 900 }}>✓</span>}
                 </div>
-                <span style={{ fontSize: 13.5, color: c.done ? C.textBody : C.textFaint, fontWeight: c.done ? 600 : 400, fontFamily: F.ui }}>{c.l}</span>
+                <span style={{ fontSize: 13.5, color: c.done ? C.textBody : C.textFaint, fontWeight: c.done ? 600 : 400, fontFamily: F.ui, flex: 1 }}>{c.l}</span>
+                {c.tab && <span style={{ fontSize: 11, color: C.textFaint }}>›</span>}
               </div>
             ))}
           </div>
+
+          {attachments.length > 0 && (
+            <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
+              <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Attachments</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {attachments.map(att => (
+                  <a
+                    key={att.url}
+                    href={att.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ background: C.dark, color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", padding: "6px 14px", borderRadius: 6, textDecoration: "none", display: "inline-block" }}
+                  >
+                    {att.name}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div style={{ background: C.dark, border: `1px solid ${C.tealBorder}`, borderRadius: 10, padding: 20 }}>
             <div style={{ fontWeight: 800, fontSize: 12.5, color: C.teal, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>Summary</div>

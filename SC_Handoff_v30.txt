@@ -1,0 +1,146 @@
+SALES COMMAND — HANDOFF DOCUMENT v30
+Generated: March 21, 2026
+====================================================
+
+HOW TO USE THIS DOCUMENT
+Start every new Claude thread with:
+"Continue building Sales Command. Here is the handoff doc v30."
+Upload this file. CLAUDE.md in the repo root is auto-loaded — it contains
+style rules, schema reference, and data integrity rules that MUST be followed.
+
+====================================================
+COMPLETED THIS SESSION (v30)
+====================================================
+
+CODE AUDIT + FIXES — COMPLETE
+- Ran 4 parallel audit agents across all core files
+- Found and fixed 16 issues across 3 severity tiers
+
+TIER 1 — MONEY BUGS FIXED:
+- WTC handleSave material calculation used wrong field (item.tax_rate vs
+  item.tax) and was missing freight. Now reuses calcMaterialRow() — single
+  source of truth.
+- handleLock() now syncs proposals.total on lock/unlock
+- fmt$ now has maximumFractionDigits: 0 (was missing despite v29 claiming fix)
+- Proposal summary total computed from live WTC data, not stale p.total
+
+TIER 2 — DISPLAY/CONFIG FIXES:
+- job.date → job.created_at in CallLogDetail (was always blank)
+- Home.jsx soldTotal uses filteredProps instead of re-filtering
+- Supabase client uses import.meta.env.VITE_SUPABASE_* with hardcoded fallback
+- Removed hardcoded WTC test IDs from App.jsx
+
+TIER 3 — FRAGILE PATTERNS FIXED:
+- Login.jsx imports from tokens.js instead of duplicate color palette
+- 3 identical StepFooters collapsed to 1
+- co_standalone: false for non-CO jobs (was incorrectly true)
+- Removed dead job.job_type lookup
+- Delete error handling + FK cleanup in CallLogDetail
+- PublicSigningPage validates signing token as UUID format
+
+STYLING — COMPLETE:
+- All teal buttons now use black font (C.dark), not white
+- All internal white backgrounds → tan/linen (C.linenDeep, C.linenCard, etc.)
+- Inputs use C.linenDeep + WebkitAppearance: "none"
+- Global autofill CSS override in tokens.js
+- WTC signing preview uses app palette instead of white
+
+UX IMPROVEMENTS — COMPLETE:
+- CallLogDetail work types: pill grid → dropdown with checkboxes
+- Customer dropdown in wizard filters by selected customer type
+- File upload sanitizes filenames (spaces → underscores) for Supabase storage
+- WTC tab bar scrolls horizontally on narrow windows
+- WTC header + tab bar in single sticky wrapper (no overlap on scroll)
+- Removed redundant Job Type / Job # box from detail view
+
+RLS POLICIES — COMPLETE:
+- Added DELETE policy on call_log table (authenticated, using: true)
+- Added DELETE policy on job_work_types table (authenticated, using: true)
+- Delete code now removes FK children first, then verifies deletion
+
+CLAUDE.md CREATED:
+- Repo-root CLAUDE.md auto-loads every session
+- Contains style rules, data integrity rules, schema reference, RLS notes,
+  storage rules, workflow rules
+- Prevents regressions from context loss in long threads
+
+====================================================
+NEXT TASKS (in priority order)
+====================================================
+
+1. End-to-end regression test on production (scmybiz.com):
+   create customer → log call → create proposal → build WTC →
+   generate PDF → send → customer signs → status = Sold →
+   download signed PDF
+
+2. SC-58: Security hardening (RLS audit — check all tables have
+   appropriate policies for SELECT, INSERT, UPDATE, DELETE)
+
+3. Backlog:
+   SC-55: Goal Setting Flow
+   SC-56: Multi-tenant email settings
+   SC-62: Attachments on Call Log detail
+
+====================================================
+PRODUCTION ENVIRONMENT
+====================================================
+
+Production URL: https://www.scmybiz.com
+Vercel project: sales-command (chris7berger-droid)
+GitHub repo: chris7berger-droid/sales-command (branch: main)
+Auto-deploys on every push to main
+
+Vercel env vars set:
+  VITE_SUPABASE_URL
+  VITE_SUPABASE_ANON_KEY
+
+====================================================
+NAVIGATION ARCHITECTURE
+====================================================
+
+App.jsx manages page state via setActive("pageName"):
+- CallLog → Proposals: onNewProposal sets initialProposal.job, switches to proposals
+- CallLog → Proposal detail: onNavigateProposal sets initialProposal.openId,
+  Proposals.jsx load().then finds matching proposal and sets sel
+- CallLog → Invoices: onNavigateInvoice switches to invoices page
+- Home → CallLog: setActive("calllog") with optional setBidDueFilter
+
+====================================================
+SIGNING FLOW ARCHITECTURE (SC-30)
+====================================================
+
+Proposal Detail → Send Proposal → ProposalPDFModal (Send tab)
+→ send-proposal Edge Function → Resend email → customer gets link
+→ /sign/:token → PublicSigningPage.jsx → customer types name
+→ jsPDF generates branded PDF → signed-proposals bucket
+→ pdf_url saved to proposal_signatures
+→ proposals.status = Sold
+→ call_log.stage = Sold
+→ Proposal Detail shows Download Signed PDF button
+
+====================================================
+WORKFLOW RULES
+====================================================
+
+1. NEVER use drag and drop for files
+2. ALWAYS provide code as text in chat — never as downloads
+3. NEVER give half-baked solution mid-figuring-it-out
+4. Always grep before edits
+5. Python scripts via python3 << PYEOF heredoc
+6. Git commit after every script succeeds
+7. Ask for screenshot before assuming error cause
+8. One step at a time
+9. git push + handoff doc at session end
+
+====================================================
+BACKLOG
+====================================================
+
+SC-55: Goal Setting Flow
+SC-56: Multi-tenant email domain settings
+SC-58: Security hardening
+SC-62: Attachments on Call Log detail
+
+====================================================
+END OF HANDOFF v30
+====================================================

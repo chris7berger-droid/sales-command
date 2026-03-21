@@ -91,7 +91,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
       setBilling(monthBill);
       setYtd(ytdBill);
       setProposalsSent(sent);
-      setSoldTotal((isRep ? (props || []).filter(p => p.call_log?.sales_name === displayName) : (props || [])).filter(p => p.status === "Sold").length);
+      setSoldTotal(filteredProps.filter(p => p.status === "Sold").length);
       setLoading(false);
     }
     load();

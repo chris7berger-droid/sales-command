@@ -2,7 +2,7 @@ import { C, F } from "../lib/tokens";
 
 export default function Btn({ children, onClick, v = "primary", sz = "md", disabled }) {
   const style = {
-    primary:   { background: C.teal,        color: "#ffffff",      border: "none" },
+    primary:   { background: C.teal,        color: C.dark,         border: "none" },
     secondary: { background: "transparent", color: C.tealDark,  border: `1.5px solid ${C.teal}` },
     ghost:     { background: "transparent", color: C.textMuted, border: `1.5px solid ${C.borderStrong}` },
     dark:      { background: C.dark,        color: C.teal,      border: "none" },

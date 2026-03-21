@@ -12,9 +12,10 @@ import CallLogDetail from "../components/CallLogDetail";
 const inputStyle = {
   padding: "10px 14px", borderRadius: 8,
   border: `1.5px solid ${C.borderStrong}`,
-  background: C.linenLight, fontSize: 14,
+  background: C.linenDeep, fontSize: 14,
   color: C.textBody, fontFamily: F.ui,
   outline: "none", width: "100%",
+  WebkitAppearance: "none",
 };
 
 const ChoiceBtn = ({ label, sub, selected, onClick }) => (
@@ -140,8 +141,10 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
 
   const uploadFiles = async (jobId) => {
     for (const file of data.attachments) {
-      const path = `${jobId}/${Date.now()}-${file.name}`;
-      await supabase.storage.from("job-attachments").upload(path, file);
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${jobId}/${Date.now()}-${safeName}`;
+      const { error: upErr } = await supabase.storage.from("job-attachments").upload(path, file);
+      if (upErr) console.error("File upload failed:", upErr.message, path);
     }
   };
 
@@ -199,7 +202,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       is_change_order: data.jobType === "co",
       parent_job_id: data.jobType === "co" && data.parentJobId ? parseInt(data.parentJobId) : null,
       co_number: coNum,
-      co_standalone: data.jobType === "co" ? data.coStandalone : true,
+      co_standalone: data.jobType === "co" ? data.coStandalone : false,
       jobsite_address: data.jobsiteAddress || null, jobsite_city: data.jobsiteCity || null,
       jobsite_state: data.jobsiteState || null, jobsite_zip: data.jobsiteZip || null,
       billing_address: billingAddrStreet || null, billing_city: billingAddrCity || null,
@@ -291,7 +294,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               if (chosen) set("customerType", chosen.customer_type)
             }} style={inputStyle}>
               <option value="">— Select Customer —</option>
-              {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {customers.filter(c => c.customer_type === data.customerType).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           )}
           {data.customerMode === "new" && (
@@ -458,15 +461,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
           <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginTop: 12 }}>
             ℹ A 30-day reminder will be sent to the sales rep if this job's status hasn't changed.
           </div>
-          {data.wantFollowUp === true && (
-            <StepFooter step={step} back={back} error={error} onNext={next} />
-          )}
-          {data.wantFollowUp === false && (
-            <StepFooter step={step} back={back} error={error} onNext={next} />
-          )}
-          {data.wantFollowUp === null && (
-            <StepFooter step={step} back={back} error={error} onNext={next} />
-          )}
+          <StepFooter step={step} back={back} error={error} onNext={next} />
         </div>
       );
 

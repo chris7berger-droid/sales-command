@@ -28,6 +28,9 @@ export default function PublicSigningPage() {
 
   useEffect(() => {
     async function load() {
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!token || !uuidRe.test(token)) { setError("Invalid signing link."); setLoading(false); return; }
+
       const { data: prop, error: propErr } = await supabase
         .from("proposals")
         .select("*, call_log_id, call_log(job_name, display_job_number, customer_name)")

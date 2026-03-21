@@ -235,7 +235,7 @@ function ProposalPDFModal({ proposal, onClose }) {
   if (loading) {
     return (
       <div style={{ position: "fixed", inset: 0, background: "rgba(15,20,35,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ background: "white", borderRadius: 16, padding: 40, fontSize: 14, color: "#6B7280" }}>Loading WTC data…</div>
+        <div style={{ background: C.linenCard, borderRadius: 16, padding: 40, fontSize: 14, color: C.textFaint }}>Loading WTC data…</div>
       </div>
     );
   }
@@ -436,7 +436,7 @@ function ProposalPDFModal({ proposal, onClose }) {
                 {signingUrl}
               </div>
               {sendError && <div style={{ fontSize: 12, color: "#e53935", marginBottom: 12 }}>{sendError}</div>}
-              <button onClick={handleSend} disabled={sending} style={{ width: "100%", background: sending ? "#ccc" : "#30cfac", color: "white", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: sending ? "default" : "pointer", fontFamily: "inherit" }}>
+              <button onClick={handleSend} disabled={sending} style={{ width: "100%", background: sending ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: sending ? "default" : "pointer", fontFamily: "inherit" }}>
                 {sending ? "Sending…" : "📨 Send to Customer"}
               </button>
             </div>
@@ -531,7 +531,7 @@ function SendPlaceholder({ proposal, onBack }) {
       <button
         onClick={handleSend}
         disabled={sending}
-        style={{ background: sending ? "#ccc" : "#30cfac", color: "white", border: "none", borderRadius: 8, padding: "12px 32px", fontSize: 14, fontWeight: 800, cursor: sending ? "default" : "pointer", fontFamily: "inherit", letterSpacing: "0.06em", textTransform: "uppercase" }}
+        style={{ background: sending ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: "12px 32px", fontSize: 14, fontWeight: 800, cursor: sending ? "default" : "pointer", fontFamily: "inherit", letterSpacing: "0.06em", textTransform: "uppercase" }}
       >
         {sending ? "Sending…" : "📨 Send to Customer"}
       </button>
@@ -848,7 +848,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
 
           <div style={{ background: C.dark, border: `1px solid ${C.tealBorder}`, borderRadius: 10, padding: 20 }}>
             <div style={{ fontWeight: 800, fontSize: 12.5, color: C.teal, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>Summary</div>
-            {[["Customer", p.customer], ["Total", fmt$(p.total)], ["Created", fmtD(p.created_at?.slice(0,10))], ["Status", p.status]].map(([k, val]) => (
+            {[["Customer", p.customer], ["Total", fmt$(wtcs.length ? wtcs.reduce((s, w) => s + calcWtcPrice(w), 0) : p.total)], ["Created", fmtD(p.created_at?.slice(0,10))], ["Status", p.status]].map(([k, val]) => (
               <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
                 <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F.ui }}>{k}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui }}>{val}</span>

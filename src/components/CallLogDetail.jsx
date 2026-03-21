@@ -1,5 +1,5 @@
 // SC-20 — Call Log Row Detail View
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { C, F } from "../lib/tokens";
 import Btn from "./Btn";
 import { supabase } from "../lib/supabase";
@@ -9,10 +9,11 @@ const STAGES = ["New Inquiry", "Wants Bid", "Has Bid", "Sold", "Lost"];
 const inputStyle = {
   padding: "10px 14px", borderRadius: 8,
   border: `1.5px solid ${C.borderStrong}`,
-  background: C.linenLight, fontSize: 14,
+  background: C.linenDeep, fontSize: 14,
   color: C.textBody, fontFamily: F.ui,
   outline: "none", width: "100%",
   boxSizing: "border-box",
+  WebkitAppearance: "none",
 };
 
 const labelStyle = {
@@ -61,6 +62,16 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   );
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [wtDropOpen, setWtDropOpen] = useState(false);
+  const wtDropRef = useRef(null);
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (wtDropRef.current && !wtDropRef.current.contains(e.target)) setWtDropOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   async function fetchAttachments() {
     const { data, error: listErr } = await supabase.storage
@@ -85,7 +96,8 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     if (!files.length) return;
     setUploading(true);
     for (const file of files) {
-      const path = `${job.id}/${Date.now()}-${file.name}`;
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${job.id}/${Date.now()}-${safeName}`;
       await supabase.storage.from("job-attachments").upload(path, file);
     }
     await fetchAttachments();
@@ -112,7 +124,19 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       return;
     }
     if (!window.confirm("Delete this job? This cannot be undone.")) return;
-    await supabase.from("call_log").delete().eq("id", job.id);
+    // Delete linked work types first (FK constraint)
+    const { error: wtErr } = await supabase.from("job_work_types").delete().eq("call_log_id", job.id);
+    if (wtErr) console.warn("job_work_types delete:", wtErr.message);
+    const { error: delErr, count } = await supabase.from("call_log").delete().eq("id", job.id).select();
+    console.log("call_log delete result:", { delErr, count });
+    if (delErr) { alert("Delete failed: " + delErr.message); return; }
+    // Verify it was actually deleted (RLS may silently block)
+    const { data: still } = await supabase.from("call_log").select("id").eq("id", job.id).maybeSingle();
+    if (still) {
+      console.warn("RLS blocked delete for call_log id:", job.id);
+      alert("Delete blocked by database policy. Check Supabase RLS on call_log table — you need a DELETE policy.");
+      return;
+    }
     onDeleted && onDeleted();
   }
 
@@ -181,7 +205,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       </div>
       <div style={{ color: C.textFaint, fontSize: 13, fontFamily: F.ui, marginBottom: 28 }}>
         {job.customer_name || "—"}{job.customer_type ? ` · ${job.customer_type}` : ""}
-        {job.date ? ` · Created ${new Date(job.date).toLocaleDateString()}` : ""}
+        {job.created_at ? ` · Created ${new Date(job.created_at).toLocaleDateString()}` : ""}
       </div>
 
       {/* Form grid */}
@@ -241,52 +265,49 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
 
       </div>
 
-      {/* Work Types (editable) */}
+      {/* Work Types (dropdown with checkboxes) */}
       {workTypes?.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 24, position: "relative" }} ref={wtDropRef}>
           <div style={labelStyle}>Work Types</div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {workTypes.map(wt => {
-              const selected = selectedWorkTypes.includes(wt.id);
-              return (
-                <button
-                  key={wt.id}
-                  type="button"
-                  onClick={() => toggleWorkType(wt.id)}
-                  style={{
-                    background: selected ? C.dark : "transparent",
-                    border: `1.5px solid ${selected ? C.teal : C.borderStrong}`,
-                    borderRadius: 20, padding: "4px 14px", fontSize: 12,
-                    color: selected ? C.teal : C.textFaint,
-                    fontFamily: F.ui, fontWeight: 600, cursor: "pointer",
-                    transition: "all 0.12s",
-                  }}
-                >
-                  {wt.name}
-                </button>
-              );
-            })}
-          </div>
+          <button type="button" onClick={() => setWtDropOpen(p => !p)}
+            style={{ ...inputStyle, textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ color: selectedWorkTypes.length ? C.textBody : C.textFaint, fontFamily: F.ui, fontSize: 13 }}>
+              {selectedWorkTypes.length ? `${selectedWorkTypes.length} selected` : "Select work types…"}
+            </span>
+            <span style={{ fontSize: 10, color: C.textFaint }}>{wtDropOpen ? "▲" : "▼"}</span>
+          </button>
+          {wtDropOpen && (
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: C.linenDeep, border: `1.5px solid ${C.borderStrong}`, borderRadius: 8, boxShadow: "0 4px 20px rgba(0,0,0,0.15)", zIndex: 999, maxHeight: 240, overflowY: "auto", marginTop: 2 }}>
+              {workTypes.map(wt => {
+                const selected = selectedWorkTypes.includes(wt.id);
+                return (
+                  <div key={wt.id} onClick={() => toggleWorkType(wt.id)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", cursor: "pointer", background: selected ? C.dark : "transparent", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ width: 16, height: 16, borderRadius: 3, border: `2px solid ${selected ? C.teal : C.borderStrong}`, background: selected ? C.teal : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {selected && <span style={{ color: C.dark, fontSize: 9, fontWeight: 900 }}>✓</span>}
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: selected ? 700 : 400, color: selected ? C.teal : C.textBody, fontFamily: F.ui }}>{wt.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {selectedWorkTypes.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+              {selectedWorkTypes.map(id => {
+                const wt = workTypes.find(w => w.id === id);
+                if (!wt) return null;
+                return (
+                  <span key={id} style={{ background: C.dark, color: C.teal, border: `1px solid ${C.tealBorder}`, borderRadius: 14, padding: "3px 10px", fontSize: 11, fontWeight: 700, fontFamily: F.ui, display: "flex", alignItems: "center", gap: 5 }}>
+                    {wt.name}
+                    <span onClick={() => toggleWorkType(id)} style={{ cursor: "pointer", fontSize: 13, lineHeight: 1 }}>×</span>
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
-
-      {/* Read-only meta */}
-      <div style={{ display: "flex", gap: 24, marginBottom: 28, padding: "12px 16px", background: C.linenCard, borderRadius: 8, border: `1px solid ${C.border}` }}>
-        <div>
-          <div style={labelStyle}>Job Type</div>
-          <div style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>{job.job_type || (job.is_change_order ? "Change Order" : "Standard")}</div>
-        </div>
-        {job.parent_job_id && (
-          <div>
-            <div style={labelStyle}>Parent Job</div>
-            <div style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>{job.parent_job_id}</div>
-          </div>
-        )}
-        <div>
-          <div style={labelStyle}>Job #</div>
-          <div style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>{job.job_number}</div>
-        </div>
-      </div>
 
       {/* Attachments */}
       <div style={{ marginBottom: 24 }}>

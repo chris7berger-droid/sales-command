@@ -295,11 +295,11 @@ function StatCard({ label, value, green, large }) {
 
 function Btn({ children, onClick, variant = "primary", small, icon, disabled }) {
   const styles = {
-    primary:   { background: T.green,  color: "#ffffff", border: "none" },
+    primary:   { background: T.green,  color: T.dark, border: "none" },
     secondary: { background: "#bfb3a1", color: "#1c1814", border: `1.5px solid rgba(28,24,20,0.2)` },
     danger:    { background: T.white,  color: T.red,     border: `1.5px solid ${T.red}` },
     ghost:     { background: "transparent", color: "rgba(255,255,255,0.7)", border: "none" },
-    blue:      { background: T.green,   color: "#ffffff", border: "none" },
+    blue:      { background: T.green,   color: T.dark, border: "none" },
   };
   return (
     <button
@@ -931,7 +931,7 @@ function SowTab({ data, onChange, locked, wtcMaterials }) {
       {/* Sales SOW — green zone */}
       <div style={{ background: "rgba(28,24,20,0.06)", border: `1px solid rgba(28,24,20,0.15)`, borderRadius: 12, padding: "18px 20px", marginTop: 24, marginBottom: 24 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <div style={{ background: T.green, color: "white", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>🟢 SALES SCOPE</div>
+          <div style={{ background: T.green, color: T.dark, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>🟢 SALES SCOPE</div>
           <span style={{ fontSize: 11, color: T.gray500, fontWeight: 600, letterSpacing: "0.04em" }}>CUSTOMER FACING · GOES ON THE PROPOSAL · LOCKS ON APPROVAL</span>
         </div>
         <Textarea label="Customer-Facing Scope of Work" value={data.sales_sow} onChange={set("sales_sow")} rows={7}
@@ -943,7 +943,7 @@ function SowTab({ data, onChange, locked, wtcMaterials }) {
       <div style={{ background: "rgba(28,24,20,0.06)", border: `1px solid rgba(28,24,20,0.15)`, borderRadius: 12, padding: "18px 20px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ background: T.green, color: "white", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>🔵 FIELD SCOPE</div>
+            <div style={{ background: T.green, color: T.dark, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>🔵 FIELD SCOPE</div>
             <span style={{ fontSize: 11, color: T.gray500, fontWeight: 600, letterSpacing: "0.04em" }}>CREW FACING · GOES TO FIELD COMMAND · NEVER SEEN BY CUSTOMER</span>
           </div>
           <Btn onClick={addDay} variant="blue" small icon="＋">Add Day Entry</Btn>
@@ -1169,7 +1169,7 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
             <button onClick={() => setSowExpanded(v => !v)}
               style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ background: T.green, color: "white", borderRadius: 5, padding: "2px 9px", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em" }}>🟢 SALES SCOPE</div>
+                <div style={{ background: T.green, color: T.dark, borderRadius: 5, padding: "2px 9px", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em" }}>🟢 SALES SCOPE</div>
                 <span style={{ fontSize: 11, fontWeight: 600, color: T.gray400, letterSpacing: "0.04em" }}>CUSTOMER FACING</span>
               </div>
               <span style={{ fontSize: 12, color: T.gray400, fontWeight: 600 }}>{sowExpanded ? "▲ collapse" : "▼ expand"}</span>
@@ -1190,7 +1190,7 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
             <button onClick={() => setFieldExpanded(v => !v)}
               style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ background: T.green, color: "white", borderRadius: 5, padding: "2px 9px", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em" }}>🔵 FIELD SCOPE</div>
+                <div style={{ background: T.green, color: T.dark, borderRadius: 5, padding: "2px 9px", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em" }}>🔵 FIELD SCOPE</div>
                 <span style={{ fontSize: 11, fontWeight: 600, color: T.gray400, letterSpacing: "0.04em" }}>{(sow.field_sow || []).length} DAY ENTRIES</span>
               </div>
               <span style={{ fontSize: 12, color: T.gray400, fontWeight: 600 }}>{fieldExpanded ? "▲ collapse" : "▼ expand"}</span>
@@ -1242,7 +1242,7 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
               {/* Step 1 — Lock & Approve */}
               <div style={{ display: "flex", gap: 14, alignItems: "stretch" }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: locked ? "#FFF3E0" : "white", border: `2px solid ${locked ? T.amber : T.gray300}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: locked ? "#FFF3E0" : T.white, border: `2px solid ${locked ? T.amber : T.gray300}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <span style={{ fontSize: 13, fontWeight: 800, color: locked ? T.amber : T.gray400 }}>1</span>
                   </div>
                   <div style={{ width: 2, flex: 1, background: T.gray200, minHeight: 16, marginTop: 2, marginBottom: 2 }} />
@@ -1250,7 +1250,7 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
                 <div style={{ flex: 1, paddingBottom: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: locked ? T.amber : T.gray400, marginBottom: 6, letterSpacing: "0.03em" }}>INTERNAL APPROVAL</div>
                   <button onClick={onLock}
-                    style={{ width: "100%", background: locked ? "#FFF8E1" : T.green, color: locked ? T.amber : "#ffffff", border: locked ? `2px solid ${T.amber}` : "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: "inherit", transition: "all 0.15s" }}
+                    style={{ width: "100%", background: locked ? "#FFF8E1" : T.green, color: locked ? T.amber : T.dark, border: locked ? `2px solid ${T.amber}` : "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: "inherit", transition: "all 0.15s" }}
                     onMouseEnter={e => e.currentTarget.style.opacity = "0.8"}
                     onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
                     {locked ? "🔓 Unlock WTC" : "🔒 Lock & Approve WTC"}
@@ -1262,14 +1262,14 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
               {/* Step 3 — Generate PDF */}
               <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: locked ? "#E3F2FD" : "white", border: `2px solid ${locked ? T.green : T.gray300}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: locked ? "#E3F2FD" : T.white, border: `2px solid ${locked ? T.green : T.gray300}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <span style={{ fontSize: 13, fontWeight: 800, color: locked ? T.green : T.gray400 }}>2</span>
                   </div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: locked ? T.green : T.gray400, marginBottom: 6, letterSpacing: "0.03em" }}>GENERATE & SEND</div>
                   <button disabled={!locked} onClick={locked ? onGeneratePDF : undefined}
-                    style={{ width: "100%", background: locked ? T.green : "white", color: locked ? "white" : T.gray400, border: `2px solid ${locked ? T.green : T.gray200}`, borderRadius: 8, padding: "13px 16px", fontSize: 14, fontWeight: 700, cursor: locked ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: "inherit", transition: "all 0.15s", opacity: locked ? 1 : 0.4, boxShadow: locked ? `0 2px 10px ${T.green}35` : "none" }}
+                    style={{ width: "100%", background: locked ? T.green : T.white, color: locked ? T.dark : T.gray400, border: `2px solid ${locked ? T.green : T.gray200}`, borderRadius: 8, padding: "13px 16px", fontSize: 14, fontWeight: 700, cursor: locked ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: "inherit", transition: "all 0.15s", opacity: locked ? 1 : 0.4, boxShadow: locked ? `0 2px 10px ${T.green}35` : "none" }}
                     onMouseEnter={e => { if (locked) e.currentTarget.style.opacity = "0.85"; }}
                     onMouseLeave={e => e.currentTarget.style.opacity = locked ? "1" : "0.4"}>
                     📄 Generate Proposal PDF
@@ -1359,7 +1359,7 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
             {view === "preview" && !sendDone && (
               <>
                 <button onClick={() => window.print()} style={{ background: "none", border: "1.5px solid #e8e3de", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4a4238", cursor: "pointer", fontFamily: "inherit" }}>🖨 Print</button>
-                <button onClick={() => setView("send")} style={{ background: "#30cfac", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "#ffffff", cursor: "pointer", fontFamily: "inherit" }}>📨 Send to Customer →</button>
+                <button onClick={() => setView("send")} style={{ background: "#30cfac", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "#1c1814", cursor: "pointer", fontFamily: "inherit" }}>📨 Send to Customer →</button>
               </>
             )}
             {view === "send" && !sendDone && (
@@ -1453,7 +1453,7 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
                 Recipients will be pulled from the linked customer record. Wire-up coming in SC-30.
               </div>
               <button onClick={() => setSendDone(true)}
-                style={{ width: "100%", background: "#30cfac", color: "white", border: "none", borderRadius: 8, padding: "13px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                style={{ width: "100%", background: "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: "13px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                 📨 Send Proposal
               </button>
             </div>
@@ -1491,9 +1491,9 @@ function CustomerSigningPage({ proposal, onClose }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F0F4FF", fontFamily: "'DM Sans', sans-serif", paddingBottom: 60 }}>
+    <div style={{ minHeight: "100vh", background: T.gray50, fontFamily: "'DM Sans', sans-serif", paddingBottom: 60 }}>
       {/* Header */}
-      <div style={{ background: "white", borderBottom: `1px solid ${T.gray200}`, padding: "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ background: T.gray100, borderBottom: `1px solid ${T.gray200}`, padding: "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 800, color: T.gray900 }}>{COMPANY.name}</div>
           <div style={{ fontSize: 12, color: T.gray500 }}>{COMPANY.tagline}</div>
@@ -1504,7 +1504,7 @@ function CustomerSigningPage({ proposal, onClose }) {
       <div style={{ maxWidth: 680, margin: "32px auto", padding: "0 20px" }}>
 
         {/* Proposal card */}
-        <div style={{ background: "white", borderRadius: 14, border: `1px solid ${T.gray200}`, padding: "28px 32px", marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+        <div style={{ background: T.white, borderRadius: 14, border: `1px solid ${T.gray200}`, padding: "28px 32px", marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.gray400, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Scope of Work</div>
           {sow.sales_sow
             ? <pre style={{ margin: 0, fontSize: 13, color: T.gray700, lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>{sow.sales_sow}</pre>
@@ -1513,7 +1513,7 @@ function CustomerSigningPage({ proposal, onClose }) {
         </div>
 
         {/* Price breakdown */}
-        <div style={{ background: "white", borderRadius: 14, border: `1px solid ${T.gray200}`, padding: "20px 28px", marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+        <div style={{ background: T.white, borderRadius: 14, border: `1px solid ${T.gray200}`, padding: "20px 28px", marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ fontSize: 15, fontWeight: 600, color: T.gray700 }}>Total Investment</div>
             <div style={{ fontSize: 28, fontWeight: 800, color: T.green, letterSpacing: "-0.02em" }}>{fmt(proposalPrice)}</div>
@@ -1522,7 +1522,7 @@ function CustomerSigningPage({ proposal, onClose }) {
 
         {/* Signing */}
         {!signed ? (
-          <div style={{ background: "white", borderRadius: 14, border: `2px solid ${T.green}`, padding: "28px 32px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+          <div style={{ background: T.white, borderRadius: 14, border: `2px solid ${T.green}`, padding: "28px 32px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: T.gray900, marginBottom: 6 }}>Accept & Sign</div>
             <div style={{ fontSize: 13, color: T.gray500, marginBottom: 20 }}>Type your full name below to electronically sign and accept this proposal.</div>
             <div style={{ marginBottom: 16 }}>
@@ -1539,7 +1539,7 @@ function CustomerSigningPage({ proposal, onClose }) {
               </div>
             )}
             <button onClick={() => { if (name.trim().length > 2) setSigned(true); }} disabled={name.trim().length <= 2}
-              style={{ width: "100%", background: name.trim().length > 2 ? T.green : T.gray200, color: name.trim().length > 2 ? "white" : T.gray400, border: "none", borderRadius: 8, padding: "14px", fontSize: 15, fontWeight: 700, cursor: name.trim().length > 2 ? "pointer" : "default", fontFamily: "inherit", transition: "all 0.2s", marginBottom: 12 }}>
+              style={{ width: "100%", background: name.trim().length > 2 ? T.green : T.gray200, color: name.trim().length > 2 ? T.dark : T.gray400, border: "none", borderRadius: 8, padding: "14px", fontSize: 15, fontWeight: 700, cursor: name.trim().length > 2 ? "pointer" : "default", fontFamily: "inherit", transition: "all 0.2s", marginBottom: 12 }}>
               {name.trim().length > 2 ? `✍️ Accept & Sign as "${name}"` : "Type your name above to sign"}
             </button>
             <div style={{ fontSize: 11, color: T.gray400, textAlign: "center", lineHeight: 1.6 }}>
@@ -1547,7 +1547,7 @@ function CustomerSigningPage({ proposal, onClose }) {
             </div>
           </div>
         ) : (
-          <div style={{ background: "white", borderRadius: 14, border: `2px solid ${T.green}`, padding: "40px 32px", textAlign: "center", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+          <div style={{ background: T.white, borderRadius: 14, border: `2px solid ${T.green}`, padding: "40px 32px", textAlign: "center", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: T.gray900, marginBottom: 8 }}>Proposal Accepted</div>
             <div style={{ fontSize: 38, color: "#1E40AF", fontFamily: "'Great Vibes', cursive", marginBottom: 16 }}>{name}</div>
@@ -1715,12 +1715,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       if (newRow?.id) setWtcId(newRow.id);
     }
     // Update proposals.total with current WTC calculated price
-    const matTotal = materials.reduce((sum, item) => {
-      const base = (item.price_per_unit || 0) * (item.qty || 0);
-      const tax = base * ((item.tax_rate ?? bidding.tax_rate) / 100);
-      const markup = (base + tax) * ((item.markup_pct || 0) / 100);
-      return sum + base + tax + markup;
-    }, 0);
+    const matTotal = materials.reduce((sum, item) => sum + calcMaterialRow(item), 0);
     const travelTotal = calcTravel(travel);
     const laborTotal = calcLabor({ ...labor, burden_rate: effRate, ot_burden_rate: effOtRate, size: sow.size }).total || 0;
     const calculatedTotal = laborTotal + matTotal + travelTotal - (discount.amount || 0);
@@ -1738,6 +1733,14 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     setLocked(newLocked);
     if (wtcId) {
       await supabase.from("proposal_wtc").update({ locked: newLocked }).eq("id", wtcId);
+    }
+    // Sync proposals.total on lock/unlock
+    if (proposalId) {
+      const matTotal = materials.reduce((sum, item) => sum + calcMaterialRow(item), 0);
+      const travelTotal = calcTravel(travel);
+      const laborTotal = calcLabor({ ...labor, burden_rate: effRate, ot_burden_rate: effOtRate, size: sow.size }).total || 0;
+      const calculatedTotal = laborTotal + matTotal + travelTotal - (discount.amount || 0);
+      await supabase.from("proposals").update({ total: calculatedTotal }).eq("id", proposalId);
     }
   };
   const [showPDF,     setShowPDF]     = useState(false);
@@ -1778,23 +1781,25 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: T.gray50, minHeight: "100%", paddingBottom: 60 }}>
-      {/* Header */}
-      <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}>
-        <div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontWeight: 500, marginBottom: 3 }}>
-            Sales Command · Proposals / {proposalId} /
-            <span style={{ color: T.green, fontWeight: 600 }}> WTC</span>
+      {/* Sticky header + tab bar wrapper */}
+      <div style={{ position: "sticky", top: 0, zIndex: 100, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}>
+        {/* Header */}
+        <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "12px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontWeight: 500, marginBottom: 3 }}>
+              Sales Command · Proposals /
+              <span style={{ color: T.green, fontWeight: 600 }}> WTC</span>
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>Work Type Calculator</div>
           </div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>Work Type Calculator</div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {onBackToList && <Btn onClick={onBackToList} variant="secondary" small>← Proposals</Btn>}
+            {onClose && <Btn onClick={onClose} variant="ghost">✕ Close</Btn>}
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          {onBackToList && <Btn onClick={onBackToList} variant="secondary" small>← Proposals</Btn>}
-          {onClose && <Btn onClick={onClose} variant="ghost">✕ Close</Btn>}
-        </div>
-      </div>
 
-      {/* Tab bar */}
-      <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "0 28px", display: "flex", gap: 0, position: "sticky", top: 62, zIndex: 99 }}>
+        {/* Tab bar */}
+        <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "0 28px", display: "flex", gap: 0, overflowX: "auto", overflowY: "hidden" }}>
         {TABS.map(t => {
           const active = tab === t.key;
           return (
@@ -1804,6 +1809,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
             </button>
           );
         })}
+      </div>
       </div>
 
       {/* Content area */}

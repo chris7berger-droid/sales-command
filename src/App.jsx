@@ -93,7 +93,7 @@ export default function App() {
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
       case "customers": return <Customers />;
       case "team":      return <Team />;
-      case "wtc":       return <WTCCalculator proposalId="7413 P1" wtcId="ca6cc109-df9f-4743-b018-50843718ac4a" />;
+      case "wtc":       return <Placeholder label="WTC" />;
       default:          return <Placeholder label={NAV.find(n => n.id === active)?.label || active} />;
     }
   };

@@ -1,20 +1,9 @@
 import { useState, useEffect } from 'react'
 import { signIn } from '../lib/auth'
 import { supabase } from '../lib/supabase'
+import { C as _C } from '../lib/tokens'
 
-const C = {
-  linen:      '#b5a896',
-  linenCard:  '#bfb3a1',
-  linenDeep:  '#a89b88',
-  teal:       '#30cfac',
-  tealDark:   '#1a8a72',
-  textHead:   '#1c1814',
-  textBody:   '#2d2720',
-  textFaint:  '#887c6e',
-  border:     'rgba(28,24,20,0.12)',
-  borderStrong: 'rgba(28,24,20,0.2)',
-  danger:     '#ef4444',
-}
+const C = { ..._C, linenCard: _C.linenLight, danger: _C.red }
 
 export default function Login() {
   const [email,    setEmail]    = useState("")
@@ -89,7 +78,7 @@ export default function Login() {
 
   const btnStyle = {
     width: "100%", padding: "12px", borderRadius: 8, border: "none",
-    background: C.teal, color: "white", fontSize: 15, fontWeight: 700,
+    background: C.teal, color: C.dark, fontSize: 15, fontWeight: 700,
     cursor: "pointer", fontFamily: "inherit", marginTop: 8,
   }
 

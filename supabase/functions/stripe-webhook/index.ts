@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -31,8 +32,24 @@ async function verifyStripeSignature(payload: string, sigHeader: string, secret:
   return expected === signature;
 }
 
+async function sendEmail(to: string, subject: string, html: string) {
+  if (!RESEND_API_KEY || !to) return;
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ from: "estimates@hdspnv.com", to, subject, html }),
+    });
+    console.log("Email to", to, ":", res.status);
+  } catch (e) {
+    console.error("Email failed (non-fatal):", e.message);
+  }
+}
+
 serve(async (req) => {
-  // Stripe sends POST with no CORS needed, but handle preflight just in case
   if (req.method === "OPTIONS") {
     return new Response("ok", {
       headers: {
@@ -62,17 +79,19 @@ serve(async (req) => {
       const session = event.data.object;
       const invoiceId = session.metadata?.invoice_id;
       const paymentIntent = session.payment_intent;
+      const amountTotal = session.amount_total ? (session.amount_total / 100) : 0;
+      const customerEmail = session.customer_email || session.customer_details?.email || "";
 
-      console.log("Payment completed for invoice:", invoiceId, "payment_intent:", paymentIntent);
+      console.log("Payment completed for invoice:", invoiceId, "payment_intent:", paymentIntent, "amount:", amountTotal);
 
       if (!invoiceId) {
         console.error("No invoice_id in session metadata");
         return new Response("No invoice_id", { status: 400 });
       }
 
-      // Update invoice in Supabase
       const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+      // Update invoice status
       const { error } = await supabase
         .from("invoices")
         .update({
@@ -89,9 +108,75 @@ serve(async (req) => {
       }
 
       console.log("Invoice", invoiceId, "marked as Paid");
+
+      // Get invoice details for emails
+      const { data: inv } = await supabase
+        .from("invoices")
+        .select("*, proposals:proposal_id(call_log_id, call_log(sales_name, customer_name))")
+        .eq("id", invoiceId)
+        .maybeSingle();
+
+      const jobName = inv?.job_name || "";
+      const jobId = inv?.job_id || "";
+      const salesName = inv?.proposals?.call_log?.sales_name || "";
+      const customerName = inv?.proposals?.call_log?.customer_name || customerEmail;
+      const amountStr = `$${amountTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const paidDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+      // Email to customer — payment receipt
+      if (customerEmail) {
+        await sendEmail(
+          customerEmail,
+          `Payment Received — Invoice #${invoiceId}`,
+          `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
+            <div style="border-bottom: 4px solid #30cfac; padding-bottom: 16px; margin-bottom: 24px;">
+              <h2 style="margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.02em;">High Desert Surface Prep</h2>
+              <p style="margin: 4px 0 0; color: #4a4238; font-size: 13px;">Industrial & Commercial Concrete Coatings</p>
+            </div>
+            <p>Hi ${customerName},</p>
+            <p>We've received your payment. Thank you!</p>
+            <div style="background: #f8f6f3; border: 1.5px solid #e5e0d8; border-radius: 10px; padding: 20px; margin: 24px 0;">
+              <div style="font-size: 12px; color: #887c6e; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">Invoice #${invoiceId}</div>
+              ${jobId ? `<div style="font-size: 12px; color: #887c6e; margin-bottom: 12px;">Job #${jobId}${jobName ? ` — ${jobName}` : ""}</div>` : ""}
+              <div style="font-size: 28px; font-weight: 800; color: #1c1814; margin-bottom: 4px;">${amountStr}</div>
+              <div style="font-size: 13px; color: #30cfac; font-weight: 700;">PAID — ${paidDate}</div>
+            </div>
+            <p style="color: #887c6e; font-size: 12px;">This serves as your payment receipt. Questions? Reply to this email or call (775) 300-1900.</p>
+          </div>
+          `
+        );
+      }
+
+      // Email to sales rep — payment notification
+      if (salesName) {
+        const { data: rep } = await supabase
+          .from("team_members")
+          .select("email")
+          .eq("name", salesName)
+          .maybeSingle();
+
+        if (rep?.email) {
+          await sendEmail(
+            rep.email,
+            `Payment Received — Invoice #${invoiceId} (${customerName})`,
+            `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
+              <p>Hi ${salesName},</p>
+              <p>Invoice <strong>#${invoiceId}</strong> has been paid.</p>
+              <div style="background: #f8f6f3; border: 1.5px solid #e5e0d8; border-radius: 10px; padding: 16px; margin: 16px 0;">
+                <div style="font-weight: 700; margin-bottom: 4px;">${customerName}</div>
+                ${jobId ? `<div style="font-size: 12px; color: #887c6e;">Job #${jobId}${jobName ? ` — ${jobName}` : ""}</div>` : ""}
+                <div style="font-size: 22px; font-weight: 800; color: #1c1814; margin-top: 8px;">${amountStr}</div>
+                <div style="font-size: 12px; color: #30cfac; font-weight: 700;">PAID — ${paidDate}</div>
+              </div>
+            </div>
+            `
+          );
+        }
+      }
     }
 
-    // Always return 200 to Stripe so it doesn't retry
     return new Response(JSON.stringify({ received: true }), {
       headers: { "Content-Type": "application/json" },
       status: 200,

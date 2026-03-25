@@ -548,15 +548,27 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
                 <div style={{ fontSize: 26, fontWeight: 800, color: "#1c1814", letterSpacing: "-0.01em" }}>{fmt$(netTotal)}</div>
               </div>
 
-              {/* Payment info */}
-              <div style={{ borderTop: "1.5px solid rgba(28,24,20,0.15)", paddingTop: 20, textAlign: "center" }}>
-                <div style={{ fontSize: 11, color: "#887c6e", fontStyle: "italic" }}>
-                  Payment due upon receipt{invoice.due_date ? ` · Due by ${fmtD(invoice.due_date)}` : ""}
+              {/* Payment status */}
+              {invoice.status === "Paid" && invoice.paid_at ? (
+                <div style={{ borderTop: "1.5px solid rgba(48,207,172,0.4)", paddingTop: 20, textAlign: "center" }}>
+                  <div style={{ display: "inline-block", border: "3px solid #30cfac", borderRadius: 10, padding: "12px 32px", transform: "rotate(-3deg)" }}>
+                    <div style={{ fontSize: 28, fontWeight: 900, color: "#30cfac", letterSpacing: "0.1em", textTransform: "uppercase" }}>PAID</div>
+                    <div style={{ fontSize: 12, color: "#4a4238", fontWeight: 600, marginTop: 4 }}>{fmtD(invoice.paid_at)}</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#887c6e", marginTop: 16 }}>
+                    Questions? Contact {COMPANY.email} or call {COMPANY.phone}
+                  </div>
                 </div>
-                <div style={{ fontSize: 11, color: "#887c6e", marginTop: 4 }}>
-                  Questions? Contact {COMPANY.email} or call {COMPANY.phone}
+              ) : (
+                <div style={{ borderTop: "1.5px solid rgba(28,24,20,0.15)", paddingTop: 20, textAlign: "center" }}>
+                  <div style={{ fontSize: 11, color: "#887c6e", fontStyle: "italic" }}>
+                    Payment due upon receipt{invoice.due_date ? ` · Due by ${fmtD(invoice.due_date)}` : ""}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#887c6e", marginTop: 4 }}>
+                    Questions? Contact {COMPANY.email} or call {COMPANY.phone}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -608,6 +620,27 @@ function InvoiceDetail({ invoice, onBack, onUpdated }) {
   const [wtcMap, setWtcMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [showPDF, setShowPDF] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editId, setEditId] = useState(invoice.id);
+  const [editDueDate, setEditDueDate] = useState(invoice.due_date || "");
+  const [editDiscount, setEditDiscount] = useState(String(invoice.discount || 0));
+  const [editDesc, setEditDesc] = useState(invoice.description || "");
+  const [editPcts, setEditPcts] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [showPaidPDF, setShowPaidPDF] = useState(false);
+
+  // Auto-refresh: poll for payment status updates when invoice is Sent/Waiting
+  useEffect(() => {
+    if (inv.status === "Paid" || inv.status === "New") return;
+    const interval = setInterval(async () => {
+      const { data } = await supabase.from("invoices").select("status, paid_at, stripe_payment_id, stripe_checkout_id").eq("id", inv.id).maybeSingle();
+      if (data && data.status === "Paid" && inv.status !== "Paid") {
+        setInv(prev => ({ ...prev, ...data }));
+        onUpdated && onUpdated();
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [inv.id, inv.status]);
 
   useEffect(() => {
     async function loadDetail() {
@@ -652,6 +685,77 @@ function InvoiceDetail({ invoice, onBack, onUpdated }) {
   };
 
   const actions = statusActions[inv.status] || [];
+  const canPullBack = inv.status !== "New" && inv.status !== "Paid";
+  const isNew = inv.status === "New";
+
+  function startEditing() {
+    setEditId(inv.id);
+    setEditDueDate(inv.due_date || "");
+    setEditDiscount(String(inv.discount || 0));
+    setEditDesc(inv.description || "");
+    const pcts = {};
+    lines.forEach(l => { pcts[l.id] = String(l.billing_pct || 0); });
+    setEditPcts(pcts);
+    setEditing(true);
+  }
+
+  async function handleSaveEdit() {
+    setSaving(true);
+    // Recalculate line amounts based on new billing pcts
+    const newLines = lines.map(l => {
+      const wtc = l.proposal_wtc;
+      const wtcTotal = wtc ? calcWtcPrice(wtc) : 0;
+      const pct = parseFloat(editPcts[l.id]) || 0;
+      return { id: l.id, billing_pct: pct, amount: Math.round(wtcTotal * (pct / 100) * 100) / 100 };
+    });
+    const newAmount = newLines.reduce((sum, l) => sum + l.amount, 0);
+
+    // Update invoice
+    const { error: invErr } = await supabase.from("invoices").update({
+      id: editId,
+      due_date: editDueDate || null,
+      discount: parseFloat(editDiscount) || 0,
+      description: editDesc || null,
+      amount: Math.round(newAmount * 100) / 100,
+    }).eq("id", inv.id);
+    if (invErr) { alert(invErr.message); setSaving(false); return; }
+
+    // Update each line
+    for (const nl of newLines) {
+      await supabase.from("invoice_lines").update({ billing_pct: nl.billing_pct, amount: nl.amount }).eq("id", nl.id);
+    }
+
+    // If invoice ID changed, we need to update invoice_lines FK too
+    if (editId !== inv.id) {
+      for (const nl of newLines) {
+        await supabase.from("invoice_lines").update({ invoice_id: editId }).eq("id", nl.id);
+      }
+    }
+
+    setInv(prev => ({ ...prev, id: editId, due_date: editDueDate || null, discount: parseFloat(editDiscount) || 0, description: editDesc || null, amount: Math.round(newAmount * 100) / 100 }));
+    setLines(prev => prev.map(l => {
+      const nl = newLines.find(n => n.id === l.id);
+      return nl ? { ...l, billing_pct: nl.billing_pct, amount: nl.amount } : l;
+    }));
+    setEditing(false);
+    setSaving(false);
+    onUpdated && onUpdated();
+  }
+
+  async function handlePullBack() {
+    if (!confirm("Pull back this invoice? It will reset to New and invalidate any payment link.")) return;
+    const updates = {
+      status: "New",
+      sent_at: null,
+      stripe_checkout_id: null,
+      stripe_payment_id: null,
+      paid_at: null,
+    };
+    const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
+    if (error) { alert(error.message); return; }
+    setInv(prev => ({ ...prev, ...updates }));
+    onUpdated && onUpdated();
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
@@ -661,28 +765,62 @@ function InvoiceDetail({ invoice, onBack, onUpdated }) {
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 4 }}>
-        <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em" }}>
-          Invoice #{inv.id}
-        </h2>
+        {editing ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>Invoice #</span>
+            <input value={editId} onChange={e => setEditId(e.target.value)} style={{ ...inputStyle, width: 120, fontSize: 20, fontWeight: 800, fontFamily: F.display, padding: "6px 10px" }} />
+          </div>
+        ) : (
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em" }}>
+            Invoice #{inv.id}
+          </h2>
+        )}
         <Pill label={inv.status} cm={INV_C} />
-        {ageDays !== null && (
+        {!editing && ageDays !== null && (
           <span style={{ fontSize: 12, fontWeight: 800, fontFamily: F.display, color: ageDays > 0 ? C.red : ageDays === 0 ? C.amber : C.green }}>
             {ageDays > 0 ? `${ageDays}d overdue` : ageDays === 0 ? "Due today" : `${Math.abs(ageDays)}d until due`}
           </span>
         )}
       </div>
-      <div style={{ color: C.textFaint, fontSize: 13, fontFamily: F.ui, marginBottom: 28 }}>
+      <div style={{ color: C.textFaint, fontSize: 13, fontFamily: F.ui, marginBottom: editing ? 16 : 28 }}>
         {inv.job_id && `Job: ${inv.job_id}`}{inv.job_name ? ` · ${inv.job_name}` : ""}
         {inv.sent_at ? ` · Sent ${fmtD(inv.sent_at)}` : ""}
-        {inv.due_date ? ` · Due ${fmtD(inv.due_date)}` : ""}
+        {!editing && inv.due_date ? ` · Due ${fmtD(inv.due_date)}` : ""}
       </div>
 
-      {/* Summary cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 24 }}>
-        <StatCard label="Invoice Amount" value={fmt$(inv.amount)} accent={C.teal} />
-        <StatCard label="Discount" value={inv.discount > 0 ? fmt$(inv.discount) : "—"} accent={C.amber} />
-        <StatCard label="Net Total" value={fmt$((inv.amount || 0) - (inv.discount || 0))} accent={C.green} />
-      </div>
+      {/* Edit fields (only in edit mode) */}
+      {editing && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+          <div>
+            <div style={labelStyle}>Due Date</div>
+            <input type="date" value={editDueDate} onChange={e => setEditDueDate(e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
+          </div>
+          <div>
+            <div style={labelStyle}>Discount ($)</div>
+            <input type="number" min="0" step="1" value={editDiscount} onChange={e => setEditDiscount(e.target.value)} style={inputStyle} />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <div style={labelStyle}>Description / PO #</div>
+            <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="e.g. PO #12345 — Gym Floor Polish" style={inputStyle} />
+          </div>
+        </div>
+      )}
+
+      {/* Summary cards (read-only view) */}
+      {!editing && (
+        <>
+          {inv.description && (
+            <div style={{ background: C.linenDeep, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: C.textBody, fontFamily: F.ui, border: `1px solid ${C.border}` }}>
+              {inv.description}
+            </div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 24 }}>
+            <StatCard label="Invoice Amount" value={fmt$(inv.amount)} accent={C.teal} />
+            <StatCard label="Discount" value={inv.discount > 0 ? fmt$(inv.discount) : "—"} accent={C.amber} />
+            <StatCard label="Net Total" value={fmt$((inv.amount || 0) - (inv.discount || 0))} accent={C.green} />
+          </div>
+        </>
+      )}
 
       {/* Line items */}
       <div style={{ marginBottom: 24 }}>
@@ -705,14 +843,20 @@ function InvoiceDetail({ invoice, onBack, onUpdated }) {
                 {lines.map((l, i) => {
                   const wtc = l.proposal_wtc;
                   const wtcTotal = wtc ? calcWtcPrice(wtc) : 0;
+                  const editPct = parseFloat(editPcts[l.id]) || 0;
+                  const editAmt = wtcTotal * (editPct / 100);
                   return (
                     <tr key={l.id} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? C.linenLight : C.linen }}>
                       <td style={{ padding: "12px 15px", fontWeight: 700, color: C.textHead }}>{wtc?.work_types?.name || "—"}</td>
                       <td style={{ padding: "12px 15px", fontVariantNumeric: "tabular-nums" }}>{fmt$(wtcTotal)}</td>
                       <td style={{ padding: "12px 15px" }}>
-                        <span style={{ background: C.dark, color: C.teal, padding: "2px 8px", borderRadius: 6, fontWeight: 800, fontSize: 12 }}>{l.billing_pct}%</span>
+                        {editing ? (
+                          <input type="number" min="0" max="100" step="1" value={editPcts[l.id] || ""} onChange={e => setEditPcts(prev => ({ ...prev, [l.id]: e.target.value }))} style={{ ...inputStyle, width: 70, padding: "4px 8px", fontSize: 12, textAlign: "right" }} />
+                        ) : (
+                          <span style={{ background: C.dark, color: C.teal, padding: "2px 8px", borderRadius: 6, fontWeight: 800, fontSize: 12 }}>{l.billing_pct}%</span>
+                        )}
                       </td>
-                      <td style={{ padding: "12px 15px", fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$(l.amount)}</td>
+                      <td style={{ padding: "12px 15px", fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{editing ? fmt$(editAmt) : fmt$(l.amount)}</td>
                     </tr>
                   );
                 })}
@@ -724,11 +868,39 @@ function InvoiceDetail({ invoice, onBack, onUpdated }) {
 
       {/* Action buttons */}
       <div style={{ display: "flex", gap: 10 }}>
-        <Btn sz="sm" onClick={() => setShowPDF(true)}>Preview / Send</Btn>
-        {actions.map(a => (
-          <Btn key={a.status} sz="sm" v="ghost" onClick={() => updateStatus(a.status)}>{a.label}</Btn>
-        ))}
+        {editing ? (
+          <>
+            <Btn sz="sm" onClick={handleSaveEdit} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Btn>
+            <Btn sz="sm" v="ghost" onClick={() => setEditing(false)}>Cancel</Btn>
+          </>
+        ) : (
+          <>
+            <Btn sz="sm" onClick={() => setShowPDF(true)}>Preview / Send</Btn>
+            {isNew && <Btn sz="sm" v="secondary" onClick={startEditing}>Edit Invoice</Btn>}
+            {actions.map(a => (
+              <Btn key={a.status} sz="sm" v="ghost" onClick={() => updateStatus(a.status)}>{a.label}</Btn>
+            ))}
+            {canPullBack && (
+              <Btn sz="sm" v="ghost" onClick={handlePullBack}>Pull Back</Btn>
+            )}
+          </>
+        )}
       </div>
+      {inv.status === "Paid" && inv.paid_at && (
+        <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ fontSize: 12, color: C.green, fontWeight: 700, fontFamily: F.display }}>
+            Paid {fmtD(inv.paid_at)}{inv.stripe_payment_id ? ` · Stripe ${inv.stripe_payment_id}` : ""}
+          </div>
+          <Btn sz="sm" v="secondary" onClick={() => setShowPaidPDF(true)}>View Paid Invoice</Btn>
+        </div>
+      )}
+      {showPaidPDF && (
+        <InvoicePDFModal
+          invoice={inv}
+          lines={lines}
+          onClose={() => setShowPaidPDF(false)}
+        />
+      )}
 
       {showPDF && (
         <InvoicePDFModal

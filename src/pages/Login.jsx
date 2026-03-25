@@ -71,9 +71,9 @@ export default function Login() {
 
   const inputStyle = {
     width: "100%", padding: "11px 14px", borderRadius: 8,
-    border: `1.5px solid ${C.borderStrong}`, background: C.linenCard,
+    border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep,
     fontSize: 14, color: C.textBody, outline: "none", boxSizing: "border-box",
-    fontFamily: "inherit",
+    fontFamily: "inherit", WebkitAppearance: "none",
   }
 
   const btnStyle = {

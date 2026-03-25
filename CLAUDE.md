@@ -66,7 +66,13 @@ proposal_wtc: id, proposal_id, work_type_id (INTEGER 1-40), burden_rate,
 work_types: id, name
 proposal_signatures: id, proposal_id, signer_name, signer_email, signed_at,
   ip_address, pdf_url
-invoices: id, job_id, job_name, status, amount, discount, sent_at, due_date
+invoices: id (text), job_id, job_name, status, amount, discount, sent_at,
+  due_date, proposal_id (int8 FK proposals)
+
+invoice_lines: id (int8), invoice_id (text FK invoices), proposal_wtc_id
+  (uuid FK proposal_wtc), billing_pct (numeric), amount (numeric),
+  created_at (timestamptz)
+
 job_work_types: id, call_log_id, work_type_id
 ```
 

@@ -1,6 +1,7 @@
 // SC-20 — Call Log Row Detail View
 import { useState, useEffect, useRef } from "react";
 import { C, F } from "../lib/tokens";
+import { fmt$ } from "../lib/utils";
 import Btn from "./Btn";
 import { supabase } from "../lib/supabase";
 
@@ -42,8 +43,10 @@ function stageColor(stage) {
   return map[stage] || { bg: "rgba(255,255,255,0.06)", color: C.textFaint };
 }
 
-export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onDeleted, teamMember, onNewProposal }) {
+export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onDeleted, teamMember, onNewProposal, onNavigateProposal, onNavigateInvoice }) {
   const cust = job.customers || {};
+  const [linkedProposals, setLinkedProposals] = useState([]);
+  const [linkedInvoices, setLinkedInvoices] = useState([]);
   const [form, setForm] = useState({
     stage:            job.stage            || "",
     bid_due:          job.bid_due          || "",
@@ -93,6 +96,18 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   }
 
   useEffect(() => { fetchAttachments(); }, [job.id]);
+
+  useEffect(() => {
+    async function fetchLinked() {
+      const [{ data: props }, { data: invs }] = await Promise.all([
+        supabase.from("proposals").select("id, status, total, proposal_number, call_log(display_job_number)").eq("call_log_id", job.id).order("created_at"),
+        supabase.from("invoices").select("id, status, amount, job_name").eq("job_id", job.id).order("sent_at", { ascending: false }),
+      ]);
+      setLinkedProposals(props || []);
+      setLinkedInvoices(invs || []);
+    }
+    fetchLinked();
+  }, [job.id]);
 
   async function handleUpload(e) {
     const files = Array.from(e.target.files);
@@ -355,6 +370,49 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           <input type="file" multiple onChange={handleUpload} disabled={uploading} style={{ display: "none" }} />
         </label>
       </div>
+
+      {/* Linked Items */}
+      {(linkedProposals.length > 0 || linkedInvoices.length > 0) && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={labelStyle}>Linked Items</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {linkedProposals.map(p => {
+              const label = `${p.call_log?.display_job_number || job.display_job_number || "P"}${p.proposal_number ? ` P${p.proposal_number}` : ""}`;
+              const statusColors = {
+                Draft: { bg: "rgba(217,119,6,0.15)", color: "#fcd34d" },
+                Sent:  { bg: "rgba(79,70,229,0.15)", color: "#a5b4fc" },
+                Sold:  { bg: "rgba(16,185,129,0.2)", color: "#34d399" },
+              };
+              const sc = statusColors[p.status] || { bg: "rgba(255,255,255,0.06)", color: C.textFaint };
+              return (
+                <button key={`p-${p.id}`} onClick={() => onNavigateProposal && onNavigateProposal(p.id)}
+                  style={{ background: C.dark, border: `1px solid ${C.darkBorder}`, borderRadius: 8, padding: "8px 14px", cursor: onNavigateProposal ? "pointer" : "default", display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: C.teal, fontFamily: F.display, letterSpacing: "0.04em" }}>📄 {label}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: sc.bg, color: sc.color, fontFamily: F.display, textTransform: "uppercase", letterSpacing: "0.06em" }}>{p.status}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display }}>{fmt$(p.total)}</span>
+                </button>
+              );
+            })}
+            {linkedInvoices.map(inv => {
+              const invColors = {
+                New:    { bg: "rgba(217,119,6,0.15)", color: "#fcd34d" },
+                Sent:   { bg: "rgba(79,70,229,0.15)", color: "#a5b4fc" },
+                Paid:   { bg: "rgba(16,185,129,0.2)", color: "#34d399" },
+                "Past Due": { bg: "rgba(239,68,68,0.15)", color: "#fca5a5" },
+              };
+              const ic = invColors[inv.status] || { bg: "rgba(255,255,255,0.06)", color: C.textFaint };
+              return (
+                <button key={`i-${inv.id}`} onClick={() => onNavigateInvoice && onNavigateInvoice(inv.id)}
+                  style={{ background: C.dark, border: `1px solid ${C.darkBorder}`, borderRadius: 8, padding: "8px 14px", cursor: onNavigateInvoice ? "pointer" : "default", display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: C.teal, fontFamily: F.display, letterSpacing: "0.04em" }}>💵 Invoice #{inv.id}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: ic.bg, color: ic.color, fontFamily: F.display, textTransform: "uppercase", letterSpacing: "0.06em" }}>{inv.status}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display }}>{fmt$(inv.amount)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Save */}
       {error && <div style={{ color: C.red, fontSize: 13, fontFamily: F.ui, marginBottom: 10 }}>{error}</div>}

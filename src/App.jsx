@@ -87,7 +87,7 @@ export default function App() {
     switch (active) {
       case "home": return <Home displayName={displayName} displayRole={displayRole} setActive={setActive} setBidDueFilter={setBidDueFilter} onStageFilter={stage => { setStageFilter(stage); setActive("calllog"); }} />;
       case "sales-dash": return <SalesDash displayName={displayName} />;
-      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} stageFilter={stageFilter} onClearStageFilter={() => setStageFilter(null)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} />;
+      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} stageFilter={stageFilter} onClearStageFilter={() => setStageFilter(null)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} onNavigateProposal={id => { setInitialProposal({ openId: id }); setActive("proposals"); }} onNavigateInvoice={() => setActive("invoices")} />;
       case "proposals": return <Proposals teamMember={teamMember} initialProposal={initialProposal} onClearInitial={() => setInitialProposal(null)} />;
       case "invoices":  return <Invoices />;
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;

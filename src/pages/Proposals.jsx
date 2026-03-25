@@ -946,6 +946,16 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial 
       setPreselectedJob(initialProposal.job);
       setShowModal(true);
       onClearInitial && onClearInitial();
+    } else if (initialProposal?.openId) {
+      (async () => {
+        const { data } = await supabase
+          .from("proposals")
+          .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))")
+          .eq("id", initialProposal.openId)
+          .maybeSingle();
+        if (data) setSel(data);
+      })();
+      onClearInitial && onClearInitial();
     }
   }, [initialProposal]);
 

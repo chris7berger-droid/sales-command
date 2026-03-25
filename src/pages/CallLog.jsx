@@ -517,7 +517,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-export default function CallLog({ teamMember, onNewProposal, bidDueFilter, onClearBidDueFilter, stageFilter, onClearStageFilter }) {
+export default function CallLog({ teamMember, onNewProposal, onNavigateProposal, onNavigateInvoice, bidDueFilter, onClearBidDueFilter, stageFilter, onClearStageFilter }) {
   const [rows, setRows]           = useState([]);
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -563,6 +563,8 @@ export default function CallLog({ teamMember, onNewProposal, bidDueFilter, onCle
         onDeleted={() => { setSelJob(null); load(); }}
         teamMember={teamMember}
         onNewProposal={onNewProposal ? () => onNewProposal(selJob) : undefined}
+        onNavigateProposal={onNavigateProposal}
+        onNavigateInvoice={onNavigateInvoice}
       />
     );
   }

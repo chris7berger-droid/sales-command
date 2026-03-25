@@ -161,6 +161,11 @@ function ProposalPDFModal({ proposal, onClose }) {
   const signingUrl = `https://www.scmybiz.com/sign/${proposal.signing_token}`;
 
   async function handleSend() {
+    const customerEmail = proposal.call_log?.customers?.contact_email || "";
+    if (!customerEmail) {
+      setSendError("No customer email on file. Add a contact email to the customer record first.");
+      return;
+    }
     setSending(true);
     setSendError(null);
     try {
@@ -181,7 +186,7 @@ function ProposalPDFModal({ proposal, onClose }) {
             "Authorization": `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({
-            customerEmail: proposal.call_log?.customers?.contact_email || "",
+            customerEmail,
             customerName:  proposal.call_log?.customer_name  || "Customer",
             repEmail,
             repName:       salesName,
@@ -191,7 +196,12 @@ function ProposalPDFModal({ proposal, onClose }) {
           }),
         }
       );
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const body = await res.text();
+        let msg = "Send failed. Please try again.";
+        try { msg = JSON.parse(body).error || msg; } catch {}
+        throw new Error(msg);
+      }
       setSendDone(true);
       if (proposal.call_log_id) {
         await supabase.from("call_log").update({ stage: "Has Bid" }).eq("id", proposal.call_log_id);
@@ -458,12 +468,17 @@ function ProposalPDFModal({ proposal, onClose }) {
             <div style={{ maxWidth: 520, margin: "0 auto" }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 6 }}>Send Proposal to Customer</div>
               <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 24 }}>This will email the customer a link to review and sign electronically.</div>
+              <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Sending to</div>
+                <div style={{ fontWeight: 600, color: "#111827" }}>{proposal.call_log?.customers?.contact_email || <span style={{ color: "#e53935" }}>No customer email on file</span>}</div>
+              </div>
               <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 12, color: "#6B7280", wordBreak: "break-all" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Signing Link</div>
                 {signingUrl}
               </div>
-              {sendError && <div style={{ fontSize: 12, color: "#e53935", marginBottom: 12 }}>{sendError}</div>}
+              {sendError && <div style={{ fontSize: 12, color: "#e53935", marginBottom: 12, background: "rgba(229,57,53,0.06)", border: "1px solid rgba(229,57,53,0.2)", borderRadius: 8, padding: "10px 14px" }}>{sendError}</div>}
               <button onClick={handleSend} disabled={sending} style={{ width: "100%", background: sending ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: sending ? "default" : "pointer", fontFamily: "inherit" }}>
-                {sending ? "Sending…" : "📨 Send to Customer"}
+                {sending ? "Sending…" : "Send to Customer"}
               </button>
             </div>
           )}

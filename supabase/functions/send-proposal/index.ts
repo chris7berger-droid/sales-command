@@ -15,8 +15,25 @@ serve(async (req) => {
   try {
     const { customerEmail, customerName, repEmail, repName, proposalNumber, jobName, signingUrl } = await req.json();
 
+    console.log("send-proposal invoked", { customerEmail, repEmail, proposalNumber, jobName });
+
+    if (!customerEmail) {
+      return new Response(JSON.stringify({ error: "Customer email is required" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400,
+      });
+    }
+
+    if (!RESEND_API_KEY) {
+      console.error("RESEND_API_KEY is not set");
+      return new Response(JSON.stringify({ error: "Email service not configured" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500,
+      });
+    }
+
     // Email to customer
-    await fetch("https://api.resend.com/emails", {
+    const customerRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${RESEND_API_KEY}`,
@@ -44,26 +61,44 @@ serve(async (req) => {
       }),
     });
 
-    // Notification to rep
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: "estimates@hdspnv.com",
-        to: repEmail,
-        subject: `Proposal Sent — ${jobName}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
-            <p>Hi ${repName},</p>
-            <p>Proposal #${proposalNumber} for <strong>${customerName}</strong> (${jobName}) has been sent for signature.</p>
-            <p style="color: #887c6e; font-size: 12px;">You will receive another notification when the customer signs.</p>
-          </div>
-        `,
-      }),
-    });
+    const customerResBody = await customerRes.text();
+    console.log("Customer email response:", customerRes.status, customerResBody);
+
+    if (!customerRes.ok) {
+      return new Response(JSON.stringify({ error: `Failed to send customer email: ${customerResBody}` }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500,
+      });
+    }
+
+    // Notification to rep (non-blocking — don't fail the whole request if this fails)
+    if (repEmail) {
+      try {
+        const repRes = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: "estimates@hdspnv.com",
+            to: repEmail,
+            subject: `Proposal Sent — ${jobName}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
+                <p>Hi ${repName},</p>
+                <p>Proposal #${proposalNumber} for <strong>${customerName}</strong> (${jobName}) has been sent for signature.</p>
+                <p style="color: #887c6e; font-size: 12px;">You will receive another notification when the customer signs.</p>
+              </div>
+            `,
+          }),
+        });
+        const repResBody = await repRes.text();
+        console.log("Rep email response:", repRes.status, repResBody);
+      } catch (e) {
+        console.error("Rep email failed (non-fatal):", e.message);
+      }
+    }
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -71,6 +106,7 @@ serve(async (req) => {
     });
 
   } catch (error) {
+    console.error("send-proposal error:", error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 500,

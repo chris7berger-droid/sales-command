@@ -870,11 +870,17 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui }}>{val}</span>
               </div>
             ))}
-            {signedPdfUrl && !p.internal_approval && (
+            {p.status === "Sold" && (
               <div style={{ marginTop: 14 }}>
-                <a href={signedPdfUrl} target="_blank" rel="noopener noreferrer" style={{ display: "block", textAlign: "center", background: C.teal, color: C.dark, borderRadius: 8, padding: "10px 0", fontSize: 12, fontWeight: 800, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none" }}>
-                  ⬇ Download Signed PDF
-                </a>
+                {signedPdfUrl && !p.internal_approval ? (
+                  <a href={signedPdfUrl} target="_blank" rel="noopener noreferrer" style={{ display: "block", textAlign: "center", background: C.teal, color: C.dark, borderRadius: 8, padding: "10px 0", fontSize: 12, fontWeight: 800, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none" }}>
+                    ⬇ Download Signed PDF
+                  </a>
+                ) : p.internal_approval ? (
+                  <button onClick={() => setShowPDF(true)} style={{ display: "block", width: "100%", textAlign: "center", background: C.teal, color: C.dark, borderRadius: 8, padding: "10px 0", fontSize: 12, fontWeight: 800, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", border: "none", cursor: "pointer" }}>
+                    ⬇ Download Approved PDF
+                  </button>
+                ) : null}
               </div>
             )}
             {p.internal_approval && (

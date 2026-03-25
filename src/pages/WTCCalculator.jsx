@@ -471,13 +471,14 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         <select
           value={selectedWorkTypeId ?? ""}
           onChange={e => onWorkTypeChange(e.target.value)}
-          style={{ width: "100%", border: `1.5px solid ${T.gray200}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: selectedWorkTypeId ? T.gray900 : T.gray400, background: T.white, outline: "none", fontFamily: "inherit" }}
+          style={{ width: "100%", border: `1.5px solid ${selectedWorkTypeId ? T.gray200 : T.red}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: selectedWorkTypeId ? T.gray900 : T.gray400, background: T.white, outline: "none", fontFamily: "inherit" }}
         >
           <option value="" disabled>Select a work type…</option>
           {workTypes.map(wt => (
             <option key={wt.id} value={wt.id}>{wt.name}</option>
           ))}
         </select>
+        {!selectedWorkTypeId && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required</div>}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 20px" }}>
         <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" />
@@ -1694,6 +1695,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   // ── Save to Supabase ─────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!proposalId) return;
+    if (!selectedWorkTypeId) { alert("Work Type is required."); return; }
     const payload = {
       proposal_id:     proposalId,
       work_type_id:    selectedWorkTypeId ?? null,

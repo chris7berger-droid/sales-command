@@ -1061,6 +1061,11 @@ function SowTab({ data, onChange, locked, wtcMaterials }) {
             </div>
           );
         })}
+        {(data.field_sow || []).length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <Btn onClick={addDay} variant="blue" small icon="＋">Add Day Entry</Btn>
+          </div>
+        )}
       </div>
     </div>
   );

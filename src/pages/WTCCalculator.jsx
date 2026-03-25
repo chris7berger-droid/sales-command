@@ -745,20 +745,20 @@ function DiscountTab({ data, onChange }) {
   const specInput = (m, key, placeholder, width, type = "text") => (
     <input type={type} value={m[key] ?? ""} placeholder={placeholder}
       onChange={e => updateField(m.wtc_material_id, key, type === "number" ? (parseFloat(e.target.value) || 0) : e.target.value)}
-      style={{ width, border: `1.5px solid ${T.green}25`, borderRadius: 5, padding: "5px 8px", fontSize: 12, outline: "none", fontFamily: "inherit", background: "rgba(28,24,20,0.06)", color: T.gray800, boxSizing: "border-box" }}
+      style={{ width, border: `1.5px solid rgba(28,24,20,0.15)`, borderRadius: 5, padding: "5px 8px", fontSize: 12, outline: "none", fontFamily: "inherit", background: "#bfb3a1", color: T.gray800, boxSizing: "border-box" }}
       onFocus={e => e.target.style.borderColor = T.green}
-      onBlur={e => e.target.style.borderColor = `${T.green}25`} />
+      onBlur={e => e.target.style.borderColor = "rgba(28,24,20,0.15)"} />
   );
 
   return (
-    <div style={{ padding: "12px 16px 14px", borderTop: `1px solid ${T.green}15`, background: "rgba(25,118,210,0.03)" }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 10, opacity: 0.9 }}>
+    <div style={{ padding: "12px 16px 14px", borderTop: `1px solid rgba(28,24,20,0.12)` }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: T.gray500, letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 10 }}>
         Materials for this day
       </div>
       {(selectedMaterials || []).length > 0 && (
         <div style={{ marginBottom: 10, display: "flex", flexDirection: "column", gap: 10 }}>
           {(selectedMaterials || []).map(m => (
-            <div key={String(m.wtc_material_id)} style={{ background: "rgba(28,24,20,0.04)", border: `1.5px solid ${T.green}`, borderRadius: 8, padding: "10px 12px", position: "relative" }}>
+            <div key={String(m.wtc_material_id)} style={{ background: "rgba(28,24,20,0.04)", border: `1.5px solid rgba(28,24,20,0.15)`, borderRadius: 8, padding: "10px 12px", position: "relative" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: T.gray900 }}>{m.name}</span>
@@ -812,8 +812,8 @@ function DiscountTab({ data, onChange }) {
       )}
       <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
         <button ref={btnRef} onClick={handleOpen} disabled={available.length === 0}
-          style={{ background: "none", border: `1.5px dashed ${T.green}60`, borderRadius: 6, padding: "5px 14px", fontSize: 11, fontWeight: 700, color: T.gray800, cursor: available.length === 0 ? "default" : "pointer", fontFamily: "inherit", opacity: available.length === 0 ? 0.4 : 1 }}
-          onMouseEnter={e => { if (available.length > 0) e.currentTarget.style.background = `${T.green}08`; }}
+          style={{ background: "none", border: `1.5px dashed rgba(28,24,20,0.3)`, borderRadius: 6, padding: "5px 14px", fontSize: 11, fontWeight: 700, color: T.gray800, cursor: available.length === 0 ? "default" : "pointer", fontFamily: "inherit", opacity: available.length === 0 ? 0.4 : 1 }}
+          onMouseEnter={e => { if (available.length > 0) e.currentTarget.style.background = "rgba(28,24,20,0.04)"; }}
           onMouseLeave={e => e.currentTarget.style.background = "none"}>
           {available.length === 0 ? "✓ All Tab 3 materials added" : "＋ Add material from this WTC"}
         </button>
@@ -834,7 +834,7 @@ function DiscountTab({ data, onChange }) {
             {available.map((m, i) => (
               <div key={safeId(m)} onMouseDown={() => addMaterial(m)}
                 style={{ padding: "10px 14px", cursor: "pointer", borderBottom: i < available.length - 1 ? `1px solid ${T.gray100}` : "none", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}
-                onMouseEnter={e => e.currentTarget.style.background = T.greenLight}
+                onMouseEnter={e => e.currentTarget.style.background = "rgba(28,24,20,0.06)"}
                 onMouseLeave={e => e.currentTarget.style.background = T.white}>
                 <span style={{ fontSize: 13, color: T.gray800, fontWeight: 500 }}>{safeName(m)}</span>
                 <span style={{ fontSize: 11, color: T.gray400, whiteSpace: "nowrap" }}>{safeKit(m)}</span>
@@ -962,16 +962,16 @@ function SowTab({ data, onChange, locked, wtcMaterials }) {
         </div>
 
         {(data.field_sow || []).length === 0 ? (
-          <div style={{ background: "rgba(28,24,20,0.06)", borderRadius: 8, padding: "20px", textAlign: "center", color: T.gray500, fontSize: 13, border: `1px dashed ${T.green}60` }}>
+          <div style={{ background: "rgba(28,24,20,0.06)", borderRadius: 8, padding: "20px", textAlign: "center", color: T.gray500, fontSize: 13, border: `1px dashed rgba(28,24,20,0.3)` }}>
             No day entries yet. Add entries to define the production plan for Field Command.<br />
             <span style={{ fontSize: 11, color: T.gray400 }}>Each entry = one day's tasks, % complete targets, and materials needed</span>
           </div>
         ) : (data.field_sow || []).map((entry) => {
           const tasks = entry.tasks || [];
           return (
-            <div key={entry.id} style={{ background: "rgba(28,24,20,0.06)", borderRadius: 10, marginBottom: 12, border: `1px solid ${T.green}30` }}>
+            <div key={entry.id} style={{ background: "rgba(28,24,20,0.06)", borderRadius: 10, marginBottom: 12, border: `1px solid rgba(28,24,20,0.15)` }}>
               {/* Day header */}
-              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${T.green}15`, background: "rgba(28,24,20,0.08)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid rgba(28,24,20,0.12)`, background: "rgba(28,24,20,0.08)" }}>
                 <div style={{ width: 90, flexShrink: 0 }}>
                   <Label>Day Label</Label>
                   <input value={entry.day_label} onChange={e => updateDay(entry.id, "day_label", e.target.value)}
@@ -1213,7 +1213,7 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
               <span style={{ fontSize: 12, color: T.gray400, fontWeight: 600 }}>{fieldExpanded ? "▲ collapse" : "▼ expand"}</span>
             </button>
             {fieldExpanded && (
-              <div style={{ background: T.greenLight, border: `2px solid ${T.green}40`, borderRadius: 10, padding: "14px 16px" }}>
+              <div style={{ background: "rgba(28,24,20,0.06)", border: `1px solid rgba(28,24,20,0.15)`, borderRadius: 10, padding: "14px 16px" }}>
                 {(sow.field_sow || []).length === 0
                   ? <div style={{ fontSize: 13, color: T.gray400, fontStyle: "italic" }}>No day entries yet.</div>
                   : (sow.field_sow || []).map((entry, i) => {
@@ -1221,15 +1221,15 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
                     const entryMats  = entry.materials || [];
                     const totalPct   = tasks.reduce((s, t) => s + (parseFloat(t.pct_complete) || 0), 0);
                     return (
-                      <div key={entry.id} style={{ borderBottom: i < sow.field_sow.length - 1 ? `1px solid ${T.green}20` : "none", paddingBottom: 10, marginBottom: 10 }}>
+                      <div key={entry.id} style={{ borderBottom: i < sow.field_sow.length - 1 ? `1px solid rgba(28,24,20,0.12)` : "none", paddingBottom: 10, marginBottom: 10 }}>
                         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: T.green, minWidth: 48 }}>{entry.day_label || `Day ${i + 1}`}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: T.gray900, minWidth: 48 }}>{entry.day_label || `Day ${i + 1}`}</span>
                           <span style={{ fontSize: 11, color: T.gray400 }}>{entry.crew_count || 0} crew · {entry.hours_planned || 0} hrs</span>
                           <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: totalPct === 100 ? T.green : T.amber }}>{totalPct}%</span>
                         </div>
                         {tasks.map((t, ti) => (
                           <div key={t.id} style={{ display: "flex", gap: 6, fontSize: 12, color: T.gray600, paddingLeft: 48, marginBottom: 2 }}>
-                            <span style={{ color: T.green, fontWeight: 600 }}>{ti + 1}.</span>
+                            <span style={{ color: T.gray500, fontWeight: 600 }}>{ti + 1}.</span>
                             <span style={{ flex: 1 }}>{t.description || <em style={{ color: T.gray400 }}>No description</em>}</span>
                             <span style={{ color: T.gray400, fontWeight: 600, flexShrink: 0 }}>{t.pct_complete || 0}%</span>
                           </div>
@@ -1237,7 +1237,7 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
                         {entryMats.length > 0 && (
                           <div style={{ paddingLeft: 48, marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
                             {entryMats.map((m, mi) => (
-                              <span key={mi} style={{ fontSize: 10, background: `${T.green}15`, color: T.green, borderRadius: 4, padding: "2px 7px", fontWeight: 600 }}>
+                              <span key={mi} style={{ fontSize: 10, background: "rgba(28,24,20,0.08)", color: T.gray600, borderRadius: 4, padding: "2px 7px", fontWeight: 600 }}>
                                 {m.name}{m.qty_planned > 0 ? ` × ${m.qty_planned}` : ""}
                               </span>
                             ))}

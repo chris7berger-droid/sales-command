@@ -1,0 +1,255 @@
+SALES COMMAND — HANDOFF DOCUMENT v33
+Generated: March 25, 2026
+====================================================
+
+HOW TO USE THIS DOCUMENT
+Start every new Claude thread with:
+"Continue building Sales Command. Here is the handoff doc v33."
+Upload this file. CLAUDE.md in the repo root is auto-loaded — it contains
+style rules, schema reference, and data integrity rules that MUST be followed.
+
+====================================================
+COMPLETED THIS SESSION (v33)
+====================================================
+
+FULL INVOICE + STRIPE PAYMENT SYSTEM
+
+Built complete invoice lifecycle: create -> edit -> PDF preview -> send
+with Stripe payment link -> customer pays -> auto-update to Paid ->
+email receipts -> paid PDF with stamp.
+
+1. Invoice ID Generation — invoices.id is text (not auto-generated),
+   now auto-generates sequential zero-padded 5-digit IDs (e.g. 09121)
+
+2. Invoice PDF Preview Modal — branded PDF matching proposal style:
+   company header, bill-to, invoice #, job #, due date, line items
+   table, amount due, payment terms. PAID stamp with date when paid.
+   Print support via @media print styles.
+
+3. Send Invoice with Stripe Checkout — send-invoice Edge Function:
+   - Creates Stripe Checkout session with invoice amount
+   - Sends branded email to billing contact with "Pay Now" button
+   - Stripe description format: "Customer Name - Invoice #09121 · Job #10000 - Job Name"
+   - Billing contact auto-resolved from proposal -> call_log -> customer
+
+4. Stripe Webhook — stripe-webhook Edge Function:
+   - Receives checkout.session.completed from Stripe
+   - Updates invoice: status=Paid, stripe_checkout_id, stripe_payment_id, paid_at
+   - Sends payment receipt email to customer
+   - Sends payment notification email to sales rep
+   - Signature verification via STRIPE_WEBHOOK_SECRET
+
+5. Invoice Payment Success Page — /invoice-paid route:
+   branded "Payment Received" confirmation page after Stripe checkout
+
+6. Invoice Edit Mode (New status only):
+   - Editable: invoice #, due date, discount, description/PO#, billing % per line
+   - Save recalculates line amounts from updated billing percentages
+   - Cancel discards changes
+
+7. Invoice Pull Back — resets Sent/Waiting for Payment/Past Due to New:
+   - Clears sent_at, stripe_checkout_id, stripe_payment_id, paid_at
+   - Confirmation prompt before executing
+   - Paid invoices are locked (no edit, no pull back)
+
+8. Invoice Delete — double confirmation prompt:
+   - Deletes invoice_lines first (FK children), then invoice
+   - Available on all statuses
+
+9. Auto-refresh — invoice detail polls every 5s for payment status
+   updates when invoice is Sent/Waiting/Past Due
+
+10. Mark as Paid button — still available for check payments
+    (manual status update on Sent/Waiting for Payment/Past Due invoices)
+
+11. fmtD fix — now handles full ISO timestamps (was breaking on paid_at)
+
+EDGE FUNCTIONS DEPLOYED:
+- send-invoice (v1) — Stripe Checkout + email with Pay Now link
+- stripe-webhook (v1) — payment confirmation + receipt emails
+- send-proposal (unchanged)
+- proposal-signed (unchanged)
+
+SUPABASE SCHEMA CHANGES:
+- invoices table: added columns stripe_checkout_id (text),
+  stripe_payment_id (text), paid_at (timestamptz), description (text)
+
+NEW FILES:
+- src/pages/InvoicePaidPage.jsx — public payment success page
+- supabase/functions/send-invoice/index.ts
+- supabase/functions/stripe-webhook/index.ts
+
+STRIPE CONFIGURATION:
+- Live mode keys (sk_live_) stored in Supabase Edge Function Secrets
+- Webhook endpoint: https://pbgvgjjuhnpsumnowuym.supabase.co/functions/v1/stripe-webhook
+- Listening for: checkout.session.completed
+- Webhook signing secret stored as STRIPE_WEBHOOK_SECRET
+
+====================================================
+NEXT TASKS (in priority order)
+====================================================
+
+1. QuickBooks Integration — connect invoices to QuickBooks
+
+2. Continue regression testing on production:
+   - Test full invoice flow: create -> edit -> send -> customer pays -> Paid
+   - Test Pull Back -> edit -> resend flow
+   - Test check payment (Mark as Paid) flow
+   - Verify paid receipt emails to customer and rep
+   - Test delete invoice flow
+
+3. SC-58: Security hardening (RLS audit)
+
+4. Backlog:
+   SC-55: Goal Setting Flow
+   SC-56: Multi-tenant email settings
+   SC-62: Attachments on Call Log detail
+
+====================================================
+PRODUCTION ENVIRONMENT
+====================================================
+
+Production URL: https://www.scmybiz.com
+Vercel project: sales-command (chris7berger-droid)
+GitHub repo: chris7berger-droid/sales-command (branch: main)
+Auto-deploys on every push to main
+
+Vercel env vars set:
+  VITE_SUPABASE_URL
+  VITE_SUPABASE_ANON_KEY
+
+Supabase CLI linked to project pbgvgjjuhnpsumnowuym
+Edge functions deployed via: npx supabase functions deploy <name> --no-verify-jwt
+
+Supabase Edge Function Secrets:
+  RESEND_API_KEY
+  STRIPE_SECRET_KEY (sk_live_)
+  STRIPE_WEBHOOK_SECRET (whsec_)
+  SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DB_URL
+
+====================================================
+NAVIGATION ARCHITECTURE
+====================================================
+
+App.jsx manages page state via setActive("pageName"):
+- CallLog -> Proposals: onNewProposal sets initialProposal.job, switches to proposals
+- CallLog -> Proposal detail: onNavigateProposal sets initialProposal.openId,
+  Proposals.jsx load().then finds matching proposal and sets sel
+- CallLog -> Invoices: onNavigateInvoice switches to invoices page
+- Home -> CallLog: setActive("calllog") with optional setBidDueFilter
+
+====================================================
+INVOICE FLOW ARCHITECTURE
+====================================================
+
+Invoice List -> + New Invoice -> select Sold proposal -> set billing % per WTC
+-> Create Invoice (auto-generates ID) -> Invoice Detail
+
+Invoice Detail (New):
+  -> Edit Invoice (change #, due date, discount, description/PO#, billing %)
+  -> Preview / Send -> InvoicePDFModal (preview or send tab)
+  -> Send Invoice -> send-invoice Edge Function -> Stripe Checkout session
+  -> Email to billing contact with Pay Now button
+
+Customer Payment:
+  -> Clicks Pay Now -> Stripe Checkout page -> pays
+  -> Redirected to /invoice-paid success page
+  -> Stripe fires checkout.session.completed webhook
+  -> stripe-webhook Edge Function -> updates invoice to Paid
+  -> Sends receipt email to customer + notification to sales rep
+
+Manual Payment (check):
+  -> Mark as Paid button on Sent/Waiting for Payment/Past Due invoices
+
+Pull Back:
+  -> Resets to New, clears Stripe fields
+  -> Can edit and resend
+
+====================================================
+SIGNING FLOW ARCHITECTURE (SC-30)
+====================================================
+
+Proposal Detail -> Send Proposal -> ProposalPDFModal (Send tab)
+-> send-proposal Edge Function -> Resend email -> customer gets link
+-> /sign/:token -> PublicSigningPage.jsx -> customer types name
+-> jsPDF generates branded PDF -> signed-proposals bucket
+-> pdf_url saved to proposal_signatures (with signed_at)
+-> proposals.status = Sold, proposals.approved_at = now
+-> call_log.stage = Sold
+-> proposal-signed Edge Function -> Resend email to rep
+-> Proposal Detail shows Download Signed PDF button
+
+signing_token is generated client-side via crypto.randomUUID() on
+proposal creation. PublicSigningPage validates UUID format before query.
+
+INTERNAL APPROVE FLOW:
+Proposal Detail -> Internal Approve button -> modal (approved_by, reason)
+-> proposals.status = Sold, internal_approval = true, approved_by, approval_reason
+-> call_log.stage = Sold
+-> PDF shows Internal Approval block instead of signature lines
+-> Download Approved PDF button opens PDF preview
+
+PULL BACK FLOW:
+Proposal Detail -> Pull Back button -> confirmation
+-> proposals.status = Draft, clears approval fields
+-> proposal_signatures deleted
+-> proposal_wtc unlocked
+-> call_log.stage = Wants Bid
+
+====================================================
+EDGE FUNCTIONS
+====================================================
+
+send-proposal (--no-verify-jwt):
+  - Sends customer email with signing link
+  - Sends rep notification (non-blocking)
+  - Validates customerEmail is not empty
+  - Checks Resend API response
+
+proposal-signed (--no-verify-jwt):
+  - Called from PublicSigningPage after customer signs
+  - Sends rep email with signer name, date, job details
+  - Non-blocking from signing flow
+
+send-invoice (--no-verify-jwt):
+  - Creates Stripe Checkout session
+  - Sends customer email with Pay Now link
+  - Validates customerEmail and amount
+  - Returns checkoutId and checkoutUrl
+
+stripe-webhook (--no-verify-jwt):
+  - Receives Stripe checkout.session.completed events
+  - Verifies webhook signature
+  - Updates invoice to Paid with Stripe IDs and timestamp
+  - Sends receipt email to customer
+  - Sends notification email to sales rep
+
+====================================================
+WORKFLOW RULES
+====================================================
+
+1. NEVER use drag and drop for files
+2. ALWAYS provide code as text in chat — never as downloads
+3. NEVER give half-baked solution mid-figuring-it-out
+4. Always grep before edits
+5. Python scripts via python3 << PYEOF heredoc
+6. Git commit after every script succeeds
+7. Ask for screenshot before assuming error cause
+8. One step at a time
+9. git push + handoff doc at session end
+10. Keep instructions extremely simple for external setup (Stripe, Supabase dashboard)
+11. Prefer browser dashboards over CLI for configuration
+
+====================================================
+BACKLOG
+====================================================
+
+QuickBooks Integration
+SC-55: Goal Setting Flow
+SC-56: Multi-tenant email domain settings
+SC-58: Security hardening
+SC-62: Attachments on Call Log detail
+
+====================================================
+END OF HANDOFF v33
+====================================================

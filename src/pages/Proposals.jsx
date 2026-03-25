@@ -514,6 +514,14 @@ const [wtcs, setWtcs] = useState([]);
 const [signedPdfUrl, setSignedPdfUrl] = useState(null);
 const [attachments, setAttachments] = useState([]);
 const [expandedWtc, setExpandedWtc] = useState("auto");
+const [showApproveModal, setShowApproveModal] = useState(false);
+const [approveBy, setApproveBy] = useState(teamMember?.name || "");
+const [approveReason, setApproveReason] = useState("");
+const [allTeamMembers, setAllTeamMembers] = useState([]);
+
+useEffect(() => {
+  supabase.from("team_members").select("id, name").eq("active", true).order("name").then(({ data }) => setAllTeamMembers(data || []));
+}, []);
 
 useEffect(() => {
   async function loadWtcs() {
@@ -618,6 +626,47 @@ useEffect(() => {
     onDeleted && onDeleted();
   }
 
+  async function handlePullBack() {
+    if (!window.confirm("Pull back this proposal? It will return to Draft status and WTCs will be unlocked for editing.")) return;
+    // Unlock all WTCs
+    await supabase.from("proposal_wtc").update({ locked: false }).eq("proposal_id", p.id);
+    // Reset proposal
+    await supabase.from("proposals").update({
+      status: "Draft", approved_at: null,
+      internal_approval: false, approved_by: null, approval_reason: null,
+    }).eq("id", p.id);
+    // Reset call log stage
+    if (p.call_log_id) {
+      await supabase.from("call_log").update({ stage: "Wants Bid" }).eq("id", p.call_log_id);
+    }
+    // Refresh
+    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
+    if (data) setP(data);
+    const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true });
+    setWtcs(wtcData || []);
+    setSignedPdfUrl(null);
+  }
+
+  async function handleInternalApprove() {
+    if (!approveBy.trim()) { alert("Approved By is required."); return; }
+    if (!approveReason.trim()) { alert("Reason is required."); return; }
+    await supabase.from("proposals").update({
+      status: "Sold",
+      approved_at: new Date().toISOString(),
+      internal_approval: true,
+      approved_by: approveBy.trim(),
+      approval_reason: approveReason.trim(),
+    }).eq("id", p.id);
+    if (p.call_log_id) {
+      await supabase.from("call_log").update({ stage: "Sold" }).eq("id", p.call_log_id);
+    }
+    // Refresh
+    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
+    if (data) setP(data);
+    setShowApproveModal(false);
+    setApproveReason("");
+  }
+
 if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) setShowPDF(true); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
   if (showRecipients) return <RecipientsPlaceholder proposal={p} onBack={() => setShowRecipients(false)} />;
 
@@ -650,6 +699,12 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           {canDelete && (
             <Btn sz="sm" v="ghost" onClick={handleDelete} style={{ color: C.red, borderColor: C.red }}>🗑 Delete</Btn>
+          )}
+          {(p.status === "Sent" || p.status === "Sold") && (
+            <Btn sz="sm" v="ghost" onClick={handlePullBack} style={{ color: C.amber, borderColor: C.amber }}>↩ Pull Back</Btn>
+          )}
+          {p.status !== "Sold" && (
+            <Btn sz="sm" v="ghost" onClick={() => setShowApproveModal(true)} style={{ color: C.green, borderColor: C.green }}>✓ Internal Approve</Btn>
           )}
           <Btn sz="sm" v="ghost" onClick={() => setShowPDF(true)}>Generate PDF</Btn>
           {p.status !== "Sold" && <Btn sz="sm" onClick={() => setShowPDF(true)}>Send Proposal</Btn>}
@@ -792,9 +847,52 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                 </a>
               </div>
             )}
+            {p.internal_approval && (
+              <div style={{ marginTop: 14, background: "rgba(48,207,172,0.08)", border: `1px solid ${C.tealBorder}`, borderRadius: 8, padding: "12px 14px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.teal, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Internally Approved</div>
+                <div style={{ fontSize: 12, color: "#fff", fontFamily: F.ui }}>{p.approved_by}</div>
+                {p.approval_reason && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: F.ui, marginTop: 2 }}>{p.approval_reason}</div>}
+                {p.approved_at && <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", fontFamily: F.ui, marginTop: 4 }}>{new Date(p.approved_at).toLocaleString()}</div>}
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Internal Approve Modal */}
+      {showApproveModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,20,35,0.7)", backdropFilter: "blur(4px)" }}
+          onClick={e => { if (e.target === e.currentTarget) setShowApproveModal(false); }}>
+          <div style={{ background: C.linenCard, borderRadius: 16, width: "min(440px,90vw)", padding: "28px 32px", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 4 }}>Internal Approval</div>
+            <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui, marginBottom: 20 }}>Mark this proposal as Sold without customer signature.</div>
+
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6, fontFamily: F.display }}>Approved By</div>
+              <select value={approveBy} onChange={e => setApproveBy(e.target.value)}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, fontSize: 14, color: C.textBody, fontFamily: F.ui, outline: "none", WebkitAppearance: "none" }}>
+                <option value="">— Select —</option>
+                {allTeamMembers.map(m => (
+                  <option key={m.id} value={m.name}>{m.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6, fontFamily: F.display }}>Reason</div>
+              <textarea value={approveReason} onChange={e => setApproveReason(e.target.value)}
+                placeholder="e.g. GC doesn't sign sub proposals, verbal approval from PM..."
+                rows={3}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, fontSize: 14, color: C.textBody, fontFamily: F.ui, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <Btn sz="sm" v="ghost" onClick={() => setShowApproveModal(false)}>Cancel</Btn>
+              <Btn sz="sm" onClick={handleInternalApprove}>Approve as Sold</Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -530,7 +530,7 @@ export default function CallLog({ teamMember, onNewProposal, bidDueFilter, onCle
 
   const load = async () => {
     const [{ data: log }, { data: tm }, { data: cx }, { data: wt }] = await Promise.all([
-      supabase.from("call_log").select("*, job_work_types(*)").order("id", { ascending: false }),
+      supabase.from("call_log").select("*, job_work_types(*), customers(id, contact_email, contact_phone, first_name, last_name, business_address, business_city, business_state, business_zip)").order("id", { ascending: false }),
       supabase.from("team_members").select("*").order("name"),
       supabase.from("customers").select("*").order("name"),
       supabase.from("work_types").select("*").order("name"),

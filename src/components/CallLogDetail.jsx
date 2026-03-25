@@ -43,6 +43,7 @@ function stageColor(stage) {
 }
 
 export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onDeleted, teamMember, onNewProposal }) {
+  const cust = job.customers || {};
   const [form, setForm] = useState({
     stage:            job.stage            || "",
     bid_due:          job.bid_due          || "",
@@ -53,6 +54,8 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     jobsite_city:     job.jobsite_city     || "",
     jobsite_state:    job.jobsite_state    || "",
     jobsite_zip:      job.jobsite_zip      || "",
+    contact_email:    cust.contact_email   || "",
+    contact_phone:    cust.contact_phone   || "",
   });
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState(null);
@@ -163,6 +166,14 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     setSaving(false);
     if (err) { setError(err.message); return; }
 
+    // Save customer contact info
+    if (job.customer_id) {
+      await supabase.from("customers").update({
+        contact_email: form.contact_email || null,
+        contact_phone: form.contact_phone || null,
+      }).eq("id", job.customer_id);
+    }
+
     // Save work types — delete existing, re-insert selected
     await supabase.from("job_work_types").delete().eq("call_log_id", job.id);
     if (selectedWorkTypes.length > 0) {
@@ -236,6 +247,14 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
 
         <Field label="Follow-Up Date">
           <input type="date" value={form.follow_up} onChange={e => set("follow_up", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
+        </Field>
+
+        <Field label="Customer Email">
+          <input type="email" value={form.contact_email} onChange={e => set("contact_email", e.target.value)} placeholder="customer@example.com" style={inputStyle} />
+        </Field>
+
+        <Field label="Customer Phone">
+          <input type="tel" value={form.contact_phone} onChange={e => set("contact_phone", e.target.value)} placeholder="(555) 555-5555" style={inputStyle} />
         </Field>
 
         {/* Jobsite address — full width, split fields */}

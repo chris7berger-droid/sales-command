@@ -1,0 +1,190 @@
+SALES COMMAND — HANDOFF DOCUMENT v32
+Generated: March 25, 2026
+====================================================
+
+HOW TO USE THIS DOCUMENT
+Start every new Claude thread with:
+"Continue building Sales Command. Here is the handoff doc v32."
+Upload this file. CLAUDE.md in the repo root is auto-loaded — it contains
+style rules, schema reference, and data integrity rules that MUST be followed.
+
+====================================================
+COMPLETED THIS SESSION (v32)
+====================================================
+
+REGRESSION TESTING + 20 FIXES/FEATURES
+
+Ran end-to-end regression test on production (scmybiz.com) covering:
+  Customer creation -> Call Log -> Proposal -> WTC -> PDF ->
+  Send -> Customer Signs -> Status = Sold -> Download Signed PDF
+
+FIXES DURING REGRESSION:
+
+1. Login input white flash — changed to linenDeep + WebkitAppearance none
+2. Date inputs only clickable on calendar icon — added showPicker() onClick
+   to all 6 date inputs (CallLog wizard, CallLogDetail, WTCCalculator)
+3. Work type not required on WTC — added validation, red border, "Required" hint
+4. Add Day Entry button only at top — added bottom button too (Option B)
+5. Field SOW styling clashed with linen design — replaced all teal/mint
+   backgrounds and borders with warm linen tokens in edit + collapsed views
+6. PW checkbox invisible — global CSS hid it via -webkit-appearance:none;
+   excluded checkboxes + added explicit appearance:checkbox inline
+7. PW OT rate not auto-filling — reset pw_ot_overridden on toggle
+8. OT field misaligned — added alignItems:end to 3-column grid
+9. Field SOW percentages hard to read — dark badge behind % numbers
+10. Day-level % total misleading (summed to 125%) — replaced with task count
+11. Proposal PDF missing addresses — added full customer business address
+    + separate Jobsite Address section to both PDF modals
+12. Customer email send failing (401) — switched from raw fetch() to
+    supabase.functions.invoke() for proper auth token handling
+13. 406 console error — changed .single() to .maybeSingle() on
+    proposal_signatures query (no rows = no signed PDF yet)
+14. Edge function not checking Resend errors — added input validation,
+    response checking, logging, non-blocking rep email
+15. No way to view/edit customer email — added Customer Email and
+    Customer Phone fields to CallLogDetail, saves to customers table
+16. Signed PDF button not showing — added p.status dependency to useEffect
+
+NEW FEATURES:
+
+17. Pull Back proposal — resets Sent/Sold to Draft, unlocks WTCs,
+    clears old signatures, resets call_log stage to Wants Bid
+18. Internal Approve — modal captures Approved By (team member dropdown),
+    Reason, auto-timestamp. Sets status to Sold without customer signing.
+    New DB columns: approved_by, approval_reason, internal_approval (bool)
+19. PDF shows Internal Approval block — when internally approved, signature
+    area shows Approved By, Date, Time, Reason instead of blank sig lines
+20. Download Approved PDF button — same spot as Download Signed PDF,
+    opens PDF preview with approval block for internally approved proposals
+21. Rep notification on customer signing — new edge function proposal-signed
+    sends branded email to sales rep when customer signs
+
+EDGE FUNCTIONS DEPLOYED:
+- send-proposal (v3) — with --no-verify-jwt, input validation, logging
+- proposal-signed (v1) — new, notifies rep on customer signing
+
+SUPABASE SCHEMA CHANGES:
+- proposals table: added columns approved_by (text), approval_reason (text),
+  internal_approval (bool, default false)
+
+====================================================
+NEXT TASKS (in priority order)
+====================================================
+
+1. Continue regression testing on production:
+   - Test Pull Back -> edit WTC -> resend flow
+   - Test Internal Approve -> Download Approved PDF -> print
+   - Test new customer creation flow end-to-end
+   - Verify rep notification email on customer signing
+
+2. CallLogDetail: add navigation links to existing proposals, WTCs,
+   and invoices for the job (saved in memory for future session)
+
+3. SC-58: Security hardening (RLS audit — check all tables have
+   appropriate policies for SELECT, INSERT, UPDATE, DELETE)
+
+4. Backlog:
+   SC-55: Goal Setting Flow
+   SC-56: Multi-tenant email settings
+   SC-62: Attachments on Call Log detail
+
+====================================================
+PRODUCTION ENVIRONMENT
+====================================================
+
+Production URL: https://www.scmybiz.com
+Vercel project: sales-command (chris7berger-droid)
+GitHub repo: chris7berger-droid/sales-command (branch: main)
+Auto-deploys on every push to main
+
+Vercel env vars set:
+  VITE_SUPABASE_URL
+  VITE_SUPABASE_ANON_KEY
+
+Supabase CLI linked to project pbgvgjjuhnpsumnowuym
+Edge functions deployed via: npx supabase functions deploy <name> --no-verify-jwt
+
+====================================================
+NAVIGATION ARCHITECTURE
+====================================================
+
+App.jsx manages page state via setActive("pageName"):
+- CallLog -> Proposals: onNewProposal sets initialProposal.job, switches to proposals
+- CallLog -> Proposal detail: onNavigateProposal sets initialProposal.openId,
+  Proposals.jsx load().then finds matching proposal and sets sel
+- CallLog -> Invoices: onNavigateInvoice switches to invoices page
+- Home -> CallLog: setActive("calllog") with optional setBidDueFilter
+
+====================================================
+SIGNING FLOW ARCHITECTURE (SC-30)
+====================================================
+
+Proposal Detail -> Send Proposal -> ProposalPDFModal (Send tab)
+-> send-proposal Edge Function -> Resend email -> customer gets link
+-> /sign/:token -> PublicSigningPage.jsx -> customer types name
+-> jsPDF generates branded PDF -> signed-proposals bucket
+-> pdf_url saved to proposal_signatures (with signed_at)
+-> proposals.status = Sold, proposals.approved_at = now
+-> call_log.stage = Sold
+-> proposal-signed Edge Function -> Resend email to rep
+-> Proposal Detail shows Download Signed PDF button
+
+signing_token is generated client-side via crypto.randomUUID() on
+proposal creation. PublicSigningPage validates UUID format before query.
+
+INTERNAL APPROVE FLOW:
+Proposal Detail -> Internal Approve button -> modal (approved_by, reason)
+-> proposals.status = Sold, internal_approval = true, approved_by, approval_reason
+-> call_log.stage = Sold
+-> PDF shows Internal Approval block instead of signature lines
+-> Download Approved PDF button opens PDF preview
+
+PULL BACK FLOW:
+Proposal Detail -> Pull Back button -> confirmation
+-> proposals.status = Draft, clears approval fields
+-> proposal_signatures deleted
+-> proposal_wtc unlocked
+-> call_log.stage = Wants Bid
+
+====================================================
+EDGE FUNCTIONS
+====================================================
+
+send-proposal (--no-verify-jwt):
+  - Sends customer email with signing link
+  - Sends rep notification (non-blocking)
+  - Validates customerEmail is not empty
+  - Checks Resend API response
+
+proposal-signed (--no-verify-jwt):
+  - Called from PublicSigningPage after customer signs
+  - Sends rep email with signer name, date, job details
+  - Non-blocking from signing flow
+
+====================================================
+WORKFLOW RULES
+====================================================
+
+1. NEVER use drag and drop for files
+2. ALWAYS provide code as text in chat — never as downloads
+3. NEVER give half-baked solution mid-figuring-it-out
+4. Always grep before edits
+5. Python scripts via python3 << PYEOF heredoc
+6. Git commit after every script succeeds
+7. Ask for screenshot before assuming error cause
+8. One step at a time
+9. git push + handoff doc at session end
+
+====================================================
+BACKLOG
+====================================================
+
+SC-55: Goal Setting Flow
+SC-56: Multi-tenant email domain settings
+SC-58: Security hardening
+SC-62: Attachments on Call Log detail
+CallLogDetail: navigation to linked proposals/WTCs/invoices
+
+====================================================
+END OF HANDOFF v32
+====================================================

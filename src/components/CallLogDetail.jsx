@@ -231,11 +231,11 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         </Field>
 
         <Field label="Bid Due">
-          <input type="date" value={form.bid_due} onChange={e => set("bid_due", e.target.value)} style={inputStyle} />
+          <input type="date" value={form.bid_due} onChange={e => set("bid_due", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
         </Field>
 
         <Field label="Follow-Up Date">
-          <input type="date" value={form.follow_up} onChange={e => set("follow_up", e.target.value)} style={inputStyle} />
+          <input type="date" value={form.follow_up} onChange={e => set("follow_up", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
         </Field>
 
         {/* Jobsite address — full width, split fields */}

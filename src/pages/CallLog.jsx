@@ -445,7 +445,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       case "bidDue": return (
         <div>
           <StepLabel n={step + 1} label="Bid Due Date" />
-          <input type="date" value={data.bidDue} onChange={e => set("bidDue", e.target.value)} style={inputStyle} autoFocus />
+          <input type="date" value={data.bidDue} onChange={e => set("bidDue", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} autoFocus />
           <StepFooter step={step} back={back} error={error} onNext={() => { if (!data.bidDue) { setError("Bid due date is required"); return; } next(); }} />
         </div>
       );
@@ -459,7 +459,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               <ChoiceBtn label="No" selected={data.wantFollowUp === false} onClick={() => { set("wantFollowUp", false); next(); }} />
             </div>
             {data.wantFollowUp === true && (
-              <input type="date" value={data.followUp} onChange={e => set("followUp", e.target.value)} style={inputStyle} autoFocus />
+              <input type="date" value={data.followUp} onChange={e => set("followUp", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} autoFocus />
             )}
           </div>
           <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginTop: 12 }}>

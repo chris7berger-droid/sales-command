@@ -514,7 +514,8 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         <div style={{ marginBottom: 14 }}>
           <Label>Tentative Start Date <span style={{ color: T.red }}>*</span></Label>
           <input type="date" value={data.start_date || ""} onChange={e => setDate("start_date")(e.target.value)}
-            style={{ width: "100%", border: `1.5px solid ${data.start_date ? T.gray200 : T.red}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: T.gray900, background: "#bfb3a1", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+            onClick={e => e.target.showPicker?.()}
+            style={{ width: "100%", border: `1.5px solid ${data.start_date ? T.gray200 : T.red}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: T.gray900, background: "#bfb3a1", outline: "none", fontFamily: "inherit", boxSizing: "border-box", cursor: "pointer" }}
             onFocus={e => e.target.style.borderColor = T.green}
             onBlur={e => e.target.style.borderColor = data.start_date ? T.gray200 : T.red} />
           {!data.start_date && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required — use tentative date if unknown</div>}
@@ -522,7 +523,8 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         <div style={{ marginBottom: 14 }}>
           <Label>Tentative End Date <span style={{ color: T.red }}>*</span></Label>
           <input type="date" value={data.end_date || ""} onChange={e => setDate("end_date")(e.target.value)}
-            style={{ width: "100%", border: `1.5px solid ${data.end_date ? T.gray200 : T.red}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: T.gray900, background: "#bfb3a1", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+            onClick={e => e.target.showPicker?.()}
+            style={{ width: "100%", border: `1.5px solid ${data.end_date ? T.gray200 : T.red}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: T.gray900, background: "#bfb3a1", outline: "none", fontFamily: "inherit", boxSizing: "border-box", cursor: "pointer" }}
             onFocus={e => e.target.style.borderColor = T.green}
             onBlur={e => e.target.style.borderColor = data.end_date ? T.gray200 : T.red} />
           {!data.end_date && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required — use tentative date if unknown</div>}

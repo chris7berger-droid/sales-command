@@ -614,7 +614,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
 }
 
 // ── Invoice Detail ────────────────────────────────────────────────────────
-function InvoiceDetail({ invoice, onBack, onUpdated }) {
+function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
   const [inv, setInv] = useState(invoice);
   const [lines, setLines] = useState([]);
   const [wtcMap, setWtcMap] = useState({});
@@ -687,6 +687,16 @@ function InvoiceDetail({ invoice, onBack, onUpdated }) {
   const actions = statusActions[inv.status] || [];
   const canPullBack = inv.status !== "New" && inv.status !== "Paid";
   const isNew = inv.status === "New";
+
+  async function handleDelete() {
+    if (!confirm(`Delete Invoice #${inv.id}? This cannot be undone.`)) return;
+    if (!confirm(`Are you absolutely sure? This will permanently delete Invoice #${inv.id} and all its line items.`)) return;
+    // Delete line items first (FK children)
+    await supabase.from("invoice_lines").delete().eq("invoice_id", inv.id);
+    const { error } = await supabase.from("invoices").delete().eq("id", inv.id);
+    if (error) { alert(error.message); return; }
+    onDeleted && onDeleted();
+  }
 
   function startEditing() {
     setEditId(inv.id);
@@ -883,6 +893,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated }) {
             {canPullBack && (
               <Btn sz="sm" v="ghost" onClick={handlePullBack}>Pull Back</Btn>
             )}
+            <Btn sz="sm" v="ghost" onClick={handleDelete}>Delete</Btn>
           </>
         )}
       </div>
@@ -943,7 +954,7 @@ export default function Invoices() {
     return Math.round((new Date() - new Date(inv.due_date)) / 86400000);
   };
 
-  if (sel) return <InvoiceDetail invoice={sel} onBack={() => { setSel(null); load(); }} onUpdated={load} />;
+  if (sel) return <InvoiceDetail invoice={sel} onBack={() => { setSel(null); load(); }} onUpdated={load} onDeleted={() => { setSel(null); load(); }} />;
 
   return (
     <>

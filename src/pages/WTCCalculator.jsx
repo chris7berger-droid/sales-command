@@ -1219,13 +1219,12 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
                   : (sow.field_sow || []).map((entry, i) => {
                     const tasks      = entry.tasks || [];
                     const entryMats  = entry.materials || [];
-                    const totalPct   = tasks.reduce((s, t) => s + (parseFloat(t.pct_complete) || 0), 0);
                     return (
                       <div key={entry.id} style={{ borderBottom: i < sow.field_sow.length - 1 ? `1px solid rgba(28,24,20,0.12)` : "none", paddingBottom: 10, marginBottom: 10 }}>
                         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
                           <span style={{ fontSize: 11, fontWeight: 700, color: T.gray900, minWidth: 48 }}>{entry.day_label || `Day ${i + 1}`}</span>
                           <span style={{ fontSize: 11, color: T.gray400 }}>{entry.crew_count || 0} crew · {entry.hours_planned || 0} hrs</span>
-                          <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: totalPct === 100 ? T.green : T.amber, background: T.dark, borderRadius: 6, padding: "2px 8px", display: "inline-block" }}>{totalPct}%</span>
+                          <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 600, color: T.gray500 }}>{tasks.length} {tasks.length === 1 ? "task" : "tasks"}</span>
                         </div>
                         {tasks.map((t, ti) => (
                           <div key={t.id} style={{ display: "flex", gap: 6, fontSize: 12, color: T.gray600, paddingLeft: 48, marginBottom: 2 }}>

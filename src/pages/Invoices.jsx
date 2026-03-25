@@ -48,6 +48,15 @@ function calcWtcPrice(wtc) {
   return labor.total + mats + trav - (wtc.discount || 0);
 }
 
+const COMPANY = {
+  name: "High Desert Surface Prep",
+  tagline: "Industrial & Commercial Concrete Coatings",
+  phone: "(775) 300-1900",
+  email: "estimates@hdspnv.com",
+  website: "www.hdsp.com",
+  license: "NV Lic #0087342",
+};
+
 // ── Shared styles ─────────────────────────────────────────────────────────
 const inputStyle = {
   padding: "10px 14px", borderRadius: 8,
@@ -151,6 +160,15 @@ function NewInvoiceModal({ onClose, onCreated }) {
     setSaving(true);
     setError(null);
 
+    // Generate next invoice ID (zero-padded 5-digit)
+    const { data: latest } = await supabase
+      .from("invoices")
+      .select("id")
+      .order("id", { ascending: false })
+      .limit(1);
+    const lastNum = latest?.length ? parseInt(latest[0].id, 10) : 9100;
+    const nextId = String(lastNum + 1).padStart(5, "0");
+
     const jobNum = selProposal.call_log?.display_job_number || selProposal.call_log?.job_name || "";
     const jobName = selProposal.call_log?.job_name || selProposal.customer || "";
 
@@ -158,6 +176,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
     const { data: inv, error: invErr } = await supabase
       .from("invoices")
       .insert([{
+        id: nextId,
         job_id: jobNum,
         job_name: jobName,
         status: "New",
@@ -332,12 +351,263 @@ function NewInvoiceModal({ onClose, onCreated }) {
   );
 }
 
+// ── Invoice PDF Modal ─────────────────────────────────────────────────────
+function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
+  const [view, setView] = useState("preview");
+  const [sending, setSending] = useState(false);
+  const [sendDone, setSendDone] = useState(false);
+  const [sendError, setSendError] = useState(null);
+  const [billingEmail, setBillingEmail] = useState("");
+  const [billingName, setBillingName] = useState("");
+  const [loadingContact, setLoadingContact] = useState(true);
+
+  const netTotal = (invoice.amount || 0) - (invoice.discount || 0);
+
+  // Load billing contact from proposal -> call_log -> customer
+  useEffect(() => {
+    async function loadContact() {
+      if (!invoice.proposal_id) { setLoadingContact(false); return; }
+      const { data: prop } = await supabase
+        .from("proposals")
+        .select("call_log_id, call_log(customer_id, customer_name, customers(billing_email, billing_name, contact_email, first_name, last_name, name))")
+        .eq("id", invoice.proposal_id)
+        .maybeSingle();
+      const cust = prop?.call_log?.customers;
+      if (cust) {
+        setBillingEmail(cust.billing_email || cust.contact_email || "");
+        setBillingName(cust.billing_name || [cust.first_name, cust.last_name].filter(Boolean).join(" ") || cust.name || "");
+      }
+      setLoadingContact(false);
+    }
+    loadContact();
+  }, [invoice.proposal_id]);
+
+  async function handleSend() {
+    if (!billingEmail) { setSendError("No billing email found. Add one to the customer record."); return; }
+    setSending(true);
+    setSendError(null);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("send-invoice", {
+        body: {
+          invoiceId: invoice.id,
+          customerEmail: billingEmail,
+          customerName: billingName || "Customer",
+          amount: netTotal,
+          jobName: invoice.job_name || "",
+          jobId: invoice.job_id || "",
+          dueDate: invoice.due_date || null,
+        },
+      });
+      if (fnError) throw new Error(fnError.message || "Send failed.");
+      if (data?.error) throw new Error(data.error);
+      setSendDone(true);
+      onSent && onSent(data);
+    } catch (e) {
+      setSendError(e.message || "Send failed. Please try again.");
+    }
+    setSending(false);
+  }
+
+  return (
+    <div
+      data-pdf-overlay data-pdf-printable
+      style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,20,35,0.7)", backdropFilter: "blur(4px)" }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <style>{`
+        @media print {
+          html, body, #root { height: auto !important; overflow: visible !important; margin: 0 !important; padding: 0 !important; }
+          body > #root { display: contents !important; }
+          [data-pdf-overlay] { position: absolute !important; top: 0 !important; left: 0 !important; width: 100% !important; height: auto !important; background: white !important; backdrop-filter: none !important; display: block !important; overflow: visible !important; }
+          [data-inv-modal-inner] { position: static !important; max-height: none !important; height: auto !important; box-shadow: none !important; border-radius: 0 !important; width: 100% !important; border: none !important; display: block !important; overflow: visible !important; }
+          [data-inv-header] { display: none !important; }
+          [data-regression-tracker] { display: none !important; }
+          [data-inv-body] { padding: 20px !important; height: auto !important; flex: none !important; overflow: visible !important; }
+          @page { margin: 0.6in; size: letter; }
+        }
+      `}</style>
+      <div data-inv-modal-inner style={{ background: "white", borderRadius: 16, width: "min(860px,95vw)", maxHeight: "93vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.35)", overflow: "hidden" }}>
+
+        {/* Modal header */}
+        <div data-inv-header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 24px", borderBottom: "1px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: "#1976D2", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ color: "white", fontSize: 16 }}>$</span>
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Invoice Preview</div>
+              <div style={{ fontSize: 11, color: "#6B7280" }}>#{invoice.id} · {fmt$(netTotal)}</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {view === "preview" && !sendDone && (
+              <>
+                <button onClick={() => window.print()} style={{ background: "none", border: "1.5px solid #E5E7EB", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4B5563", cursor: "pointer", fontFamily: "inherit" }}>Print</button>
+                {invoice.status === "New" && <button onClick={() => setView("send")} style={{ background: "#1976D2", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "white", cursor: "pointer", fontFamily: "inherit" }}>Send Invoice</button>}
+              </>
+            )}
+            {view === "send" && !sendDone && (
+              <button onClick={() => setView("preview")} style={{ background: "none", border: "1.5px solid #E5E7EB", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4B5563", cursor: "pointer", fontFamily: "inherit" }}>Back to Preview</button>
+            )}
+            <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, color: "#9CA3AF", cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>x</button>
+          </div>
+        </div>
+
+        {/* Modal body */}
+        <div data-inv-body style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+
+          {view === "preview" && (
+            <div style={{ fontFamily: "Arial, sans-serif", color: "#1c1814", background: "white" }}>
+
+              {/* Company header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: 16, borderBottom: "4px solid #30cfac", marginBottom: 24 }}>
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#1c1814", letterSpacing: "0.02em", textTransform: "uppercase" }}>{COMPANY.name}</div>
+                  <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3 }}>{COMPANY.tagline}</div>
+                </div>
+                <div style={{ textAlign: "right", fontSize: 11, color: "#4a4238", lineHeight: 1.7 }}>
+                  <div>{COMPANY.phone}</div>
+                  <div>{COMPANY.email}</div>
+                  <div>{COMPANY.website}</div>
+                  <div style={{ color: "#887c6e" }}>{COMPANY.license}</div>
+                </div>
+              </div>
+
+              {/* Invoice info row */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid rgba(28,24,20,0.12)" }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Bill To</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#1c1814" }}>{billingName || invoice.job_name || "—"}</div>
+                  {billingEmail && <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3 }}>{billingEmail}</div>}
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Invoice #</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1814" }}>{invoice.id}</div>
+                  {invoice.job_id && (
+                    <>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Job #</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1814" }}>{invoice.job_id}</div>
+                    </>
+                  )}
+                  {invoice.due_date && (
+                    <>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Due Date</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1814" }}>{fmtD(invoice.due_date)}</div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Line items table */}
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Line Items</div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: "2px solid #1c1814" }}>
+                      {["Description", "Amount", "Billing %", "Line Total"].map(h => (
+                        <th key={h} style={{ padding: "8px 12px", textAlign: h === "Description" ? "left" : "right", fontWeight: 700, fontSize: 10.5, color: "#887c6e", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lines.map((l, i) => {
+                      const wtc = l.proposal_wtc;
+                      const wtcTotal = wtc ? calcWtcPrice(wtc) : 0;
+                      return (
+                        <tr key={l.id} style={{ borderBottom: "1px solid rgba(28,24,20,0.1)" }}>
+                          <td style={{ padding: "10px 12px", fontWeight: 600 }}>{wtc?.work_types?.name || "—"}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt$(wtcTotal)}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right" }}>{l.billing_pct}%</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{fmt$(l.amount)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Totals */}
+              {invoice.discount > 0 && (
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                  <div style={{ display: "flex", gap: 40, fontSize: 13 }}>
+                    <span style={{ color: "#887c6e", fontWeight: 600 }}>Subtotal</span>
+                    <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt$(invoice.amount)}</span>
+                  </div>
+                </div>
+              )}
+              {invoice.discount > 0 && (
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                  <div style={{ display: "flex", gap: 40, fontSize: 13 }}>
+                    <span style={{ color: "#e53935", fontWeight: 600 }}>Discount</span>
+                    <span style={{ fontWeight: 700, color: "#e53935", fontVariantNumeric: "tabular-nums" }}>-{fmt$(invoice.discount)}</span>
+                  </div>
+                </div>
+              )}
+              <div style={{ border: "2px solid #30cfac", borderRadius: 8, padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#4a4238", letterSpacing: "0.08em", textTransform: "uppercase" }}>Amount Due</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: "#1c1814", letterSpacing: "-0.01em" }}>{fmt$(netTotal)}</div>
+              </div>
+
+              {/* Payment info */}
+              <div style={{ borderTop: "1.5px solid rgba(28,24,20,0.15)", paddingTop: 20, textAlign: "center" }}>
+                <div style={{ fontSize: 11, color: "#887c6e", fontStyle: "italic" }}>
+                  Payment due upon receipt{invoice.due_date ? ` · Due by ${fmtD(invoice.due_date)}` : ""}
+                </div>
+                <div style={{ fontSize: 11, color: "#887c6e", marginTop: 4 }}>
+                  Questions? Contact {COMPANY.email} or call {COMPANY.phone}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {view === "send" && !sendDone && (
+            <div style={{ maxWidth: 520, margin: "0 auto" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 6 }}>Send Invoice</div>
+              <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 24 }}>This will email the customer an invoice with a secure payment link.</div>
+              {loadingContact ? (
+                <div style={{ color: "#6B7280", fontSize: 13 }}>Loading billing contact...</div>
+              ) : (
+                <>
+                  <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Sending to</div>
+                    <div style={{ fontWeight: 600, color: "#111827" }}>{billingEmail || <span style={{ color: "#e53935" }}>No billing email on file</span>}</div>
+                    {billingName && <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2 }}>{billingName}</div>}
+                  </div>
+                  <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Amount</div>
+                    <div style={{ fontWeight: 700, color: "#111827", fontSize: 18 }}>{fmt$(netTotal)}</div>
+                  </div>
+                  {sendError && <div style={{ fontSize: 12, color: "#e53935", marginBottom: 12, background: "rgba(229,57,53,0.06)", border: "1px solid rgba(229,57,53,0.2)", borderRadius: 8, padding: "10px 14px" }}>{sendError}</div>}
+                  <button onClick={handleSend} disabled={sending} style={{ width: "100%", background: sending ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: sending ? "default" : "pointer", fontFamily: "inherit" }}>
+                    {sending ? "Sending..." : "Send Invoice with Pay Link"}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {sendDone && (
+            <div style={{ textAlign: "center", padding: "40px 20px" }}>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#111827", marginBottom: 8 }}>Invoice Sent</div>
+              <div style={{ fontSize: 14, color: "#6B7280", marginBottom: 24 }}>The customer will receive an email with a secure payment link.</div>
+              <button onClick={onClose} style={{ background: "none", border: "1.5px solid #E5E7EB", borderRadius: 8, padding: "9px 20px", fontSize: 13, fontWeight: 600, color: "#4B5563", cursor: "pointer", fontFamily: "inherit" }}>Close</button>
+            </div>
+          )}
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Invoice Detail ────────────────────────────────────────────────────────
 function InvoiceDetail({ invoice, onBack, onUpdated }) {
   const [inv, setInv] = useState(invoice);
   const [lines, setLines] = useState([]);
   const [wtcMap, setWtcMap] = useState({});
   const [loading, setLoading] = useState(true);
+  const [showPDF, setShowPDF] = useState(false);
 
   useEffect(() => {
     async function loadDetail() {
@@ -452,13 +722,26 @@ function InvoiceDetail({ invoice, onBack, onUpdated }) {
         )}
       </div>
 
-      {/* Status actions */}
-      {actions.length > 0 && (
-        <div style={{ display: "flex", gap: 10 }}>
-          {actions.map(a => (
-            <Btn key={a.status} sz="sm" onClick={() => updateStatus(a.status)}>{a.label}</Btn>
-          ))}
-        </div>
+      {/* Action buttons */}
+      <div style={{ display: "flex", gap: 10 }}>
+        <Btn sz="sm" onClick={() => setShowPDF(true)}>Preview / Send</Btn>
+        {actions.map(a => (
+          <Btn key={a.status} sz="sm" v="ghost" onClick={() => updateStatus(a.status)}>{a.label}</Btn>
+        ))}
+      </div>
+
+      {showPDF && (
+        <InvoicePDFModal
+          invoice={inv}
+          lines={lines}
+          onClose={() => setShowPDF(false)}
+          onSent={async () => {
+            const updates = { status: "Sent", sent_at: new Date().toISOString() };
+            await supabase.from("invoices").update(updates).eq("id", inv.id);
+            setInv(prev => ({ ...prev, ...updates }));
+            onUpdated && onUpdated();
+          }}
+        />
       )}
     </div>
   );

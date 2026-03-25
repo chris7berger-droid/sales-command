@@ -541,7 +541,7 @@ useEffect(() => {
     if (data?.pdf_url) setSignedPdfUrl(data.pdf_url);
   }
   loadSignedPdf();
-}, [p.id]);
+}, [p.id, p.status]);
 
 useEffect(() => {
   if (!p.call_log_id) return;

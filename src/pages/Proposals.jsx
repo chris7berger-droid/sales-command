@@ -628,6 +628,8 @@ useEffect(() => {
 
   async function handlePullBack() {
     if (!window.confirm("Pull back this proposal? It will return to Draft status and WTCs will be unlocked for editing.")) return;
+    // Clear old signatures
+    await supabase.from("proposal_signatures").delete().eq("proposal_id", p.id);
     // Unlock all WTCs
     await supabase.from("proposal_wtc").update({ locked: false }).eq("proposal_id", p.id);
     // Reset proposal
@@ -840,7 +842,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui }}>{val}</span>
               </div>
             ))}
-            {signedPdfUrl && (
+            {signedPdfUrl && !p.internal_approval && (
               <div style={{ marginTop: 14 }}>
                 <a href={signedPdfUrl} target="_blank" rel="noopener noreferrer" style={{ display: "block", textAlign: "center", background: C.teal, color: C.dark, borderRadius: 8, padding: "10px 0", fontSize: 12, fontWeight: 800, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none" }}>
                   ⬇ Download Signed PDF

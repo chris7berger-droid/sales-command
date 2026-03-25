@@ -480,7 +480,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         </select>
         {!selectedWorkTypeId && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required</div>}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 20px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 20px", alignItems: "end" }}>
         <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" />
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
@@ -534,7 +534,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: -4, marginBottom: 20, padding: "12px 16px", background: T.gray50, borderRadius: 8, border: `1px solid ${T.gray200}` }}>
         <input type="checkbox" id="pw" checked={data.prevailing_wage || false}
           onChange={e => onChange({ ...data, prevailing_wage: e.target.checked, pw_ot_overridden: false })}
-          style={{ accentColor: T.green, width: 16, height: 16, cursor: "pointer" }} />
+          style={{ accentColor: T.green, width: 16, height: 16, cursor: "pointer", WebkitAppearance: "checkbox", appearance: "checkbox" }} />
         <label htmlFor="pw" style={{ fontSize: 13, color: T.gray700, fontWeight: 500, cursor: "pointer" }}>
           Prevailing Wage Job — affects labor rate calculation
         </label>

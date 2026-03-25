@@ -37,6 +37,6 @@ export const GLOBAL_CSS = `
   ::-webkit-scrollbar{width:6px;height:6px}
   ::-webkit-scrollbar-track{background:${C.linenDeep}}
   ::-webkit-scrollbar-thumb{background:${C.tealDark};border-radius:3px}
-  input,button,select,textarea{font-family:inherit;-webkit-appearance:none}
+  input:not([type="checkbox"]),button,select,textarea{font-family:inherit;-webkit-appearance:none}
   input:-webkit-autofill,input:-webkit-autofill:focus{-webkit-box-shadow:0 0 0 1000px ${C.linenDeep} inset;-webkit-text-fill-color:${C.textBody}}
 `;

@@ -42,7 +42,7 @@ export default function PublicSigningPage() {
 
       const { data: wtcData } = await supabase
         .from("proposal_wtc")
-        .select("sales_sow, discount, materials, travel, regular_hours, ot_hours, markup_pct, burden_rate, ot_burden_rate, tax_rate")
+        .select("sales_sow, discount, materials, travel, regular_hours, ot_hours, markup_pct, burden_rate, ot_burden_rate, tax_rate, prevailing_wage, pw_rate, pw_ot_rate, size")
         .eq("proposal_id", prop.id)
         .order("created_at", { ascending: true });
 
@@ -121,7 +121,7 @@ export default function PublicSigningPage() {
       doc.setFontSize(10); doc.setFont("helvetica", "bold");
       doc.setTextColor(...gray);
       doc.text("PROPOSAL TOTAL", margin + 16, y + 17);
-      const totalStr = fmt(proposal.total || 0);
+      const totalStr = fmt(total);
       doc.setFontSize(18); doc.setFont("helvetica", "bold");
       doc.setTextColor(...dark);
       const totalW = doc.getTextWidth(totalStr);
@@ -219,8 +219,28 @@ export default function PublicSigningPage() {
 
   const jobName = proposal.call_log?.job_name || proposal.call_log?.display_job_number || "Proposal";
   const customerName = proposal.call_log?.customer_name || "";
-  const total = proposal.total || 0;
   const fmt = n => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+  // Compute live total from WTC data
+  function calcWtcPriceLocal(w) {
+    const rate = w.prevailing_wage ? (w.pw_rate || 0) : (w.burden_rate || 0);
+    const otRate = w.prevailing_wage ? (w.pw_ot_rate || 0) : (w.ot_burden_rate || 0);
+    const regCost = (w.regular_hours || 0) * rate;
+    const otCost = (w.ot_hours || 0) * otRate;
+    const laborSub = regCost + otCost;
+    const laborTotal = laborSub + laborSub * ((w.markup_pct || 0) / 100);
+    const mats = (w.materials || []).reduce((s, i) => {
+      const base = (parseFloat(i.price_per_unit) || 0) * (parseFloat(i.qty) || 0);
+      const tax = base * ((parseFloat(i.tax) || 0) / 100);
+      const freight = parseFloat(i.freight) || 0;
+      const sub = base + tax + freight;
+      return s + sub + sub * ((parseFloat(i.markup_pct) || 0) / 100);
+    }, 0);
+    const t = w.travel || {};
+    const trav = (t.drive_rate||0)*(t.drive_miles||0) + (t.fly_rate||0)*(t.fly_tickets||0) + (t.stay_rate||0)*(t.stay_nights||0) + (t.per_diem_rate||0)*(t.per_diem_days||0)*(t.per_diem_crew||0);
+    return laborTotal + mats + trav - (w.discount || 0);
+  }
+  const total = (wtc || []).reduce((sum, w) => sum + calcWtcPriceLocal(w), 0);
 
   const combinedSow = (wtc || []).map(w => w.sales_sow).filter(Boolean).join("\n\n");
 

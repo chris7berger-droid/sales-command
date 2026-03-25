@@ -52,6 +52,7 @@ function NewProposalModal({ onClose, onCreated, preselectedJob }) {
         status: "Draft",
         total: 0,
         proposal_number: proposalNumber,
+        signing_token: crypto.randomUUID(),
       }])
       .select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))")
       .single();
@@ -164,6 +165,13 @@ function ProposalPDFModal({ proposal, onClose }) {
     setSendError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
+      // Look up rep email from team_members by sales_name
+      const salesName = proposal.call_log?.sales_name || "";
+      let repEmail = "";
+      if (salesName) {
+        const { data: rep } = await supabase.from("team_members").select("email").eq("name", salesName).maybeSingle();
+        repEmail = rep?.email || "";
+      }
       const res = await fetch(
         "https://pbgvgjjuhnpsumnowuym.supabase.co/functions/v1/send-proposal",
         {
@@ -175,8 +183,8 @@ function ProposalPDFModal({ proposal, onClose }) {
           body: JSON.stringify({
             customerEmail: proposal.call_log?.customers?.contact_email || "",
             customerName:  proposal.call_log?.customer_name  || "Customer",
-            repEmail:      "",
-            repName:       proposal.call_log?.sales_name || "",
+            repEmail,
+            repName:       salesName,
             proposalNumber: proposal.proposal_number || proposal.id,
             jobName:       proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
             signingUrl,
@@ -465,89 +473,6 @@ function ProposalPDFModal({ proposal, onClose }) {
 }
 
 
-function SendPlaceholder({ proposal, onBack }) {
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState(null);
-
-  const signingUrl = `https://www.scmybiz.com/sign/${proposal.signing_token}`;
-
-  async function handleSend() {
-    setSending(true);
-    setError(null);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(
-        "https://pbgvgjjuhnpsumnowuym.supabase.co/functions/v1/send-proposal",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            customerEmail: proposal.call_log?.customers?.contact_email || "",
-            customerName:  proposal.call_log?.customer_name  || "Customer",
-            repEmail:      proposal.rep_email || "",
-            repName:       proposal.rep_name  || "",
-            proposalNumber: proposal.proposal_number || proposal.id,
-            jobName:       proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
-            signingUrl,
-          }),
-        }
-      );
-      if (!res.ok) throw new Error(await res.text());
-      setSent(true);
-      if (proposal.call_log_id) {
-        await supabase.from("call_log").update({ stage: "Has Bid" }).eq("id", proposal.call_log_id);
-      }
-      await supabase.from("proposals").update({ status: "Sent" }).eq("id", proposal.id);
-    } catch (e) {
-      setError(e.message || "Send failed. Please try again.");
-    }
-    setSending(false);
-  }
-
-  if (sent) return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 420, gap: 16 }}>
-      <div style={{ fontSize: 48 }}>✅</div>
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#1a1a2e", fontFamily: "inherit", letterSpacing: "0.06em", textTransform: "uppercase" }}>Proposal Sent</div>
-      <div style={{ fontSize: 13, color: "#888", fontFamily: "inherit", textAlign: "center", maxWidth: 360 }}>
-        The signing link has been emailed to the customer.
-      </div>
-      <div style={{ fontSize: 12, color: "#888", background: "#f5f5f5", borderRadius: 8, padding: "10px 16px", maxWidth: 420, wordBreak: "break-all", textAlign: "center" }}>
-        {signingUrl}
-      </div>
-      <button onClick={onBack} style={{ marginTop: 8, background: "none", border: "none", cursor: "pointer", color: "#00b4a0", fontWeight: 800, fontSize: 12, fontFamily: "inherit", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-        ← Back to Proposal
-      </button>
-    </div>
-  );
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 420, gap: 16 }}>
-      <div style={{ fontSize: 48 }}>📤</div>
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#1a1a2e", fontFamily: "inherit", letterSpacing: "0.06em", textTransform: "uppercase" }}>Send Proposal</div>
-      <div style={{ fontSize: 13, color: "#888", fontFamily: "inherit", textAlign: "center", maxWidth: 360 }}>
-        This will email the customer a link to review and sign the proposal electronically.
-      </div>
-      <div style={{ fontSize: 12, color: "#aaa", background: "#f5f5f5", borderRadius: 8, padding: "10px 16px", maxWidth: 420, wordBreak: "break-all", textAlign: "center" }}>
-        {signingUrl}
-      </div>
-      {error && <div style={{ fontSize: 12, color: "#e53935", maxWidth: 360, textAlign: "center" }}>{error}</div>}
-      <button
-        onClick={handleSend}
-        disabled={sending}
-        style={{ background: sending ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: "12px 32px", fontSize: 14, fontWeight: 800, cursor: sending ? "default" : "pointer", fontFamily: "inherit", letterSpacing: "0.06em", textTransform: "uppercase" }}
-      >
-        {sending ? "Sending…" : "📨 Send to Customer"}
-      </button>
-      <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: "#00b4a0", fontWeight: 800, fontSize: 12, fontFamily: "inherit", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-        ← Back to Proposal
-      </button>
-    </div>
-  );
-}
 
 
 function RecipientsPlaceholder({ proposal, onBack }) {
@@ -568,7 +493,6 @@ function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember }) {
   const [showWTC, setShowWTC] = useState(false);
 const [activeWtcId, setActiveWtcId] = useState(null);
 const [showPDF, setShowPDF] = useState(false);
-const [showSend, setShowSend] = useState(false);
 const [showRecipients, setShowRecipients] = useState(false);
 const [wtcInitialTab, setWtcInitialTab] = useState(null);
 const missingJobsite = !p.call_log?.jobsite_address;
@@ -694,7 +618,6 @@ useEffect(() => {
   }
 
 if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) setShowPDF(true); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
-  if (showSend) return <SendPlaceholder proposal={p} onBack={() => setShowSend(false)} />;
   if (showRecipients) return <RecipientsPlaceholder proposal={p} onBack={() => setShowRecipients(false)} />;
 
   return (

@@ -1734,6 +1734,8 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
 
   // ── Lock in Supabase ─────────────────────────────────────────────────────
   const handleLock = async () => {
+    // Flush any unsaved changes before toggling lock
+    await handleSave();
     const newLocked = !locked;
     setLocked(newLocked);
     if (wtcId) {

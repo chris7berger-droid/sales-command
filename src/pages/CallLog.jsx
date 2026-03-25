@@ -214,9 +214,10 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     if (err) { setError(err.message); setSaving(false); return; }
 
     if (data.selectedWorkTypes.length > 0) {
-      await supabase.from("job_work_types").insert(
+      const { error: jwtErr } = await supabase.from("job_work_types").insert(
         data.selectedWorkTypes.map(id => ({ call_log_id: newJob.id, work_type_id: id }))
       );
+      if (jwtErr) console.error("job_work_types insert failed:", jwtErr.message);
     }
 
     if (data.attachments.length > 0) await uploadFiles(newJob.id);
@@ -274,8 +275,8 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
         <div>
           <StepLabel n={step + 1} label="Customer Type" />
           <div style={{ display: "flex", gap: 10 }}>
-            <ChoiceBtn label="Commercial" sub="Business name" selected={data.customerType === "Commercial"} onClick={() => { set("customerType", "Commercial"); next(); }} />
-            <ChoiceBtn label="Residential" sub="First & last name" selected={data.customerType === "Residential"} onClick={() => { set("customerType", "Residential"); next(); }} />
+            <ChoiceBtn label="Commercial" sub="Business name" selected={data.customerType === "Commercial"} onClick={() => { set("customerType", "Commercial"); set("customerId", null); set("customerMode", "existing"); next(); }} />
+            <ChoiceBtn label="Residential" sub="First & last name" selected={data.customerType === "Residential"} onClick={() => { set("customerType", "Residential"); set("customerId", null); set("customerMode", "existing"); next(); }} />
           </div>
           <StepFooter step={step} back={back} error={error} onNext={next} />
         </div>
@@ -530,7 +531,7 @@ export default function CallLog({ teamMember, onNewProposal, bidDueFilter, onCle
       supabase.from("call_log").select("*, job_work_types(*)").order("id", { ascending: false }),
       supabase.from("team_members").select("*").order("name"),
       supabase.from("customers").select("*").order("name"),
-      supabase.from("work_types").select("*").eq("active", true).order("sort_order"),
+      supabase.from("work_types").select("*").order("name"),
     ]);
     setRows(log || []);
     setTeam(tm || []);

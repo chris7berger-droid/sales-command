@@ -537,7 +537,7 @@ useEffect(() => {
       .not("pdf_url", "is", null)
       .order("signed_at", { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
     if (data?.pdf_url) setSignedPdfUrl(data.pdf_url);
   }
   loadSignedPdf();

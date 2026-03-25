@@ -123,6 +123,15 @@ function calcMaterialRowLocal(item) {
   return subtotal + markup;
 }
 
+function calcTravelLocal(t) {
+  if (!t) return 0;
+  const drive    = (t.drive_rate || 0) * (t.drive_miles || 0);
+  const fly      = (t.fly_rate || 0) * (t.fly_tickets || 0);
+  const stay     = (t.stay_rate || 0) * (t.stay_nights || 0);
+  const per_diem = (t.per_diem_rate || 0) * (t.per_diem_days || 0) * (t.per_diem_crew || 0);
+  return drive + fly + stay + per_diem;
+}
+
 function calcLaborLocal({ regular_hours, ot_hours, markup_pct, burden_rate, ot_burden_rate }) {
   const regularCost = (regular_hours || 0) * (burden_rate || 0);
   const otCost = (ot_hours || 0) * (ot_burden_rate || 0);
@@ -186,8 +195,6 @@ function ProposalPDFModal({ proposal, onClose }) {
     setSending(false);
   }
 
-  const fmt$ = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
-
   useEffect(() => {
     async function load() {
       const { data } = await supabase
@@ -207,11 +214,11 @@ function ProposalPDFModal({ proposal, onClose }) {
       regular_hours:  wtc.regular_hours  || 0,
       ot_hours:       wtc.ot_hours       || 0,
       markup_pct:     wtc.markup_pct     || 0,
-      burden_rate:    wtc.burden_rate    || 0,
-      ot_burden_rate: wtc.ot_burden_rate || 0,
+      burden_rate:    wtc.prevailing_wage ? (wtc.pw_rate || 0) : (wtc.burden_rate || 0),
+      ot_burden_rate: wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0),
     });
     const mats = (wtc.materials || []).reduce((s, i) => s + calcMaterialRowLocal(i), 0);
-    const trav = Object.values(wtc.travel || {}).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+    const trav = calcTravelLocal(wtc.travel);
     const disc = wtc.discount || 0;
     return {
       labor:     acc.labor    + labor.total,
@@ -373,7 +380,7 @@ function ProposalPDFModal({ proposal, onClose }) {
                       ot_burden_rate: wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0),
                     });
                     const wtcMats = (wtc.materials || []).reduce((s, item) => s + calcMaterialRowLocal(item), 0);
-                    const wtcTrav = Object.values(wtc.travel || {}).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+                    const wtcTrav = calcTravelLocal(wtc.travel);
                     const wtcTotal = wtcLabor.total + wtcMats + wtcTrav - (wtc.discount || 0);
                     return (
                       <div key={wtc.id} style={{ marginBottom: i < arr.length - 1 ? 24 : 0 }}>
@@ -670,7 +677,7 @@ useEffect(() => {
     const otRate = wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0);
     const labor = calcLaborLocal({ regular_hours: wtc.regular_hours, ot_hours: wtc.ot_hours, markup_pct: wtc.markup_pct, burden_rate: rate, ot_burden_rate: otRate });
     const mats = (wtc.materials || []).reduce((s, i) => s + calcMaterialRowLocal(i), 0);
-    const trav = Object.values(wtc.travel || {}).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+    const trav = calcTravelLocal(wtc.travel);
     const disc = wtc.discount || 0;
     return labor.total + mats + trav - disc;
   }

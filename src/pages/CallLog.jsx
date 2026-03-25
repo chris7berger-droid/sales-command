@@ -177,7 +177,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
 
     let customerId = data.customerId || null;
     if (data.customerMode === "new") {
-      const { data: nc } = await supabase.from("customers").insert([{
+      const { data: nc, error: custErr } = await supabase.from("customers").insert([{
         name, customer_type: data.customerType,
         first_name: data.firstName, last_name: data.lastName,
         phone: data.contactPhone, email: data.contactEmail,
@@ -189,6 +189,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
         business_address: data.businessAddress, business_city: data.businessCity,
         business_state: data.businessState, business_zip: data.businessZip,
       }]).select().single();
+      if (custErr) { setError("Failed to create customer: " + custErr.message); setSaving(false); return; }
       if (nc) customerId = nc.id;
     }
 
@@ -198,7 +199,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       sales_name: data.salesName, stage: data.stage,
       bid_due: data.bidDue || null,
       follow_up: data.wantFollowUp ? data.followUp || null : null,
-      notes: data.notes, date: new Date().toISOString().slice(0, 10),
+      notes: data.notes,
       is_change_order: data.jobType === "co",
       parent_job_id: data.jobType === "co" && data.parentJobId ? parseInt(data.parentJobId) : null,
       co_number: coNum,
@@ -624,7 +625,7 @@ export default function CallLog({ teamMember, onNewProposal, bidDueFilter, onCle
                   </div>
                 )},
                 { k: "customer_name", l: "Customer", r: (v, row) => <span style={{ fontWeight: 500 }}>{v || row.job_name}</span> },
-                { k: "date", l: "Date", r: v => fmtD(v) },
+                { k: "created_at", l: "Date", r: v => fmtD(v) },
                 { k: "stage", l: "Stage", r: v => <Pill label={v} cm={STAGE_C} /> },
                 { k: "sales_name", l: "Rep" },
                 { k: "bid_due", l: "Bid Due", r: v => <span style={{ color: over(v) ? C.red : C.textBody, fontWeight: 500 }}>{fmtD(v)}</span> },

@@ -178,7 +178,7 @@ const MATERIALS_DB = [
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
+const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n || 0);
 const pct = n => `${(n || 0).toFixed(1)}%`;
 
 function calcLabor({ regular_hours, ot_hours, markup_pct, burden_rate, ot_burden_rate, size }) {
@@ -209,6 +209,15 @@ function calcTravel(t) {
   const stay     = (t.stay_rate || 0) * (t.stay_nights || 0);
   const per_diem = (t.per_diem_rate || 0) * (t.per_diem_days || 0) * (t.per_diem_crew || 0);
   return drive + fly + stay + per_diem;
+}
+
+function calcWtcTotal(wtc) {
+  const rate = wtc.prevailing_wage ? (wtc.pw_rate || 0) : (wtc.burden_rate || 0);
+  const otRate = wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0);
+  const labor = calcLabor({ regular_hours: wtc.regular_hours, ot_hours: wtc.ot_hours, markup_pct: wtc.markup_pct, burden_rate: rate, ot_burden_rate: otRate, size: wtc.size }).total || 0;
+  const mats = (wtc.materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
+  const trav = calcTravel(wtc.travel || {});
+  return labor + mats + trav - (wtc.discount || 0);
 }
 
 // ── Tabs config ────────────────────────────────────────────────────────────
@@ -1714,15 +1723,11 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       const { data: newRow } = await supabase.from("proposal_wtc").insert(payload).select().single();
       if (newRow?.id) setWtcId(newRow.id);
     }
-    // Update proposals.total with current WTC calculated price
-    const matTotal = materials.reduce((sum, item) => sum + calcMaterialRow(item), 0);
-    const travelTotal = calcTravel(travel);
-    const laborTotal = calcLabor({ ...labor, burden_rate: effRate, ot_burden_rate: effOtRate, size: sow.size }).total || 0;
-    const calculatedTotal = laborTotal + matTotal + travelTotal - (discount.amount || 0);
+    // Update proposals.total by summing ALL WTCs for this proposal
     if (proposalId) {
-      console.log("Updating proposals.total:", proposalId, calculatedTotal);
-      const { error: totalErr } = await supabase.from("proposals").update({ total: calculatedTotal }).eq("id", proposalId);
-      console.log("Update result:", totalErr);
+      const { data: allWtcs } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", proposalId);
+      const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcTotal(w), 0);
+      await supabase.from("proposals").update({ total: proposalTotal }).eq("id", proposalId);
     }
     setSaved(true);
   };
@@ -1734,13 +1739,11 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     if (wtcId) {
       await supabase.from("proposal_wtc").update({ locked: newLocked }).eq("id", wtcId);
     }
-    // Sync proposals.total on lock/unlock
+    // Sync proposals.total on lock/unlock — sum ALL WTCs
     if (proposalId) {
-      const matTotal = materials.reduce((sum, item) => sum + calcMaterialRow(item), 0);
-      const travelTotal = calcTravel(travel);
-      const laborTotal = calcLabor({ ...labor, burden_rate: effRate, ot_burden_rate: effOtRate, size: sow.size }).total || 0;
-      const calculatedTotal = laborTotal + matTotal + travelTotal - (discount.amount || 0);
-      await supabase.from("proposals").update({ total: calculatedTotal }).eq("id", proposalId);
+      const { data: allWtcs } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", proposalId);
+      const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcTotal(w), 0);
+      await supabase.from("proposals").update({ total: proposalTotal }).eq("id", proposalId);
     }
   };
   const [showPDF,     setShowPDF]     = useState(false);

@@ -189,7 +189,7 @@ export default function PublicSigningPage() {
         pdf_url: pdfUrl,
       });
 
-      await supabase.from("proposals").update({ status: "Sold" }).eq("id", proposal.id);
+      await supabase.from("proposals").update({ status: "Sold", approved_at: new Date().toISOString() }).eq("id", proposal.id);
       if (proposal.call_log_id) {
         await supabase.from("call_log").update({ stage: "Sold" }).eq("id", proposal.call_log_id);
       }

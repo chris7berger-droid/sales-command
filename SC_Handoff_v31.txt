@@ -1,0 +1,146 @@
+SALES COMMAND — HANDOFF DOCUMENT v31
+Generated: March 25, 2026
+====================================================
+
+HOW TO USE THIS DOCUMENT
+Start every new Claude thread with:
+"Continue building Sales Command. Here is the handoff doc v31."
+Upload this file. CLAUDE.md in the repo root is auto-loaded — it contains
+style rules, schema reference, and data integrity rules that MUST be followed.
+
+====================================================
+COMPLETED THIS SESSION (v31)
+====================================================
+
+REGRESSION AUDIT + FIXES — 30 issues found, 25 fixed across 3 tiers
+
+Ran 3 parallel audit agents covering the full end-to-end flow:
+  1. Customer creation + Call Log wizard
+  2. Proposal creation + WTC Calculator
+  3. PDF generation + Send + Signing
+
+TIER 1 — MONEY & DISPLAY BUGS FIXED (commit 32e5087):
+- Multi-WTC proposal total: handleSave/handleLock now query ALL WTCs and
+  sum via calcWtcTotal(), not just the current WTC
+- Removed local fmt$ override in ProposalPDFModal that showed cents
+  ($28,450.00) — now uses imported fmt$ from utils.js
+- Fixed fmt in WTCCalculator.jsx: added maximumFractionDigits: 0
+- Travel calc in PDF modal + calcWtcPrice: replaced raw Object.values()
+  sum with proper rate x qty calculation (calcTravelLocal)
+- PDF modal totals reducer now respects prevailing_wage flag for burden rates
+- Set approved_at timestamp when proposal status -> Sold on signing
+- Removed stale "date" column insert in CallLog; list displays created_at
+- Added error handling on customer insert (was silent failure, null customer_id)
+
+TIER 2 — SILENT DATA & EDGE CASE FIXES (commit 2fd4578):
+- Generate signing_token via crypto.randomUUID() on proposal creation
+  (was relying on unverified DB default)
+- Compute live total from WTC data on PublicSigningPage (not stale
+  proposals.total) — includes prevailing wage, proper travel calc
+- Look up rep email from team_members by sales_name instead of
+  non-existent proposal.rep_email column
+- Removed work_types query filter on non-existent active/sort_order columns
+- Clear customerId + reset customerMode when user goes back and changes
+  customer type in wizard
+- handleLock now calls handleSave() first to flush unsaved changes
+- Added error handling on job_work_types insert
+- Removed dead SendPlaceholder component (unreachable from UI)
+
+TIER 3 — SPEC COMPLIANCE & POLISH (commit 5f30c70):
+- Added work_types(name) join to all 4 proposal_wtc fetches
+- Removed redundant loadWorkTypeNames query + state (uses join data)
+- Set signed_at explicitly in proposal_signatures insert
+- Surface file upload errors to user via alert (was console-only)
+
+NOT FIXED (low risk, deferred):
+- Signing operations not atomic (would need Supabase RPC)
+- CO# preview shows "CO#" without number before save (cosmetic)
+- Job number race condition (single-user app, extremely unlikely)
+
+====================================================
+NEXT TASKS (in priority order)
+====================================================
+
+1. End-to-end regression test on production (scmybiz.com):
+   create customer -> log call -> create proposal -> build WTC ->
+   generate PDF -> send -> customer signs -> status = Sold ->
+   download signed PDF
+
+2. CallLogDetail: add navigation links to existing proposals, WTCs,
+   and invoices for the job (saved in memory for future session)
+
+3. SC-58: Security hardening (RLS audit — check all tables have
+   appropriate policies for SELECT, INSERT, UPDATE, DELETE)
+
+4. Backlog:
+   SC-55: Goal Setting Flow
+   SC-56: Multi-tenant email settings
+   SC-62: Attachments on Call Log detail
+
+====================================================
+PRODUCTION ENVIRONMENT
+====================================================
+
+Production URL: https://www.scmybiz.com
+Vercel project: sales-command (chris7berger-droid)
+GitHub repo: chris7berger-droid/sales-command (branch: main)
+Auto-deploys on every push to main
+
+Vercel env vars set:
+  VITE_SUPABASE_URL
+  VITE_SUPABASE_ANON_KEY
+
+====================================================
+NAVIGATION ARCHITECTURE
+====================================================
+
+App.jsx manages page state via setActive("pageName"):
+- CallLog -> Proposals: onNewProposal sets initialProposal.job, switches to proposals
+- CallLog -> Proposal detail: onNavigateProposal sets initialProposal.openId,
+  Proposals.jsx load().then finds matching proposal and sets sel
+- CallLog -> Invoices: onNavigateInvoice switches to invoices page
+- Home -> CallLog: setActive("calllog") with optional setBidDueFilter
+
+====================================================
+SIGNING FLOW ARCHITECTURE (SC-30)
+====================================================
+
+Proposal Detail -> Send Proposal -> ProposalPDFModal (Send tab)
+-> send-proposal Edge Function -> Resend email -> customer gets link
+-> /sign/:token -> PublicSigningPage.jsx -> customer types name
+-> jsPDF generates branded PDF -> signed-proposals bucket
+-> pdf_url saved to proposal_signatures (with signed_at)
+-> proposals.status = Sold, proposals.approved_at = now
+-> call_log.stage = Sold
+-> Proposal Detail shows Download Signed PDF button
+
+signing_token is generated client-side via crypto.randomUUID() on
+proposal creation. PublicSigningPage validates UUID format before query.
+
+====================================================
+WORKFLOW RULES
+====================================================
+
+1. NEVER use drag and drop for files
+2. ALWAYS provide code as text in chat — never as downloads
+3. NEVER give half-baked solution mid-figuring-it-out
+4. Always grep before edits
+5. Python scripts via python3 << PYEOF heredoc
+6. Git commit after every script succeeds
+7. Ask for screenshot before assuming error cause
+8. One step at a time
+9. git push + handoff doc at session end
+
+====================================================
+BACKLOG
+====================================================
+
+SC-55: Goal Setting Flow
+SC-56: Multi-tenant email domain settings
+SC-58: Security hardening
+SC-62: Attachments on Call Log detail
+CallLogDetail: navigation to linked proposals/WTCs/invoices
+
+====================================================
+END OF HANDOFF v31
+====================================================

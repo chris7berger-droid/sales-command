@@ -428,25 +428,53 @@ function ProposalPDFModal({ proposal, onClose }) {
                 <div style={{ fontSize: 26, fontWeight: 800, color: "#1c1814", letterSpacing: "-0.01em" }}>{fmt$(proposalPrice)}</div>
               </div>
 
-              {/* Signature block — customer only */}
-              <div style={{ borderTop: "1.5px solid rgba(28,24,20,0.15)", paddingTop: 20 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 20 }}>Customer Acceptance</div>
-                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 32, marginBottom: 16 }}>
-                  <div>
-                    <div style={{ borderBottom: "1.5px solid #2d2720", marginBottom: 6, height: 32 }} />
-                    <div style={{ fontSize: 11, color: "#887c6e" }}>Authorized Signature</div>
-                  </div>
-                  <div>
-                    <div style={{ borderBottom: "1.5px solid #2d2720", marginBottom: 6, height: 32 }} />
-                    <div style={{ fontSize: 11, color: "#887c6e" }}>Date</div>
+              {/* Signature / Approval block */}
+              {proposal.internal_approval ? (
+                <div style={{ borderTop: "1.5px solid rgba(28,24,20,0.15)", paddingTop: 20 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Internal Approval</div>
+                  <div style={{ border: "1.5px solid rgba(48,207,172,0.3)", borderRadius: 8, padding: "16px 20px", background: "rgba(48,207,172,0.04)" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Approved By</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1814" }}>{proposal.approved_by || "—"}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Date</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1814" }}>{proposal.approved_at ? new Date(proposal.approved_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—"}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Time</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1814" }}>{proposal.approved_at ? new Date(proposal.approved_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—"}</div>
+                      </div>
+                    </div>
+                    {proposal.approval_reason && (
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Reason</div>
+                        <div style={{ fontSize: 13, color: "#2d2720" }}>{proposal.approval_reason}</div>
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div style={{ borderBottom: "1.5px solid #2d2720", marginBottom: 6, height: 32, width: "60%" }} />
-                <div style={{ fontSize: 11, color: "#887c6e", marginBottom: 20 }}>Printed Name</div>
-                <div style={{ fontSize: 11, color: "#887c6e", fontStyle: "italic", textAlign: "center" }}>
-                  *This proposal is valid for 90 days from the date above.*
+              ) : (
+                <div style={{ borderTop: "1.5px solid rgba(28,24,20,0.15)", paddingTop: 20 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 20 }}>Customer Acceptance</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 32, marginBottom: 16 }}>
+                    <div>
+                      <div style={{ borderBottom: "1.5px solid #2d2720", marginBottom: 6, height: 32 }} />
+                      <div style={{ fontSize: 11, color: "#887c6e" }}>Authorized Signature</div>
+                    </div>
+                    <div>
+                      <div style={{ borderBottom: "1.5px solid #2d2720", marginBottom: 6, height: 32 }} />
+                      <div style={{ fontSize: 11, color: "#887c6e" }}>Date</div>
+                    </div>
+                  </div>
+                  <div style={{ borderBottom: "1.5px solid #2d2720", marginBottom: 6, height: 32, width: "60%" }} />
+                  <div style={{ fontSize: 11, color: "#887c6e", marginBottom: 20 }}>Printed Name</div>
+                  <div style={{ fontSize: 11, color: "#887c6e", fontStyle: "italic", textAlign: "center" }}>
+                    *This proposal is valid for 90 days from the date above.*
+                  </div>
                 </div>
-              </div>
+              )}
 
             </div>
           )}

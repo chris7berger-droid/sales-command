@@ -54,7 +54,7 @@ function NewProposalModal({ onClose, onCreated, preselectedJob }) {
         proposal_number: proposalNumber,
         signing_token: crypto.randomUUID(),
       }])
-      .select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))")
+      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))")
       .single();
     setSaving(false);
     if (err) { setError(err.message); return; }
@@ -355,12 +355,23 @@ function ProposalPDFModal({ proposal, onClose }) {
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Prepared For</div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: "#1c1814" }}>{proposal.customer || "—"}</div>
+                  {proposal.call_log?.customers?.business_address && (
+                    <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3, lineHeight: 1.7 }}>
+                      {proposal.call_log.customers.business_address}
+                      {proposal.call_log.customers.business_city ? ", " + proposal.call_log.customers.business_city : ""}
+                      {proposal.call_log.customers.business_state ? ", " + proposal.call_log.customers.business_state : ""}
+                      {proposal.call_log.customers.business_zip ? " " + proposal.call_log.customers.business_zip : ""}
+                    </div>
+                  )}
                   {proposal.call_log?.jobsite_address && (
-                    <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3 }}>
-                      {proposal.call_log.jobsite_address}
-                      {proposal.call_log.jobsite_city ? ", " + proposal.call_log.jobsite_city : ""}
-                      {proposal.call_log.jobsite_state ? ", " + proposal.call_log.jobsite_state : ""}
-                      {proposal.call_log.jobsite_zip ? " " + proposal.call_log.jobsite_zip : ""}
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Jobsite Address</div>
+                      <div style={{ fontSize: 12, color: "#4a4238", lineHeight: 1.7 }}>
+                        {proposal.call_log.jobsite_address}
+                        {proposal.call_log.jobsite_city ? ", " + proposal.call_log.jobsite_city : ""}
+                        {proposal.call_log.jobsite_state ? ", " + proposal.call_log.jobsite_state : ""}
+                        {proposal.call_log.jobsite_zip ? " " + proposal.call_log.jobsite_zip : ""}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -605,7 +616,7 @@ useEffect(() => {
     onDeleted && onDeleted();
   }
 
-if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) setShowPDF(true); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
+if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) setShowPDF(true); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
   if (showRecipients) return <RecipientsPlaceholder proposal={p} onBack={() => setShowRecipients(false)} />;
 
   return (
@@ -805,7 +816,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial 
   const load = async () => {
     const { data } = await supabase
       .from("proposals")
-      .select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email)), proposal_wtc(start_date, end_date)")
+      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date)")
       .order("created_at", { ascending: false });
     setProposals(data || []);
     setLoading(false);

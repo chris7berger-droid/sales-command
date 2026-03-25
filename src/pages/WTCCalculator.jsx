@@ -1410,7 +1410,13 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
                   <div>
                     <div style={S.preparedHdr}>Prepared For</div>
                     <div style={S.preparedVal}>{jobInfo.customerName || "—"}</div>
-                    {jobInfo.jobsiteAddress && <div style={S.preparedSub}>{jobInfo.jobsiteAddress}</div>}
+                    {jobInfo.customerAddress && <div style={S.preparedSub}>{jobInfo.customerAddress}</div>}
+                    {jobInfo.jobsiteAddress && (
+                      <div style={{ marginTop: 14 }}>
+                        <div style={S.preparedHdr}>Jobsite Address</div>
+                        <div style={S.preparedSub}>{jobInfo.jobsiteAddress}</div>
+                      </div>
+                    )}
                   </div>
                   <div style={S.metaRight}>
                     {proposalNumber && (
@@ -1759,7 +1765,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const [showPDF,     setShowPDF]     = useState(false);
   const [showSigning, setShowSigning] = useState(false);
   const [proposalNumber, setProposalNumber] = useState(null);
-  const [jobInfo, setJobInfo] = useState({ customerName: "", jobsiteAddress: "", jobName: "" });
+  const [jobInfo, setJobInfo] = useState({ customerName: "", jobsiteAddress: "", customerAddress: "", jobName: "", displayJobNumber: "" });
   const [proposalSold, setProposalSold] = useState(false);
 
   useEffect(() => {
@@ -1767,21 +1773,20 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     async function loadJobInfo() {
       const { data } = await supabase
         .from("proposals")
-        .select("proposal_number, customer, status, call_log(job_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip)")
+        .select("proposal_number, customer, status, call_log(job_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, customer_id, customers(business_address, business_city, business_state, business_zip))")
         .eq("id", proposalId)
         .single();
       if (data?.proposal_number) setProposalNumber(data.proposal_number);
       if (data?.status === "Sold") setProposalSold(true);
       if (data) {
+        const cl = data.call_log;
+        const cust = cl?.customers;
         setJobInfo({
           customerName: data.customer || "",
-          jobName: data.call_log?.job_name || "",
-          jobsiteAddress: [
-            data.call_log?.jobsite_address,
-            data.call_log?.jobsite_city,
-            data.call_log?.jobsite_state,
-            data.call_log?.jobsite_zip,
-          ].filter(Boolean).join(", "),
+          jobName: cl?.job_name || "",
+          displayJobNumber: cl?.display_job_number || "",
+          customerAddress: [cust?.business_address, cust?.business_city, cust?.business_state, cust?.business_zip].filter(Boolean).join(", "),
+          jobsiteAddress: [cl?.jobsite_address, cl?.jobsite_city, cl?.jobsite_state, cl?.jobsite_zip].filter(Boolean).join(", "),
         });
       }
     }

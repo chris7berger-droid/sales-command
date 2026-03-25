@@ -33,7 +33,7 @@ export default function PublicSigningPage() {
 
       const { data: prop, error: propErr } = await supabase
         .from("proposals")
-        .select("*, call_log_id, call_log(job_name, display_job_number, customer_name)")
+        .select("*, call_log_id, call_log(job_name, display_job_number, customer_name, sales_name)")
         .eq("signing_token", token)
         .single();
 
@@ -194,6 +194,26 @@ export default function PublicSigningPage() {
       if (proposal.call_log_id) {
         await supabase.from("call_log").update({ stage: "Sold" }).eq("id", proposal.call_log_id);
       }
+
+      // Notify rep that proposal was signed (non-blocking)
+      try {
+        const salesName = proposal.call_log?.sales_name || "";
+        if (salesName) {
+          const { data: rep } = await supabase.from("team_members").select("email").eq("name", salesName).maybeSingle();
+          if (rep?.email) {
+            await supabase.functions.invoke("proposal-signed", {
+              body: {
+                repEmail: rep.email,
+                repName: salesName,
+                customerName: proposal.call_log?.customer_name || "Customer",
+                signerName: name.trim(),
+                proposalNumber: proposal.proposal_number || proposal.id,
+                jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
+              },
+            });
+          }
+        }
+      } catch (e) { console.warn("Rep notification failed:", e); }
 
       setSigned(true);
     } catch (e) {

@@ -140,12 +140,14 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
   const previewDisplay = `${previewNum}${previewCO} - ${previewName}`;
 
   const uploadFiles = async (jobId) => {
+    const failures = [];
     for (const file of data.attachments) {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
       const path = `${jobId}/${Date.now()}-${safeName}`;
       const { error: upErr } = await supabase.storage.from("job-attachments").upload(path, file);
-      if (upErr) console.error("File upload failed:", upErr.message, path);
+      if (upErr) failures.push(file.name);
     }
+    if (failures.length) alert(`Failed to upload: ${failures.join(", ")}`);
   };
 
   const save = async () => {

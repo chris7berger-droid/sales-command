@@ -187,6 +187,7 @@ export default function PublicSigningPage() {
         signer_email: null,
         ip_address: ip,
         pdf_url: pdfUrl,
+        signed_at: new Date().toISOString(),
       });
 
       await supabase.from("proposals").update({ status: "Sold", approved_at: new Date().toISOString() }).eq("id", proposal.id);

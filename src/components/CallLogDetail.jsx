@@ -95,11 +95,14 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     const files = Array.from(e.target.files);
     if (!files.length) return;
     setUploading(true);
+    const failures = [];
     for (const file of files) {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
       const path = `${job.id}/${Date.now()}-${safeName}`;
-      await supabase.storage.from("job-attachments").upload(path, file);
+      const { error: upErr } = await supabase.storage.from("job-attachments").upload(path, file);
+      if (upErr) failures.push(file.name);
     }
+    if (failures.length) alert(`Failed to upload: ${failures.join(", ")}`);
     await fetchAttachments();
     setUploading(false);
     e.target.value = "";

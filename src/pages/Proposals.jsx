@@ -207,7 +207,7 @@ function ProposalPDFModal({ proposal, onClose }) {
     async function load() {
       const { data } = await supabase
         .from("proposal_wtc")
-        .select("*")
+        .select("*, work_types(name)")
         .eq("proposal_id", proposal.id)
         .order("created_at", { ascending: true });
       setWtcs(data || []);
@@ -498,7 +498,6 @@ const [wtcInitialTab, setWtcInitialTab] = useState(null);
 const missingJobsite = !p.call_log?.jobsite_address;
 
 const [wtcs, setWtcs] = useState([]);
-const [workTypeNames, setWorkTypeNames] = useState({});
 const [signedPdfUrl, setSignedPdfUrl] = useState(null);
 const [attachments, setAttachments] = useState([]);
 const [expandedWtc, setExpandedWtc] = useState("auto");
@@ -507,7 +506,7 @@ useEffect(() => {
   async function loadWtcs() {
     const { data } = await supabase
       .from("proposal_wtc")
-      .select("*")
+      .select("*, work_types(name)")
       .eq("proposal_id", p.id)
       .order("created_at", { ascending: true });
     setWtcs(data || []);
@@ -515,17 +514,6 @@ useEffect(() => {
   loadWtcs();
 }, [p.id]);
 
-useEffect(() => {
-  async function loadWorkTypeNames() {
-    const { data } = await supabase.from("work_types").select("id, name").order("name");
-    if (data) {
-      const map = {};
-      data.forEach(wt => { map[wt.id] = wt.name; });
-      setWorkTypeNames(map);
-    }
-  }
-  loadWorkTypeNames();
-}, []);
 
 useEffect(() => {
   async function loadSignedPdf() {
@@ -617,7 +605,7 @@ useEffect(() => {
     onDeleted && onDeleted();
   }
 
-if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) setShowPDF(true); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
+if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) setShowPDF(true); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
   if (showRecipients) return <RecipientsPlaceholder proposal={p} onBack={() => setShowRecipients(false)} />;
 
   return (
@@ -667,7 +655,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               const pct = Math.round((checks.filter(c => c.done).length / checks.length) * 100);
               const price = calcWtcPrice(wtc);
               const wtcLabel = `WTC ${wtcIdx + 1}`;
-              const typeName = workTypeNames[wtc.work_type_id];
+              const typeName = wtc.work_types?.name;
               const isExpanded = expandedWtc === wtc.id || (expandedWtc === "auto" && wtcs.length === 1);
               return (
                 <div key={wtc.id} style={{ background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 12 }}>

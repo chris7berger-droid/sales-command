@@ -1611,7 +1611,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     async function loadWTC() {
       const { data, error } = await supabase
         .from("proposal_wtc")
-        .select("*")
+        .select("*, work_types(name)")
         .eq("id", wtcId)
         .single();
       if (error || !data) return;

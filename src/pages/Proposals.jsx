@@ -169,7 +169,6 @@ function ProposalPDFModal({ proposal, onClose }) {
     setSending(true);
     setSendError(null);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
       // Look up rep email from team_members by sales_name
       const salesName = proposal.call_log?.sales_name || "";
       let repEmail = "";
@@ -177,31 +176,19 @@ function ProposalPDFModal({ proposal, onClose }) {
         const { data: rep } = await supabase.from("team_members").select("email").eq("name", salesName).maybeSingle();
         repEmail = rep?.email || "";
       }
-      const res = await fetch(
-        "https://pbgvgjjuhnpsumnowuym.supabase.co/functions/v1/send-proposal",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            customerEmail,
-            customerName:  proposal.call_log?.customer_name  || "Customer",
-            repEmail,
-            repName:       salesName,
-            proposalNumber: proposal.proposal_number || proposal.id,
-            jobName:       proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
-            signingUrl,
-          }),
-        }
-      );
-      if (!res.ok) {
-        const body = await res.text();
-        let msg = "Send failed. Please try again.";
-        try { msg = JSON.parse(body).error || msg; } catch {}
-        throw new Error(msg);
-      }
+      const { data: fnData, error: fnError } = await supabase.functions.invoke("send-proposal", {
+        body: {
+          customerEmail,
+          customerName:  proposal.call_log?.customer_name  || "Customer",
+          repEmail,
+          repName:       salesName,
+          proposalNumber: proposal.proposal_number || proposal.id,
+          jobName:       proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
+          signingUrl,
+        },
+      });
+      if (fnError) throw new Error(fnError.message || "Send failed.");
+      if (fnData?.error) throw new Error(fnData.error);
       setSendDone(true);
       if (proposal.call_log_id) {
         await supabase.from("call_log").update({ stage: "Has Bid" }).eq("id", proposal.call_log_id);

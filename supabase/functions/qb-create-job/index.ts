@@ -159,7 +159,9 @@ serve(async (req) => {
     const coPrefix = job.is_change_order ? `CO${job.co_number || ""} ` : "";
     const jobName = job.job_name || "";
     // Format: "6458 CO1 - Plenium Agru Warehouse - Sealer/Joint fill"
-    const subName = `${jobNum} ${coPrefix}- ${parentName}${jobName ? ` - ${jobName}` : ""}`.trim();
+    // Skip job name if it matches the customer name to avoid duplication
+    const showJobName = jobName && jobName.toLowerCase() !== parentName.toLowerCase();
+    const subName = `${jobNum} ${coPrefix}- ${parentName}${showJobName ? ` - ${jobName}` : ""}`.trim();
 
     // Check if sub-customer already exists
     let subQB = await findCustomer(subName, accessToken, realmId);

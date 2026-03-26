@@ -689,6 +689,10 @@ useEffect(() => {
     }).eq("id", p.id);
     if (p.call_log_id) {
       await supabase.from("call_log").update({ stage: "Sold" }).eq("id", p.call_log_id);
+      // Sync job to QuickBooks
+      supabase.functions.invoke("qb-create-job", { body: { callLogId: p.call_log_id } })
+        .then(r => { if (r.data?.error) console.warn("QB sync:", r.data.error); else console.log("QB job created:", r.data); })
+        .catch(e => console.warn("QB sync failed:", e.message));
     }
     // Refresh
     const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();

@@ -193,6 +193,8 @@ export default function PublicSigningPage() {
       await supabase.from("proposals").update({ status: "Sold", approved_at: new Date().toISOString() }).eq("id", proposal.id);
       if (proposal.call_log_id) {
         await supabase.from("call_log").update({ stage: "Sold" }).eq("id", proposal.call_log_id);
+        // Sync job to QuickBooks (non-blocking)
+        supabase.functions.invoke("qb-create-job", { body: { callLogId: proposal.call_log_id } }).catch(() => {});
       }
 
       // Notify rep that proposal was signed (non-blocking)

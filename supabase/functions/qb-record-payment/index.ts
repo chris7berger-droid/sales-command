@@ -98,9 +98,20 @@ serve(async (req) => {
       });
     }
 
-    // Fetch call log for QB customer ID
-    const { data: callLog } = await sb.from("call_log").select("qb_customer_id").eq("id", invoice.job_id).single();
-    if (!callLog?.qb_customer_id) throw new Error("Job not synced to QuickBooks");
+    // Fetch QB customer ID via proposal -> call_log
+    let qbCustomerId = null;
+    if (invoice.proposal_id) {
+      const { data: proposal } = await sb.from("proposals").select("call_log_id").eq("id", invoice.proposal_id).maybeSingle();
+      if (proposal?.call_log_id) {
+        const { data: cl } = await sb.from("call_log").select("qb_customer_id").eq("id", proposal.call_log_id).maybeSingle();
+        qbCustomerId = cl?.qb_customer_id;
+      }
+    }
+    if (!qbCustomerId) {
+      const { data: cl } = await sb.from("call_log").select("qb_customer_id").eq("display_job_number", invoice.job_id).limit(1).maybeSingle();
+      qbCustomerId = cl?.qb_customer_id;
+    }
+    if (!qbCustomerId) throw new Error("Job not synced to QuickBooks");
 
     const { accessToken, realmId } = await getQBToken(sb);
 
@@ -109,7 +120,7 @@ serve(async (req) => {
 
     // Create Payment in QB
     const payment: any = {
-      CustomerRef: { value: callLog.qb_customer_id },
+      CustomerRef: { value: qbCustomerId },
       TotalAmt: netAmount,
       TxnDate: invoice.paid_at ? new Date(invoice.paid_at).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
       Line: [{

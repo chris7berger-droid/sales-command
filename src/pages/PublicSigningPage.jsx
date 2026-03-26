@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { calcWtcPrice } from "../lib/calc";
 
 const T = {
   green: "#30cfac",
@@ -244,26 +245,7 @@ export default function PublicSigningPage() {
   const customerName = proposal.call_log?.customer_name || "";
   const fmt = n => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
-  // Compute live total from WTC data
-  function calcWtcPriceLocal(w) {
-    const rate = w.prevailing_wage ? (w.pw_rate || 0) : (w.burden_rate || 0);
-    const otRate = w.prevailing_wage ? (w.pw_ot_rate || 0) : (w.ot_burden_rate || 0);
-    const regCost = (w.regular_hours || 0) * rate;
-    const otCost = (w.ot_hours || 0) * otRate;
-    const laborSub = regCost + otCost;
-    const laborTotal = laborSub + laborSub * ((w.markup_pct || 0) / 100);
-    const mats = (w.materials || []).reduce((s, i) => {
-      const base = (parseFloat(i.price_per_unit) || 0) * (parseFloat(i.qty) || 0);
-      const tax = base * ((parseFloat(i.tax) || 0) / 100);
-      const freight = parseFloat(i.freight) || 0;
-      const sub = base + tax + freight;
-      return s + sub + sub * ((parseFloat(i.markup_pct) || 0) / 100);
-    }, 0);
-    const t = w.travel || {};
-    const trav = (t.drive_rate||0)*(t.drive_miles||0) + (t.fly_rate||0)*(t.fly_tickets||0) + (t.stay_rate||0)*(t.stay_nights||0) + (t.per_diem_rate||0)*(t.per_diem_days||0)*(t.per_diem_crew||0);
-    return laborTotal + mats + trav - (w.discount || 0);
-  }
-  const total = (wtc || []).reduce((sum, w) => sum + calcWtcPriceLocal(w), 0);
+  const total = (wtc || []).reduce((sum, w) => sum + calcWtcPrice(w), 0);
 
   const combinedSow = (wtc || []).map(w => w.sales_sow).filter(Boolean).join("\n\n");
 

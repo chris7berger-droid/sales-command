@@ -113,15 +113,26 @@ serve(async (req) => {
       .select("*, proposal_wtc(*, work_types(name, cost_code))")
       .eq("invoice_id", invoiceId);
 
-    // Fetch the call log for QB customer ID and job info
-    const { data: callLog } = await sb.from("call_log")
-      .select("*, customers(name, qb_customer_id)")
-      .eq("id", invoice.job_id)
-      .single();
+    // Fetch the call log for QB customer ID via proposal -> call_log
+    // invoices.job_id is the job number (string), not call_log.id (int)
+    // So we go through: invoice.proposal_id -> proposals.call_log_id -> call_log
+    let qbCustomerId = null;
+    let jobState = null;
+    if (invoice.proposal_id) {
+      const { data: proposal } = await sb.from("proposals").select("call_log_id").eq("id", invoice.proposal_id).maybeSingle();
+      if (proposal?.call_log_id) {
+        const { data: callLog } = await sb.from("call_log").select("qb_customer_id, jobsite_state").eq("id", proposal.call_log_id).maybeSingle();
+        qbCustomerId = callLog?.qb_customer_id;
+        jobState = callLog?.jobsite_state;
+      }
+    }
+    // Fallback: try matching by display_job_number
+    if (!qbCustomerId) {
+      const { data: callLog } = await sb.from("call_log").select("qb_customer_id, jobsite_state").eq("display_job_number", invoice.job_id).limit(1).maybeSingle();
+      qbCustomerId = callLog?.qb_customer_id;
+      jobState = callLog?.jobsite_state;
+    }
 
-    if (!callLog) throw new Error(`Call log ${invoice.job_id} not found`);
-
-    const qbCustomerId = callLog.qb_customer_id;
     if (!qbCustomerId) {
       throw new Error("Job not synced to QuickBooks yet. Approve the proposal first.");
     }
@@ -167,7 +178,6 @@ serve(async (req) => {
     // ── Determine location from jobsite state ──────────────────────────
     // QB uses "Department" for Location tracking
     let departmentRef = null;
-    const jobState = callLog.jobsite_state;
     if (jobState) {
       const stateData = await qbApi("GET", `/query?query=${encodeURIComponent(`SELECT * FROM Department WHERE Name = '${jobState}'`)}`, accessToken, realmId);
       const dept = stateData?.QueryResponse?.Department?.[0];

@@ -89,7 +89,7 @@ serve(async (req) => {
 
     } else if (action === "refresh") {
       // Refresh the access token
-      const { data: conn } = await sb.from("qb_connection").select("*").limit(1).single();
+      const { data: conn } = await sb.from("qb_connection").select("*").limit(1).maybeSingle();
 
       if (!conn) {
         return new Response(JSON.stringify({ error: "No QB connection found" }), {
@@ -140,7 +140,7 @@ serve(async (req) => {
 
     } else if (action === "status") {
       // Check connection status
-      const { data: conn } = await sb.from("qb_connection").select("realm_id, token_expires_at, updated_at").limit(1).single();
+      const { data: conn } = await sb.from("qb_connection").select("realm_id, token_expires_at, updated_at").limit(1).maybeSingle();
 
       if (!conn) {
         return new Response(JSON.stringify({ connected: false }), {

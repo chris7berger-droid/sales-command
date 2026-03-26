@@ -57,11 +57,31 @@ sync, invoice sync, and payment sync.
    - Triggered from Stripe webhook (checkout.session.completed)
    - Non-blocking
 
+CODE AUDIT & FIXES — COMPLETE ✅
+
+1. Consolidated calc helpers into src/lib/calc.js (single source of truth)
+   - calcLabor, calcMaterialRow, calcTravel, calcWtcPrice
+   - Removed duplicates from Invoices.jsx, Proposals.jsx,
+     PublicSigningPage.jsx, WTCCalculator.jsx
+   - Fixes potential total mismatches across pages
+
+2. Fixed QB invoice/payment sync data lookup
+   - Was using invoice.job_id (job number string) to look up call_log.id (integer)
+   - Now routes through proposal_id → call_log_id → call_log
+   - Falls back to display_job_number match
+
+3. Fixed qb-auth crash on empty qb_connection table
+   - Changed .single() to .maybeSingle()
+
+4. Removed HDSP branding from sidebar logo → "Command Suite"
+5. Removed "React · Supabase · Stripe" label from top bar
+
 CURRENT STATUS:
 - Connected to QB SANDBOX (development keys)
 - Production keys requested — awaiting Intuit approval
 - Tested: OAuth flow works, customer/job creation works
 - Pending test: invoice sync, payment sync (need production keys or sandbox access)
+- SCH Command now sharing the same Supabase DB
 
 ====================================================
 NEXT TASKS (in priority order)

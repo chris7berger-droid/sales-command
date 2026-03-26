@@ -669,8 +669,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
   async function updateStatus(newStatus) {
     const updates = { status: newStatus };
     if (newStatus === "Sent" && !inv.sent_at) updates.sent_at = new Date().toISOString();
+    if (newStatus === "Paid" && !inv.paid_at) updates.paid_at = new Date().toISOString();
     const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
     if (error) { alert(error.message); return; }
+    // Sync payment to QuickBooks when marked as Paid
+    if (newStatus === "Paid" && inv.qb_invoice_id) {
+      supabase.functions.invoke("qb-record-payment", { body: { invoiceId: inv.id } })
+        .then(r => { if (r.data?.error) console.warn("QB payment sync:", r.data.error); else console.log("QB payment recorded:", r.data); })
+        .catch(e => console.warn("QB payment sync failed:", e.message));
+    }
     setInv(prev => ({ ...prev, ...updates }));
     onUpdated && onUpdated();
   }

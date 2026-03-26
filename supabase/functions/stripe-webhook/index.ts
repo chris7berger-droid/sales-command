@@ -109,6 +109,22 @@ serve(async (req) => {
 
       console.log("Invoice", invoiceId, "marked as Paid");
 
+      // Sync payment to QuickBooks (non-blocking)
+      try {
+        const qbRes = await fetch(`${SUPABASE_URL}/functions/v1/qb-record-payment`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          },
+          body: JSON.stringify({ invoiceId }),
+        });
+        const qbData = await qbRes.json();
+        console.log("QB payment sync:", qbRes.ok ? "success" : "failed", JSON.stringify(qbData));
+      } catch (qbErr) {
+        console.warn("QB payment sync error:", qbErr.message);
+      }
+
       // Get invoice details for emails
       const { data: inv } = await supabase
         .from("invoices")

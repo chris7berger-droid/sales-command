@@ -1,0 +1,249 @@
+SALES COMMAND — HANDOFF DOCUMENT v34
+Generated: March 26, 2026
+====================================================
+
+HOW TO USE THIS DOCUMENT
+Start every new Claude thread with:
+"Continue building Sales Command. Here is the handoff doc v34."
+Upload this file. CLAUDE.md in the repo root is auto-loaded — it contains
+style rules, schema reference, and data integrity rules that MUST be followed.
+
+====================================================
+COMPLETED THIS SESSION (v34)
+====================================================
+
+QUICKBOOKS ONLINE INTEGRATION — COMPLETE ✅
+
+Built full QuickBooks Online integration with OAuth2 connection, customer/job
+sync, invoice sync, and payment sync.
+
+1. OAuth2 Connection Flow
+   - Intuit Developer app "Sales Command" created (AppID: 26546a3f...)
+   - qb-auth Edge Function: token exchange, refresh, and status check
+   - QBCallbackPage.jsx: handles OAuth redirect from Intuit
+   - /qb/callback route wired in App.jsx
+   - "Connect QuickBooks" button on Invoices page header
+   - Shows "QB Connected" indicator once linked
+   - Tokens stored in qb_connection table (Supabase)
+
+2. Proposal → Sold = Create Customer/Job in QB
+   - qb-create-job Edge Function
+   - Creates parent customer (company) if not found
+   - Creates sub-customer (job) under parent
+   - Sub-customer format: "{jobNum} {CO} - {CustomerName} - {JobName}"
+   - Skips job name if same as customer name (prevents duplication)
+   - Maps jobsite address to billing/shipping
+   - Maps contact info (email, phone) from customer record
+   - Stores QB sub-customer ID on call_log.qb_customer_id
+   - Stores QB parent ID on customers.qb_customer_id
+   - Triggered from Internal Approve AND customer signing flows
+   - Non-blocking — runs in background
+
+3. Invoice → Sent = Create Invoice in QB
+   - qb-sync-invoice Edge Function
+   - Uses "Services" item for all line items (not cost codes)
+   - Work type name used as line item description
+   - Maps location from jobsite_state to QB Department
+   - Maps invoice #, date, due date, discount, description/PO#
+   - Stores QB invoice ID on invoices.qb_invoice_id
+   - Triggered when invoice is sent via Stripe
+   - Non-blocking
+
+4. Invoice → Paid = Record Payment in QB
+   - qb-record-payment Edge Function
+   - Creates Payment linked to QB Invoice
+   - Handles net amount (after discount)
+   - Triggered from manual "Mark as Paid" button
+   - Triggered from Stripe webhook (checkout.session.completed)
+   - Non-blocking
+
+CURRENT STATUS:
+- Connected to QB SANDBOX (development keys)
+- Production keys requested — awaiting Intuit approval
+- Tested: OAuth flow works, customer/job creation works
+- Pending test: invoice sync, payment sync (need production keys or sandbox access)
+
+====================================================
+NEXT TASKS (in priority order)
+====================================================
+
+1. Switch to QB PRODUCTION keys once Intuit approves:
+   - Get production Client ID and Client Secret
+   - Update Supabase secrets: QB_CLIENT_ID, QB_CLIENT_SECRET
+   - Change QB_ENVIRONMENT from "sandbox" to "production"
+   - Add redirect URI to Production tab in Intuit Developer
+   - Re-authorize via Connect QuickBooks button (new OAuth for prod)
+
+2. Also add production redirect URI in Intuit Developer:
+   Settings > Redirect URIs > Production tab > add https://www.scmybiz.com/qb/callback
+
+3. End-to-end QB test on production:
+   - Approve proposal → verify customer/job in QB
+   - Send invoice → verify invoice in QB
+   - Pay invoice → verify payment in QB
+
+4. Bob's proposal issues (from email — proposals not working,
+   can't internal approve or send, stuck proposal #7104)
+
+5. County capture feature (for business license/tax purposes)
+   - Add county field to call log and/or customer records
+   - Not synced to QB, just internal tracking
+
+6. Backlog:
+   SC-55: Goal Setting Flow
+   SC-56: Multi-tenant email settings
+   SC-58: Security hardening (RLS audit)
+   SC-62: Attachments on Call Log detail
+
+====================================================
+PRODUCTION ENVIRONMENT
+====================================================
+
+Production URL: https://www.scmybiz.com
+Vercel project: sales-command (chris7berger-droid)
+GitHub repo: chris7berger-droid/sales-command (branch: main)
+Auto-deploys on every push to main
+
+Vercel env vars set:
+  VITE_SUPABASE_URL
+  VITE_SUPABASE_ANON_KEY
+
+Supabase CLI linked to project pbgvgjjuhnpsumnowuym
+Edge functions deployed via: npx supabase functions deploy <name> --no-verify-jwt
+
+Supabase Edge Function Secrets:
+  RESEND_API_KEY
+  STRIPE_SECRET_KEY (sk_live_)
+  STRIPE_WEBHOOK_SECRET (whsec_)
+  QB_CLIENT_ID (development keys — swap when prod approved)
+  QB_CLIENT_SECRET (development keys — swap when prod approved)
+  QB_REDIRECT_URI (https://www.scmybiz.com/qb/callback)
+  QB_ENVIRONMENT (sandbox — change to "production" when ready)
+  SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DB_URL
+
+Supabase Access Token (CLI): sbp_848f2a086a227dd990b8a263f7ab991b8df6ad6f
+  (expires ~April 25, 2026)
+
+====================================================
+QUICKBOOKS INTEGRATION ARCHITECTURE
+====================================================
+
+Intuit Developer App: "Sales Command" (IN DEVELOPMENT)
+  Workspace: Sales Command
+  AppID: 26546a3f...
+  Redirect URI (Dev): https://www.scmybiz.com/qb/callback
+  Redirect URI (Prod): NEEDS TO BE ADDED when prod keys approved
+  Sandbox Realm ID: 9341452605588031
+
+OAuth Flow:
+  Invoices page → Connect QuickBooks button → Intuit OAuth2
+  → /qb/callback → QBCallbackPage.jsx → qb-auth Edge Function
+  → exchanges code for tokens → stores in qb_connection table
+
+Sync Triggers:
+  Proposal → Sold (Internal Approve or customer sign)
+    → qb-create-job → parent customer + sub-customer (job)
+  Invoice → Sent (via Stripe send flow)
+    → qb-sync-invoice → QB Invoice with "Services" line items
+  Invoice → Paid (Stripe webhook or manual Mark as Paid)
+    → qb-record-payment → QB Payment linked to QB Invoice
+
+QB API Base URLs:
+  Sandbox:    https://sandbox-quickbooks.api.intuit.com
+  Production: https://quickbooks.api.intuit.com
+
+Token Management:
+  Access token expires in 1 hour — auto-refreshed before API calls
+  Refresh token expires in 100 days — must re-authorize if expired
+
+====================================================
+SUPABASE SCHEMA CHANGES (v34)
+====================================================
+
+NEW TABLE: qb_connection
+  id (uuid PK), realm_id (text), access_token (text),
+  refresh_token (text), token_expires_at (timestamptz),
+  created_at (timestamptz), updated_at (timestamptz)
+
+NEW COLUMNS:
+  invoices.qb_invoice_id (text) — QB Invoice ID
+  customers.qb_customer_id (text) — QB parent customer ID
+  call_log.qb_customer_id (text) — QB sub-customer (job) ID
+
+====================================================
+EDGE FUNCTIONS
+====================================================
+
+qb-auth (--no-verify-jwt):
+  - action: "exchange" — OAuth code → tokens
+  - action: "refresh" — refresh expired access token
+  - action: "status" — check if QB is connected
+
+qb-create-job (--no-verify-jwt):
+  - Creates parent customer + sub-customer (job) in QB
+  - Input: { callLogId }
+  - Stores QB IDs on customers and call_log tables
+
+qb-sync-invoice (--no-verify-jwt):
+  - Creates invoice in QB under the job's sub-customer
+  - Uses "Services" item, work type name as description
+  - Input: { invoiceId }
+  - Stores qb_invoice_id on invoices table
+
+qb-record-payment (--no-verify-jwt):
+  - Creates payment in QB linked to QB invoice
+  - Input: { invoiceId }
+
+send-proposal (--no-verify-jwt) — unchanged
+proposal-signed (--no-verify-jwt) — unchanged
+send-invoice (--no-verify-jwt) — unchanged
+stripe-webhook (--no-verify-jwt) — updated to call qb-record-payment
+
+====================================================
+FILE LOCATIONS
+====================================================
+
+NEW FILES:
+- src/pages/QBCallbackPage.jsx — QB OAuth callback handler
+- supabase/functions/qb-auth/index.ts
+- supabase/functions/qb-create-job/index.ts
+- supabase/functions/qb-sync-invoice/index.ts
+- supabase/functions/qb-record-payment/index.ts
+
+MODIFIED FILES:
+- src/App.jsx — added /qb/callback route
+- src/pages/Invoices.jsx — added Connect QB button, QB sync on send
+- src/pages/Proposals.jsx — added QB job create on Internal Approve
+- src/pages/PublicSigningPage.jsx — added QB job create on customer sign
+- supabase/functions/stripe-webhook/index.ts — added QB payment sync
+
+====================================================
+WORKFLOW RULES
+====================================================
+
+1. NEVER use drag and drop for files
+2. ALWAYS provide code as text in chat — never as downloads
+3. NEVER give half-baked solution mid-figuring-it-out
+4. Always grep before edits
+5. Python scripts via python3 << PYEOF heredoc
+6. Git commit after every script succeeds
+7. Ask for screenshot before assuming error cause
+8. One step at a time
+9. git push + handoff doc at session end
+10. Keep instructions extremely simple for external setup (Stripe, Supabase dashboard)
+11. Prefer browser dashboards over CLI for configuration
+
+====================================================
+BACKLOG
+====================================================
+
+County Capture (business license/tax tracking)
+SC-55: Goal Setting Flow
+SC-56: Multi-tenant email domain settings
+SC-58: Security hardening
+SC-62: Attachments on Call Log detail
+Bob's proposal issues (email 3/26 — proposals stuck, can't approve/send)
+
+====================================================
+END OF HANDOFF v34
+====================================================

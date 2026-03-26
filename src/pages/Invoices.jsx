@@ -400,6 +400,10 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
       });
       if (fnError) throw new Error(fnError.message || "Send failed.");
       if (data?.error) throw new Error(data.error);
+      // Sync to QuickBooks (non-blocking)
+      supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: invoice.id } })
+        .then(r => { if (r.data?.error) console.warn("QB invoice sync:", r.data.error); else console.log("QB invoice synced:", r.data); })
+        .catch(e => console.warn("QB invoice sync failed:", e.message));
       setSendDone(true);
       onSent && onSent(data);
     } catch (e) {

@@ -36,7 +36,7 @@ export function AppWordmark({ size = 13 }) {
         color: "rgba(255,255,255,0.35)",
         marginTop: 2,
       }}>
-        HDSP · Command Suite
+        Command Suite
       </div>
     </div>
   );

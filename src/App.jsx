@@ -175,7 +175,6 @@ function AppShell({ active, setActive, open, setOpen, displayName, displayRole, 
               <span style={{ fontSize: 13, fontWeight: 800, color: C.textHead, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: F.display }}>{NAV.find(n => n.id === active)?.label}</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>React · Supabase · Stripe</span>
              
             </div>
           </div>

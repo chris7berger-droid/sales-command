@@ -16,6 +16,7 @@ import Customers from "./pages/Customers";
 import Team from "./pages/Team";
 import RegressionTest from "./components/RegressionTest";
 import InvoicePaidPage from "./pages/InvoicePaidPage";
+import QBCallbackPage from "./pages/QBCallbackPage";
 
 const NAV = [
   { id: "home",      label: "Home",       icon: "⌂"  },
@@ -104,6 +105,7 @@ export default function App() {
       <Routes>
         <Route path="/sign/:token" element={<PublicSigningPage />} />
         <Route path="/invoice-paid" element={<InvoicePaidPage />} />
+        <Route path="/qb/callback" element={<QBCallbackPage />} />
         <Route path="*" element={
           <AppShell
             active={active} setActive={setActive}

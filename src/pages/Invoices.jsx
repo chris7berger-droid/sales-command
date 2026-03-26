@@ -931,11 +931,16 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
 }
 
 // ── Main Invoices Page ────────────────────────────────────────────────────
+const QB_CLIENT_ID = "ABuwpwh8wKSfQah1Zcj2zL58o7Ax2ej35OQg0hcUcLJ310dtPA";
+const QB_REDIRECT_URI = "https://www.scmybiz.com/qb/callback";
+const QB_AUTH_URL = `https://appcenter.intuit.com/connect/oauth2?client_id=${QB_CLIENT_ID}&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}&response_type=code&scope=com.intuit.quickbooks.accounting&state=salescommand`;
+
 export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [sel, setSel] = useState(null);
+  const [qbConnected, setQbConnected] = useState(null);
 
   const load = async () => {
     const { data } = await supabase.from("invoices").select("*").order("sent_at", { ascending: false });
@@ -943,7 +948,12 @@ export default function Invoices() {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  const checkQb = async () => {
+    const { data } = await supabase.functions.invoke("qb-auth", { body: { action: "status" } });
+    setQbConnected(data?.connected || false);
+  };
+
+  useEffect(() => { load(); checkQb(); }, []);
 
   const drafted = invoices.filter(i => i.status === "New").reduce((a, i) => a + (i.amount || 0), 0);
   const pending = invoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);
@@ -965,7 +975,19 @@ export default function Invoices() {
         />
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-        <SectionHeader title="Invoices" action={<Btn sz="sm" onClick={() => setShowModal(true)}>+ New Invoice</Btn>} />
+        <SectionHeader title="Invoices" action={
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {qbConnected === false && (
+              <a href={QB_AUTH_URL} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 7, border: `1.5px solid ${C.borderStrong}`, background: C.linenCard, color: C.textBody, fontSize: 12, fontWeight: 700, fontFamily: F.display, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
+                Connect QuickBooks
+              </a>
+            )}
+            {qbConnected === true && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.green, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>QB Connected</span>
+            )}
+            <Btn sz="sm" onClick={() => setShowModal(true)}>+ New Invoice</Btn>
+          </div>
+        } />
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
           <StatCard label="Total Drafted" value={fmt$(drafted)} accent={C.teal} />

@@ -904,7 +904,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
 }
 
 // ── Main Invoices Page ────────────────────────────────────────────────────
-const QB_CLIENT_ID = "ABuwpwh8wKSfQah1Zcj2zL58o7Ax2ej35OQg0hcUcLJ310dtPA";
+const QB_CLIENT_ID = "ABg3H5TIV6XdDtSWlJXDC3rM7u8zKI3k5yHlbUaIrIiYNiUmc7";
 const QB_REDIRECT_URI = "https://www.scmybiz.com/qb/callback";
 const QB_AUTH_URL = `https://appcenter.intuit.com/connect/oauth2?client_id=${QB_CLIENT_ID}&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}&response_type=code&scope=com.intuit.quickbooks.accounting&state=salescommand`;
 

@@ -49,6 +49,8 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [linkedInvoices, setLinkedInvoices] = useState([]);
   const [form, setForm] = useState({
     stage:            job.stage            || "",
+    customer_name:    job.customer_name    || "",
+    job_name:         job.job_name         || "",
     bid_due:          job.bid_due          || "",
     follow_up:        job.follow_up        || "",
     notes:            job.notes            || "",
@@ -168,6 +170,8 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       .from("call_log")
       .update({
         stage:           form.stage,
+        customer_name:   form.customer_name  || null,
+        job_name:        form.job_name       || null,
         bid_due:         form.bid_due        || null,
         follow_up:       form.follow_up      || null,
         notes:           form.notes,
@@ -254,6 +258,14 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
               <option key={m.id} value={m.name}>{m.name}</option>
             ))}
           </select>
+        </Field>
+
+        <Field label="Customer Name">
+          <input type="text" value={form.customer_name} onChange={e => set("customer_name", e.target.value)} placeholder="Customer name" style={inputStyle} />
+        </Field>
+
+        <Field label="Job Name">
+          <input type="text" value={form.job_name} onChange={e => set("job_name", e.target.value)} placeholder="Job name" style={inputStyle} />
         </Field>
 
         <Field label="Bid Due">

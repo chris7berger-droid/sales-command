@@ -22,7 +22,11 @@ export default function QBCallbackPage() {
         const { data, error: fnErr } = await supabase.functions.invoke("qb-auth", {
           body: { action: "exchange", code, realmId },
         });
-        if (fnErr) throw new Error(fnErr.message || "Connection failed");
+        console.log("qb-auth response:", { data, fnErr });
+        if (fnErr) {
+          const detail = typeof fnErr === "object" ? (fnErr.message || JSON.stringify(fnErr)) : String(fnErr);
+          throw new Error(detail);
+        }
         if (data?.error) throw new Error(data.error);
         setStatus("connected");
       } catch (e) {

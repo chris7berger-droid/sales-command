@@ -327,7 +327,7 @@ export default function LandingPage() {
                 Stripe payments, and e-signatures. Everything included.
               </div>
               <button
-                onClick={() => navigate("/login")}
+                onClick={() => navigate("/checkout")}
                 className="lp-btn"
                 style={{
                   fontFamily: F.display, fontSize: 15, fontWeight: 700, letterSpacing: "0.06em",

@@ -8,6 +8,7 @@ import { getSession, onAuthStateChange, signOut, getCurrentTeamMember } from "./
 import Login from "./pages/Login";
 import LandingPage from "./pages/LandingPage";
 import FeatureDetailPage from "./pages/FeatureDetailPage";
+import CheckoutPage from "./pages/CheckoutPage";
 import Home from "./pages/Home";
 import CallLog from "./pages/CallLog";
 import WTCCalculator from "./pages/WTCCalculator";
@@ -93,6 +94,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<><style>{GLOBAL_CSS}</style><Login /></>} />
           <Route path="/features/:slug" element={<FeatureDetailPage />} />
+          <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/sign/:token" element={<PublicSigningPage />} />
           <Route path="/invoice-paid" element={<InvoicePaidPage />} />
           <Route path="/qb/callback" element={<QBCallbackPage />} />

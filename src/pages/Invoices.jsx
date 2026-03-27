@@ -117,6 +117,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
   }
 
   async function handleCreate() {
+    if (!dueDate) { setError("Due date is required."); return; }
     const valErr = validatePcts();
     if (valErr) { setError(valErr); return; }
     setSaving(true);
@@ -289,7 +290,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
 
             {/* Due date */}
             <div style={{ marginTop: 12 }}>
-              <div style={labelStyle}>Due Date (optional)</div>
+              <div style={labelStyle}>Due Date *</div>
               <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, width: 200, cursor: "pointer" }} />
             </div>
 

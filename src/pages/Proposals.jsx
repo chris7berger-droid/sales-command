@@ -715,11 +715,11 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           {(p.status === "Sent" || p.status === "Sold") && (
             <Btn sz="sm" v="ghost" onClick={handlePullBack} style={{ color: C.amber, borderColor: C.amber }}>↩ Pull Back</Btn>
           )}
-          {p.status !== "Sold" && (
+          {p.status !== "Sold" && p.status !== "Sent" && (
             <Btn sz="sm" v="ghost" onClick={() => setShowApproveModal(true)} style={{ color: C.green, borderColor: C.green }}>✓ Internal Approve</Btn>
           )}
           <Btn sz="sm" v="ghost" onClick={() => setShowPDF(true)}>Generate PDF</Btn>
-          {p.status !== "Sold" && <Btn sz="sm" onClick={() => setShowPDF(true)}>Send Proposal</Btn>}
+          {p.status !== "Sold" && p.status !== "Sent" && <Btn sz="sm" onClick={() => setShowPDF(true)}>Send Proposal</Btn>}
         </div>
       </div>
 

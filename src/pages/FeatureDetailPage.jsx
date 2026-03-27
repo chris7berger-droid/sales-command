@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { C, F, GLOBAL_CSS } from "../lib/tokens";
 import { SalesCommandMark } from "../components/Logo";
@@ -136,6 +137,7 @@ export const FEATURE_SLUGS = Object.keys(FEATURES);
 export default function FeatureDetailPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
   const f = FEATURES[slug];
 
   if (!f) {
@@ -170,6 +172,8 @@ export default function FeatureDetailPage() {
           .fd-img { min-height: 220px !important; aspect-ratio: 16/10 !important; }
           .fd-trust-img { height: 220px !important; }
           .fd-hero-banner { height: 280px !important; }
+          .fd-nav-desktop { display: none !important; }
+          .fd-hamburger { display: flex !important; }
         }
       `}</style>
 
@@ -188,7 +192,7 @@ export default function FeatureDetailPage() {
               Sales <span style={{ color: C.teal }}>Command</span>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+          <div className="fd-nav-desktop" style={{ display: "flex", alignItems: "center", gap: 24 }}>
             <button onClick={() => navigate("/")} className="fd-nav-link" style={{ fontFamily: F.ui, fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.55)", background: "none", border: "none", cursor: "pointer", transition: "color 0.2s" }}>
               &larr; Back
             </button>
@@ -205,7 +209,41 @@ export default function FeatureDetailPage() {
               Sign In
             </button>
           </div>
+          <button
+            className="fd-hamburger"
+            onClick={() => setMenuOpen(p => !p)}
+            style={{
+              display: "none", flexDirection: "column", gap: 5, background: "none",
+              border: "none", cursor: "pointer", padding: 6,
+            }}
+          >
+            <span style={{ width: 22, height: 2, background: menuOpen ? C.teal : "#fff", borderRadius: 1, transition: "all 0.2s", transform: menuOpen ? "rotate(45deg) translate(3px,3px)" : "none" }} />
+            <span style={{ width: 22, height: 2, background: "#fff", borderRadius: 1, transition: "all 0.2s", opacity: menuOpen ? 0 : 1 }} />
+            <span style={{ width: 22, height: 2, background: menuOpen ? C.teal : "#fff", borderRadius: 1, transition: "all 0.2s", transform: menuOpen ? "rotate(-45deg) translate(4px,-4px)" : "none" }} />
+          </button>
         </nav>
+
+        {menuOpen && (
+          <div style={{
+            position: "fixed", top: 64, left: 0, right: 0, zIndex: 99,
+            background: C.dark, borderBottom: `2px solid ${C.teal}`,
+            padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16,
+            animation: "fadeIn 0.2s ease-out",
+          }}>
+            <a href="/" onClick={() => setMenuOpen(false)} style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)", textDecoration: "none" }}>&larr; Back to Home</a>
+            <button
+              onClick={() => { setMenuOpen(false); navigate("/login"); }}
+              style={{
+                fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.06em",
+                textTransform: "uppercase", padding: "12px 24px", borderRadius: 8,
+                background: C.teal, color: C.dark, border: "none", cursor: "pointer",
+                marginTop: 4,
+              }}
+            >
+              Sign In
+            </button>
+          </div>
+        )}
 
         {/* ── HERO BANNER ── */}
         <section style={{ position: "relative", paddingTop: 64 }}>

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { C, F, GLOBAL_CSS } from "../lib/tokens";
 import { SalesCommandMark } from "../components/Logo";
@@ -19,6 +20,7 @@ const STATS = [
 
 export default function LandingPage() {
   const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <>
@@ -41,6 +43,7 @@ export default function LandingPage() {
           .lp-features-grid { grid-template-columns: 1fr !important; }
           .lp-stats-row { flex-direction: column !important; gap: 24px !important; }
           .lp-nav-links { display: none !important; }
+          .lp-hamburger { display: flex !important; }
           .lp-hero-h1 { font-size: 44px !important; }
           .lp-section { padding: 60px 20px !important; }
           .lp-cta-buttons { flex-direction: column !important; align-items: center !important; }
@@ -79,7 +82,45 @@ export default function LandingPage() {
               Sign In
             </button>
           </div>
+          {/* Hamburger button — hidden on desktop */}
+          <button
+            className="lp-hamburger"
+            onClick={() => setMenuOpen(p => !p)}
+            style={{
+              display: "none", flexDirection: "column", gap: 5, background: "none",
+              border: "none", cursor: "pointer", padding: 6,
+            }}
+          >
+            <span style={{ width: 22, height: 2, background: menuOpen ? C.teal : "#fff", borderRadius: 1, transition: "all 0.2s", transform: menuOpen ? "rotate(45deg) translate(3px,3px)" : "none" }} />
+            <span style={{ width: 22, height: 2, background: "#fff", borderRadius: 1, transition: "all 0.2s", opacity: menuOpen ? 0 : 1 }} />
+            <span style={{ width: 22, height: 2, background: menuOpen ? C.teal : "#fff", borderRadius: 1, transition: "all 0.2s", transform: menuOpen ? "rotate(-45deg) translate(4px,-4px)" : "none" }} />
+          </button>
         </nav>
+
+        {/* ── MOBILE MENU ── */}
+        {menuOpen && (
+          <div style={{
+            position: "fixed", top: 64, left: 0, right: 0, zIndex: 99,
+            background: C.dark, borderBottom: `2px solid ${C.teal}`,
+            padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16,
+            animation: "fadeIn 0.2s ease-out",
+          }}>
+            <a href="#features" onClick={() => setMenuOpen(false)} style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)", textDecoration: "none" }}>Features</a>
+            <a href="#how-it-works" onClick={() => setMenuOpen(false)} style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)", textDecoration: "none" }}>How It Works</a>
+            <a href="#pricing" onClick={() => setMenuOpen(false)} style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)", textDecoration: "none" }}>Pricing</a>
+            <button
+              onClick={() => { setMenuOpen(false); navigate("/login"); }}
+              style={{
+                fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.06em",
+                textTransform: "uppercase", padding: "12px 24px", borderRadius: 8,
+                background: C.teal, color: C.dark, border: "none", cursor: "pointer",
+                marginTop: 4,
+              }}
+            >
+              Sign In
+            </button>
+          </div>
+        )}
 
         {/* ── HERO ── */}
         <section style={{ padding: "140px 40px 80px" }}>

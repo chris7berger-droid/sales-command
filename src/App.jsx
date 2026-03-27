@@ -6,6 +6,8 @@ import { supabase } from "./lib/supabase";
 import { SalesCommandMark, AppWordmark } from "./components/Logo";
 import { getSession, onAuthStateChange, signOut, getCurrentTeamMember } from "./lib/auth";
 import Login from "./pages/Login";
+import LandingPage from "./pages/LandingPage";
+import FeatureDetailPage from "./pages/FeatureDetailPage";
 import Home from "./pages/Home";
 import CallLog from "./pages/CallLog";
 import WTCCalculator from "./pages/WTCCalculator";
@@ -85,7 +87,20 @@ export default function App() {
     );
   }
 
-  if (!session && !window.location.pathname.startsWith("/sign/")) return <Login />;
+  if (!session) {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<><style>{GLOBAL_CSS}</style><Login /></>} />
+          <Route path="/features/:slug" element={<FeatureDetailPage />} />
+          <Route path="/sign/:token" element={<PublicSigningPage />} />
+          <Route path="/invoice-paid" element={<InvoicePaidPage />} />
+          <Route path="/qb/callback" element={<QBCallbackPage />} />
+          <Route path="*" element={<LandingPage />} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
 
   const displayName = teamMember?.name ?? session?.user?.email ?? "";
   const displayRole     = teamMember?.role      ?? "Member";

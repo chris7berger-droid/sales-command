@@ -48,6 +48,18 @@ function Placeholder({ label }) {
 }
 
 export default function App() {
+  // If visiting from sccmybiz.com, show only the Sub Con Command landing page
+  const host = window.location.hostname.replace(/^www\./, "");
+  if (host === "sccmybiz.com") {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="*" element={<SubConCommandPage />} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
+
   const [active,     setActive]     = useState("home");
   const [bidDueFilter, setBidDueFilter] = useState(false);
   const [stageFilter, setStageFilter] = useState(null);

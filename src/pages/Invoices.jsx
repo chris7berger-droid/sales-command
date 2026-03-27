@@ -265,7 +265,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
                             max={remaining}
                             step="1"
                             value={billingPcts[w.id]}
-                            onChange={e => setBillingPcts(prev => ({ ...prev, [w.id]: e.target.value }))}
+                            onChange={e => { const v = Math.min(parseFloat(e.target.value) || 0, remaining); setBillingPcts(prev => ({ ...prev, [w.id]: v > 0 ? String(v) : e.target.value })); }}
                             placeholder="0"
                             style={{ ...inputStyle, paddingRight: 28 }}
                           />

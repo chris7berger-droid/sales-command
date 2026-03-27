@@ -128,7 +128,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
       .select("id")
       .order("id", { ascending: false })
       .limit(1);
-    const lastNum = latest?.length ? parseInt(latest[0].id, 10) : 9100;
+    const lastNum = latest?.length ? parseInt(latest[0].id, 10) : 9999;
     const nextId = String(lastNum + 1).padStart(5, "0");
 
     const jobNum = selProposal.call_log?.display_job_number || selProposal.call_log?.job_name || "";

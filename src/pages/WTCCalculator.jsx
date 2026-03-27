@@ -1669,7 +1669,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   // ── Save to Supabase ─────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!proposalId) return;
-    if (!selectedWorkTypeId) { alert("Work Type is required."); return; }
+    if (!selectedWorkTypeId) return;
     const payload = {
       proposal_id:     proposalId,
       work_type_id:    selectedWorkTypeId ?? null,

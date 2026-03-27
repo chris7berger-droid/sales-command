@@ -13,6 +13,7 @@ export default function Login() {
   const [mode,     setMode]     = useState("login") // login | forgot | reset
   const [message,  setMessage]  = useState(null)
   const [newPassword, setNewPassword] = useState("")
+  const [remember, setRemember] = useState(() => localStorage.getItem("sc_remember") !== "false")
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
@@ -28,7 +29,14 @@ export default function Login() {
     setError(null)
     setLoading(true)
     try {
+      localStorage.setItem("sc_remember", remember ? "true" : "false")
       await signIn(email.trim(), password)
+      if (!remember) {
+        // Mark session as "forget on close" — App.jsx will clear on tab close
+        sessionStorage.setItem("sc_session_only", "true")
+      } else {
+        sessionStorage.removeItem("sc_session_only")
+      }
     } catch (err) {
       setError(err.message || "Login failed. Check your email and password.")
     } finally {
@@ -115,6 +123,10 @@ export default function Login() {
               <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Password</div>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} required />
             </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: C.textMuted, marginTop: 2 }}>
+              <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} style={{ accentColor: C.teal, width: 16, height: 16, cursor: "pointer" }} />
+              Remember me
+            </label>
             <button type="submit" disabled={loading} style={btnStyle}>{loading ? "Signing in..." : "Sign In"}</button>
             <div style={{ textAlign: "center", marginTop: 4 }}>
               <button type="button" onClick={() => { setMode("forgot"); setError(null); setMessage(null); }} style={{ background: "none", border: "none", color: C.tealDark, fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>

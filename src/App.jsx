@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import PublicSigningPage from "./pages/PublicSigningPage";
 import { C, F, GLOBAL_CSS } from "./lib/tokens";
+import { supabase } from "./lib/supabase";
 import { SalesCommandMark, AppWordmark } from "./components/Logo";
 import { getSession, onAuthStateChange, signOut, getCurrentTeamMember } from "./lib/auth";
 import Login from "./pages/Login";
@@ -52,7 +53,12 @@ export default function App() {
   const [teamMember, setTeamMember] = useState(null);
 
   useEffect(() => {
-    getSession().then(s => setSession(s ?? null));
+    // If "Remember me" was unchecked, clear session on fresh tab open
+    if (!sessionStorage.getItem("sc_session_only") && localStorage.getItem("sc_remember") === "false") {
+      supabase.auth.signOut().then(() => setSession(null));
+    } else {
+      getSession().then(s => setSession(s ?? null));
+    }
 
     const sub = onAuthStateChange(async (event, s) => {
       if (event === "PASSWORD_RECOVERY") {

@@ -151,7 +151,7 @@ export default function FeatureDetailPage() {
   }
 
   const imgStyle = (url) => ({
-    width: "100%", height: 320, objectFit: "cover", borderRadius: 14,
+    width: "100%", minHeight: 280, aspectRatio: "16/10", borderRadius: 14,
     display: "block",
     background: `url(${url}) center/cover no-repeat ${C.linenDeep}`,
   });
@@ -167,7 +167,9 @@ export default function FeatureDetailPage() {
           .fd-two-col-reverse { flex-direction: column-reverse !important; }
           .fd-hero-h1 { font-size: 36px !important; }
           .fd-section { padding: 60px 20px !important; }
-          .fd-img { height: 220px !important; }
+          .fd-img { min-height: 220px !important; aspect-ratio: 16/10 !important; }
+          .fd-trust-img { height: 220px !important; }
+          .fd-hero-banner { height: 280px !important; }
         }
       `}</style>
 
@@ -207,7 +209,7 @@ export default function FeatureDetailPage() {
 
         {/* ── HERO BANNER ── */}
         <section style={{ position: "relative", paddingTop: 64 }}>
-          <div style={{
+          <div className="fd-hero-banner" style={{
             height: 400, width: "100%",
             backgroundImage: `linear-gradient(to bottom, rgba(28,24,20,0.55), rgba(28,24,20,0.85)), url(${f.heroImg})`,
             backgroundSize: "cover", backgroundPosition: "center",
@@ -335,7 +337,7 @@ export default function FeatureDetailPage() {
         <section style={{ background: C.dark, padding: "90px 40px" }}>
           <div style={{ maxWidth: 900, margin: "0 auto" }}>
             {/* Trust image */}
-            <div style={{
+            <div className="fd-trust-img" style={{
               width: "100%", height: 360,
               backgroundImage: `linear-gradient(to bottom, rgba(28,24,20,0.15), rgba(28,24,20,0.5)), url(${f.trustImg})`,
               backgroundSize: "cover", backgroundPosition: "center",

@@ -7,6 +7,7 @@ import { SalesCommandMark, AppWordmark } from "./components/Logo";
 import { getSession, onAuthStateChange, signOut, getCurrentTeamMember } from "./lib/auth";
 import Login from "./pages/Login";
 import LandingPage from "./pages/LandingPage";
+import SubConCommandPage from "./pages/SubConCommandPage";
 import FeatureDetailPage from "./pages/FeatureDetailPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import Home from "./pages/Home";
@@ -93,6 +94,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<><style>{GLOBAL_CSS}</style><Login /></>} />
+          <Route path="/suite" element={<SubConCommandPage />} />
           <Route path="/features/:slug" element={<FeatureDetailPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/sign/:token" element={<PublicSigningPage />} />
@@ -126,6 +128,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/suite" element={<SubConCommandPage />} />
         <Route path="/sign/:token" element={<PublicSigningPage />} />
         <Route path="/invoice-paid" element={<InvoicePaidPage />} />
         <Route path="/qb/callback" element={<QBCallbackPage />} />

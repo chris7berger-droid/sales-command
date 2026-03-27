@@ -158,10 +158,13 @@ serve(async (req) => {
     const jobNum = job.display_job_number || job.job_number || "";
     const coPrefix = job.is_change_order ? `CO${job.co_number || ""} ` : "";
     const jobName = job.job_name || "";
-    // Format: "6458 CO1 - Plenium Agru Warehouse - Sealer/Joint fill"
-    // Skip job name if it matches the customer name to avoid duplication
+    // Format: "10002 - Job Name" or "10002 CO1 - Job Name"
+    // QB already shows parent customer name, so sub-customer only needs job info
+    // If job name matches customer name, just use the job number
     const showJobName = jobName && jobName.toLowerCase() !== parentName.toLowerCase();
-    const subName = `${jobNum} ${coPrefix}- ${parentName}${showJobName ? ` - ${jobName}` : ""}`.trim();
+    const subName = showJobName
+      ? `${jobNum} ${coPrefix}- ${jobName}`.trim()
+      : `${jobNum} ${coPrefix}- ${parentName}`.trim();
 
     // Check if sub-customer already exists
     let subQB = await findCustomer(subName, accessToken, realmId);

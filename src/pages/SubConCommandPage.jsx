@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { C, F, GLOBAL_CSS } from "../lib/tokens";
 
@@ -48,9 +48,17 @@ function SuiteLogoMark({ size = 34 }) {
   );
 }
 
+const SCC_FAVICON = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" stroke="%2330cfac" stroke-width="1.5" fill="%231c1814"/><circle cx="20" cy="20" r="11" stroke="%2330cfac" stroke-width="1" fill="rgba(48,207,172,0.06)"/><line x1="20" y1="3" x2="20" y2="8" stroke="%2330cfac" stroke-width="1.5" stroke-linecap="round"/><line x1="20" y1="32" x2="20" y2="37" stroke="%2330cfac" stroke-width="1.5" stroke-linecap="round"/><line x1="3" y1="20" x2="8" y2="20" stroke="%2330cfac" stroke-width="1.5" stroke-linecap="round"/><line x1="32" y1="20" x2="37" y2="20" stroke="%2330cfac" stroke-width="1.5" stroke-linecap="round"/><text x="20" y="24" text-anchor="middle" font-family="sans-serif" font-weight="800" font-size="10" fill="%23ffffff" letter-spacing="0.5">SCC</text></svg>')}`;
+
 export default function SubConCommandPage() {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    document.title = "Sub Con Command";
+    const link = document.querySelector("link[rel='icon']");
+    if (link) link.href = SCC_FAVICON;
+  }, []);
 
   return (
     <>

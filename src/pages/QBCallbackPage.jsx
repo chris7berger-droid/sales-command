@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { C, F } from "../lib/tokens";
 
 export default function QBCallbackPage() {
   const [params] = useSearchParams();
@@ -33,37 +34,37 @@ export default function QBCallbackPage() {
   }, [code, realmId]);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f5f0eb", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Arial, sans-serif" }}>
-      <div style={{ background: "white", borderRadius: 16, padding: "48px 40px", maxWidth: 480, width: "90%", textAlign: "center", boxShadow: "0 12px 48px rgba(0,0,0,0.12)" }}>
+    <div style={{ minHeight: "100vh", background: C.linen, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.body }}>
+      <div style={{ background: C.linenCard, borderRadius: 16, padding: "48px 40px", maxWidth: 480, width: "90%", textAlign: "center", boxShadow: "0 8px 40px rgba(28,24,20,0.13)", border: `1px solid ${C.borderStrong}` }}>
 
-        <div style={{ borderBottom: "4px solid #30cfac", paddingBottom: 16, marginBottom: 32 }}>
-          <div style={{ fontSize: 18, fontWeight: 800, color: "#1c1814", letterSpacing: "0.02em", textTransform: "uppercase" }}>High Desert Surface Prep</div>
-          <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3 }}>Sales Command</div>
+        <div style={{ borderBottom: `4px solid ${C.teal}`, paddingBottom: 16, marginBottom: 32 }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: C.textHead, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: F.display }}>Sales <span style={{ color: C.tealDark }}>Command</span></div>
+          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 3 }}>QuickBooks Integration</div>
         </div>
 
         {status === "connecting" && (
-          <div style={{ padding: "40px 0", color: "#887c6e", fontSize: 14 }}>Connecting to QuickBooks...</div>
+          <div style={{ padding: "40px 0", color: C.textFaint, fontSize: 14 }}>Connecting to QuickBooks...</div>
         )}
 
         {status === "connected" && (
           <>
-            <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(48,207,172,0.12)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", border: "2px solid #30cfac" }}>
-              <span style={{ fontSize: 28, color: "#30cfac" }}>&#10003;</span>
+            <div style={{ width: 64, height: 64, borderRadius: "50%", background: C.tealGlow, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", border: `2px solid ${C.teal}` }}>
+              <span style={{ fontSize: 28, color: C.teal }}>&#10003;</span>
             </div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: "#1c1814", marginBottom: 8 }}>QuickBooks Connected</div>
-            <div style={{ fontSize: 14, color: "#4a4238", marginBottom: 24 }}>Your QuickBooks account is now linked to Sales Command.</div>
-            <a href="/" style={{ display: "inline-block", background: "#30cfac", color: "#1c1814", padding: "12px 32px", borderRadius: 8, textDecoration: "none", fontWeight: 700, fontSize: 14 }}>Return to App</a>
+            <div style={{ fontSize: 22, fontWeight: 800, color: C.textHead, marginBottom: 8, fontFamily: F.display }}>QuickBooks Connected</div>
+            <div style={{ fontSize: 14, color: C.textMuted, marginBottom: 24 }}>Your QuickBooks account is now linked to Sales Command.</div>
+            <a href="/" style={{ display: "inline-block", background: C.teal, color: C.dark, padding: "12px 32px", borderRadius: 8, textDecoration: "none", fontWeight: 700, fontSize: 14 }}>Return to App</a>
           </>
         )}
 
         {status === "error" && (
           <>
-            <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(220,60,60,0.1)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", border: "2px solid #dc3c3c" }}>
-              <span style={{ fontSize: 28, color: "#dc3c3c" }}>!</span>
+            <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(229,57,53,0.1)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", border: `2px solid ${C.red}` }}>
+              <span style={{ fontSize: 28, color: C.red }}>!</span>
             </div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: "#1c1814", marginBottom: 8 }}>Connection Failed</div>
-            <div style={{ fontSize: 14, color: "#dc3c3c", marginBottom: 24 }}>{error}</div>
-            <a href="/" style={{ display: "inline-block", background: "#30cfac", color: "#1c1814", padding: "12px 32px", borderRadius: 8, textDecoration: "none", fontWeight: 700, fontSize: 14 }}>Return to App</a>
+            <div style={{ fontSize: 22, fontWeight: 800, color: C.textHead, marginBottom: 8, fontFamily: F.display }}>Connection Failed</div>
+            <div style={{ fontSize: 14, color: C.red, marginBottom: 24 }}>{error}</div>
+            <a href="/" style={{ display: "inline-block", background: C.teal, color: C.dark, padding: "12px 32px", borderRadius: 8, textDecoration: "none", fontWeight: 700, fontSize: 14 }}>Return to App</a>
           </>
         )}
       </div>

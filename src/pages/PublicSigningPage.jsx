@@ -212,6 +212,8 @@ export default function PublicSigningPage() {
                 signerName: name.trim(),
                 proposalNumber: proposal.proposal_number || proposal.id,
                 jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
+                proposalId: proposal.id,
+                callLogId: proposal.call_log_id,
               },
             });
           }

@@ -1,6 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 serve(async (req) => {
   const corsHeaders = {
@@ -13,9 +16,23 @@ serve(async (req) => {
   }
 
   try {
-    const { repEmail, repName, customerName, signerName, proposalNumber, jobName } = await req.json();
+    const { repEmail, repName, customerName, signerName, proposalNumber, jobName, proposalId, callLogId } = await req.json();
 
-    console.log("proposal-signed invoked", { repEmail, proposalNumber, signerName });
+    console.log("proposal-signed invoked", { repEmail, proposalNumber, signerName, proposalId, callLogId });
+
+    // Update proposal status to Sold (using service role key — bypasses RLS)
+    if (proposalId) {
+      const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+      const { error: propErr } = await sb.from("proposals").update({ status: "Sold", approved_at: new Date().toISOString() }).eq("id", proposalId);
+      if (propErr) console.error("proposal-signed: failed to update proposal status:", propErr.message);
+      else console.log("proposal-signed: proposal", proposalId, "set to Sold");
+
+      if (callLogId) {
+        const { error: clErr } = await sb.from("call_log").update({ stage: "Sold" }).eq("id", callLogId);
+        if (clErr) console.error("proposal-signed: failed to update call_log stage:", clErr.message);
+        else console.log("proposal-signed: call_log", callLogId, "set to Sold");
+      }
+    }
 
     if (!repEmail) {
       return new Response(JSON.stringify({ error: "Rep email is required" }), {

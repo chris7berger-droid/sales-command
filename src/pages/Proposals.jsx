@@ -524,6 +524,20 @@ useEffect(() => {
   supabase.from("team_members").select("id, name").eq("active", true).order("name").then(({ data }) => setAllTeamMembers(data || []));
 }, []);
 
+// Auto-refresh when proposal is Sent (waiting for customer signature)
+useEffect(() => {
+  if (p.status !== "Sent") return;
+  const interval = setInterval(async () => {
+    const { data } = await supabase
+      .from("proposals")
+      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))")
+      .eq("id", p.id)
+      .single();
+    if (data && data.status !== p.status) setP(data);
+  }, 10000);
+  return () => clearInterval(interval);
+}, [p.status, p.id]);
+
 useEffect(() => {
   async function loadWtcs() {
     const { data } = await supabase

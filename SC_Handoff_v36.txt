@@ -1,0 +1,244 @@
+SALES COMMAND — HANDOFF DOCUMENT v36
+Generated: March 27, 2026
+====================================================
+
+HOW TO USE THIS DOCUMENT
+Start every new Claude thread with:
+"Continue building Sales Command. Here is the handoff doc v36."
+Upload this file. CLAUDE.md in the repo root is auto-loaded — it contains
+style rules, schema reference, and data integrity rules that MUST be followed.
+
+====================================================
+COMPLETED THIS SESSION (v36)
+====================================================
+
+SUB CON COMMAND LANDING PAGE — LIVE AT sccmybiz.com
+
+1. Landing page built (SubConCommandPage.jsx)
+   - Full marketing page for "Sub Con Command" — the Command Suite brand
+   - Hero section with tagline "One Suite. Total Command."
+   - Product cards: Sales (Live), Schedule, Field, AR (Coming Soon)
+   - Command Suite diagram in hero showing all 4 products
+   - Stats bar, Vision section (4-step flow), About section, Final CTA
+   - Mobile responsive (hamburger menu, stacked layouts)
+   - Accessible at /suite route on scmybiz.com as well
+
+2. Domain setup — sccmybiz.com
+   - Domain added to Vercel project (sales-command)
+   - DNS configured on Namecheap:
+     - A record: @ → 216.198.79.1
+     - CNAME: www → cname.vercel-dns.com
+   - Deleted old URL Redirect Record that was parking the domain
+   - Both sccmybiz.com and www.sccmybiz.com verified on Vercel
+
+3. Hostname-based routing (App.jsx)
+   - App component detects hostname (sccmybiz.com)
+   - SCC_HOST constant computed at module level
+   - App() renders SubConCommandPage for sccmybiz.com visitors
+   - Delegates to SalesCommandApp() for scmybiz.com visitors
+   - No hooks violation — wrapper component has no hooks
+
+4. SCC favicon and tab title
+   - SubConCommandPage sets document.title = "Sub Con Command"
+   - Swaps favicon to SCC crosshair icon (inline SVG data URI)
+   - Separate from Sales Command favicon/title
+
+5. Launch App button styling
+   - Dark background pill with teal text on the live Sales Command card
+
+FILES CHANGED (this session, v36 only)
+   - src/App.jsx — hostname routing wrapper (SCC_HOST, App, SalesCommandApp)
+   - src/pages/SubConCommandPage.jsx — landing page + favicon/title + button fix
+
+====================================================
+ALL v35 ITEMS REMAIN CURRENT
+====================================================
+
+Everything from v35 is still accurate:
+- QB Production deployment complete
+- Login page fixes (Safari autofill, Remember Me)
+- Proposal flow fixes (auto-refresh, hide buttons, edge function status update)
+- WTC Calculator fix, Call Log Detail edits, Invoice fixes
+- DB sequence fix applied
+
+====================================================
+KNOWN ISSUES / RLS PROBLEMS
+====================================================
+
+1. RLS silently blocks client-side operations:
+   - Invoice delete from app doesn't work (FK + RLS)
+   - Proposal status update from PublicSigningPage was blocked
+   - Need RLS audit: add proper policies for authenticated users
+     on proposals (UPDATE), invoices (DELETE), invoice_lines (DELETE)
+
+2. Stripe account: currently using HDSP's Stripe keys
+   - Chris needs his own Stripe account for Sales Command
+   - Need: sk_live_ key, webhook secret (whsec_), webhook endpoint
+
+====================================================
+NEXT TASKS (in priority order)
+====================================================
+
+1. QB Pull-Back Cleanup (tagged in memory)
+   - When proposal is pulled back, clean up QB:
+   - Sub-customer (job): delete from QB only if zero invoices in QB
+   - Parent customer: delete only if zero remaining sub-customers AND zero invoices
+   - Requires new edge function with QB API queries
+
+2. RLS Audit — fix silent failures
+   - Add DELETE policy on invoices for authenticated users
+   - Add DELETE policy on invoice_lines for authenticated users
+   - Add UPDATE policy on proposals for anon (or keep using edge function)
+
+3. Stripe Account Setup (next week)
+   - Chris creates own Stripe account
+   - Update STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET in Supabase
+
+4. Customer Settings Page (tagged in memory)
+   - Per-tenant config: invoice number range, company info, branding
+   - Ties into SC-56 multi-tenant settings
+
+5. Bob's proposal issues (from email — proposals not working,
+   can't internal approve or send, stuck proposal #7104)
+
+6. County capture feature (for business license/tax purposes)
+
+7. Backlog:
+   SC-55: Goal Setting Flow
+   SC-56: Multi-tenant email settings
+   SC-58: Security hardening (RLS audit)
+   SC-62: Attachments on Call Log detail
+
+====================================================
+PRODUCTION ENVIRONMENT
+====================================================
+
+Production URLs:
+  Sales Command: https://www.scmybiz.com
+  Sub Con Command (landing): https://www.sccmybiz.com
+  Schedule Command: https://www.schmybiz.com
+
+Vercel project: sales-command (chris7berger-droid)
+  Domains: scmybiz.com, www.scmybiz.com, sccmybiz.com, www.sccmybiz.com,
+           sales-command.vercel.app
+GitHub repo: chris7berger-droid/sales-command (branch: main)
+Auto-deploys on every push to main
+
+Vercel env vars set:
+  VITE_SUPABASE_URL
+  VITE_SUPABASE_ANON_KEY
+
+Supabase CLI linked to project pbgvgjjuhnpsumnowuym
+Edge functions deployed via: npx supabase functions deploy <name> --no-verify-jwt
+
+Supabase Edge Function Secrets:
+  RESEND_API_KEY
+  STRIPE_SECRET_KEY (sk_live_ — currently HDSP's key)
+  STRIPE_WEBHOOK_SECRET (whsec_ — currently HDSP's)
+  QB_CLIENT_ID (production: ABg3H5T...)
+  QB_CLIENT_SECRET (production: OfFWi0y...)
+  QB_REDIRECT_URI (https://www.scmybiz.com/qb/callback)
+  QB_ENVIRONMENT (production)
+  SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DB_URL
+
+Supabase Access Token (CLI): sbp_848f2a086a227dd990b8a263f7ab991b8df6ad6f
+  (expires ~April 25, 2026)
+
+====================================================
+QUICKBOOKS INTEGRATION ARCHITECTURE
+====================================================
+
+Intuit Developer App: "Sales Command" (PRODUCTION — APPROVED)
+  Workspace: Sales Command
+  AppID: 26546a3f...
+  Redirect URI (Prod): https://www.scmybiz.com/qb/callback
+  Production Client ID: ABg3H5TIV6XdDtSWlJXDC3rM7u8zKI3k5yHlbUaIrIiYNiUmc7
+
+OAuth Flow:
+  Invoices page → Connect QuickBooks button → Intuit OAuth2
+  → /qb/callback → QBCallbackPage.jsx → qb-auth Edge Function
+  → exchanges code for tokens → stores in qb_connection table
+
+Sync Triggers:
+  Proposal → Sold (Internal Approve or customer sign)
+    → qb-create-job → parent customer + sub-customer (job)
+  Invoice → Sent (via Stripe send flow)
+    → qb-sync-invoice → QB Invoice with "Services" line items
+  Invoice → Paid (Stripe webhook or manual Mark as Paid)
+    → qb-record-payment → QB Payment linked to QB Invoice
+
+QB API Base URLs:
+  Production: https://quickbooks.api.intuit.com
+
+Token Management:
+  Access token expires in 1 hour — auto-refreshed before API calls
+  Refresh token expires in 100 days — must re-authorize if expired
+
+Sub-Customer Display Name Format:
+  "{jobNum} - {JobName}" (e.g., "10003 - Warehouse Floor")
+  If job name matches customer name: "{jobNum} - {CustomerName}"
+
+====================================================
+EDGE FUNCTIONS
+====================================================
+
+qb-auth (--no-verify-jwt):
+  - action: "exchange" — OAuth code → tokens
+  - action: "refresh" — refresh expired access token
+  - action: "status" — check if QB is connected
+
+qb-create-job (--no-verify-jwt):
+  - Creates parent customer + sub-customer (job) in QB
+  - Input: { callLogId }
+  - Sub-customer format: "{jobNum} - {JobName}"
+
+qb-sync-invoice (--no-verify-jwt):
+  - Creates invoice in QB under the job's sub-customer
+  - Uses "Services" item, work type name as description
+  - Input: { invoiceId }
+
+qb-record-payment (--no-verify-jwt):
+  - Creates payment in QB linked to QB invoice
+  - Input: { invoiceId }
+
+send-proposal (--no-verify-jwt) — unchanged
+proposal-signed (--no-verify-jwt):
+  - Updates proposals.status → "Sold" and call_log.stage → "Sold"
+  - Uses service role key to bypass RLS
+  - Receives proposalId and callLogId from PublicSigningPage
+send-invoice (--no-verify-jwt) — unchanged
+stripe-webhook (--no-verify-jwt) — unchanged
+
+====================================================
+WORKFLOW RULES
+====================================================
+
+1. NEVER use drag and drop for files
+2. ALWAYS provide code as text in chat — never as downloads
+3. NEVER give half-baked solution mid-figuring-it-out
+4. Always grep before edits
+5. Python scripts via python3 << PYEOF heredoc
+6. Git commit after every script succeeds
+7. Ask for screenshot before assuming error cause
+8. One step at a time
+9. git push + handoff doc at session end
+10. Keep instructions extremely simple for external setup (Stripe, Supabase dashboard)
+11. Prefer browser dashboards over CLI for configuration
+
+====================================================
+BACKLOG
+====================================================
+
+QB Pull-Back Cleanup (important — tagged in memory)
+Customer Settings Page (per-tenant config — tagged in memory)
+County Capture (business license/tax tracking)
+SC-55: Goal Setting Flow
+SC-56: Multi-tenant email domain settings
+SC-58: Security hardening (RLS audit — critical, see Known Issues)
+SC-62: Attachments on Call Log detail
+Bob's proposal issues (email 3/26 — proposals stuck, can't approve/send)
+Stripe Account Setup (next week — Chris needs own Stripe account)
+
+====================================================
+END OF HANDOFF v36
+====================================================

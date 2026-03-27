@@ -92,6 +92,18 @@ export default function Login() {
 
   return (
     <div style={{ minHeight: "100vh", background: C.linen, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <style>{`
+        .sc-login-input:-webkit-autofill,
+        .sc-login-input:-webkit-autofill:hover,
+        .sc-login-input:-webkit-autofill:focus,
+        .sc-login-input:-webkit-autofill:active {
+          -webkit-box-shadow: 0 0 0 1000px ${C.linenDeep} inset !important;
+          -webkit-text-fill-color: ${C.textBody} !important;
+          background-color: ${C.linenDeep} !important;
+          transition: background-color 5000s ease-in-out 0s !important;
+          color-scheme: light !important;
+        }
+      `}</style>
       <div style={{ width: "100%", maxWidth: 400, background: C.linenCard, borderRadius: 16, border: `1px solid ${C.borderStrong}`, padding: "40px 36px", boxShadow: "0 8px 40px rgba(28,24,20,0.13)" }}>
         
         <div style={{ textAlign: "center", marginBottom: 32 }}>
@@ -117,11 +129,11 @@ export default function Login() {
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Email</div>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} required />
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="sc-login-input" style={inputStyle} required />
             </div>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Password</div>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} required />
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="sc-login-input" style={inputStyle} required />
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: C.textMuted, marginTop: 2 }}>
               <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} style={{ accentColor: C.teal, width: 16, height: 16, cursor: "pointer" }} />

@@ -1,0 +1,69 @@
+SC_Handoff_v38 — 2026-03-30
+============================================================
+
+SESSION SUMMARY
+This session focused on Schedule Command bug fixes, infrastructure setup,
+and data migration. Work was done in the sch-command repo (~/sch-command).
+
+WHAT WAS DONE
+--------------
+
+1. SCHEDULE COMMAND LOGIN PAGE FIXES (sch-command repo)
+   - SCH crosshair icon: black (#1c1814) background fill
+   - "Command" text: black pill background with teal text
+   - Added "Remember Me" checkbox
+
+2. RESEND DOMAIN SETUP (shared infrastructure)
+   - Added scmybiz.com and schmybiz.com as sending domains in Resend
+   - DNS records (DKIM TXT + SPF TXT) added on Namecheap for both
+   - Both domains pending verification as of 3/30
+   - Fixes forgot password (was returning 500 — Supabase SMTP sends from
+     noreply@scmybiz.com but that domain wasn't verified in Resend)
+
+3. SUPABASE AUTH URL CONFIGURATION
+   - Added redirect URLs for Schedule Command:
+     - http://localhost:5174/**
+     - https://www.schmybiz.com/**
+     - https://sch-command.vercel.app/**
+
+4. SCHEDULE COMMAND DATA MIGRATION
+   - Fresh import from live Google Sheets CSVs into shared Supabase DB
+   - 62 jobs, 23 crew, 722 assignments, 42 crew statuses,
+     21 materials, 26 billing entries, 16 work types
+   - Old stale migration data cleared first
+
+5. RLS POLICIES — ANON ACCESS (TEMP/DEV)
+   - Added anon_all_* policies on all 7 scheduling tables via SQL Editor
+   - Allows unauthenticated reads/writes for dev
+   - MUST be replaced with authenticated-only before prod
+
+6. WORK TYPE PICKER REDESIGN (Crew Schedule view)
+   - Replaced checkbox chip grid with collapsible dropdown button
+   - Clickable list items with checkbox icons (no Cmd-click)
+   - Selected work types display as dark pills with green text next to button
+
+COMMAND SUITE ARCHITECTURE
+--------------------------
+Three apps, separate repos, shared Supabase DB (pbgvgjjuhnpsumnowuym):
+  - scmybiz.com  = Sales Command    (sales-command repo)
+  - schmybiz.com = Schedule Command  (sch-command repo)
+  - sccmybiz.com = Sub Con Command   (landing page in sales-command repo)
+Each app can be sold independently or linked as a suite.
+
+WHAT STILL NEEDS DOING (priority order)
+----------------------------------------
+1. Verify Resend domains — check scmybiz.com and schmybiz.com, test forgot password
+2. QB Pull-Back Cleanup — delete orphaned QB customers/jobs on proposal pull-back
+3. RLS Audit — tighten scheduling table anon policies + fix sales-command RLS gaps
+4. Stripe Account — Chris needs own Stripe account
+5. Customer Settings Page — per-tenant config
+6. Continue Schedule Command bug hunt (all 7 views)
+7. Rename Supabase project from "sales-command" to "command-suite"
+
+TECH NOTES
+----------
+- sch-command repo cloned to ~/sch-command
+- Dev server: http://localhost:5174/ (port 5174 to avoid conflict with sales-command)
+- Localhost login bypass active in App.jsx for dev
+- .env.local has shared Supabase credentials (not committed)
+- See sch-command/HANDOFF.md for full Schedule Command details

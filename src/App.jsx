@@ -30,7 +30,6 @@ const NAV = [
   { id: "invoices",  label: "Invoices",   icon: "💵" },
   { id: "dashboard", label: "Sales Dash", icon: "📊" },
   { id: "managers",  label: "Managers",   icon: "🏆", roles: ["Manager"] },
-  { id: "jobs",      label: "Jobs",       icon: "🏗️" },
   { id: "customers", label: "Customers",  icon: "🏢" },
   { id: "team",      label: "Our Team",   icon: "👥" },
   { id: "feedback",  label: "Feedback",   icon: "💬" },
@@ -67,6 +66,7 @@ function SalesCommandApp() {
   const [bidDueFilter, setBidDueFilter] = useState(false);
   const [stageFilter, setStageFilter] = useState(null);
   const [initialProposal, setInitialProposal] = useState(null);
+  const [initialCustomerId, setInitialCustomerId] = useState(null);
   const [open,       setOpen]       = useState(true);
   const [session,    setSession]    = useState(undefined);
   const [teamMember, setTeamMember] = useState(null);
@@ -128,12 +128,12 @@ function SalesCommandApp() {
   const page = () => {
     switch (active) {
       case "home": return <Home displayName={displayName} displayRole={displayRole} setActive={setActive} setBidDueFilter={setBidDueFilter} onStageFilter={stage => { setStageFilter(stage); setActive("calllog"); }} />;
-      case "sales-dash": return <SalesDash displayName={displayName} />;
-      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} stageFilter={stageFilter} onClearStageFilter={() => setStageFilter(null)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} onNavigateProposal={id => { setInitialProposal({ openId: id }); setActive("proposals"); }} onNavigateInvoice={() => setActive("invoices")} />;
+      case "dashboard": return <SalesDash displayName={displayName} displayRole={displayRole} />;
+      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} stageFilter={stageFilter} onClearStageFilter={() => setStageFilter(null)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} onNavigateProposal={id => { setInitialProposal({ openId: id }); setActive("proposals"); }} onNavigateInvoice={() => setActive("invoices")} onNavigateCustomer={custId => { setInitialCustomerId(custId); setActive("customers"); }} />;
       case "proposals": return <Proposals teamMember={teamMember} initialProposal={initialProposal} onClearInitial={() => setInitialProposal(null)} />;
       case "invoices":  return <Invoices />;
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
-      case "customers": return <Customers />;
+      case "customers": return <Customers setActive={setActive} setInitialProposal={setInitialProposal} initialCustomerId={initialCustomerId} onClearInitialCustomer={() => setInitialCustomerId(null)} />;
       case "team":      return <Team />;
       case "wtc":       return <Placeholder label="WTC" />;
       default:          return <Placeholder label={NAV.find(n => n.id === active)?.label || active} />;

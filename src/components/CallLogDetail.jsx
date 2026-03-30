@@ -43,7 +43,7 @@ function stageColor(stage) {
   return map[stage] || { bg: "rgba(255,255,255,0.06)", color: C.textFaint };
 }
 
-export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onDeleted, teamMember, onNewProposal, onNavigateProposal, onNavigateInvoice }) {
+export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onDeleted, teamMember, onNewProposal, onNavigateProposal, onNavigateInvoice, onNavigateCustomer }) {
   const cust = job.customers || {};
   const [linkedProposals, setLinkedProposals] = useState([]);
   const [linkedInvoices, setLinkedInvoices] = useState([]);
@@ -61,6 +61,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     jobsite_zip:      job.jobsite_zip      || "",
     contact_email:    cust.contact_email   || "",
     contact_phone:    cust.contact_phone   || "",
+    billing_terms:    cust.billing_terms != null ? String(cust.billing_terms) : "30",
   });
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState(null);
@@ -190,6 +191,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       await supabase.from("customers").update({
         contact_email: form.contact_email || null,
         contact_phone: form.contact_phone || null,
+        billing_terms: parseInt(form.billing_terms) || 30,
       }).eq("id", job.customer_id);
     }
 
@@ -237,7 +239,10 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         </div>
       </div>
       <div style={{ color: C.textFaint, fontSize: 13, fontFamily: F.ui, marginBottom: 28 }}>
-        {job.customer_name || "—"}{job.customer_type ? ` · ${job.customer_type}` : ""}
+        {onNavigateCustomer && job.customer_id ? (
+          <span onClick={() => onNavigateCustomer(job.customer_id)} style={{ color: C.tealDark, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>{job.customer_name || "—"}</span>
+        ) : (job.customer_name || "—")}
+        {job.customer_type ? ` · ${job.customer_type}` : ""}
         {job.created_at ? ` · Created ${new Date(job.created_at).toLocaleDateString()}` : ""}
       </div>
 
@@ -282,6 +287,25 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
 
         <Field label="Customer Phone">
           <input type="tel" value={form.contact_phone} onChange={e => set("contact_phone", e.target.value)} placeholder="(555) 555-5555" style={inputStyle} />
+        </Field>
+
+        <Field label="Billing Terms">
+          <select value={[5,15,30,45,60,90,120].includes(Number(form.billing_terms)) ? form.billing_terms : "custom"} onChange={e => set("billing_terms", e.target.value)} style={inputStyle}>
+            <option value="5">Net 5</option>
+            <option value="15">Net 15</option>
+            <option value="30">Net 30</option>
+            <option value="45">Net 45</option>
+            <option value="60">Net 60</option>
+            <option value="90">Net 90</option>
+            <option value="120">Net 120</option>
+            <option value="custom">Custom</option>
+          </select>
+          {![5,15,30,45,60,90,120].includes(Number(form.billing_terms)) && form.billing_terms !== "custom" && (
+            <input type="number" value={form.billing_terms} onChange={e => set("billing_terms", e.target.value)} placeholder="Days" style={{ ...inputStyle, marginTop: 8 }} />
+          )}
+          {form.billing_terms === "custom" && (
+            <input type="number" value="" onChange={e => set("billing_terms", e.target.value)} placeholder="Days" style={{ ...inputStyle, marginTop: 8 }} />
+          )}
         </Field>
 
         {/* Jobsite address — full width, split fields */}

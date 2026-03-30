@@ -54,8 +54,8 @@ call_log: id, display_job_number, stage, bid_due, follow_up, created_at
 
 customers: id, name, customer_type, first_name, last_name, phone, email,
   contact_phone, contact_email, billing_same, billing_name, billing_phone,
-  billing_email, business_address, business_city, business_state,
-  business_zip
+  billing_email, billing_terms (integer, default 30), business_address,
+  business_city, business_state, business_zip
 
 proposal_wtc: id, proposal_id, work_type_id (INTEGER 1-40), burden_rate,
   ot_burden_rate, tax_rate, prevailing_wage, regular_hours, ot_hours,
@@ -119,7 +119,10 @@ This applies to both the CallLog wizard upload and CallLogDetail upload.
 - `src/pages/CallLog.jsx` — Call Log list + New Inquiry wizard
 - `src/pages/Proposals.jsx` — Proposals list + ProposalDetail + ProposalPDFModal
 - `src/pages/PublicSigningPage.jsx` — Customer-facing signing page
-- `src/pages/Home.jsx` — Dashboard
+- `src/pages/Home.jsx` — Dashboard (personal, for sales reps)
+- `src/pages/SalesDash.jsx` — Sales Dashboard (admin/manager view, salesperson picker, goal drill-down, Cash Flow Forecast, Analytics)
+- `src/pages/Customers.jsx` — Customer list + detail view (jobs/proposals/invoices tabs) + edit modal
+- `src/pages/Jobs.jsx` — Jobs page (unused, removed from nav but file exists)
 - `src/pages/Login.jsx` — Auth login
 - `src/components/CallLogDetail.jsx` — Job detail/edit view
 - `src/components/Btn.jsx` — Shared button component

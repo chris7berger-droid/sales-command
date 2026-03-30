@@ -1,0 +1,91 @@
+SC_Handoff_v37 — 2026-03-30
+============================================================
+
+SESSION SUMMARY
+This session focused on building out the Sales Dashboard, Customers page,
+and Analytics features. Chris's role was updated to Admin in the database.
+
+WHAT WAS BUILT
+--------------
+
+1. SALES DASHBOARD (SalesDash.jsx — fully rebuilt)
+   - Replaced placeholder with full linen-themed dashboard
+   - Salesperson picker dropdown (Admin/Manager only) — filter all data by rep
+   - Stat cards: New Inquiries, Wants Bid, Has Bid, Sold
+   - Pipeline overview bar chart
+   - Clickable Goal Cards with drill-down:
+     - Monthly Billings → expand to see sold proposals
+     - Yearly Sales → YTD sold proposals
+     - Conversion Rate → Sold vs Lost breakdown
+     - Proposals Sent → all proposals that were actually sent (excludes Internal Approval)
+   - Cash Flow Forecast button → modal with 12-month table:
+     - Est. Invoice column (based on proposal_wtc.end_date)
+     - Est. Payment column (invoice month + customer billing_terms)
+     - Clickable rows expand to show individual jobs
+     - Pipeline items tagged with amber PIPELINE label
+     - Totals row at bottom
+   - Analytics button → modal with:
+     - Filters: date range, work type, sales rep
+     - Proposals tab: horizontal bar chart by work type + table by sales rep
+     - Invoices tab: bar chart (amber=invoiced, green=paid) + table with Outstanding column
+
+2. CUSTOMER BILLING TERMS
+   - Added billing_terms column to customers table (integer, default 30)
+   - New Inquiry wizard: billing terms dropdown on Contact Info step
+     (Net 5/15/30/45/60/90/120 or Custom)
+   - CallLogDetail: billing terms field added, saves to customer record
+   - Customers page edit modal: billing terms field included
+   - Existing customer selection auto-populates billing terms
+
+3. CUSTOMERS PAGE (fully rebuilt)
+   - Table now shows: Company, City, Phone, Terms
+   - Click row → Customer Detail view (not just edit modal)
+   - Customer Detail shows:
+     - Header with name + Edit button
+     - Quick info bar (phone, email, terms, address)
+     - Three tabs: Jobs, Proposals, Invoices (with counts)
+     - Click job → navigates to Call Log detail
+     - Click proposal → navigates to Proposals page
+     - Click invoice → navigates to Invoices page
+   - + Add Customer button opens edit modal
+   - Edit button on detail view opens edit modal
+
+4. CUSTOMER NAVIGATION FROM JOB DETAIL
+   - CallLogDetail: customer name is now a teal underlined link
+   - Clicking navigates to Customers page with that customer auto-opened
+   - Wired through App.jsx with initialCustomerId state
+
+5. PROPOSALS SENT FIX
+   - "Proposals Sent" count now includes Sold and Lost (they were sent)
+   - Excludes "Approved Internally" (never sent to customer)
+   - Fixed in both Home.jsx and SalesDash.jsx
+
+6. NAV ROUTING FIX
+   - Fixed Sales Dash: nav id was "dashboard" but switch case was "sales-dash"
+   - Jobs page removed from nav (file exists at src/pages/Jobs.jsx if needed later)
+
+DATABASE CHANGES
+----------------
+- ALTER TABLE customers ADD COLUMN billing_terms integer DEFAULT 30
+- Chris Berger role updated from "Sales Rep" to "Admin"
+- Test team member added: Mike Thompson (Sales Rep)
+- Test data: jobs 10004-10008, proposals 7200-7204, invoices INV-10004/10005/10007
+  with invoice_lines linked to work types
+
+WHAT STILL NEEDS DOING (priority order)
+----------------------------------------
+1. QB Pull-Back Cleanup — delete orphaned QB customers/jobs on proposal pull-back
+2. RLS Audit — UPDATE on proposals, DELETE on invoices/invoice_lines for authenticated
+3. Stripe Account — Chris needs own Stripe account, update Supabase secrets
+4. Customer Settings Page — per-tenant config (invoice numbering, company info)
+5. Managers page — currently role-restricted to "Manager" only, may need Admin access
+6. Feedback page — still placeholder
+7. Clean up test data before production use
+
+TECH NOTES
+----------
+- SalesDash.jsx is now ~550 lines (main component + CashFlowModal + AnalyticsModal)
+- Customers.jsx has CustomerModal + CustomerDetail + main Customers components
+- App.jsx routing: initialCustomerId state enables cross-page customer navigation
+- Supabase CLI token expires ~April 25, 2026
+- Repo: ~/sales-command, auto-deploys to scmybiz.com via Vercel on push to main

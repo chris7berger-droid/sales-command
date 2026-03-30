@@ -35,7 +35,7 @@ function GoalCard({ label, actual, goal, fmt = v => v, accent = C.teal }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontSize: 12, fontWeight: 700, color, fontFamily: F.ui }}>{pct}% of goal</span>
         <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>
-          {pct >= 100 ? "🎯 Goal reached!" : `${fmt(goal - actual)} to go`}
+          {pct >= 100 ? "Goal reached!" : `${fmt(goal - actual)} to go`}
         </span>
       </div>
     </div>
@@ -43,7 +43,7 @@ function GoalCard({ label, actual, goal, fmt = v => v, accent = C.teal }) {
 }
 
 export default function Home({ displayName = "there", displayRole = "Sales Rep", setActive, setBidDueFilter, onStageFilter }) {
- 
+
   const [rows,          setRows]          = useState([]);
   const [monthRows,     setMonthRows]     = useState([]);
   const [billing,       setBilling]       = useState(0);
@@ -85,7 +85,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
         .reduce((sum, p) => sum + (p.total || 0), 0);
 
       const sent = filteredProps
-        .filter(p => ["Sent","Viewed","Approved Internally","Approved"].includes(p.status))
+        .filter(p => ["Sent","Viewed","Approved","Sold","Lost"].includes(p.status))
         .length;
 
       setBilling(monthBill);

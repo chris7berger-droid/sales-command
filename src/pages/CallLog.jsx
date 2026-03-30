@@ -108,6 +108,8 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     billingName: "",
     billingPhone: "",
     billingEmail: "",
+    billingTerms: "30",
+    billingTermsCustom: "",
     businessAddress: "", businessCity: "", businessState: "", businessZip: "",
     jobsiteAddress: "", jobsiteCity: "", jobsiteState: "", jobsiteZip: "",
     billingAddressSame: true,
@@ -188,6 +190,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
         billing_name: data.billingSame ? null : data.billingName,
         billing_phone: data.billingSame ? null : data.billingPhone,
         billing_email: data.billingSame ? null : data.billingEmail,
+        billing_terms: data.billingTerms === "custom" ? (parseInt(data.billingTermsCustom) || 30) : (parseInt(data.billingTerms) || 30),
         business_address: data.businessAddress, business_city: data.businessCity,
         business_state: data.businessState, business_zip: data.businessZip,
       }]).select().single();
@@ -295,7 +298,14 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
             <select value={data.customerId} onChange={e => {
               const chosen = customers.find(c => c.id === e.target.value)
               set("customerId", e.target.value)
-              if (chosen) set("customerType", chosen.customer_type)
+              if (chosen) {
+                set("customerType", chosen.customer_type)
+                if (chosen.billing_terms) {
+                  const std = [5,15,30,45,60,90,120];
+                  if (std.includes(chosen.billing_terms)) { set("billingTerms", String(chosen.billing_terms)); set("billingTermsCustom", ""); }
+                  else { set("billingTerms", "custom"); set("billingTermsCustom", String(chosen.billing_terms)); }
+                }
+              }
             }} style={inputStyle}>
               <option value="">— Select Customer —</option>
               {customers.filter(c => c.customer_type === data.customerType).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -349,8 +359,28 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
                 </div>
               </div>
             )}
+            <div style={{ marginTop: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, marginBottom: 4 }}>Billing Terms</div>
+              <select value={data.billingTerms} onChange={e => set("billingTerms", e.target.value)} style={inputStyle}>
+                <option value="5">Net 5</option>
+                <option value="15">Net 15</option>
+                <option value="30">Net 30</option>
+                <option value="45">Net 45</option>
+                <option value="60">Net 60</option>
+                <option value="90">Net 90</option>
+                <option value="120">Net 120</option>
+                <option value="custom">Custom</option>
+              </select>
+              {data.billingTerms === "custom" && (
+                <input type="number" placeholder="Days" value={data.billingTermsCustom || ""} onChange={e => set("billingTermsCustom", e.target.value)} style={{ ...inputStyle, marginTop: 8 }} />
+              )}
+            </div>
           </div>
-          <StepFooter step={step} back={back} error={error} onNext={next} />
+          <StepFooter step={step} back={back} error={error} onNext={() => {
+            if (!data.billingTerms) { setError("Billing terms are required"); return; }
+            if (data.billingTerms === "custom" && !data.billingTermsCustom) { setError("Enter custom billing terms (days)"); return; }
+            next();
+          }} />
         </div>
       );
 
@@ -517,7 +547,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-export default function CallLog({ teamMember, onNewProposal, onNavigateProposal, onNavigateInvoice, bidDueFilter, onClearBidDueFilter, stageFilter, onClearStageFilter }) {
+export default function CallLog({ teamMember, onNewProposal, onNavigateProposal, onNavigateInvoice, onNavigateCustomer, bidDueFilter, onClearBidDueFilter, stageFilter, onClearStageFilter }) {
   const [rows, setRows]           = useState([]);
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -530,7 +560,7 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
 
   const load = async () => {
     const [{ data: log }, { data: tm }, { data: cx }, { data: wt }] = await Promise.all([
-      supabase.from("call_log").select("*, job_work_types(*), customers(id, contact_email, contact_phone, first_name, last_name, business_address, business_city, business_state, business_zip)").order("id", { ascending: false }),
+      supabase.from("call_log").select("*, job_work_types(*), customers(id, contact_email, contact_phone, first_name, last_name, business_address, business_city, business_state, business_zip, billing_terms)").order("id", { ascending: false }),
       supabase.from("team_members").select("*").order("name"),
       supabase.from("customers").select("*").order("name"),
       supabase.from("work_types").select("*").order("name"),
@@ -565,6 +595,7 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
         onNewProposal={onNewProposal ? () => onNewProposal(selJob) : undefined}
         onNavigateProposal={onNavigateProposal}
         onNavigateInvoice={onNavigateInvoice}
+        onNavigateCustomer={onNavigateCustomer}
       />
     );
   }

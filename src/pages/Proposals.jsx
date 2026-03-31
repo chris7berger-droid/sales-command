@@ -126,9 +126,16 @@ function ProposalPDFModal({ proposal, onClose }) {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState(null);
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number });
+  const [repContact, setRepContact] = useState({ phone: "", email: "" });
 
   useEffect(() => {
     getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number }));
+    const salesName = proposal.call_log?.sales_name;
+    if (salesName) {
+      supabase.from("team_members").select("phone, email").eq("name", salesName).maybeSingle().then(({ data }) => {
+        if (data) setRepContact({ phone: data.phone || "", email: data.email || "" });
+      });
+    }
   }, []);
   const signingUrl = `https://www.scmybiz.com/sign/${proposal.signing_token}`;
 
@@ -313,8 +320,8 @@ function ProposalPDFModal({ proposal, onClose }) {
                   <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3 }}>{COMPANY.tagline}</div>
                 </div>
                 <div style={{ textAlign: "right", fontSize: 11, color: "#4a4238", lineHeight: 1.7 }}>
-                  <div>{COMPANY.phone}</div>
-                  <div>{COMPANY.email}</div>
+                  <div>{repContact.phone || COMPANY.phone}</div>
+                  <div>{repContact.email || COMPANY.email}</div>
                   <div>{COMPANY.website}</div>
                   <div style={{ color: "#887c6e" }}>{COMPANY.license}</div>
                 </div>

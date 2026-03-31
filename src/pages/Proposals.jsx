@@ -922,6 +922,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial 
   const [showModal, setShowModal] = useState(false);
 
   const [preselectedJob, setPreselectedJob] = useState(null);
+  const [statusFilter, setStatusFilter]     = useState("All");
 
   useEffect(() => {
     if (initialProposal?.job) {
@@ -952,6 +953,11 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial 
 
   useEffect(() => { load(); }, []);
 
+  const STATUS_TABS = ["All", "Draft", "Sent", "Sold", "Lost"];
+  const filteredProposals = statusFilter === "All"
+    ? proposals
+    : proposals.filter(p => p.status === statusFilter);
+
   if (sel) return <ProposalDetail p={sel} onBack={() => setSel(null)} onDeleted={() => { setSel(null); load(); }} teamMember={teamMember} />;
 
   return (
@@ -965,6 +971,34 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial 
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <SectionHeader title="Proposals" action={<Btn sz="sm" onClick={() => setShowModal(true)}>+ New Proposal</Btn>} />
+        <div style={{ display: "flex", gap: 6 }}>
+          {STATUS_TABS.map(tab => {
+            const active = statusFilter === tab;
+            const count = tab === "All" ? proposals.length : proposals.filter(p => p.status === tab).length;
+            return (
+              <button
+                key={tab}
+                onClick={() => setStatusFilter(tab)}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 8,
+                  border: `1.5px solid ${active ? C.teal : C.borderStrong}`,
+                  background: active ? C.dark : "transparent",
+                  color: active ? C.teal : C.textMuted,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  fontFamily: F.display,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
+                {tab} <span style={{ opacity: 0.6, marginLeft: 4 }}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
         {loading ? (
           <div style={{ color: C.textFaint, fontFamily: F.ui, fontSize: 13 }}>Loading...</div>
         ) : (
@@ -995,7 +1029,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial 
                 </div>
               )},
             ]}
-            rows={proposals}
+            rows={filteredProposals}
             onRow={setSel}
           />
         )}

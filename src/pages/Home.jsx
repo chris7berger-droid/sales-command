@@ -7,13 +7,13 @@ import { getTenantConfig, DEFAULTS } from "../lib/config";
 import StatCard from "../components/StatCard";
 import SectionHeader from "../components/SectionHeader";
 
-function GoalCard({ label, actual, goal, fmt = v => v, accent = C.teal }) {
+function GoalCard({ label, actual, goal, fmt = v => v, accent = C.teal, onClick, items = [] }) {
   const pct     = Math.min(Math.round((actual / goal) * 100), 100);
   const color   = pct >= 100 ? C.green : pct >= 60 ? C.amber : C.red;
   const barW    = `${pct}%`;
 
   return (
-    <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 12, padding: "20px 24px", boxShadow: "0 2px 8px rgba(28,24,20,0.07)", display: "flex", flexDirection: "column", gap: 12 }}>
+    <div onClick={onClick} style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 12, padding: "20px 24px", boxShadow: "0 2px 8px rgba(28,24,20,0.07)", display: "flex", flexDirection: "column", gap: 12, cursor: onClick ? "pointer" : "default", transition: "transform 0.15s ease" }} onMouseEnter={e => { if (onClick) e.currentTarget.style.transform = "translateY(-2px)"; }} onMouseLeave={e => { if (onClick) e.currentTarget.style.transform = "none"; }}>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textFaint, fontFamily: F.ui }}>{label}</div>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8 }}>
         <div style={{ fontSize: 28, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.02em", lineHeight: 1 }}>
@@ -36,6 +36,39 @@ function GoalCard({ label, actual, goal, fmt = v => v, accent = C.teal }) {
   );
 }
 
+function GoalDrilldown({ title, items, onClose }) {
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(28,24,20,0.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: C.linen, border: `1px solid ${C.borderStrong}`, borderRadius: 14, width: "90%", maxWidth: 540, maxHeight: "70vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(28,24,20,0.25)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
+          <span style={{ fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textHead, fontFamily: F.display }}>{title}</span>
+          <span onClick={onClose} style={{ cursor: "pointer", fontSize: 18, color: C.textMuted, lineHeight: 1 }}>✕</span>
+        </div>
+        <div style={{ overflowY: "auto", padding: "8px 0" }}>
+          {items.length === 0 && (
+            <div style={{ padding: "24px 20px", textAlign: "center", color: C.textFaint, fontFamily: F.ui, fontSize: 13 }}>No items to show</div>
+          )}
+          {items.map((item, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", background: i % 2 === 0 ? "transparent" : C.linenDeep, gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {item.jobNumber ? `${item.jobNumber} — ` : ""}{item.jobName || "Untitled"}
+                </div>
+                <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui, marginTop: 2 }}>
+                  {item.customer}{item.status ? ` · ${item.status}` : ""}
+                </div>
+              </div>
+              {item.total != null && (
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.teal, fontFamily: F.ui, whiteSpace: "nowrap" }}>{fmt$(item.total)}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home({ displayName = "there", displayRole = "Sales Rep", setActive, setBidDueFilter, onStageFilter }) {
 
   const [rows,          setRows]          = useState([]);
@@ -44,6 +77,10 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
   const [ytd,           setYtd]           = useState(0);
   const [proposalsSent, setProposalsSent] = useState(0);
   const [soldTotal,       setSoldTotal]       = useState(0);
+  const [monthItems,    setMonthItems]    = useState([]);
+  const [ytdItems,      setYtdItems]      = useState([]);
+  const [sentItems,     setSentItems]     = useState([]);
+  const [drilldown,     setDrilldown]     = useState(null);
   const [loading,       setLoading]       = useState(true);
   const [GOALS, setGOALS] = useState({ monthlyBilling: DEFAULTS.monthly_billing_goal, yearlyBilling: DEFAULTS.yearly_billing_goal, conversionRate: DEFAULTS.conversion_rate_goal, proposalsSent: DEFAULTS.proposals_sent_goal });
 
@@ -70,7 +107,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
       const monthLog = (log || []).filter(r => r.created_at?.startsWith(month));
       setMonthRows(monthLog);
 
-      let propQuery = supabase.from("proposals").select('total, approved_at, created_at, status, call_log_id, call_log(sales_name), proposal_wtc(end_date)');
+      let propQuery = supabase.from("proposals").select('total, approved_at, created_at, status, call_log_id, call_log(sales_name, job_name, display_job_number, customer_name), proposal_wtc(end_date)');
       const { data: props } = await propQuery;
       const filteredProps = isRep ? (props || []).filter(p => p.call_log?.sales_name === displayName) : (props || []);
 
@@ -80,22 +117,23 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
         return dates[dates.length - 1] || null;
       };
 
-      const monthBill = filteredProps
-        .filter(p => p.status === "Sold" && getEndDate(p)?.startsWith(month))
-        .reduce((sum, p) => sum + (p.total || 0), 0);
+      const toItem = p => ({ jobName: p.call_log?.job_name, jobNumber: p.call_log?.display_job_number, customer: p.call_log?.customer_name || "", total: p.total || 0, status: p.status });
 
-      const ytdBill = filteredProps
-        .filter(p => p.status === "Sold" && getEndDate(p)?.startsWith(year))
-        .reduce((sum, p) => sum + (p.total || 0), 0);
+      const monthSold = filteredProps.filter(p => p.status === "Sold" && getEndDate(p)?.startsWith(month));
+      const monthBill = monthSold.reduce((sum, p) => sum + (p.total || 0), 0);
 
-      const sent = filteredProps
-        .filter(p => ["Sent","Viewed","Approved","Sold","Lost"].includes(p.status))
-        .length;
+      const ytdSold = filteredProps.filter(p => p.status === "Sold" && getEndDate(p)?.startsWith(year));
+      const ytdBill = ytdSold.reduce((sum, p) => sum + (p.total || 0), 0);
+
+      const sentList = filteredProps.filter(p => ["Sent","Viewed","Approved","Sold","Lost"].includes(p.status));
 
       setBilling(monthBill);
       setYtd(ytdBill);
-      setProposalsSent(sent);
+      setProposalsSent(sentList.length);
       setSoldTotal(filteredProps.filter(p => p.status === "Sold").length);
+      setMonthItems(monthSold.map(toItem));
+      setYtdItems(ytdSold.map(toItem));
+      setSentItems(sentList.map(toItem));
       setLoading(false);
     }
     load();
@@ -171,11 +209,13 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
       {/* GOAL SCORECARDS */}
       <SectionHeader title="Monthly Goals" />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 16 }}>
-        <GoalCard label="Monthly Billings"  actual={loading ? 0 : billing}       goal={GOALS.monthlyBilling}  fmt={fmt$}          accent={C.teal} />
-        <GoalCard label="Yearly Sales"      actual={loading ? 0 : ytd}           goal={GOALS.yearlyBilling}   fmt={fmt$}          accent={C.tealDark} />
+        <GoalCard label="Monthly Billings"  actual={loading ? 0 : billing}       goal={GOALS.monthlyBilling}  fmt={fmt$}          accent={C.teal}     onClick={() => setDrilldown({ title: "Monthly Billings", items: monthItems })} />
+        <GoalCard label="Yearly Sales"      actual={loading ? 0 : ytd}           goal={GOALS.yearlyBilling}   fmt={fmt$}          accent={C.tealDark} onClick={() => setDrilldown({ title: "Yearly Sales", items: ytdItems })} />
         <GoalCard label="Conversion Rate"   actual={loading ? 0 : convRate}      goal={GOALS.conversionRate}  fmt={v => `${v}%`}  accent={C.green} />
-        <GoalCard label="Proposals Sent"    actual={loading ? 0 : proposalsSent} goal={GOALS.proposalsSent}   fmt={v => `${v}`}   accent={C.purple} />
+        <GoalCard label="Proposals Sent"    actual={loading ? 0 : proposalsSent} goal={GOALS.proposalsSent}   fmt={v => `${v}`}   accent={C.purple}   onClick={() => setDrilldown({ title: "Proposals Sent", items: sentItems })} />
       </div>
+
+      {drilldown && <GoalDrilldown title={drilldown.title} items={drilldown.items} onClose={() => setDrilldown(null)} />}
 
     </div>
   );

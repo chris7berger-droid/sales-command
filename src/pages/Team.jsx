@@ -41,7 +41,7 @@ function MemberModal({ member, onClose, onSaved }) {
     } else {
       const { data: inserted, error: err } = await supabase
         .from("team_members")
-        .insert({ name: form.name, email: form.email, phone: form.phone, role: form.role, active: true })
+        .insert({ name: form.name, email: form.email, phone: form.phone, role: form.role, active: true, onboarded: !sendInvite })
         .select("id")
         .single();
       if (err) { setError(err.message); setSaving(false); return; }
@@ -58,6 +58,8 @@ function MemberModal({ member, onClose, onSaved }) {
   const sendInviteEmail = async (email, name, teamMemberId) => {
     setInviting(true);
     setError("");
+    // Mark as not onboarded so they see the welcome screen on first login
+    await supabase.from("team_members").update({ onboarded: false }).eq("id", teamMemberId);
     const { data, error: fnErr } = await supabase.functions.invoke("invite-user", {
       body: { email, name, teamMemberId },
     });

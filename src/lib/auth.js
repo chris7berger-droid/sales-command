@@ -37,7 +37,7 @@ export async function getCurrentTeamMember() {
 
   const { data, error } = await supabase
     .from('team_members')
-    .select('id, name, role, email')
+    .select('id, name, role, email, onboarded')
     .eq('auth_id', user.id)
     .single()
 

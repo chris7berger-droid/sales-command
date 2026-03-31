@@ -25,6 +25,7 @@ import RegressionTest from "./components/RegressionTest";
 import InvoicePaidPage from "./pages/InvoicePaidPage";
 import QBCallbackPage from "./pages/QBCallbackPage";
 import ErrorBoundary from "./components/ErrorBoundary";
+import WelcomeScreen from "./components/WelcomeScreen";
 import { TenantConfigProvider } from "./lib/TenantConfigContext";
 
 const NAV = [
@@ -122,6 +123,24 @@ function SalesCommandApp() {
           <Route path="/invoice-paid" element={<InvoicePaidPage />} />
           <Route path="/qb/callback" element={<QBCallbackPage />} />
           <Route path="*" element={<LandingPage />} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
+
+  // Show welcome screen for newly invited users who haven't onboarded yet
+  if (teamMember && teamMember.onboarded === false) {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/sign/:token" element={<PublicSigningPage />} />
+          <Route path="/invoice-paid" element={<InvoicePaidPage />} />
+          <Route path="*" element={
+            <WelcomeScreen
+              teamMember={teamMember}
+              onComplete={() => setTeamMember({ ...teamMember, onboarded: true })}
+            />
+          } />
         </Routes>
       </BrowserRouter>
     );

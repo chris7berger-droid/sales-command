@@ -1,4 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <rect width="32" height="32" rx="6" fill="#1c1814"/>
-  <text x="16" y="23" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="22" fill="#30cfac">C</text>
+  <!-- Crosshair circle with 4 breaks -->
+  <circle cx="16" cy="16" r="11" fill="none" stroke="#30cfac" stroke-width="2.5"
+    stroke-dasharray="14.14 3.14" stroke-dashoffset="1.57"/>
+  <!-- Crosshair lines -->
+  <line x1="16" y1="2.5" x2="16" y2="5" stroke="#30cfac" stroke-width="2" stroke-linecap="round"/>
+  <line x1="16" y1="27" x2="16" y2="29.5" stroke="#30cfac" stroke-width="2" stroke-linecap="round"/>
+  <line x1="2.5" y1="16" x2="5" y2="16" stroke="#30cfac" stroke-width="2" stroke-linecap="round"/>
+  <line x1="27" y1="16" x2="29.5" y2="16" stroke="#30cfac" stroke-width="2" stroke-linecap="round"/>
+  <!-- C in center -->
+  <text x="16" y="21.5" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="14" fill="#30cfac">C</text>
 </svg>

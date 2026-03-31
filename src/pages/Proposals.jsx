@@ -951,9 +951,18 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
   const load = async () => {
     const { data } = await supabase
       .from("proposals")
-      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date), invoices(id, status)")
+      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date)")
       .order("created_at", { ascending: false });
-    setProposals(data || []);
+    // Fetch invoices separately and attach to proposals
+    const { data: invData } = await supabase.from("invoices").select("id, status, proposal_id");
+    const invByProposal = {};
+    (invData || []).forEach(inv => {
+      if (inv.proposal_id) {
+        if (!invByProposal[inv.proposal_id]) invByProposal[inv.proposal_id] = [];
+        invByProposal[inv.proposal_id].push(inv);
+      }
+    });
+    setProposals((data || []).map(p => ({ ...p, invoices: invByProposal[p.id] || [] })));
     setLoading(false);
   };
 

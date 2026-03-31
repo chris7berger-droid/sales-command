@@ -242,7 +242,6 @@ function AppShell({ active, setActive, open, setOpen, displayName, displayRole, 
         </div>
 
       </div>
-      <RegressionTest />
     </>
   );
 }

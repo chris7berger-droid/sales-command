@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice as calcWtcTotal } from "../lib/calc";
+import { getTenantConfig, DEFAULTS } from "../lib/config";
 
 // ── Design tokens ──────────────────────────────────────────────────────────
 const T = {
@@ -1281,15 +1282,11 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
   const proposalPrice = (labor.total || 0) + matTotal + travelTotal - ((discount || {}).amount || 0);
   const today         = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-  const COMPANY = {
-    name: "High Desert Surface Prep",
-    tagline: "Industrial & Commercial Concrete Coatings",
-    phone: "(775) 300-1900",
-    email: "estimates@hdspnv.com",
-    website: "www.hdspnv.com",
-    license: "NV Lic #55772B & #81196",
-    address: "1460 Pittman Ave, Sparks NV 89431",
-  };
+  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, address: "" });
+
+  useEffect(() => {
+    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, address: [cfg.address, cfg.city, cfg.state, cfg.zip].filter(Boolean).join(", ") }));
+  }, []);
 
   const S = {
     page:        { background: "#ffffff", fontFamily: "'Inter', sans-serif", color: "#1c1814" },
@@ -1469,12 +1466,11 @@ function CustomerSigningPage({ proposal, onClose }) {
   const travelTotal   = Object.values(travel || {}).reduce((s, v) => s + (parseFloat(v) || 0), 0);
   const proposalPrice = (labor.total || 0) + matTotal + travelTotal - ((discount || {}).amount || 0);
 
-  const COMPANY = {
-    name: "High Desert Surface Prep",
-    tagline: "Industrial & Commercial Concrete Coatings",
-    phone: "(775) 555-0192",
-    email: "estimates@hdsp.com",
-  };
+  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email });
+
+  useEffect(() => {
+    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email }));
+  }, []);
 
   return (
     <div style={{ minHeight: "100vh", background: T.gray50, fontFamily: "'DM Sans', sans-serif", paddingBottom: 60 }}>
@@ -1560,7 +1556,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const autosaveTimer = useRef(null);
   const [workTypes,  setWorkTypes] = useState([]);
   const [selectedWorkTypeId, setSelectedWorkTypeId] = useState(workTypeId ?? null);
-  const [bidding,  setBidding]  = useState({ burden_rate: 56.50, ot_burden_rate: 84.75, tax_rate: 8.25, prevailing_wage: false, ot_overridden: false, start_date: "", end_date: "" });
+  const [bidding,  setBidding]  = useState({ burden_rate: DEFAULTS.default_burden_rate, ot_burden_rate: DEFAULTS.default_ot_burden_rate, tax_rate: DEFAULTS.default_tax_rate, prevailing_wage: false, ot_overridden: false, start_date: "", end_date: "" });
   const [labor,    setLabor]    = useState({ regular_hours: 0, ot_hours: 0, markup_pct: 0 });
   const [materials,setMaterials]= useState([]);
   const [sow,      setSow]      = useState({ size: 0, unit: "SQFT", sales_sow: "", field_sow: [] });
@@ -1582,6 +1578,14 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     return () => clearTimeout(autosaveTimer.current);
   }, [bidding, labor, materials, sow, travel, discount]);
 
+  // ── Load tenant defaults for new WTCs ───────────────────────────────────
+  useEffect(() => {
+    if (wtcId) return;
+    getTenantConfig().then(cfg => {
+      setBidding(b => ({ ...b, burden_rate: cfg.default_burden_rate, ot_burden_rate: cfg.default_ot_burden_rate, tax_rate: cfg.default_tax_rate }));
+    });
+  }, []);
+
   // ── Load from Supabase on mount ──────────────────────────────────────────
   useEffect(() => {
     if (!wtcId) return;
@@ -1592,10 +1596,11 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
         .eq("id", wtcId)
         .single();
       if (error || !data) return;
+      const cfg = await getTenantConfig();
       setBidding({
-        burden_rate:     data.burden_rate     ?? 56.50,
-        ot_burden_rate:  data.ot_burden_rate  ?? 84.75,
-        tax_rate:        data.tax_rate        ?? 8.25,
+        burden_rate:     data.burden_rate     ?? cfg.default_burden_rate,
+        ot_burden_rate:  data.ot_burden_rate  ?? cfg.default_ot_burden_rate,
+        tax_rate:        data.tax_rate        ?? cfg.default_tax_rate,
         prevailing_wage: data.prevailing_wage ?? false,
         ot_overridden:   false,
         pw_rate:         data.pw_rate         ?? 0,

@@ -2,12 +2,16 @@ import { useState, useEffect } from 'react'
 import { signIn } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { C as _C } from '../lib/tokens'
+import { getTenantConfig, DEFAULTS } from '../lib/config'
 
 const C = { ..._C, linenCard: _C.linenLight, danger: _C.red }
 
 export default function Login() {
   const [email,    setEmail]    = useState("")
   const [password, setPassword] = useState("")
+  const [companyName, setCompanyName] = useState(DEFAULTS.company_name)
+
+  useEffect(() => { getTenantConfig().then(cfg => setCompanyName(cfg.company_name)) }, [])
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState(null)
   const [mode,     setMode]     = useState("login") // login | forgot | reset
@@ -110,7 +114,7 @@ export default function Login() {
           <div style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: "Barlow Condensed, sans-serif", letterSpacing: "0.06em", textTransform: "uppercase" }}>
             Sales <span style={{ color: C.tealDark }}>Command</span>
           </div>
-          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>High Desert Surface Prep</div>
+          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>{companyName}</div>
         </div>
 
         {message && (

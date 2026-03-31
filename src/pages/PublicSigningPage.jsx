@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { calcWtcPrice } from "../lib/calc";
+import { getTenantConfig, DEFAULTS } from "../lib/config";
 
 const T = {
   green: "#30cfac",
@@ -26,6 +27,9 @@ export default function PublicSigningPage() {
   const [name, setName] = useState("");
   const [signing, setSigning] = useState(false);
   const [signed, setSigned] = useState(false);
+  const [config, setConfig] = useState(DEFAULTS);
+
+  useEffect(() => { getTenantConfig().then(setConfig); }, []);
 
   useEffect(() => {
     async function load() {
@@ -75,10 +79,10 @@ export default function PublicSigningPage() {
       // Header — company name
       doc.setFontSize(20); doc.setFont("helvetica", "bold");
       doc.setTextColor(...dark);
-      doc.text("High Desert Surface Prep", margin, y); y += 24;
+      doc.text(config.company_name || "Company Name", margin, y); y += 24;
       doc.setFontSize(10); doc.setFont("helvetica", "normal");
       doc.setTextColor(...gray);
-      doc.text("Industrial & Commercial Concrete Coatings", margin, y); y += 10;
+      doc.text(config.tagline || "", margin, y); y += 10;
 
       // Teal header underline
       doc.setDrawColor(...teal);
@@ -256,8 +260,8 @@ export default function PublicSigningPage() {
       {/* Header */}
       <div style={{ background: "white", borderBottom: `1px solid ${T.gray200}`, padding: "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: T.gray900 }}>High Desert Surface Prep</div>
-          <div style={{ fontSize: 12, color: T.gray500 }}>Industrial &amp; Commercial Concrete Coatings</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: T.gray900 }}>{config.company_name}</div>
+          <div style={{ fontSize: 12, color: T.gray500 }}>{config.tagline}</div>
         </div>
         <div style={{ fontSize: 22, fontWeight: 800, color: T.green }}>{fmt(total)}</div>
       </div>
@@ -330,7 +334,7 @@ export default function PublicSigningPage() {
         )}
 
         <div style={{ marginTop: 32, textAlign: "center", fontSize: 11, color: T.gray400 }}>
-          This proposal is valid for 90 days. · High Desert Surface Prep · hdspnv.com
+          This proposal is valid for {config.proposal_validity_days} days. · {config.company_name} · {config.website}
         </div>
       </div>
     </div>

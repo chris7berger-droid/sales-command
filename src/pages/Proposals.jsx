@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { fmt$, fmtD } from "../lib/utils";
 import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice } from "../lib/calc";
 import { PROP_C } from "../lib/mockData";
+import { getTenantConfig, DEFAULTS } from "../lib/config";
 import WTCCalculator from "./WTCCalculator";
 import SectionHeader from "../components/SectionHeader";
 import DataTable from "../components/DataTable";
@@ -115,14 +116,7 @@ function NewProposalModal({ onClose, onCreated, preselectedJob }) {
 
 
 
-const COMPANY = {
-  name: "High Desert Surface Prep",
-  tagline: "Industrial & Commercial Concrete Coatings",
-  phone: "(775) 555-0192",
-  email: "estimates@hdsp.com",
-  website: "www.hdsp.com",
-  license: "NV Lic #0087342",
-};
+// COMPANY is loaded from tenant_config in components that need it
 
 function ProposalPDFModal({ proposal, onClose }) {
   const [wtcs, setWtcs] = useState([]);
@@ -131,6 +125,11 @@ function ProposalPDFModal({ proposal, onClose }) {
   const [sendDone, setSendDone] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState(null);
+  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number });
+
+  useEffect(() => {
+    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number }));
+  }, []);
   const signingUrl = `https://www.scmybiz.com/sign/${proposal.signing_token}`;
 
   async function handleSend() {

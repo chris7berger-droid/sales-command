@@ -3,16 +3,10 @@ import { C, F } from "../lib/tokens";
 import { fmt$, tod } from "../lib/utils";
 import { STAGES } from "../lib/mockData";
 import { supabase } from "../lib/supabase";
+import { getTenantConfig, DEFAULTS } from "../lib/config";
 import StatCard from "../components/StatCard";
 import SectionHeader from "../components/SectionHeader";
 import Btn from "../components/Btn";
-
-const GOALS = {
-  monthlyBilling:  450000,
-  yearlyBilling:  5400000,
-  conversionRate:      50,
-  proposalsSent:       30,
-};
 
 // Any proposal that was actually sent to a customer
 const SENT_STATUSES = ["Sent","Viewed","Approved","Sold","Lost"];
@@ -68,6 +62,16 @@ export default function SalesDash({ displayName, displayRole }) {
   const [proposalsSent, setProposalsSent] = useState(0);
   const [soldTotal,     setSoldTotal]     = useState(0);
   const [loading,       setLoading]       = useState(true);
+  const [GOALS, setGOALS] = useState({ monthlyBilling: DEFAULTS.monthly_billing_goal, yearlyBilling: DEFAULTS.yearly_billing_goal, conversionRate: DEFAULTS.conversion_rate_goal, proposalsSent: DEFAULTS.proposals_sent_goal });
+
+  useEffect(() => {
+    getTenantConfig().then(cfg => setGOALS({
+      monthlyBilling: cfg.monthly_billing_goal,
+      yearlyBilling: cfg.yearly_billing_goal,
+      conversionRate: cfg.conversion_rate_goal,
+      proposalsSent: cfg.proposals_sent_goal,
+    }));
+  }, []);
 
   const [billingItems,  setBillingItems]  = useState([]);
   const [ytdItems,      setYtdItems]      = useState([]);

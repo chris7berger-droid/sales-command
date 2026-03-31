@@ -1,17 +1,16 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-
-const COMPANY = {
-  name: "High Desert Surface Prep",
-  tagline: "Industrial & Commercial Concrete Coatings",
-  phone: "(775) 300-1900",
-  email: "estimates@hdspnv.com",
-};
+import { getTenantConfig, DEFAULTS } from "../lib/config";
 
 export default function InvoicePaidPage() {
   const [params] = useSearchParams();
   const invoiceId = params.get("invoice_id") || "";
   const [status, setStatus] = useState("loading");
+  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email });
+
+  useEffect(() => {
+    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email }));
+  }, []);
 
   useEffect(() => {
     // Brief delay so Stripe webhook has time to process

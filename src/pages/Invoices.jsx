@@ -4,20 +4,12 @@ import { supabase } from "../lib/supabase";
 import { fmt$, fmtD } from "../lib/utils";
 import { calcWtcPrice } from "../lib/calc";
 import { INV_C } from "../lib/mockData";
+import { getTenantConfig, DEFAULTS } from "../lib/config";
 import SectionHeader from "../components/SectionHeader";
 import StatCard from "../components/StatCard";
 import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
-
-const COMPANY = {
-  name: "High Desert Surface Prep",
-  tagline: "Industrial & Commercial Concrete Coatings",
-  phone: "(775) 300-1900",
-  email: "estimates@hdspnv.com",
-  website: "www.hdsp.com",
-  license: "NV Lic #0087342",
-};
 
 // ── Shared styles ─────────────────────────────────────────────────────────
 const inputStyle = {
@@ -591,6 +583,11 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
   const [editId, setEditId] = useState(invoice.id);
   const [editDueDate, setEditDueDate] = useState(invoice.due_date || "");
   const [editDiscount, setEditDiscount] = useState(String(invoice.discount || 0));
+  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number });
+
+  useEffect(() => {
+    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number }));
+  }, []);
   const [editDesc, setEditDesc] = useState(invoice.description || "");
   const [editPcts, setEditPcts] = useState({});
   const [saving, setSaving] = useState(false);

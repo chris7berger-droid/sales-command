@@ -211,7 +211,15 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 16 }}>
         <GoalCard label="Monthly Billings"  actual={loading ? 0 : billing}       goal={GOALS.monthlyBilling}  fmt={fmt$}          accent={C.teal}     onClick={() => setDrilldown({ title: "Monthly Billings", items: monthItems })} />
         <GoalCard label="Yearly Sales"      actual={loading ? 0 : ytd}           goal={GOALS.yearlyBilling}   fmt={fmt$}          accent={C.tealDark} onClick={() => setDrilldown({ title: "Yearly Sales", items: ytdItems })} />
-        <GoalCard label="Conversion Rate"   actual={loading ? 0 : convRate}      goal={GOALS.conversionRate}  fmt={v => `${v}%`}  accent={C.green} />
+        <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 12, padding: "20px 24px", boxShadow: "0 2px 8px rgba(28,24,20,0.07)", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textFaint, fontFamily: F.ui }}>Conversion Rate</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.02em", lineHeight: 1 }}>
+            {loading ? "…" : `${convRate}%`}
+          </div>
+          <div style={{ fontSize: 12, color: C.textMuted, fontFamily: F.ui }}>
+            {loading ? "" : `${sc["Sold"] || 0} Sold · ${sc["Lost"] || 0} Lost`}
+          </div>
+        </div>
         <GoalCard label="Proposals Sent"    actual={loading ? 0 : proposalsSent} goal={GOALS.proposalsSent}   fmt={v => `${v}`}   accent={C.purple}   onClick={() => setDrilldown({ title: "Proposals Sent", items: sentItems })} />
       </div>
 

@@ -1,0 +1,115 @@
+SC_Handoff_v42 — 2026-03-31
+============================================================
+Session: Claude Code / Opus 4.6 / ~/sales-command
+Repo: chris7berger-droid/sales-command (main branch)
+Deploys: Vercel (auto on push to main)
+============================================================
+
+WHAT GOT DONE THIS SESSION
+------------------------------------------------------------
+
+1. Welcome Screen for Invited Users
+   - New users see a dark-themed onboarding screen on first login
+   - Shows their name, email, and role (confirmed by admin)
+   - Highlights "The Directory" — tells them about the page number
+     badge and built-in instruction manual
+   - "Get Started" button marks them as onboarded and enters the app
+   - Tracked via `onboarded` boolean column on team_members
+     (default true so existing users skip it, false for new invites)
+   - Team.jsx sets onboarded=false when sending invite (new or re-send)
+   - SQL applied: ALTER TABLE team_members ADD COLUMN onboarded boolean DEFAULT true
+   - Files: src/components/WelcomeScreen.jsx (new), src/App.jsx,
+     src/lib/auth.js, src/pages/Team.jsx
+
+2. Unified Job Number Styling — Dark Badge Treatment
+   - All job/proposal/invoice numbers across Call Log, Proposals, and
+     Invoices lists now use the same badge style: teal text on dark
+     background, Barlow Condensed weight 600, fontSize 13,
+     letterSpacing 0.08em, borderRadius 6, padding 3px 10px
+   - Job names appear outside the badge in C.textMuted weight 500
+   - Removed old inconsistent styles: teal underline on Call Log,
+     heavy 800-weight on Proposals, mixed weights on Invoices
+   - Files: src/pages/CallLog.jsx, src/pages/Proposals.jsx,
+     src/pages/Invoices.jsx
+
+3. The Directory (formerly Table of Contents)
+   - Renamed from "Table of Contents" to "The Directory" everywhere
+   - Badge changed from "p. 2.1" to "Dir. 2.1"
+   - Added to sidebar nav as last item (📖 icon) — opens overlay
+   - Expanded BOOK data: every page now has a `features` array with
+     bullets for every button and clickable element (80+ features)
+   - Pages are expandable/collapsible accordion-style (More/Less)
+   - Feature bullets are clickable — toggling open reveals numbered
+     step-by-step instructions ("How do I get there?")
+   - Three levels: Chapter → Page (collapsible) → Feature (collapsible steps)
+   - Welcome screen references The Directory instead of Table of Contents
+   - Files: src/components/TableOfContents.jsx, src/App.jsx,
+     src/components/WelcomeScreen.jsx
+
+4. Invoice List Polish
+   - Invoice # badges: teal on dark, weight 600, letter-spacing 0.08em
+   - Invoice status pills now use same PROP_C color map as Proposals
+   - Removed "QB Connected" from header — now only shows amber warning
+     banner with "Reconnect" link when QuickBooks is disconnected
+   - Files: src/pages/Invoices.jsx
+
+COMMITS THIS SESSION (oldest to newest)
+------------------------------------------------------------
+- 2cff7da  feat: welcome screen for newly invited users
+- 80ec188  fix: unify job number styling across lists
+- f0db2e7  feat: rename TOC to "The Directory" — collapsible feature bullets
+- e866b29  fix: invoice # badges use teal text on dark background
+- 1e8aeb5  fix: invoice list status pills use same color map as proposal list
+- 62b4d37  feat: add The Directory to sidebar nav
+- baf2d2d  feat: clickable Directory features with step-by-step instructions
+- 0fb5457  fix: invoice # badge — thinner weight for readability
+- cce8d24  fix: move QB status out of Invoices header
+- 219f113  feat: apply dark badge treatment to all job/proposal numbers
+
+All pushed to main, deployed via Vercel.
+
+KNOWN ISSUES / SESSION NOTES
+------------------------------------------------------------
+- team_members.onboarded column must exist (SQL was applied this session)
+- QB connection management still lives only on Invoices page — should
+  move to Settings in a future session
+- The Directory BOOK data covers all 8 chapters with 80+ features and
+  step-by-step instructions — may need updates as new features are added
+
+WHAT WAS IN PROGRESS / NOT FINISHED
+------------------------------------------------------------
+- Nothing left incomplete from this session
+
+PRIORITIES FOR NEXT SESSION (carried forward + new)
+------------------------------------------------------------
+1. Finish Resend domain verification for scmybiz.com → switch
+   invite-user edge function sender from hdspnv.com to scmybiz.com
+2. Test invite flow end-to-end (send invite → user receives email →
+   user sets password → welcome screen → enters app)
+3. Move QB connection management to Settings page
+4. Link Chris's team_members.auth_id to his auth user
+5. Update tagline in Settings
+6. QB pull-back cleanup (orphaned QB customers/jobs)
+7. Wire tenant_config into edge functions
+8. Field Command — next build
+
+ARCHITECTURE NOTES (unchanged)
+------------------------------------------------------------
+- Stack: React + Supabase + Vercel + GitHub
+- Supabase: RLS with tenant_id on all tables
+- Auth: Supabase Auth, invite via edge function + Resend
+- Anti-fragile: ErrorBoundary, TenantConfigProvider, useTenantConfig()
+- Design system: dark badge job numbers (teal on C.dark), Barlow
+  Condensed for display, Inter for UI, no white backgrounds
+- The Directory: built-in instruction manual accessible from sidebar
+  and page number badge — collapsible pages with feature-level
+  step-by-step instructions
+
+SESSION PROMPT FOR NEXT CLAUDE CODE SESSION
+------------------------------------------------------------
+Continue building Sales Command. Read SC_Handoff_v42.txt for context.
+Top priorities: verify Resend domain for scmybiz.com, test the invite
+flow end-to-end (including the new welcome screen), and move QB
+connection management from Invoices to Settings.
+============================================================
+End of SC_Handoff_v42

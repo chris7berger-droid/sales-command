@@ -38,6 +38,7 @@ const NAV = [
   { id: "customers", label: "Customers",  icon: "🏢" },
   { id: "team",      label: "Our Team",   icon: "👥" },
   { id: "settings",  label: "Settings",   icon: "⚙", roles: ["Admin"] },
+  { id: "directory", label: "The Directory", icon: "📖", action: "directory" },
 ];
 
 function Placeholder({ label }) {
@@ -181,6 +182,7 @@ function SalesCommandApp() {
               open={open} setOpen={setOpen}
               displayName={displayName} displayRole={displayRole}
               displayInitials={displayInitials} page={page}
+              onOpenDirectory={() => setShowTOC(true)}
             />
             <PageBadge
               pageNumber={getPageNumber(active, subPage)}
@@ -201,7 +203,7 @@ function SalesCommandApp() {
   );
 }
 
-function AppShell({ active, setActive, open, setOpen, displayName, displayRole, displayInitials, page }) {
+function AppShell({ active, setActive, open, setOpen, displayName, displayRole, displayInitials, page, onOpenDirectory }) {
   return (
     <>
       <style>{GLOBAL_CSS}</style>
@@ -216,9 +218,9 @@ function AppShell({ active, setActive, open, setOpen, displayName, displayRole, 
 
           <div style={{ flex: 1, overflowY: "auto", padding: "8px 5px" }}>
             {NAV.filter(n => !n.roles || n.roles.includes(displayRole)).map(n => {
-              const on = active === n.id;
+              const on = !n.action && active === n.id;
               return (
-                <button key={n.id} onClick={() => setActive(n.id)} title={n.label} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: open ? "8px 11px" : "8px 14px", borderRadius: 7, border: "none", background: on ? C.tealGlow : "transparent", color: on ? C.teal : "rgba(255,255,255,0.42)", cursor: "pointer", textAlign: "left", marginBottom: 2, transition: "all 0.12s", fontFamily: F.display, borderLeft: on ? `2px solid ${C.teal}` : "2px solid transparent" }}
+                <button key={n.id} onClick={() => n.action === "directory" ? onOpenDirectory() : setActive(n.id)} title={n.label} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: open ? "8px 11px" : "8px 14px", borderRadius: 7, border: "none", background: on ? C.tealGlow : "transparent", color: on ? C.teal : "rgba(255,255,255,0.42)", cursor: "pointer", textAlign: "left", marginBottom: 2, transition: "all 0.12s", fontFamily: F.display, borderLeft: on ? `2px solid ${C.teal}` : "2px solid transparent" }}
                   onMouseEnter={e => { if (!on) { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "rgba(255,255,255,0.72)"; } }}
                   onMouseLeave={e => { if (!on) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(255,255,255,0.42)"; } }}
                 >

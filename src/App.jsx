@@ -24,6 +24,8 @@ import { getPageNumber, PageBadge, TOCOverlay } from "./components/TableOfConten
 import RegressionTest from "./components/RegressionTest";
 import InvoicePaidPage from "./pages/InvoicePaidPage";
 import QBCallbackPage from "./pages/QBCallbackPage";
+import ErrorBoundary from "./components/ErrorBoundary";
+import { TenantConfigProvider } from "./lib/TenantConfigContext";
 
 const NAV = [
   { id: "home",      label: "Home",       icon: "⌂"  },
@@ -146,6 +148,7 @@ function SalesCommandApp() {
   };
 
   return (
+    <TenantConfigProvider>
     <BrowserRouter>
       <Routes>
         <Route path="/suite" element={<SubConCommandPage />} />
@@ -175,6 +178,7 @@ function SalesCommandApp() {
         } />
       </Routes>
     </BrowserRouter>
+    </TenantConfigProvider>
   );
 }
 
@@ -238,7 +242,7 @@ function AppShell({ active, setActive, open, setOpen, displayName, displayRole, 
             </div>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
-            {page()}
+            <ErrorBoundary>{page()}</ErrorBoundary>
           </div>
         </div>
 

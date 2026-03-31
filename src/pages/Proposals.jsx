@@ -125,11 +125,11 @@ function ProposalPDFModal({ proposal, onClose }) {
   const [sendDone, setSendDone] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState(null);
-  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number });
+  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
   const [repContact, setRepContact] = useState({ phone: "", email: "" });
 
   useEffect(() => {
-    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number }));
+    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url }));
     const salesName = proposal.call_log?.sales_name;
     if (salesName) {
       supabase.from("team_members").select("phone, email").eq("name", salesName).maybeSingle().then(({ data }) => {
@@ -315,7 +315,7 @@ function ProposalPDFModal({ proposal, onClose }) {
               {/* Header */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: 16, borderBottom: "4px solid #30cfac", marginBottom: 24 }}>
                 <div>
-                  <img src="/hdsp-logo.png" alt={COMPANY.name} style={{ height: 60, marginBottom: 6 }} />
+                  <img src={COMPANY.logo_url || "/hdsp-logo.png"} alt={COMPANY.name} style={{ height: 60, marginBottom: 6 }} />
                   <div style={{ fontSize: 20, fontWeight: 800, color: "#1c1814", letterSpacing: "0.02em", textTransform: "uppercase" }}>{COMPANY.name}</div>
                   <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3 }}>{COMPANY.tagline}</div>
                 </div>

@@ -78,6 +78,9 @@ export default function Settings() {
         <Field label="Tagline" wide>
           <input style={inputStyle} value={form.tagline} onChange={e => set("tagline", e.target.value)} placeholder="e.g. Industrial & Commercial Concrete Coatings" />
         </Field>
+        <Field label="Logo URL" wide>
+          <input style={inputStyle} value={form.logo_url || ""} onChange={e => set("logo_url", e.target.value)} placeholder="/hdsp-logo.png or https://..." />
+        </Field>
         <Field label="License Number">
           <input style={inputStyle} value={form.license_number} onChange={e => set("license_number", e.target.value)} />
         </Field>

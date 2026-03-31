@@ -2,7 +2,7 @@ import { supabase } from "./supabase";
 
 const DEFAULTS = {
   company_name: "", tagline: "", license_number: "", phone: "", email: "",
-  website: "", address: "", city: "", state: "", zip: "", logo_url: "",
+  website: "", address: "", city: "", state: "", zip: "", logo_url: "/hdsp-logo.png",
   default_burden_rate: 56.50, default_ot_burden_rate: 84.75, default_tax_rate: 8.25,
   default_billing_terms: 30, proposal_validity_days: 90,
   monthly_billing_goal: 450000, yearly_billing_goal: 5400000,

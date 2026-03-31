@@ -347,6 +347,7 @@ export default function Customers({ setActive, setInitialProposal, initialCustom
         <DataTable
           cols={[
             { k: "name",           l: "Company",       r: v => <span style={{ fontWeight: 800, fontFamily: F.display, letterSpacing: "0.03em" }}>{v}</span> },
+            { k: "customer_type",  l: "Type",          r: v => <span style={{ fontSize: 11.5, fontWeight: 700, fontFamily: F.ui, color: v === "Residential" ? C.tealDark : C.purple }}>{v || "—"}</span> },
             { k: "business_city",  l: "City" },
             { k: "phone",          l: "Phone" },
             { k: "billing_terms",  l: "Terms",         r: v => termsLabel(v) },

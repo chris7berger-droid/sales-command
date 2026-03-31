@@ -943,7 +943,7 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
   const paid    = invoices.filter(i => i.status === "Paid").reduce((a, i) => a + (i.amount || 0), 0);
 
   const aging = (inv) => {
-    if (!inv.due_date) return null;
+    if (!inv.due_date || inv.status === "Paid") return null;
     return Math.round((new Date() - new Date(inv.due_date)) / 86400000);
   };
 

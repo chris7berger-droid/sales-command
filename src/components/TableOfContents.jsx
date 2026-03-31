@@ -4,7 +4,7 @@ const BOOK = [
   {
     ch: 1, label: "Home", id: "home",
     pages: [
-      { pg: "1.1", screen: "Your Dashboard", id: "home", desc: "See your numbers at a glance — how much you've sold this month, your goals, and what needs attention today." },
+      { pg: "1", screen: "Your Dashboard", id: "home", desc: "See your numbers at a glance — how much you've sold this month, your goals, and what needs attention today." },
     ],
   },
   {
@@ -51,13 +51,13 @@ const BOOK = [
   {
     ch: 7, label: "Our Team", id: "team",
     pages: [
-      { pg: "7.1", screen: "Team Members", id: "team", desc: "Everyone on your team — their role, email, and phone number. Add new people or edit existing members." },
+      { pg: "7", screen: "Team Members", id: "team", desc: "Everyone on your team — their role, email, and phone number. Add new people or edit existing members." },
     ],
   },
   {
     ch: 8, label: "Settings", id: "settings",
     pages: [
-      { pg: "8.1", screen: "Company Settings", id: "settings", desc: "Your company info, default rates, billing terms, and sales goals. Everything you set here flows into proposals, invoices, and dashboards." },
+      { pg: "8", screen: "Company Settings", id: "settings", desc: "Your company info, default rates, billing terms, and sales goals. Everything you set here flows into proposals, invoices, and dashboards." },
     ],
   },
 ];

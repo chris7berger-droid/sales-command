@@ -52,14 +52,14 @@ function GoalDrilldown({ title, items, onClose }) {
             <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", background: i % 2 === 0 ? "transparent" : C.linenDeep, gap: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {item.jobNumber ? `${item.jobNumber} — ` : ""}{item.jobName || "Untitled"}
+                  {item.jobName || "Untitled"}
                 </div>
                 <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui, marginTop: 2 }}>
                   {item.customer}{item.status ? ` · ${item.status}` : ""}
                 </div>
               </div>
               {item.total != null && (
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.teal, fontFamily: F.ui, whiteSpace: "nowrap" }}>{fmt$(item.total)}</div>
+                <div style={{ background: C.dark, color: C.teal, fontSize: 13, fontWeight: 700, fontFamily: F.ui, whiteSpace: "nowrap", borderRadius: 6, padding: "3px 10px" }}>{fmt$(item.total)}</div>
               )}
             </div>
           ))}

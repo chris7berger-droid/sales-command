@@ -333,7 +333,7 @@ function ProposalPDFModal({ proposal, onClose }) {
                   <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Prepared For</div>
                   <div style={{ fontSize: 15, fontWeight: 400, color: "#1c1814" }}>{proposal.customer || "—"}</div>
                   {proposal.call_log?.customers?.business_address && (
-                    <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3, lineHeight: 1.7 }}>
+                    <div style={{ fontSize: 12, fontWeight: 400, color: "#4a4238", marginTop: 3, lineHeight: 1.7 }}>
                       {proposal.call_log.customers.business_address}
                       {proposal.call_log.customers.business_city ? ", " + proposal.call_log.customers.business_city : ""}
                       {proposal.call_log.customers.business_state ? ", " + proposal.call_log.customers.business_state : ""}
@@ -343,7 +343,7 @@ function ProposalPDFModal({ proposal, onClose }) {
                   {proposal.call_log?.jobsite_address && (
                     <div style={{ marginTop: 14 }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Jobsite Address</div>
-                      <div style={{ fontSize: 12, color: "#4a4238", lineHeight: 1.7 }}>
+                      <div style={{ fontSize: 12, fontWeight: 400, color: "#4a4238", lineHeight: 1.7 }}>
                         {proposal.call_log.jobsite_address}
                         {proposal.call_log.jobsite_city ? ", " + proposal.call_log.jobsite_city : ""}
                         {proposal.call_log.jobsite_state ? ", " + proposal.call_log.jobsite_state : ""}

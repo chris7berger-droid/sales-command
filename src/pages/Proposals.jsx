@@ -1081,7 +1081,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
         ) : (
           <DataTable
             cols={[
-              { k: "id",         l: "Proposal #", r: (v, row) => { const djn = row.call_log?.display_job_number || String(v); const idx = djn.indexOf(" - "); const num = idx > -1 ? djn.slice(0, idx) : djn; const name = idx > -1 ? djn.slice(idx + 3) : ""; return <span style={{ fontFamily: F.display }}><span style={{ fontWeight: 800, color: C.textHead }}>{num} P{row.proposal_number || 1}</span>{name && <span style={{ fontWeight: 500, color: C.textMuted }}>{" – "}{name}</span>}</span>; } },
+              { k: "id",         l: "Proposal #", r: (v, row) => { const djn = row.call_log?.display_job_number || String(v); const idx = djn.indexOf(" - "); const num = idx > -1 ? djn.slice(0, idx) : djn; const name = idx > -1 ? djn.slice(idx + 3) : ""; return <span style={{ fontFamily: F.display, display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontWeight: 600, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{num} P{row.proposal_number || 1}</span>{name && <span style={{ fontWeight: 500, color: C.textMuted }}>{name}</span>}</span>; } },
               { k: "customer",   l: "Customer" },
               { k: "status",     l: "Status",     r: v => <Pill label={v} cm={PROP_C} /> },
               { k: "total",      l: "Total",      r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$(v)}</span> },

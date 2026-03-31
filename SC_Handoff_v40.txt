@@ -1,0 +1,102 @@
+SC_Handoff_v40 — 2026-03-31
+============================================================
+
+SESSION SUMMARY
+This session focused on UX improvements, anti-fragile architecture,
+invite system, and styling polish across Sales Command.
+
+WHAT WAS DONE
+--------------
+
+1. CLICKABLE MONTHLY GOAL CARDS (Home page)
+   - Monthly Billings, Yearly Sales, Proposals Sent cards are clickable
+   - Opens drilldown modal showing jobs/proposals behind each number
+   - Dollar amounts show as dark badges with teal text
+   - Conversion Rate card changed to result-only (no goal/progress bar)
+
+2. TEAM MEMBER INVITE SYSTEM
+   - New edge function: invite-user (deployed to Supabase)
+   - Creates Supabase auth user + sends password setup email via Resend
+   - "Add & Send Invite" button on new member modal
+   - "Send Invite" button on edit modal for existing members without auth_id
+   - "Add Without Invite" option for manual adds
+   - Delete button added to team member edit modal
+   - Currently using estimates@hdspnv.com sender (scmybiz.com pending Resend verification)
+
+3. RESEND DOMAIN VERIFICATION (scmybiz.com)
+   - Fixed: Namecheap Mail Settings was set to "Email Forwarding" which blocked MX records
+   - Changed to "Custom MX" and added MX record for Resend
+   - DNS verified, domain verification in progress as of 3/31
+   - Once verified, switch invite-user from estimates@hdspnv.com to noreply@scmybiz.com
+
+4. PROPOSAL DELETE + INVOICE CHECK
+   - Delete checks for linked invoices first, shows clear error message
+   - RLS DELETE policies added for proposals, proposal_wtc, proposal_signatures
+   - Admin + Manager can delete any, others only their own (via call_log.sales_name)
+   - Manager role added to canDelete frontend check
+
+5. INVOICE COLUMN ON PROPOSALS LIST
+   - New "Invoice" column shows invoice status badge (dark bg, teal text)
+   - Click badge to navigate directly to that invoice
+   - Invoices fetched separately (Supabase join was breaking the query)
+
+6. PRIMARY BUTTON STYLE CHANGE
+   - All primary Btn components: dark background + teal text (was teal bg + black text)
+   - Single change in src/components/Btn.jsx
+
+7. PROPOSAL PDF IMPROVEMENTS
+   - HDSP logo added above company name on proposals and invoices
+   - Sales rep phone and email shown in header (pulled from team_members)
+   - Labels bold, content values regular weight
+   - Proposal Activity timeline replaces Recipients widget:
+     * Created date
+     * Sent date + recipient email
+     * Signed date + signer name, OR aging ("Xd awaiting signature")
+   - New DB columns: proposals.sent_at, proposals.sent_to_email
+
+8. INVOICE FIXES
+   - Paid invoices no longer show aging (was showing "Xd overdue" on paid invoices)
+   - Fixed white screen crash: InvoicePDFModal was missing COMPANY state definition
+   - Proposal list names darkened for readability (C.textHead instead of C.tealDark)
+
+9. ANTI-FRAGILE / SPEED / MULTITENANT ARCHITECTURE
+   - ErrorBoundary component: catches render crashes, shows friendly error + Reload button
+   - TenantConfigProvider: loads config once at app level via React context
+   - useTenantConfig() hook available for future components
+   - Logo URL configurable in Settings page (defaults to /hdsp-logo.png)
+   - logo_url column added to tenant_config table
+
+DB CHANGES NEEDED (run in SQL Editor if not done)
+--------------------------------------------------
+ALTER TABLE proposals ADD COLUMN IF NOT EXISTS sent_at timestamptz;
+ALTER TABLE proposals ADD COLUMN IF NOT EXISTS sent_to_email text;
+ALTER TABLE tenant_config ADD COLUMN IF NOT EXISTS logo_url text;
+
+-- DELETE policies (may already be applied):
+-- proposals, proposal_wtc, proposal_signatures
+-- Admin/Manager delete any, others only own via call_log.sales_name
+
+EDGE FUNCTIONS DEPLOYED
+------------------------
+- invite-user (new) — creates auth user + sends invite email
+
+WHAT STILL NEEDS DOING (priority order)
+-----------------------------------------
+1. Resend domain verify — check scmybiz.com status, then switch invite-user sender
+2. Test invite flow end-to-end (add member, receive email, set password, log in)
+3. Link Chris's team_members.auth_id to his Supabase auth user
+4. Update tagline in Settings: "Commercial & Residential Concrete Coatings, Polish and Surface Prep"
+5. Continue styling tweaks (Chris had more items)
+6. QB Pull-Back Cleanup — delete orphaned QB customers/jobs on proposal pull-back
+7. Wire tenant_config into edge functions (send-proposal, send-invoice emails)
+8. Migrate remaining components to useTenantConfig() hook (optional optimization)
+9. Field Command — next build
+
+TECH NOTES
+-----------
+- ErrorBoundary wraps {page()} in App.jsx — sidebar stays functional on crash
+- TenantConfigProvider wraps the authenticated BrowserRouter in App.jsx
+- config.js _cache prevents duplicate DB calls; context provides React-level sharing
+- invite-user edge function: uses service role key, deployed with --no-verify-jwt
+- Btn primary style is now dark bg + teal text globally
+- Proposal Activity timeline reads from proposals.sent_at + proposal_signatures

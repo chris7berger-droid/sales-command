@@ -411,41 +411,65 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       {(linkedProposals.length > 0 || linkedInvoices.length > 0) && (
         <div style={{ marginBottom: 24 }}>
           <div style={labelStyle}>Linked Items</div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {linkedProposals.map(p => {
-              const label = `${p.call_log?.display_job_number || job.display_job_number || "P"}${p.proposal_number ? ` P${p.proposal_number}` : ""}`;
-              const statusColors = {
-                Draft: { bg: "rgba(217,119,6,0.15)", color: "#fcd34d" },
-                Sent:  { bg: "rgba(79,70,229,0.15)", color: "#a5b4fc" },
-                Sold:  { bg: "rgba(16,185,129,0.2)", color: "#34d399" },
-              };
-              const sc = statusColors[p.status] || { bg: "rgba(255,255,255,0.06)", color: C.textFaint };
-              return (
-                <button key={`p-${p.id}`} onClick={() => onNavigateProposal && onNavigateProposal(p.id)}
-                  style={{ background: C.dark, border: `1px solid ${C.darkBorder}`, borderRadius: 8, padding: "8px 14px", cursor: onNavigateProposal ? "pointer" : "default", display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: C.teal, fontFamily: F.display, letterSpacing: "0.04em" }}>📄 {label}</span>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: sc.bg, color: sc.color, fontFamily: F.display, textTransform: "uppercase", letterSpacing: "0.06em" }}>{p.status}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display }}>{fmt$(p.total)}</span>
-                </button>
-              );
-            })}
-            {linkedInvoices.map(inv => {
-              const invColors = {
-                New:    { bg: "rgba(217,119,6,0.15)", color: "#fcd34d" },
-                Sent:   { bg: "rgba(79,70,229,0.15)", color: "#a5b4fc" },
-                Paid:   { bg: "rgba(16,185,129,0.2)", color: "#34d399" },
-                "Past Due": { bg: "rgba(239,68,68,0.15)", color: "#fca5a5" },
-              };
-              const ic = invColors[inv.status] || { bg: "rgba(255,255,255,0.06)", color: C.textFaint };
-              return (
-                <button key={`i-${inv.id}`} onClick={() => onNavigateInvoice && onNavigateInvoice(inv.id)}
-                  style={{ background: C.dark, border: `1px solid ${C.darkBorder}`, borderRadius: 8, padding: "8px 14px", cursor: onNavigateInvoice ? "pointer" : "default", display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: C.teal, fontFamily: F.display, letterSpacing: "0.04em" }}>💵 Invoice #{inv.id}</span>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: ic.bg, color: ic.color, fontFamily: F.display, textTransform: "uppercase", letterSpacing: "0.06em" }}>{inv.status}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display }}>{fmt$(inv.amount)}</span>
-                </button>
-              );
-            })}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {linkedProposals.length > 0 && (
+              <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, overflow: "hidden" }}>
+                <div style={{ padding: "8px 14px", background: C.dark, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.45)", fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase" }}>Proposals</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.ui }}>{linkedProposals.length}</span>
+                </div>
+                {linkedProposals.map((p, i) => {
+                  const label = `${p.call_log?.display_job_number || job.display_job_number || "P"} P${p.proposal_number || 1}`;
+                  const statusColors = {
+                    Draft: { bg: "rgba(28,24,20,0.08)", color: C.textMuted },
+                    Sent:  { bg: "rgba(142,68,173,0.10)", color: "#5b2d7a" },
+                    Sold:  { bg: "rgba(67,160,71,0.15)", color: "#1e5e22" },
+                    Lost:  { bg: "rgba(229,57,53,0.10)", color: "#8b1a18" },
+                  };
+                  const sc = statusColors[p.status] || { bg: "rgba(28,24,20,0.06)", color: C.textFaint };
+                  return (
+                    <button key={`p-${p.id}`} onClick={() => onNavigateProposal && onNavigateProposal(p.id)}
+                      style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", background: i % 2 === 0 ? C.linenLight : C.linen, border: "none", borderBottom: `1px solid ${C.border}`, cursor: onNavigateProposal ? "pointer" : "default", textAlign: "left" }}
+                      onMouseEnter={e => e.currentTarget.style.background = C.tealGlow}
+                      onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? C.linenLight : C.linen}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.03em", minWidth: 140 }}>{label}</span>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: sc.bg, color: sc.color, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>{p.status}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>{fmt$(p.total)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {linkedInvoices.length > 0 && (
+              <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, overflow: "hidden" }}>
+                <div style={{ padding: "8px 14px", background: C.dark, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.45)", fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase" }}>Invoices</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.ui }}>{linkedInvoices.length}</span>
+                </div>
+                {linkedInvoices.map((inv, i) => {
+                  const invColors = {
+                    New:    { bg: "rgba(28,24,20,0.08)", color: C.textMuted },
+                    Sent:   { bg: "rgba(142,68,173,0.10)", color: "#5b2d7a" },
+                    Paid:   { bg: "rgba(67,160,71,0.15)", color: "#1e5e22" },
+                    "Past Due": { bg: "rgba(229,57,53,0.10)", color: "#8b1a18" },
+                    "Waiting for Payment": { bg: "rgba(249,168,37,0.13)", color: "#7a5000" },
+                  };
+                  const ic = invColors[inv.status] || { bg: "rgba(28,24,20,0.06)", color: C.textFaint };
+                  return (
+                    <button key={`i-${inv.id}`} onClick={() => onNavigateInvoice && onNavigateInvoice(inv.id)}
+                      style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", background: i % 2 === 0 ? C.linenLight : C.linen, border: "none", borderBottom: `1px solid ${C.border}`, cursor: onNavigateInvoice ? "pointer" : "default", textAlign: "left" }}
+                      onMouseEnter={e => e.currentTarget.style.background = C.tealGlow}
+                      onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? C.linenLight : C.linen}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.03em", minWidth: 140 }}>Invoice #{inv.id}</span>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: ic.bg, color: ic.color, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>{inv.status}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>{fmt$(inv.amount)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

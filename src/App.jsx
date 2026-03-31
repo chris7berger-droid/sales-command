@@ -32,8 +32,6 @@ const NAV = [
   { id: "managers",  label: "Managers",   icon: "🏆", roles: ["Manager"] },
   { id: "customers", label: "Customers",  icon: "🏢" },
   { id: "team",      label: "Our Team",   icon: "👥" },
-  { id: "feedback",  label: "Feedback",   icon: "💬" },
-  
 ];
 
 function Placeholder({ label }) {

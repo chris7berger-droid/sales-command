@@ -117,26 +117,26 @@ export function TOCOverlay({ onClose, currentPageId, onNavigate }) {
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          background: C.linenCard,
+          background: C.dark,
           borderRadius: 16,
           width: 620,
           maxHeight: "85vh",
           overflowY: "auto",
-          boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
-          border: `1px solid ${C.borderStrong}`,
+          boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
+          border: `1px solid ${C.darkBorder}`,
         }}
       >
         {/* Header */}
-        <div style={{ padding: "24px 28px 16px", borderBottom: `1px solid ${C.borderStrong}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ padding: "24px 28px 16px", borderBottom: `1px solid ${C.darkBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: C.teal, fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase" }}>
               Table of Contents
             </h2>
-            <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontFamily: F.ui, marginTop: 4 }}>
               Click any page to go there. You're on page {currentPageId}.
             </div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, color: C.textFaint, cursor: "pointer" }}>✕</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, color: "rgba(255,255,255,0.3)", cursor: "pointer" }}>✕</button>
         </div>
 
         {/* Chapters */}
@@ -169,21 +169,21 @@ export function TOCOverlay({ onClose, currentPageId, onNavigate }) {
                       gap: 14,
                       width: "100%",
                       padding: "10px 28px",
-                      background: isCurrent ? C.tealGlow : "transparent",
+                      background: isCurrent ? "rgba(48,207,172,0.08)" : "transparent",
                       border: "none",
                       borderLeft: isCurrent ? `3px solid ${C.teal}` : "3px solid transparent",
                       cursor: "pointer",
                       textAlign: "left",
                       transition: "background 0.1s",
                     }}
-                    onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = C.linenDeep; }}
+                    onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = C.darkRaised; }}
                     onMouseLeave={e => { if (!isCurrent) e.currentTarget.style.background = "transparent"; }}
                   >
                     {/* Page number */}
                     <span style={{
                       fontSize: 12,
                       fontWeight: 800,
-                      color: isCurrent ? C.teal : C.textMuted,
+                      color: isCurrent ? C.teal : "rgba(255,255,255,0.5)",
                       fontFamily: F.display,
                       minWidth: 28,
                       letterSpacing: "0.04em",
@@ -196,7 +196,7 @@ export function TOCOverlay({ onClose, currentPageId, onNavigate }) {
                       <div style={{
                         fontSize: 13,
                         fontWeight: 700,
-                        color: isCurrent ? C.textHead : C.textBody,
+                        color: isCurrent ? C.teal : "rgba(255,255,255,0.85)",
                         fontFamily: F.display,
                         letterSpacing: "0.02em",
                       }}>
@@ -204,7 +204,7 @@ export function TOCOverlay({ onClose, currentPageId, onNavigate }) {
                       </div>
                       <div style={{
                         fontSize: 12,
-                        color: C.textFaint,
+                        color: "rgba(255,255,255,0.35)",
                         fontFamily: F.ui,
                         marginTop: 2,
                         lineHeight: 1.4,
@@ -227,8 +227,8 @@ export function TOCOverlay({ onClose, currentPageId, onNavigate }) {
         </div>
 
         {/* Footer */}
-        <div style={{ padding: "16px 28px", borderTop: `1px solid ${C.borderStrong}`, fontSize: 11, color: C.textFaint, fontFamily: F.ui, textAlign: "center" }}>
-          Tap the page number in the bottom-left corner anytime to open this guide.
+        <div style={{ padding: "16px 28px", borderTop: `1px solid ${C.darkBorder}`, fontSize: 11, color: "rgba(255,255,255,0.3)", fontFamily: F.ui, textAlign: "center" }}>
+          Tap the page number in the bottom-right corner anytime to open this guide.
         </div>
       </div>
     </div>

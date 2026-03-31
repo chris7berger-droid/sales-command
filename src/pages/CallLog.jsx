@@ -654,7 +654,7 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
               cols={[
                 { k: "job_number", l: "Job #", r: (v, row) => (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span style={{ fontWeight: 800, color: C.tealDark, fontFamily: F.display, cursor: "pointer", textDecoration: "underline" }} onClick={() => setSelJob(row)}>{row.display_job_number || v}</span>
+                    <span style={{ fontFamily: F.display, cursor: "pointer" }} onClick={() => setSelJob(row)}>{(() => { const djn = row.display_job_number || String(v); const idx = djn.indexOf(" - "); return idx > -1 ? (<><span style={{ fontWeight: 800, color: C.textHead }}>{djn.slice(0, idx)}</span><span style={{ fontWeight: 500, color: C.textMuted }}>{" – "}{djn.slice(idx + 3)}</span></>) : <span style={{ fontWeight: 800, color: C.textHead }}>{djn}</span>; })()}</span>
                     {row.is_change_order && (
                       <span style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "2px 7px", borderRadius: 10, fontFamily: F.ui }}>CO</span>
                     )}

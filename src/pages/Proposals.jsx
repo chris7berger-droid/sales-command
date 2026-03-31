@@ -1081,7 +1081,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
         ) : (
           <DataTable
             cols={[
-              { k: "id",         l: "Proposal #", r: (v, row) => <span style={{ fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{row.call_log?.display_job_number || v} P{row.proposal_number || 1}</span> },
+              { k: "id",         l: "Proposal #", r: (v, row) => { const djn = row.call_log?.display_job_number || String(v); const idx = djn.indexOf(" - "); const num = idx > -1 ? djn.slice(0, idx) : djn; const name = idx > -1 ? djn.slice(idx + 3) : ""; return <span style={{ fontFamily: F.display }}><span style={{ fontWeight: 800, color: C.textHead }}>{num} P{row.proposal_number || 1}</span>{name && <span style={{ fontWeight: 500, color: C.textMuted }}>{" – "}{name}</span>}</span>; } },
               { k: "customer",   l: "Customer" },
               { k: "status",     l: "Status",     r: v => <Pill label={v} cm={PROP_C} /> },
               { k: "total",      l: "Total",      r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$(v)}</span> },

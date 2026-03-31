@@ -993,9 +993,9 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
         ) : (
           <DataTable
             cols={[
-              { k: "id",       l: "Invoice #", r: v => <span style={{ fontWeight: 800, color: C.tealDark, fontFamily: F.display }}>{v}</span> },
-              { k: "job_id",   l: "Job #",     r: v => <span style={{ fontWeight: 700, fontFamily: F.display }}>{v}</span> },
-              { k: "job_name", l: "Job Name",  r: v => <span style={{ maxWidth: 200, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span> },
+              { k: "id",       l: "Invoice #", r: v => <span style={{ fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{v}</span> },
+              { k: "job_id",   l: "Job #",     r: v => <span style={{ fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{v}</span> },
+              { k: "job_name", l: "Job Name",  r: v => <span style={{ fontWeight: 500, color: C.textMuted, fontFamily: F.display, maxWidth: 200, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span> },
               { k: "status",   l: "Status",    r: v => <Pill label={v} cm={INV_C} /> },
               { k: "amount",   l: "Amount",    r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$(v)}</span> },
               { k: "discount", l: "Discount",  r: v => v > 0 ? <span style={{ color: C.red, fontWeight: 700 }}>−{fmt$(v)}</span> : <span style={{ color: C.textFaint }}>—</span> },

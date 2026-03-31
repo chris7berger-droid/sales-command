@@ -267,7 +267,7 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
               {invoices.map((inv, i) => {
                 const statusColor = inv.status === "Paid" ? C.green : inv.status === "Sent" ? C.amber : C.textFaint;
                 return (
-                  <tr key={inv.id} onClick={() => onNavigateInvoice && onNavigateInvoice()}
+                  <tr key={inv.id} onClick={() => onNavigateInvoice && onNavigateInvoice(inv.id)}
                     style={{ background: i % 2 === 0 ? C.linenLight : C.linen, cursor: "pointer", borderBottom: `1px solid ${C.border}` }}
                     onMouseEnter={e => e.currentTarget.style.background = C.tealGlow}
                     onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? C.linenLight : C.linen}
@@ -290,7 +290,7 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
 }
 
 /* ─── Main Customers Page ─── */
-export default function Customers({ setActive, setInitialProposal, initialCustomerId, onClearInitialCustomer }) {
+export default function Customers({ setActive, setInitialProposal, setInitialInvoiceId, initialCustomerId, onClearInitialCustomer }) {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
@@ -327,7 +327,8 @@ export default function Customers({ setActive, setInitialProposal, initialCustom
             if (setInitialProposal) setInitialProposal({ openId: id });
             if (setActive) setActive("proposals");
           }}
-          onNavigateInvoice={() => {
+          onNavigateInvoice={(id) => {
+            if (setInitialInvoiceId) setInitialInvoiceId(id);
             if (setActive) setActive("invoices");
           }}
         />

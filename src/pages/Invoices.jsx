@@ -909,7 +909,7 @@ const QB_CLIENT_ID = "ABg3H5TIV6XdDtSWlJXDC3rM7u8zKI3k5yHlbUaIrIiYNiUmc7";
 const QB_REDIRECT_URI = "https://www.scmybiz.com/qb/callback";
 const QB_AUTH_URL = `https://appcenter.intuit.com/connect/oauth2?client_id=${QB_CLIENT_ID}&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}&response_type=code&scope=com.intuit.quickbooks.accounting&state=salescommand`;
 
-export default function Invoices() {
+export default function Invoices({ initialInvoiceId, onClearInitialInvoice }) {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -920,6 +920,7 @@ export default function Invoices() {
     const { data } = await supabase.from("invoices").select("*").order("sent_at", { ascending: false });
     setInvoices(data || []);
     setLoading(false);
+    return data;
   };
 
   const checkQb = async () => {
@@ -927,7 +928,17 @@ export default function Invoices() {
     setQbConnected(data?.connected || false);
   };
 
-  useEffect(() => { load(); checkQb(); }, []);
+  useEffect(() => {
+    (async () => {
+      const data = await load();
+      checkQb();
+      if (initialInvoiceId) {
+        const inv = (data || []).find(i => i.id === initialInvoiceId);
+        if (inv) setSel(inv);
+        onClearInitialInvoice && onClearInitialInvoice();
+      }
+    })();
+  }, []);
 
   const drafted = invoices.filter(i => i.status === "New").reduce((a, i) => a + (i.amount || 0), 0);
   const pending = invoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);

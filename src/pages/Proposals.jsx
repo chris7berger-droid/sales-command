@@ -920,7 +920,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
   );
 }
 
-export default function Proposals({ teamMember, initialProposal, onClearInitial, setSubPage }) {
+export default function Proposals({ teamMember, initialProposal, onClearInitial, setSubPage, onNavigateInvoice }) {
   const [proposals, setProposals] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [sel, setSel]             = useState(null);
@@ -950,7 +950,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
   const load = async () => {
     const { data } = await supabase
       .from("proposals")
-      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date)")
+      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date), invoices(id, status)")
       .order("created_at", { ascending: false });
     setProposals(data || []);
     setLoading(false);
@@ -1031,6 +1031,16 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
                 if (dates.length === 0) return <span style={{ color: C.textFaint }}>—</span>;
                 if (dates.length > 1) return <span style={{ color: C.textFaint, fontStyle: "italic" }}>Multiple</span>;
                 return fmtD(dates[0]);
+              }},
+              { k: "invoices", l: "Invoice", r: (v, row) => {
+                const invs = v || [];
+                if (invs.length === 0) return <span style={{ color: C.textFaint }}>—</span>;
+                return (
+                  <span onClick={e => { e.stopPropagation(); if (onNavigateInvoice) onNavigateInvoice(invs[0].id); }}
+                    style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui, cursor: "pointer" }}>
+                    {invs[0].status || "View"}
+                  </span>
+                );
               }},
               { k: "_a", l: "", r: (_, row) => (
                 <div style={{ display: "flex", gap: 5 }}>

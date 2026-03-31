@@ -1,14 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <circle cx="16" cy="16" r="16" fill="#1c1814"/>
-  <!-- 4 arc segments with gaps at top/right/bottom/left -->
-  <!-- Top-right arc (from ~35deg to ~55deg of each quadrant) -->
-  <path d="M18.5 3.5 A13 13 0 0 1 28.5 13.5" fill="none" stroke="#30cfac" stroke-width="2.8" stroke-linecap="round"/>
-  <!-- Bottom-right arc -->
-  <path d="M28.5 18.5 A13 13 0 0 1 18.5 28.5" fill="none" stroke="#30cfac" stroke-width="2.8" stroke-linecap="round"/>
-  <!-- Bottom-left arc -->
-  <path d="M13.5 28.5 A13 13 0 0 1 3.5 18.5" fill="none" stroke="#30cfac" stroke-width="2.8" stroke-linecap="round"/>
-  <!-- Top-left arc -->
-  <path d="M3.5 13.5 A13 13 0 0 1 13.5 3.5" fill="none" stroke="#30cfac" stroke-width="2.8" stroke-linecap="round"/>
-  <!-- Bold C -->
-  <text x="16" y="21.5" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="15" fill="#30cfac">C</text>
+  <!-- Outer ring — 4 arcs with gaps at cardinal points -->
+  <path d="M19 3.6 A13 13 0 0 1 28.4 13" fill="none" stroke="#30cfac" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M28.4 19 A13 13 0 0 1 19 28.4" fill="none" stroke="#30cfac" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M13 28.4 A13 13 0 0 1 3.6 19" fill="none" stroke="#30cfac" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M3.6 13 A13 13 0 0 1 13 3.6" fill="none" stroke="#30cfac" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Center dot -->
+  <circle cx="16" cy="16" r="2.5" fill="#30cfac"/>
+  <!-- Crosshair lines -->
+  <line x1="16" y1="2" x2="16" y2="7" stroke="#30cfac" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="16" y1="25" x2="16" y2="30" stroke="#30cfac" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="2" y1="16" x2="7" y2="16" stroke="#30cfac" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="25" y1="16" x2="30" y2="16" stroke="#30cfac" stroke-width="2.5" stroke-linecap="round"/>
 </svg>

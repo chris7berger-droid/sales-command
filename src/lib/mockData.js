@@ -28,10 +28,12 @@ export const PROP_C = {
 };
 
 export const ROLE_C = {
-  Admin:   { bg:"rgba(142,68,173,0.10)", text:"#5b2d7a" },
-  Manager: { bg:"rgba(48,207,172,0.10)", text:"#0d5c4d" },
-  Sales:   { bg:"rgba(67,160,71,0.12)",  text:"#1e5e22" },
-  Crew:    { bg:"rgba(249,168,37,0.13)", text:"#7a5000" },
+  Admin:          { bg:"rgba(142,68,173,0.10)", text:"#5b2d7a" },
+  Manager:        { bg:"rgba(48,207,172,0.10)", text:"#0d5c4d" },
+  Sales:          { bg:"rgba(67,160,71,0.12)",  text:"#1e5e22" },
+  "Sales Rep":    { bg:"rgba(67,160,71,0.12)",  text:"#1e5e22" },
+  "Office Staff": { bg:"rgba(249,168,37,0.13)", text:"#7a5000" },
+  Crew:           { bg:"rgba(249,168,37,0.13)", text:"#7a5000" },
 };
 
 export const callLog = [

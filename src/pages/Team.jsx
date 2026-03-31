@@ -7,7 +7,7 @@ import SectionHeader from "../components/SectionHeader";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
 
-const ROLES = ["Admin", "Manager", "Sales Rep", "Estimator", "Field"];
+const ROLES = ["Admin", "Manager", "Sales Rep", "Office Staff", "Estimator", "Field"];
 
 function MemberModal({ member, onClose, onSaved }) {
   const editing = !!member;

@@ -19,6 +19,7 @@ import Managers from "./pages/Managers";
 import SalesDash from "./pages/SalesDash";
 import Customers from "./pages/Customers";
 import Team from "./pages/Team";
+import Settings from "./pages/Settings";
 import RegressionTest from "./components/RegressionTest";
 import InvoicePaidPage from "./pages/InvoicePaidPage";
 import QBCallbackPage from "./pages/QBCallbackPage";
@@ -32,6 +33,7 @@ const NAV = [
   { id: "managers",  label: "Managers",   icon: "🏆", roles: ["Manager"] },
   { id: "customers", label: "Customers",  icon: "🏢" },
   { id: "team",      label: "Our Team",   icon: "👥" },
+  { id: "settings",  label: "Settings",   icon: "⚙", roles: ["Admin"] },
 ];
 
 function Placeholder({ label }) {
@@ -134,6 +136,7 @@ function SalesCommandApp() {
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
       case "customers": return <Customers setActive={setActive} setInitialProposal={setInitialProposal} setInitialInvoiceId={setInitialInvoiceId} initialCustomerId={initialCustomerId} onClearInitialCustomer={() => setInitialCustomerId(null)} />;
       case "team":      return <Team />;
+      case "settings":  return <Settings />;
       case "wtc":       return <Placeholder label="WTC" />;
       default:          return <Placeholder label={NAV.find(n => n.id === active)?.label || active} />;
     }

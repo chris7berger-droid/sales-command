@@ -128,7 +128,18 @@ function MemberModal({ member, onClose, onSaved }) {
         </div>
 
         {/* Footer */}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "12px 22px 20px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 22px 20px" }}>
+          {editing ? (
+            <Btn sz="sm" v="ghost" onClick={async () => {
+              if (!window.confirm(`Delete ${form.name}? This cannot be undone.`)) return;
+              const { error: err } = await supabase.from("team_members").delete().eq("id", member.id);
+              if (err) { setError(err.message); return; }
+              onSaved();
+            }} disabled={saving}>
+              <span style={{ color: C.red }}>Delete</span>
+            </Btn>
+          ) : <div />}
+          <div style={{ display: "flex", gap: 8 }}>
           <Btn sz="sm" v="ghost" onClick={onClose}>Cancel</Btn>
           {editing && !member.auth_id && (
             <Btn sz="sm" v="ghost" onClick={() => sendInviteEmail(form.email, form.name, member.id)} disabled={inviting}>
@@ -143,6 +154,7 @@ function MemberModal({ member, onClose, onSaved }) {
               <Btn sz="sm" onClick={() => handleSave(true)} disabled={saving || inviting}>{saving || inviting ? "Sending…" : "Add & Send Invite"}</Btn>
             </>
           )}
+          </div>
         </div>
       </div>
     </div>

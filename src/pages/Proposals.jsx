@@ -825,25 +825,21 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                   <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{p.created_at ? fmtD(p.created_at.slice(0, 10)) : "—"}</div>
                 </div>
               </div>
-              {/* Sent */}
-              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: p.sent_at ? C.teal : C.border, flexShrink: 0 }} />
-                  <div style={{ width: 2, flex: 1, background: C.border, minHeight: 24 }} />
+              {/* Sent or Internally Approved — show one or the other */}
+              {p.sent_at ? (
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: C.teal, flexShrink: 0 }} />
+                    <div style={{ width: 2, flex: 1, background: C.border, minHeight: 24 }} />
+                  </div>
+                  <div style={{ paddingBottom: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Sent</div>
+                    <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{fmtD(p.sent_at.slice(0, 10))}</div>
+                    {(p.call_log?.customer_name || p.customer) && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>To: {p.call_log?.customer_name || p.customer}</div>}
+                    {p.sent_to_email && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>{p.sent_to_email}</div>}
+                  </div>
                 </div>
-                <div style={{ paddingBottom: 16 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Sent</div>
-                  {p.sent_at ? (
-                    <>
-                      <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{fmtD(p.sent_at.slice(0, 10))}</div>
-                      {p.call_log?.customer_name && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>To: {p.call_log.customer_name}</div>}
-                      {p.sent_to_email && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>{p.sent_to_email}</div>}
-                    </>
-                  ) : <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui }}>—</div>}
-                </div>
-              </div>
-              {/* Internally Approved */}
-              {p.approved_at && !p.sent_at && (
+              ) : p.approved_at ? (
                 <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
                     <div style={{ width: 10, height: 10, borderRadius: "50%", background: C.green, flexShrink: 0 }} />
@@ -853,6 +849,17 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                     <div style={{ fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Internally Approved</div>
                     <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{fmtD(p.approved_at.slice(0, 10))}</div>
                     {p.approved_by && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>By: {p.approved_by}</div>}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: C.border, flexShrink: 0 }} />
+                    <div style={{ width: 2, flex: 1, background: C.border, minHeight: 24 }} />
+                  </div>
+                  <div style={{ paddingBottom: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Sent / Approved</div>
+                    <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui }}>—</div>
                   </div>
                 </div>
               )}
@@ -866,8 +873,8 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                   {signatureInfo?.signed_at ? (
                     <>
                       <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{fmtD(signatureInfo.signed_at.slice(0, 10))}</div>
-                      {signatureInfo.signer_name && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>By: {signatureInfo.signer_name}</div>}
-                      {signatureInfo.signer_email && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>{signatureInfo.signer_email}</div>}
+                      <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>By: {signatureInfo.signer_name || p.customer || "—"}</div>
+                      <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>{signatureInfo.signer_email || p.call_log?.customers?.contact_email || ""}</div>
                     </>
                   ) : p.sent_at ? (
                     <div style={{ fontSize: 11.5, color: C.red, fontWeight: 700, fontFamily: F.ui }}>

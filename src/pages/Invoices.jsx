@@ -993,7 +993,7 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
         ) : (
           <DataTable
             cols={[
-              { k: "id",       l: "Invoice #", r: v => <span style={{ fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{v}</span> },
+              { k: "id",       l: "Invoice #", r: v => <span style={{ fontWeight: 800, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 12 }}>{v}</span> },
               { k: "job_id",   l: "Job #",     r: v => <span style={{ fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{v}</span> },
               { k: "job_name", l: "Job Name",  r: v => <span style={{ fontWeight: 500, color: C.textMuted, fontFamily: F.display, maxWidth: 200, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span> },
               { k: "status",   l: "Status",    r: v => <Pill label={v} cm={INV_C} /> },

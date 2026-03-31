@@ -3,7 +3,7 @@ import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fmt$, fmtD } from "../lib/utils";
 import { calcWtcPrice } from "../lib/calc";
-import { INV_C } from "../lib/mockData";
+import { INV_C, PROP_C } from "../lib/mockData";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 import SectionHeader from "../components/SectionHeader";
 import StatCard from "../components/StatCard";
@@ -996,7 +996,7 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
               { k: "id",       l: "Invoice #", r: v => <span style={{ fontWeight: 800, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 12 }}>{v}</span> },
               { k: "job_id",   l: "Job #",     r: v => <span style={{ fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{v}</span> },
               { k: "job_name", l: "Job Name",  r: v => <span style={{ fontWeight: 500, color: C.textMuted, fontFamily: F.display, maxWidth: 200, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span> },
-              { k: "status",   l: "Status",    r: v => <Pill label={v} cm={INV_C} /> },
+              { k: "status",   l: "Status",    r: v => <Pill label={v} cm={{ ...PROP_C, ...INV_C }} /> },
               { k: "amount",   l: "Amount",    r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$(v)}</span> },
               { k: "discount", l: "Discount",  r: v => v > 0 ? <span style={{ color: C.red, fontWeight: 700 }}>−{fmt$(v)}</span> : <span style={{ color: C.textFaint }}>—</span> },
               { k: "sent_at",  l: "Sent",      r: v => fmtD(v) },

@@ -1,0 +1,113 @@
+SC_Handoff_v39 — 2026-03-30
+============================================================
+
+SESSION SUMMARY
+This session focused on Supabase cleanup, tenant configuration,
+analytics improvements, UX enhancements, and the Table of Contents
+system for user onboarding.
+
+WHAT WAS DONE
+--------------
+
+1. SUPABASE PROJECT CLEANUP
+   - Renamed main Supabase project from "sales-command" to "Command Suite DB"
+   - Project ID unchanged: pbgvgjjuhnpsumnowuym
+   - Deleted orphaned sch-command Supabase project (tzwhgspgpyzhhwwjzugb)
+   - Deleted empty AR-Command Supabase project (vlssovhapnyxpemjzfko)
+   - All apps now share single Command Suite DB
+
+2. PROPOSALS PAGE — STATUS FILTER TABS
+   - Added All / Draft / Sent / Sold / Lost filter tabs with counts
+   - Added Draft and Sold colors to PROP_C color map
+   - Tabs styled: dark bg + teal text when active
+
+3. CUSTOMERS PAGE — TYPE COLUMN
+   - Added Residential/Commercial type column to customer list
+   - Color coded: teal for Residential, purple for Commercial
+
+4. CUSTOMER DETAIL — WORK TYPE COLUMNS
+   - Added Work Type column to proposals table (via proposal_wtc → work_types join)
+   - Added Work Type column to invoices table (via invoice_lines → proposal_wtc → work_types join)
+
+5. OFFICE STAFF ROLE
+   - Added "Office Staff" to role picker in Team page
+   - Added amber pill color in ROLE_C
+   - Same permissions as Sales Rep
+
+6. LINKED ITEMS REDESIGN (CallLogDetail)
+   - Replaced inline chip buttons with grouped table-style layout
+   - Proposals and invoices in separate sections with dark headers
+   - Alternating row backgrounds, hover states, right-aligned dollar amounts
+   - Fixed invoice query bug: was matching job_id against UUID instead of display_job_number
+   - Added deep-linking: clicking invoice navigates to that specific invoice, not just the list
+
+7. REMOVED FEEDBACK NAV ITEM
+
+8. TENANT CONFIGURATION SYSTEM
+   - Created tenant_config table in Supabase with RLS policies (auth + anon read)
+   - Seeded with current hardcoded values (High Desert Surface Prep)
+   - Created src/lib/config.js — cached fetch/update helper with DEFAULTS export
+   - Created src/pages/Settings.jsx — Admin-only settings page with sections:
+     * Company Info (name, tagline, license, phone, email, website, address)
+     * Financial Defaults (burden rate, OT rate, tax rate, billing terms, proposal validity)
+     * Sales Goals (monthly/yearly billing, conversion rate, proposals sent)
+     * Integrations (QuickBooks, Stripe placeholders)
+   - Wired ALL consumers to read from tenant_config instead of hardcoded values:
+     * Home.jsx — goals
+     * SalesDash.jsx — goals
+     * Proposals.jsx — company info on PDF
+     * Invoices.jsx — company info on invoice preview/email
+     * WTCCalculator.jsx — company info + default burden/OT/tax rates
+     * InvoicePaidPage.jsx — company info
+     * PublicSigningPage.jsx — company info + proposal validity days
+     * Login.jsx — company name
+
+9. TABLE OF CONTENTS SYSTEM
+   - Every screen gets a page number (bottom-right badge)
+   - 8 chapters matching nav items, sub-pages for detail screens
+   - Single-screen chapters use whole numbers (1, 7, 8)
+   - Multi-screen chapters use decimals (2.1, 2.2, 2.3, etc.)
+   - Plain-language descriptions written for non-technical users
+   - Dark overlay modal with teal chapter headers
+   - Current page highlighted with "You're here" indicator
+   - Click any entry to navigate directly
+   - Sub-page tracking: badge updates when navigating into detail views
+   - Removed RegressionTest counter (replaced by page badge)
+
+10. CROSSHAIR FAVICON
+    - Replaced Vite default with Command Suite crosshair icon
+    - 4 arc segments with gaps, center dot, cardinal tick lines
+    - No text — reads cleanly at 16x16
+    - Tab title updated to "Sales Command"
+
+COMMAND SUITE ARCHITECTURE (updated)
+--------------------------------------
+Single shared Supabase DB: Command Suite DB (pbgvgjjuhnpsumnowuym)
+  - scmybiz.com   = Sales Command   (sales-command repo) — LIVE
+  - schmybiz.com  = Schedule Command (code in sales-command repo) — DEV
+  - TBD           = Field Command    (not started — next build)
+  - TBD           = AR Command       (AR-Command-Center repo, static HTML only)
+  - sccmybiz.com  = Sub Con Command  (landing page in sales-command repo)
+
+Deleted Supabase projects:
+  - sch-command (tzwhgspgpyzhhwwjzugb) — orphaned, deleted
+  - AR-Command (vlssovhapnyxpemjzfko) — empty, deleted
+
+WHAT STILL NEEDS DOING (priority order)
+-----------------------------------------
+1. Field Command — next build (starting this week)
+2. Verify Resend domains — check scmybiz.com and schmybiz.com
+3. QB Pull-Back Cleanup — delete orphaned QB customers/jobs on proposal pull-back
+4. RLS Audit — tighten scheduling table anon policies + fix sales-command RLS gaps
+5. Stripe Account — Chris needs own Stripe account
+6. Continue Schedule Command bug hunt (all 7 views)
+7. Logo upload in Settings (currently text field for URL)
+8. Wire tenant_config into edge functions (send-proposal, send-invoice emails)
+
+TECH NOTES
+-----------
+- tenant_config table: single row, anon read policy for public pages
+- Config cached in memory via src/lib/config.js (refreshes on Settings save)
+- TOC data lives in src/components/TableOfContents.jsx (BOOK array)
+- Sub-page tracking via setSubPage prop passed from App.jsx to page components
+- Favicon is SVG at public/favicon.svg

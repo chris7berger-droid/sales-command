@@ -62,8 +62,10 @@ serve(async (req) => {
     const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
       type: "recovery",
       email,
-      options: { redirectTo: `${SUPABASE_URL.replace('.supabase.co', '')}.supabase.co` },
+      options: { redirectTo: "https://www.scmybiz.com" },
     });
+
+    console.log("generateLink result:", { linkData, linkErr: linkErr?.message });
 
     // Build the reset URL from the link data
     let resetUrl = "";
@@ -88,7 +90,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "noreply@scmybiz.com",
+        from: "estimates@hdspnv.com",
         to: email,
         subject: "You're invited to Sales Command",
         html: `

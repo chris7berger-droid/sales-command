@@ -290,7 +290,7 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
 }
 
 /* ─── Main Customers Page ─── */
-export default function Customers({ setActive, setInitialProposal, setInitialInvoiceId, initialCustomerId, onClearInitialCustomer }) {
+export default function Customers({ setActive, setInitialProposal, setInitialInvoiceId, initialCustomerId, onClearInitialCustomer, setSubPage }) {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
@@ -311,6 +311,11 @@ export default function Customers({ setActive, setInitialProposal, setInitialInv
   useEffect(() => { load(); }, []);
 
   const termsLabel = (t) => t ? `Net ${t}` : "—";
+
+  // Track sub-page for TOC
+  useEffect(() => {
+    if (setSubPage) setSubPage(viewing ? "detail" : editing ? "edit" : null);
+  }, [viewing, editing]);
 
   if (viewing) {
     return (

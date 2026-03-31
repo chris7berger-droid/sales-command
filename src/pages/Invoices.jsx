@@ -906,7 +906,7 @@ const QB_CLIENT_ID = "ABg3H5TIV6XdDtSWlJXDC3rM7u8zKI3k5yHlbUaIrIiYNiUmc7";
 const QB_REDIRECT_URI = "https://www.scmybiz.com/qb/callback";
 const QB_AUTH_URL = `https://appcenter.intuit.com/connect/oauth2?client_id=${QB_CLIENT_ID}&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}&response_type=code&scope=com.intuit.quickbooks.accounting&state=salescommand`;
 
-export default function Invoices({ initialInvoiceId, onClearInitialInvoice }) {
+export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setSubPage }) {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -945,6 +945,11 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice }) {
     if (!inv.due_date) return null;
     return Math.round((new Date() - new Date(inv.due_date)) / 86400000);
   };
+
+  // Track sub-page for TOC
+  useEffect(() => {
+    if (setSubPage) setSubPage(sel ? "detail" : showModal ? "new" : null);
+  }, [sel, showModal]);
 
   if (sel) return <InvoiceDetail invoice={sel} onBack={() => { setSel(null); load(); }} onUpdated={load} onDeleted={() => { setSel(null); load(); }} />;
 

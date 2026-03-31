@@ -914,7 +914,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
   );
 }
 
-export default function Proposals({ teamMember, initialProposal, onClearInitial }) {
+export default function Proposals({ teamMember, initialProposal, onClearInitial, setSubPage }) {
   const [proposals, setProposals] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [sel, setSel]             = useState(null);
@@ -956,6 +956,11 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial 
   const filteredProposals = statusFilter === "All"
     ? proposals
     : proposals.filter(p => p.status === statusFilter);
+
+  // Track sub-page for TOC
+  useEffect(() => {
+    if (setSubPage) setSubPage(sel ? "detail" : null);
+  }, [sel]);
 
   if (sel) return <ProposalDetail p={sel} onBack={() => setSel(null)} onDeleted={() => { setSel(null); load(); }} teamMember={teamMember} />;
 

@@ -71,6 +71,7 @@ function SalesCommandApp() {
   const [initialCustomerId, setInitialCustomerId] = useState(null);
   const [open,       setOpen]       = useState(true);
   const [showTOC,    setShowTOC]    = useState(false);
+  const [subPage,    setSubPage]    = useState(null);
   const [session,    setSession]    = useState(undefined);
   const [teamMember, setTeamMember] = useState(null);
 
@@ -132,11 +133,11 @@ function SalesCommandApp() {
     switch (active) {
       case "home": return <Home displayName={displayName} displayRole={displayRole} setActive={setActive} setBidDueFilter={setBidDueFilter} onStageFilter={stage => { setStageFilter(stage); setActive("calllog"); }} />;
       case "dashboard": return <SalesDash displayName={displayName} displayRole={displayRole} />;
-      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} stageFilter={stageFilter} onClearStageFilter={() => setStageFilter(null)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} onNavigateProposal={id => { setInitialProposal({ openId: id }); setActive("proposals"); }} onNavigateInvoice={(id) => { setInitialInvoiceId(id); setActive("invoices"); }} onNavigateCustomer={custId => { setInitialCustomerId(custId); setActive("customers"); }} />;
-      case "proposals": return <Proposals teamMember={teamMember} initialProposal={initialProposal} onClearInitial={() => setInitialProposal(null)} />;
-      case "invoices":  return <Invoices initialInvoiceId={initialInvoiceId} onClearInitialInvoice={() => setInitialInvoiceId(null)} />;
+      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} stageFilter={stageFilter} onClearStageFilter={() => setStageFilter(null)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} onNavigateProposal={id => { setInitialProposal({ openId: id }); setActive("proposals"); }} onNavigateInvoice={(id) => { setInitialInvoiceId(id); setActive("invoices"); }} onNavigateCustomer={custId => { setInitialCustomerId(custId); setActive("customers"); }} setSubPage={setSubPage} />;
+      case "proposals": return <Proposals teamMember={teamMember} initialProposal={initialProposal} onClearInitial={() => setInitialProposal(null)} setSubPage={setSubPage} />;
+      case "invoices":  return <Invoices initialInvoiceId={initialInvoiceId} onClearInitialInvoice={() => setInitialInvoiceId(null)} setSubPage={setSubPage} />;
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
-      case "customers": return <Customers setActive={setActive} setInitialProposal={setInitialProposal} setInitialInvoiceId={setInitialInvoiceId} initialCustomerId={initialCustomerId} onClearInitialCustomer={() => setInitialCustomerId(null)} />;
+      case "customers": return <Customers setActive={setActive} setInitialProposal={setInitialProposal} setInitialInvoiceId={setInitialInvoiceId} initialCustomerId={initialCustomerId} onClearInitialCustomer={() => setInitialCustomerId(null)} setSubPage={setSubPage} />;
       case "team":      return <Team />;
       case "settings":  return <Settings />;
       case "wtc":       return <Placeholder label="WTC" />;
@@ -160,14 +161,14 @@ function SalesCommandApp() {
               displayInitials={displayInitials} page={page}
             />
             <PageBadge
-              pageNumber={getPageNumber(active)}
+              pageNumber={getPageNumber(active, subPage)}
               onClick={() => setShowTOC(true)}
             />
             {showTOC && (
               <TOCOverlay
-                currentPageId={getPageNumber(active)}
+                currentPageId={getPageNumber(active, subPage)}
                 onClose={() => setShowTOC(false)}
-                onNavigate={(chapterId) => { setActive(chapterId); }}
+                onNavigate={(chapterId) => { setSubPage(null); setActive(chapterId); }}
               />
             )}
           </>

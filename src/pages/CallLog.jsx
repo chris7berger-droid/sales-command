@@ -547,7 +547,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-export default function CallLog({ teamMember, onNewProposal, onNavigateProposal, onNavigateInvoice, onNavigateCustomer, bidDueFilter, onClearBidDueFilter, stageFilter, onClearStageFilter }) {
+export default function CallLog({ teamMember, onNewProposal, onNavigateProposal, onNavigateInvoice, onNavigateCustomer, bidDueFilter, onClearBidDueFilter, stageFilter, onClearStageFilter, setSubPage }) {
   const [rows, setRows]           = useState([]);
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -580,6 +580,11 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
       onClearStageFilter && onClearStageFilter();
     }
   }, [stageFilter]);
+
+  // Track sub-page for TOC
+  useEffect(() => {
+    if (setSubPage) setSubPage(selJob ? "detail" : showModal ? "new" : null);
+  }, [selJob, showModal]);
 
   // SC-20 — show detail page when a job is selected
   if (selJob) {

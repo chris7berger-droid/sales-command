@@ -315,6 +315,11 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
   const [billingEmail, setBillingEmail] = useState("");
   const [billingName, setBillingName] = useState("");
   const [loadingContact, setLoadingContact] = useState(true);
+  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number });
+
+  useEffect(() => {
+    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number }));
+  }, []);
 
   const netTotal = (invoice.amount || 0) - (invoice.discount || 0);
 

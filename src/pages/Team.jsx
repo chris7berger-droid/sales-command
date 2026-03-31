@@ -19,15 +19,19 @@ function MemberModal({ member, onClose, onSaved }) {
     active: member?.active ?? true,
   });
   const [saving, setSaving] = useState(false);
+  const [inviting, setInviting] = useState(false);
   const [error,  setError]  = useState("");
+  const [success, setSuccess] = useState("");
 
   const set = k => v => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSave = async () => {
+  const handleSave = async (sendInvite = false) => {
     if (!form.name.trim()) { setError("Name is required."); return; }
     if (!form.email.trim()) { setError("Email is required."); return; }
     setSaving(true);
     setError("");
+    setSuccess("");
+    let memberId = member?.id;
     if (editing) {
       const { error: err } = await supabase
         .from("team_members")
@@ -35,13 +39,36 @@ function MemberModal({ member, onClose, onSaved }) {
         .eq("id", member.id);
       if (err) { setError(err.message); setSaving(false); return; }
     } else {
-      const { error: err } = await supabase
+      const { data: inserted, error: err } = await supabase
         .from("team_members")
-        .insert({ name: form.name, email: form.email, phone: form.phone, role: form.role, active: true });
+        .insert({ name: form.name, email: form.email, phone: form.phone, role: form.role, active: true })
+        .select("id")
+        .single();
       if (err) { setError(err.message); setSaving(false); return; }
+      memberId = inserted.id;
     }
+    if (sendInvite) {
+      await sendInviteEmail(form.email, form.name, memberId);
+    } else {
+      setSaving(false);
+      onSaved();
+    }
+  };
+
+  const sendInviteEmail = async (email, name, teamMemberId) => {
+    setInviting(true);
+    setError("");
+    const { data, error: fnErr } = await supabase.functions.invoke("invite-user", {
+      body: { email, name, teamMemberId },
+    });
+    setInviting(false);
     setSaving(false);
-    onSaved();
+    if (fnErr || data?.error) {
+      setError(fnErr?.message || data?.error || "Failed to send invite");
+      return;
+    }
+    setSuccess("Invite sent!");
+    setTimeout(() => onSaved(), 1200);
   };
 
   const inp = (label, key, type = "text") => (
@@ -97,12 +124,25 @@ function MemberModal({ member, onClose, onSaved }) {
           )}
 
           {error && <div style={{ fontSize: 12, color: C.red, fontFamily: F.ui, marginBottom: 12, padding: "8px 12px", background: "rgba(239,68,68,0.07)", borderRadius: 6 }}>{error}</div>}
+          {success && <div style={{ fontSize: 12, color: C.green, fontFamily: F.ui, marginBottom: 12, padding: "8px 12px", background: "rgba(76,175,80,0.07)", borderRadius: 6 }}>{success}</div>}
         </div>
 
         {/* Footer */}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "12px 22px 20px" }}>
           <Btn sz="sm" v="ghost" onClick={onClose}>Cancel</Btn>
-          <Btn sz="sm" onClick={handleSave} disabled={saving}>{saving ? "Saving…" : editing ? "Save Changes" : "Add Member"}</Btn>
+          {editing && !member.auth_id && (
+            <Btn sz="sm" v="ghost" onClick={() => sendInviteEmail(form.email, form.name, member.id)} disabled={inviting}>
+              {inviting ? "Sending…" : "Send Invite"}
+            </Btn>
+          )}
+          {editing ? (
+            <Btn sz="sm" onClick={() => handleSave(false)} disabled={saving}>{saving ? "Saving…" : "Save Changes"}</Btn>
+          ) : (
+            <>
+              <Btn sz="sm" v="ghost" onClick={() => handleSave(false)} disabled={saving}>{saving ? "Saving…" : "Add Without Invite"}</Btn>
+              <Btn sz="sm" onClick={() => handleSave(true)} disabled={saving || inviting}>{saving || inviting ? "Sending…" : "Add & Send Invite"}</Btn>
+            </>
+          )}
         </div>
       </div>
     </div>

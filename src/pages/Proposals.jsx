@@ -308,6 +308,7 @@ function ProposalPDFModal({ proposal, onClose }) {
               {/* Header */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: 16, borderBottom: "4px solid #30cfac", marginBottom: 24 }}>
                 <div>
+                  <img src="/hdsp-logo.png" alt={COMPANY.name} style={{ height: 60, marginBottom: 6 }} />
                   <div style={{ fontSize: 20, fontWeight: 800, color: "#1c1814", letterSpacing: "0.02em", textTransform: "uppercase" }}>{COMPANY.name}</div>
                   <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3 }}>{COMPANY.tagline}</div>
                 </div>

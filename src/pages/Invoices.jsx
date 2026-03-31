@@ -969,18 +969,17 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <SectionHeader title="Invoices" action={
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            {qbConnected === false && (
-              <a href={QB_AUTH_URL} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 7, border: `1.5px solid ${C.borderStrong}`, background: C.linenCard, color: C.textBody, fontSize: 12, fontWeight: 700, fontFamily: F.display, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer" }}>
-                Connect QuickBooks
-              </a>
-            )}
-            {qbConnected === true && (
-              <span style={{ fontSize: 11, fontWeight: 700, color: C.green, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>QB Connected</span>
-            )}
-            <Btn sz="sm" onClick={() => setShowModal(true)}>+ New Invoice</Btn>
-          </div>
+          <Btn sz="sm" onClick={() => setShowModal(true)}>+ New Invoice</Btn>
         } />
+        {qbConnected === false && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", background: "rgba(249,168,37,0.12)", border: "1px solid rgba(249,168,37,0.3)", borderRadius: 8 }}>
+            <span style={{ fontSize: 13 }}>⚠</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: C.textBody, fontFamily: F.ui, flex: 1 }}>QuickBooks is disconnected. Invoices won't sync until reconnected.</span>
+            <a href={QB_AUTH_URL} style={{ fontSize: 11, fontWeight: 700, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", textDecoration: "none", whiteSpace: "nowrap" }}>
+              Reconnect
+            </a>
+          </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
           <StatCard label="Total Drafted" value={fmt$(drafted)} accent={C.teal} />

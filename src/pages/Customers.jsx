@@ -147,8 +147,8 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
     async function load() {
       const [{ data: j }, { data: p }, { data: i }] = await Promise.all([
         supabase.from("call_log").select("id, display_job_number, job_name, stage, sales_name, created_at").eq("customer_id", customer.id).order("id", { ascending: false }),
-        supabase.from("proposals").select("id, total, status, created_at, proposal_number, call_log_id, call_log!inner(customer_id)").eq("call_log.customer_id", customer.id).order("created_at", { ascending: false }),
-        supabase.from("invoices").select("id, amount, status, sent_at, paid_at, job_id, job_name").order("sent_at", { ascending: false }),
+        supabase.from("proposals").select("id, total, status, created_at, proposal_number, call_log_id, call_log!inner(customer_id), proposal_wtc(work_types(name))").eq("call_log.customer_id", customer.id).order("created_at", { ascending: false }),
+        supabase.from("invoices").select("id, amount, status, sent_at, paid_at, job_id, job_name, invoice_lines(proposal_wtc(work_types(name)))").order("sent_at", { ascending: false }),
       ]);
       const jobIds = new Set((j || []).map(x => x.id));
       setJobs(j || []);
@@ -173,6 +173,8 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
     color: active ? C.teal : C.textMuted,
   });
 
+  const wtNames = (wtcArr) => [...new Set((wtcArr || []).map(w => w.work_types?.name).filter(Boolean))].join(", ");
+  const invWtNames = (lines) => [...new Set((lines || []).map(l => l.proposal_wtc?.work_types?.name).filter(Boolean))].join(", ");
   const thStyle = { padding: "11px 15px", textAlign: "left", fontWeight: 700, fontSize: 10.5, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: F.ui, whiteSpace: "nowrap" };
   const tdBase = { padding: "12px 15px", borderBottom: `1px solid ${C.border}` };
 
@@ -234,10 +236,10 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
         <div style={{ borderRadius: 10, border: `1px solid ${C.borderStrong}`, overflow: "hidden", boxShadow: "0 2px 10px rgba(28,24,20,0.08)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: F.ui }}>
             <thead><tr style={{ background: C.dark }}>
-              <th style={thStyle}>Proposal #</th><th style={thStyle}>Status</th><th style={{ ...thStyle, textAlign: "right" }}>Amount</th><th style={thStyle}>Date</th>
+              <th style={thStyle}>Proposal #</th><th style={thStyle}>Work Type</th><th style={thStyle}>Status</th><th style={{ ...thStyle, textAlign: "right" }}>Amount</th><th style={thStyle}>Date</th>
             </tr></thead>
             <tbody>
-              {proposals.length === 0 && <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: C.textFaint }}>No proposals</td></tr>}
+              {proposals.length === 0 && <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: C.textFaint }}>No proposals</td></tr>}
               {proposals.map((p, i) => (
                 <tr key={p.id} onClick={() => onNavigateProposal && onNavigateProposal(p.id)}
                   style={{ background: i % 2 === 0 ? C.linenLight : C.linen, cursor: "pointer", borderBottom: `1px solid ${C.border}` }}
@@ -245,6 +247,7 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
                   onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? C.linenLight : C.linen}
                 >
                   <td style={{ ...tdBase, fontWeight: 800, color: C.tealDark, fontFamily: F.display }}>{p.proposal_number || p.id}</td>
+                  <td style={{ ...tdBase, color: C.textMuted, fontSize: 12 }}>{wtNames(p.proposal_wtc) || "—"}</td>
                   <td style={tdBase}><span style={{ fontSize: 11, fontWeight: 700, color: stageColor(p.status === "Sold" ? "Sold" : p.status === "Lost" ? "Lost" : "Has Bid"), fontFamily: F.display, textTransform: "uppercase" }}>{p.status}</span></td>
                   <td style={{ ...tdBase, textAlign: "right", fontWeight: 700, color: C.textHead }}>{fmt$(p.total)}</td>
                   <td style={{ ...tdBase, color: C.textMuted }}>{p.created_at ? new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
@@ -257,10 +260,10 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
         <div style={{ borderRadius: 10, border: `1px solid ${C.borderStrong}`, overflow: "hidden", boxShadow: "0 2px 10px rgba(28,24,20,0.08)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: F.ui }}>
             <thead><tr style={{ background: C.dark }}>
-              <th style={thStyle}>Invoice #</th><th style={thStyle}>Job</th><th style={thStyle}>Status</th><th style={{ ...thStyle, textAlign: "right" }}>Amount</th><th style={thStyle}>Sent</th>
+              <th style={thStyle}>Invoice #</th><th style={thStyle}>Job</th><th style={thStyle}>Work Type</th><th style={thStyle}>Status</th><th style={{ ...thStyle, textAlign: "right" }}>Amount</th><th style={thStyle}>Sent</th>
             </tr></thead>
             <tbody>
-              {invoices.length === 0 && <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: C.textFaint }}>No invoices</td></tr>}
+              {invoices.length === 0 && <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: C.textFaint }}>No invoices</td></tr>}
               {invoices.map((inv, i) => {
                 const statusColor = inv.status === "Paid" ? C.green : inv.status === "Sent" ? C.amber : C.textFaint;
                 return (
@@ -271,6 +274,7 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
                   >
                     <td style={{ ...tdBase, fontWeight: 800, color: C.tealDark, fontFamily: F.display }}>{inv.id}</td>
                     <td style={{ ...tdBase, color: C.textBody }}>{inv.job_name || "—"}</td>
+                    <td style={{ ...tdBase, color: C.textMuted, fontSize: 12 }}>{invWtNames(inv.invoice_lines) || "—"}</td>
                     <td style={tdBase}><span style={{ fontSize: 11, fontWeight: 700, color: statusColor, fontFamily: F.display, textTransform: "uppercase" }}>{inv.status}</span></td>
                     <td style={{ ...tdBase, textAlign: "right", fontWeight: 700, color: C.textHead }}>{fmt$(inv.amount)}</td>
                     <td style={{ ...tdBase, color: C.textMuted }}>{inv.sent_at ? new Date(inv.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>

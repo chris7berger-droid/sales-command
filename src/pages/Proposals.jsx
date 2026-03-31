@@ -165,7 +165,7 @@ function ProposalPDFModal({ proposal, onClose }) {
       if (proposal.call_log_id) {
         await supabase.from("call_log").update({ stage: "Has Bid" }).eq("id", proposal.call_log_id);
       }
-      await supabase.from("proposals").update({ status: "Sent" }).eq("id", proposal.id);
+      await supabase.from("proposals").update({ status: "Sent", sent_at: new Date().toISOString(), sent_to_email: customerEmail }).eq("id", proposal.id);
     } catch (e) {
       setSendError(e.message || "Send failed. Please try again.");
     }
@@ -489,25 +489,13 @@ function ProposalPDFModal({ proposal, onClose }) {
 
 
 
-function RecipientsPlaceholder({ proposal, onBack }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 420, gap: 16 }}>
-      <div style={{ fontSize: 44 }}>👥</div>
-      <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e', fontFamily: 'inherit', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Recipients</div>
-      <div style={{ fontSize: 13, color: '#888', fontFamily: 'inherit' }}>Proposal {proposal.id} · SC-30 — Coming in Tier 2</div>
-      <button onClick={onBack} style={{ marginTop: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#00b4a0', fontWeight: 800, fontSize: 12, fontFamily: 'inherit', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-        ← Back to Proposal
-      </button>
-    </div>
-  );
-}
 
 function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember }) {
   const [p, setP] = useState(pInit);
   const [showWTC, setShowWTC] = useState(false);
 const [activeWtcId, setActiveWtcId] = useState(null);
 const [showPDF, setShowPDF] = useState(false);
-const [showRecipients, setShowRecipients] = useState(false);
+const [signatureInfo, setSignatureInfo] = useState(null);
 const [wtcInitialTab, setWtcInitialTab] = useState(null);
 const missingJobsite = !p.call_log?.jobsite_address;
 
@@ -552,18 +540,18 @@ useEffect(() => {
 
 
 useEffect(() => {
-  async function loadSignedPdf() {
+  async function loadSignatureData() {
     const { data } = await supabase
       .from("proposal_signatures")
-      .select("pdf_url")
+      .select("signer_name, signer_email, signed_at, pdf_url")
       .eq("proposal_id", p.id)
-      .not("pdf_url", "is", null)
       .order("signed_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (data?.pdf_url) setSignedPdfUrl(data.pdf_url);
+    if (data) setSignatureInfo(data);
   }
-  loadSignedPdf();
+  loadSignatureData();
 }, [p.id, p.status]);
 
 useEffect(() => {
@@ -686,7 +674,6 @@ useEffect(() => {
   }
 
 if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) setShowPDF(true); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-' + Date.now()} proposal={p} onClose={async () => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowPDF(false); }} />;
-  if (showRecipients) return <RecipientsPlaceholder proposal={p} onBack={() => setShowRecipients(false)} />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -818,14 +805,54 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           </div>
 
           <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Recipients</div><Btn sz="sm" v="ghost" onClick={() => setShowRecipients(true)}>+ Assign</Btn></div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-              {[["Role", "Signer"], ["Name", "—"], ["Email", "—"]].map(([k, val]) => (
-                <div key={k}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textFaint, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: F.ui }}>{k}</div>
-                  <div style={{ marginTop: 4, fontSize: 13.5, fontWeight: 600, color: k === "Email" ? C.tealDark : C.textHead, fontFamily: F.ui }}>{val}</div>
+            <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>Proposal Activity</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {/* Created */}
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: C.teal, flexShrink: 0 }} />
+                  <div style={{ width: 2, flex: 1, background: C.border, minHeight: 24 }} />
                 </div>
-              ))}
+                <div style={{ paddingBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Created</div>
+                  <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{p.created_at ? fmtD(p.created_at.slice(0, 10)) : "—"}</div>
+                </div>
+              </div>
+              {/* Sent */}
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: p.sent_at ? C.teal : C.border, flexShrink: 0 }} />
+                  <div style={{ width: 2, flex: 1, background: C.border, minHeight: 24 }} />
+                </div>
+                <div style={{ paddingBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Sent</div>
+                  {p.sent_at ? (
+                    <>
+                      <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{fmtD(p.sent_at.slice(0, 10))}</div>
+                      {p.sent_to_email && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>To: {p.sent_to_email}</div>}
+                    </>
+                  ) : <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui }}>—</div>}
+                </div>
+              </div>
+              {/* Signed / Approved */}
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: p.approved_at ? C.green : C.border, flexShrink: 0 }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Signed</div>
+                  {signatureInfo?.signed_at ? (
+                    <>
+                      <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{fmtD(signatureInfo.signed_at.slice(0, 10))}</div>
+                      {signatureInfo.signer_name && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>By: {signatureInfo.signer_name}</div>}
+                    </>
+                  ) : p.sent_at ? (
+                    <div style={{ fontSize: 11.5, color: C.red, fontWeight: 700, fontFamily: F.ui }}>
+                      {Math.max(0, Math.round((new Date() - new Date(p.sent_at)) / 86400000))}d awaiting signature
+                    </div>
+                  ) : <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui }}>—</div>}
+                </div>
+              </div>
             </div>
           </div>
         </div>

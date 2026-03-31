@@ -20,6 +20,7 @@ import SalesDash from "./pages/SalesDash";
 import Customers from "./pages/Customers";
 import Team from "./pages/Team";
 import Settings from "./pages/Settings";
+import { getPageNumber, PageBadge, TOCOverlay } from "./components/TableOfContents";
 import RegressionTest from "./components/RegressionTest";
 import InvoicePaidPage from "./pages/InvoicePaidPage";
 import QBCallbackPage from "./pages/QBCallbackPage";
@@ -69,6 +70,7 @@ function SalesCommandApp() {
   const [initialInvoiceId, setInitialInvoiceId] = useState(null);
   const [initialCustomerId, setInitialCustomerId] = useState(null);
   const [open,       setOpen]       = useState(true);
+  const [showTOC,    setShowTOC]    = useState(false);
   const [session,    setSession]    = useState(undefined);
   const [teamMember, setTeamMember] = useState(null);
 
@@ -150,12 +152,25 @@ function SalesCommandApp() {
         <Route path="/invoice-paid" element={<InvoicePaidPage />} />
         <Route path="/qb/callback" element={<QBCallbackPage />} />
         <Route path="*" element={
-          <AppShell
-            active={active} setActive={setActive}
-            open={open} setOpen={setOpen}
-            displayName={displayName} displayRole={displayRole}
-            displayInitials={displayInitials} page={page}
-          />
+          <>
+            <AppShell
+              active={active} setActive={setActive}
+              open={open} setOpen={setOpen}
+              displayName={displayName} displayRole={displayRole}
+              displayInitials={displayInitials} page={page}
+            />
+            <PageBadge
+              pageNumber={getPageNumber(active)}
+              onClick={() => setShowTOC(true)}
+            />
+            {showTOC && (
+              <TOCOverlay
+                currentPageId={getPageNumber(active)}
+                onClose={() => setShowTOC(false)}
+                onNavigate={(chapterId) => { setActive(chapterId); }}
+              />
+            )}
+          </>
         } />
       </Routes>
     </BrowserRouter>

@@ -1015,7 +1015,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
         ) : (
           <DataTable
             cols={[
-              { k: "id",         l: "Proposal #", r: (v, row) => <span style={{ fontWeight: 800, color: C.tealDark, fontFamily: F.display }}>{row.call_log?.display_job_number || v} P{row.proposal_number || 1}</span> },
+              { k: "id",         l: "Proposal #", r: (v, row) => <span style={{ fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{row.call_log?.display_job_number || v} P{row.proposal_number || 1}</span> },
               { k: "customer",   l: "Customer" },
               { k: "status",     l: "Status",     r: v => <Pill label={v} cm={PROP_C} /> },
               { k: "total",      l: "Total",      r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$(v)}</span> },

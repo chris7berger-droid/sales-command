@@ -109,7 +109,7 @@ export default function WelcomeScreen({ teamMember, onComplete }) {
                 letterSpacing: "0.03em",
                 marginBottom: 4,
               }}>
-                Built-in Instruction Manual
+                The Directory
               </div>
               <div style={{
                 fontSize: 13,
@@ -118,8 +118,8 @@ export default function WelcomeScreen({ teamMember, onComplete }) {
                 lineHeight: 1.5,
               }}>
                 Every screen has a page number in the bottom-right corner. Tap it
-                anytime to open the Table of Contents — it explains what each
-                screen does and how to use it.
+                anytime to open The Directory — it explains what each
+                screen does, every button you can tap, and where it leads.
               </div>
             </div>
           </div>

@@ -330,10 +330,10 @@ function ProposalPDFModal({ proposal, onClose }) {
               {/* Prepared For + Proposal # */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid rgba(28,24,20,0.12)" }}>
                 <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Prepared For</div>
-                  <div style={{ fontSize: 15, fontWeight: 400, color: "#1c1814" }}>{proposal.customer || "—"}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Prepared For</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{proposal.customer || "—"}</div>
                   {proposal.call_log?.customers?.business_address && (
-                    <div style={{ fontSize: 12, fontWeight: 400, color: "#4a4238", marginTop: 3, lineHeight: 1.7 }}>
+                    <div style={{ fontSize: 11, fontWeight: 400, color: "#887c6e", marginTop: 2, lineHeight: 1.7 }}>
                       {proposal.call_log.customers.business_address}
                       {proposal.call_log.customers.business_city ? ", " + proposal.call_log.customers.business_city : ""}
                       {proposal.call_log.customers.business_state ? ", " + proposal.call_log.customers.business_state : ""}
@@ -342,8 +342,8 @@ function ProposalPDFModal({ proposal, onClose }) {
                   )}
                   {proposal.call_log?.jobsite_address && (
                     <div style={{ marginTop: 14 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Jobsite Address</div>
-                      <div style={{ fontSize: 12, fontWeight: 400, color: "#4a4238", lineHeight: 1.7 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Jobsite Address</div>
+                      <div style={{ fontSize: 11, fontWeight: 400, color: "#887c6e", lineHeight: 1.7 }}>
                         {proposal.call_log.jobsite_address}
                         {proposal.call_log.jobsite_city ? ", " + proposal.call_log.jobsite_city : ""}
                         {proposal.call_log.jobsite_state ? ", " + proposal.call_log.jobsite_state : ""}
@@ -353,10 +353,10 @@ function ProposalPDFModal({ proposal, onClose }) {
                   )}
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Proposal #</div>
-                  <div style={{ fontSize: 13, fontWeight: 400, color: "#1c1814" }}>{proposal.call_log?.display_job_number || "—"}-P{proposal.proposal_number || 1}</div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Date</div>
-                  <div style={{ fontSize: 13, fontWeight: 400, color: "#1c1814" }}>{new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Proposal #</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{proposal.call_log?.display_job_number || "—"}-P{proposal.proposal_number || 1}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Date</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
                 </div>
               </div>
 

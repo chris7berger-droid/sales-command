@@ -637,6 +637,11 @@ useEffect(() => {
   }
 
   async function handlePullBack() {
+    const { data: invoices } = await supabase.from("invoices").select("id").eq("proposal_id", p.id);
+    if (invoices && invoices.length > 0) {
+      alert(`This proposal has ${invoices.length} invoice${invoices.length > 1 ? "s" : ""} linked to it. Delete the invoice${invoices.length > 1 ? "s" : ""} before pulling back.`);
+      return;
+    }
     if (!window.confirm("Pull back this proposal? It will return to Draft status and WTCs will be unlocked for editing.")) return;
     // Clear old signatures
     await supabase.from("proposal_signatures").delete().eq("proposal_id", p.id);

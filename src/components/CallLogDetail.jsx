@@ -32,6 +32,19 @@ function Field({ label, children, wide }) {
   );
 }
 
+function Section({ title, defaultOpen = false, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ marginBottom: 16, border: `1px solid ${C.borderStrong}`, borderRadius: 10, overflow: "hidden" }}>
+      <button onClick={() => setOpen(o => !o)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: C.linenCard, border: "none", cursor: "pointer" }}>
+        <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: C.textHead, fontFamily: F.display }}>{title}</span>
+        <span style={{ fontSize: 10, color: C.textFaint }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && <div style={{ padding: "16px 16px 8px" }}>{children}</div>}
+    </div>
+  );
+}
+
 function stageColor(stage) {
   const map = {
     "New Inquiry": { bg: "rgba(79,70,229,0.15)", color: "#a5b4fc" },
@@ -62,6 +75,10 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     contact_email:    cust.contact_email   || "",
     contact_phone:    cust.contact_phone   || "",
     billing_terms:    cust.billing_terms != null ? String(cust.billing_terms) : "30",
+    billing_same:     cust.billing_same ?? true,
+    billing_name:     cust.billing_name    || "",
+    billing_phone:    cust.billing_phone   || "",
+    billing_email:    cust.billing_email   || "",
   });
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState(null);
@@ -192,6 +209,10 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         contact_email: form.contact_email || null,
         contact_phone: form.contact_phone || null,
         billing_terms: parseInt(form.billing_terms) || 30,
+        billing_same: form.billing_same,
+        billing_name: form.billing_same ? null : (form.billing_name || null),
+        billing_phone: form.billing_same ? null : (form.billing_phone || null),
+        billing_email: form.billing_same ? null : (form.billing_email || null),
       }).eq("id", job.customer_id);
     }
 
@@ -246,97 +267,111 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         {job.created_at ? ` · Created ${new Date(job.created_at).toLocaleDateString()}` : ""}
       </div>
 
-      {/* Form grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px 28px", marginBottom: 24 }}>
+      {/* Job Info */}
+      <Section title="Job Info" defaultOpen={true}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 24px" }}>
+          <Field label="Stage">
+            <select value={form.stage} onChange={e => set("stage", e.target.value)} style={inputStyle}>
+              <option value="">— Select —</option>
+              {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </Field>
+          <Field label="Sales Rep">
+            <select value={form.sales_name} onChange={e => set("sales_name", e.target.value)} style={inputStyle}>
+              <option value="">— Unassigned —</option>
+              {teamMembers.map(m => (
+                <option key={m.id} value={m.name}>{m.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Customer Name">
+            <input type="text" value={form.customer_name} onChange={e => set("customer_name", e.target.value)} placeholder="Customer name" style={inputStyle} />
+          </Field>
+          <Field label="Job Name">
+            <input type="text" value={form.job_name} onChange={e => set("job_name", e.target.value)} placeholder="Job name" style={inputStyle} />
+          </Field>
+          <Field label="Bid Due">
+            <input type="date" value={form.bid_due} onChange={e => set("bid_due", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
+          </Field>
+          <Field label="Follow-Up Date">
+            <input type="date" value={form.follow_up} onChange={e => set("follow_up", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
+          </Field>
+        </div>
+      </Section>
 
-        <Field label="Stage">
-          <select value={form.stage} onChange={e => set("stage", e.target.value)} style={inputStyle}>
-            <option value="">— Select —</option>
-            {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </Field>
-
-        <Field label="Sales Rep">
-          <select value={form.sales_name} onChange={e => set("sales_name", e.target.value)} style={inputStyle}>
-            <option value="">— Unassigned —</option>
-            {teamMembers.map(m => (
-              <option key={m.id} value={m.name}>{m.name}</option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="Customer Name">
-          <input type="text" value={form.customer_name} onChange={e => set("customer_name", e.target.value)} placeholder="Customer name" style={inputStyle} />
-        </Field>
-
-        <Field label="Job Name">
-          <input type="text" value={form.job_name} onChange={e => set("job_name", e.target.value)} placeholder="Job name" style={inputStyle} />
-        </Field>
-
-        <Field label="Bid Due">
-          <input type="date" value={form.bid_due} onChange={e => set("bid_due", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
-        </Field>
-
-        <Field label="Follow-Up Date">
-          <input type="date" value={form.follow_up} onChange={e => set("follow_up", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
-        </Field>
-
-        <Field label="Customer Email">
-          <input type="email" value={form.contact_email} onChange={e => set("contact_email", e.target.value)} placeholder="customer@example.com" style={inputStyle} />
-        </Field>
-
-        <Field label="Customer Phone">
-          <input type="tel" value={form.contact_phone} onChange={e => set("contact_phone", e.target.value)} placeholder="(555) 555-5555" style={inputStyle} />
-        </Field>
-
-        <Field label="Billing Terms">
-          <select value={[5,15,30,45,60,90,120].includes(Number(form.billing_terms)) ? form.billing_terms : "custom"} onChange={e => set("billing_terms", e.target.value)} style={inputStyle}>
-            <option value="5">Net 5</option>
-            <option value="15">Net 15</option>
-            <option value="30">Net 30</option>
-            <option value="45">Net 45</option>
-            <option value="60">Net 60</option>
-            <option value="90">Net 90</option>
-            <option value="120">Net 120</option>
-            <option value="custom">Custom</option>
-          </select>
-          {![5,15,30,45,60,90,120].includes(Number(form.billing_terms)) && form.billing_terms !== "custom" && (
-            <input type="number" value={form.billing_terms} onChange={e => set("billing_terms", e.target.value)} placeholder="Days" style={{ ...inputStyle, marginTop: 8 }} />
-          )}
-          {form.billing_terms === "custom" && (
-            <input type="number" value="" onChange={e => set("billing_terms", e.target.value)} placeholder="Days" style={{ ...inputStyle, marginTop: 8 }} />
-          )}
-        </Field>
-
-        {/* Jobsite address — full width, split fields */}
-        <Field label="Jobsite Address" wide>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <input
-              type="text"
-              value={form.jobsite_address}
-              onChange={e => set("jobsite_address", e.target.value)}
-              placeholder="Street Address"
-              style={inputStyle}
-            />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 100px", gap: 8 }}>
-              <input placeholder="City"  value={form.jobsite_city}  onChange={e => set("jobsite_city",  e.target.value)} style={inputStyle} />
-              <input placeholder="State" value={form.jobsite_state} onChange={e => set("jobsite_state", e.target.value)} style={inputStyle} maxLength={2} />
-              <input placeholder="Zip"   value={form.jobsite_zip}   onChange={e => set("jobsite_zip",   e.target.value)} style={inputStyle} />
+      {/* Contact & Billing */}
+      <Section title="Contact & Billing">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 24px" }}>
+          <Field label="Customer Email">
+            <input type="email" value={form.contact_email} onChange={e => set("contact_email", e.target.value)} placeholder="customer@example.com" style={inputStyle} />
+          </Field>
+          <Field label="Customer Phone">
+            <input type="tel" value={form.contact_phone} onChange={e => set("contact_phone", e.target.value)} placeholder="(555) 555-5555" style={inputStyle} />
+          </Field>
+          <Field label="Billing Terms">
+            <select value={[5,15,30,45,60,90,120].includes(Number(form.billing_terms)) ? form.billing_terms : "custom"} onChange={e => set("billing_terms", e.target.value)} style={inputStyle}>
+              <option value="5">Net 5</option>
+              <option value="15">Net 15</option>
+              <option value="30">Net 30</option>
+              <option value="45">Net 45</option>
+              <option value="60">Net 60</option>
+              <option value="90">Net 90</option>
+              <option value="120">Net 120</option>
+              <option value="custom">Custom</option>
+            </select>
+            {![5,15,30,45,60,90,120].includes(Number(form.billing_terms)) && form.billing_terms !== "custom" && (
+              <input type="number" value={form.billing_terms} onChange={e => set("billing_terms", e.target.value)} placeholder="Days" style={{ ...inputStyle, marginTop: 8 }} />
+            )}
+            {form.billing_terms === "custom" && (
+              <input type="number" value="" onChange={e => set("billing_terms", e.target.value)} placeholder="Days" style={{ ...inputStyle, marginTop: 8 }} />
+            )}
+          </Field>
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <button onClick={() => set("billing_same", !form.billing_same)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}>
+            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${!form.billing_same ? C.teal : C.borderStrong}`, background: !form.billing_same ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {!form.billing_same && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
             </div>
+            <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Is there a separate billing contact?</span>
+          </button>
+          {!form.billing_same && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 24px", marginTop: 10, padding: "12px 14px", background: C.linen, borderRadius: 8, border: `1px solid ${C.border}` }}>
+              <Field label="Billing Contact Name" wide>
+                <input type="text" value={form.billing_name} onChange={e => set("billing_name", e.target.value)} placeholder="Billing contact name" style={inputStyle} />
+              </Field>
+              <Field label="Billing Phone">
+                <input type="tel" value={form.billing_phone} onChange={e => set("billing_phone", e.target.value)} placeholder="Billing phone" style={inputStyle} />
+              </Field>
+              <Field label="Billing Email">
+                <input type="email" value={form.billing_email} onChange={e => set("billing_email", e.target.value)} placeholder="Billing email" style={inputStyle} />
+              </Field>
+            </div>
+          )}
+        </div>
+      </Section>
+
+      {/* Address */}
+      <Section title="Jobsite Address">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <input type="text" value={form.jobsite_address} onChange={e => set("jobsite_address", e.target.value)} placeholder="Street Address" style={inputStyle} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 100px", gap: 8 }}>
+            <input placeholder="City" value={form.jobsite_city} onChange={e => set("jobsite_city", e.target.value)} style={inputStyle} />
+            <input placeholder="State" value={form.jobsite_state} onChange={e => set("jobsite_state", e.target.value)} style={inputStyle} maxLength={2} />
+            <input placeholder="Zip" value={form.jobsite_zip} onChange={e => set("jobsite_zip", e.target.value)} style={inputStyle} />
           </div>
-        </Field>
+        </div>
+      </Section>
 
-        <Field label="Notes" wide>
-          <textarea
-            value={form.notes}
-            onChange={e => set("notes", e.target.value)}
-            rows={4}
-            placeholder="Add notes…"
-            style={{ ...inputStyle, resize: "vertical" }}
-          />
-        </Field>
-
-      </div>
+      {/* Notes */}
+      <Section title="Notes">
+        <textarea
+          value={form.notes}
+          onChange={e => set("notes", e.target.value)}
+          rows={4}
+          placeholder="Add notes…"
+          style={{ ...inputStyle, resize: "vertical" }}
+        />
+      </Section>
 
       {/* Work Types (dropdown with checkboxes) */}
       {workTypes?.length > 0 && (

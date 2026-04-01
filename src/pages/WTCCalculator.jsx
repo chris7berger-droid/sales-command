@@ -488,7 +488,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         </div>
         <div style={{ marginBottom: 14 }}>
           <Label>Tentative End Date <span style={{ color: T.red }}>*</span></Label>
-          <input type="date" value={data.end_date || ""} onChange={e => setDate("end_date")(e.target.value)}
+          <input type="date" value={data.end_date || ""} min={data.start_date || ""} onChange={e => setDate("end_date")(e.target.value)}
             onClick={e => e.target.showPicker?.()}
             style={{ width: "100%", border: `1.5px solid ${data.end_date ? T.gray200 : T.red}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: T.gray900, background: "#bfb3a1", outline: "none", fontFamily: "inherit", boxSizing: "border-box", cursor: "pointer" }}
             onFocus={e => e.target.style.borderColor = T.green}

@@ -866,12 +866,12 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               const breakdowns = wtcs.map(w => ({ ...calcWtcBreakdown(w), name: w.work_types?.name || "Unnamed" }));
               const totals = breakdowns.reduce((a, b) => ({ price: a.price + b.price, cost: a.cost + b.cost, profit: a.profit + b.profit }), { price: 0, cost: 0, profit: 0 });
               totals.margin = totals.price > 0 ? (totals.profit / totals.price) * 100 : 0;
-              const hdr = { fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "right" };
-              const cell = { fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui, textAlign: "right" };
+              const hdr = { fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "center" };
+              const cell = { fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui, textAlign: "center" };
               const lbl = { fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F.ui };
               return (
                 <>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "0 14px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 62px 72px", gap: "0 10px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
                     <span style={hdr} />
                     <span style={hdr}>Price</span>
                     <span style={hdr}>Cost</span>
@@ -879,7 +879,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                     <span style={hdr}>Profit</span>
                   </div>
                   {breakdowns.map((b, i) => (
-                    <div key={`wtc-s-${i}`} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "0 14px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
+                    <div key={`wtc-s-${i}`} style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 62px 72px", gap: "0 10px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
                       <span style={lbl}>WTC {i + 1} — {b.name}</span>
                       <span style={cell}>{fmt$(b.price)}</span>
                       <span style={cell}>{fmt$(b.cost)}</span>
@@ -887,7 +887,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                       <span style={{ ...cell, color: b.profit >= 0 ? C.green : C.red }}>{fmt$(b.profit)}</span>
                     </div>
                   ))}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "0 14px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 62px 72px", gap: "0 10px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
                     <span style={{ ...lbl, fontWeight: 700, color: "rgba(255,255,255,0.6)" }}>Total</span>
                     <span style={{ ...cell, fontWeight: 800 }}>{fmt$(totals.price)}</span>
                     <span style={{ ...cell, fontWeight: 800 }}>{fmt$(totals.cost)}</span>

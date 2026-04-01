@@ -31,6 +31,22 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName }) {
     setSaving(true);
     setError("");
     setSuccess("");
+
+    // Check for duplicates (exclude current member if editing)
+    const { data: dupes } = await supabase
+      .from("team_members")
+      .select("id, name, email, phone")
+      .or(`email.eq.${form.email.trim()},name.eq.${form.name.trim()}${form.phone.trim() ? `,phone.eq.${form.phone.trim()}` : ""}`);
+    const conflicts = (dupes || []).filter(d => d.id !== member?.id);
+    if (conflicts.length > 0) {
+      const fields = [];
+      if (conflicts.some(d => d.email === form.email.trim())) fields.push("email");
+      if (conflicts.some(d => d.name === form.name.trim())) fields.push("name");
+      if (form.phone.trim() && conflicts.some(d => d.phone === form.phone.trim())) fields.push("phone");
+      setError(`This ${fields.join(", ")} is already in use by another team member.`);
+      setSaving(false);
+      return;
+    }
     let memberId = member?.id;
     if (editing) {
       const { error: err } = await supabase
@@ -66,7 +82,9 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName }) {
     setInviting(false);
     setSaving(false);
     if (fnErr || data?.error) {
-      setError(fnErr?.message || data?.error || "Failed to send invite");
+      const msg = data?.error || fnErr?.message || "Failed to send invite";
+      console.error("invite-user error:", { fnErr, data });
+      setError(msg);
       return;
     }
     setSuccess("Invite sent!");
@@ -134,8 +152,12 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName }) {
           {editing ? (
             <Btn sz="sm" v="ghost" onClick={async () => {
               if (!window.confirm(`Delete ${form.name}? This cannot be undone.`)) return;
-              const { error: err } = await supabase.from("team_members").delete().eq("id", member.id);
-              if (err) { setError(err.message); return; }
+              setSaving(true);
+              const { data, error: fnErr } = await supabase.functions.invoke("delete-user", {
+                body: { teamMemberId: member.id },
+              });
+              setSaving(false);
+              if (fnErr || data?.error) { setError(data?.error || fnErr?.message || "Failed to delete"); return; }
               onSaved();
             }} disabled={saving}>
               <span style={{ color: C.red }}>Delete</span>

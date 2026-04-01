@@ -25,7 +25,7 @@ serve(async (req) => {
       });
     }
 
-    console.log("invite-user invoked", { email, name, teamMemberId });
+    console.log("invite-user invoked", { email, name, teamMemberId, senderEmail, senderName });
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },

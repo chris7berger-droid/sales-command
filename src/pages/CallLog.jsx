@@ -344,10 +344,10 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               <input placeholder="Email" value={data.contactEmail} onChange={e => set("contactEmail", e.target.value)} style={inputStyle} />
             </div>
             <button onClick={() => set("billingSame", !data.billingSame)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}>
-              <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${data.billingSame ? C.teal : C.borderStrong}`, background: data.billingSame ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {data.billingSame && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
+              <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${!data.billingSame ? C.teal : C.borderStrong}`, background: !data.billingSame ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {!data.billingSame && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
               </div>
-              <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Billing contact is the same as above</span>
+              <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Is there a separate billing contact?</span>
             </button>
             {!data.billingSame && (
               <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "12px 14px", background: C.linen, borderRadius: 8, border: `1px solid ${C.border}` }}>

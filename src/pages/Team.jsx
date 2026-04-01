@@ -8,8 +8,9 @@ import Pill from "../components/Pill";
 import Btn from "../components/Btn";
 
 const ROLES = ["Admin", "Manager", "Sales Rep", "Office Staff", "Estimator", "Field"];
+const APP_LABELS = { sales: "Sales Command", schedule: "Schedule Command", field: "Field Command", ar: "AR Command" };
 
-function MemberModal({ member, onClose, onSaved, senderEmail, senderName }) {
+function MemberModal({ member, onClose, onSaved, senderEmail, senderName, tenantApps }) {
   const editing = !!member;
   const [form, setForm] = useState({
     name:   member?.name   || "",
@@ -17,6 +18,7 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName }) {
     phone:  member?.phone  || "",
     role:   member?.role   || "Sales Rep",
     active: member?.active ?? true,
+    apps:   member?.apps   || tenantApps || ["sales"],
   });
   const [saving, setSaving] = useState(false);
   const [inviting, setInviting] = useState(false);
@@ -51,13 +53,13 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName }) {
     if (editing) {
       const { error: err } = await supabase
         .from("team_members")
-        .update({ name: form.name, email: form.email, phone: form.phone, role: form.role, active: form.active })
+        .update({ name: form.name, email: form.email, phone: form.phone, role: form.role, active: form.active, apps: form.apps })
         .eq("id", member.id);
       if (err) { setError(err.message); setSaving(false); return; }
     } else {
       const { data: inserted, error: err } = await supabase
         .from("team_members")
-        .insert({ name: form.name, email: form.email, phone: form.phone, role: form.role, active: true, onboarded: !sendInvite })
+        .insert({ name: form.name, email: form.email, phone: form.phone, role: form.role, active: true, onboarded: !sendInvite, apps: form.apps })
         .select("id")
         .single();
       if (err) { setError(err.message); setSaving(false); return; }
@@ -134,6 +136,27 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName }) {
             </select>
           </div>
 
+          {tenantApps && tenantApps.length > 1 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: F.ui, marginBottom: 8 }}>App Access</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {tenantApps.map(app => (
+                  <label key={app} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: C.textBody, fontFamily: F.ui, fontWeight: 600, padding: "6px 10px", background: form.apps?.includes(app) ? "rgba(48,207,172,0.07)" : "transparent", borderRadius: 6, border: `1px solid ${form.apps?.includes(app) ? "rgba(48,207,172,0.2)" : C.borderStrong}` }}>
+                    <input type="checkbox" checked={form.apps?.includes(app) || false}
+                      onChange={e => {
+                        const next = e.target.checked
+                          ? [...(form.apps || []), app]
+                          : (form.apps || []).filter(a => a !== app);
+                        set("apps")(next);
+                      }}
+                      style={{ accentColor: C.teal, width: 16, height: 16, cursor: "pointer" }} />
+                    {APP_LABELS[app] || app}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
           {editing && !member.auth_id && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "12px 14px", background: "rgba(245,158,11,0.07)", borderRadius: 8, border: "1px solid rgba(245,158,11,0.2)" }}>
               <span style={{ fontSize: 13, color: C.amber, fontFamily: F.ui, fontWeight: 600 }}>This member has not been invited yet</span>
@@ -196,6 +219,7 @@ export default function Team({ teamMember }) {
   const [team,      setTeam]      = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [modal,     setModal]     = useState(null); // null | "add" | member object
+  const [tenantApps, setTenantApps] = useState(["sales"]);
 
   async function load() {
     const { data } = await supabase.from("team_members").select("*").order("name");
@@ -203,7 +227,12 @@ export default function Team({ teamMember }) {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, []);
+  async function loadTenantApps() {
+    const { data } = await supabase.from("tenant_config").select("apps").limit(1).single();
+    if (data?.apps) setTenantApps(data.apps);
+  }
+
+  useEffect(() => { load(); loadTenantApps(); }, []);
 
   const handleSaved = () => { setModal(null); load(); };
 
@@ -239,6 +268,15 @@ export default function Team({ teamMember }) {
         <div style={{ fontSize: 13, color: C.textMuted, fontFamily: F.ui }}>✉ <a href={`mailto:${m.email}`} style={{ color: C.tealDark }}>{m.email}</a></div>
         <div style={{ fontSize: 13, color: C.textMuted, fontFamily: F.ui }}>📱 {m.phone}</div>
       </div>
+      {tenantApps.length > 1 && m.apps && (
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 10 }}>
+          {m.apps.map(app => (
+            <span key={app} style={{ fontSize: 9, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 4, padding: "2px 6px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+              {APP_LABELS[app]?.replace(" Command", "") || app}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -272,6 +310,7 @@ export default function Team({ teamMember }) {
           onSaved={handleSaved}
           senderEmail={teamMember?.email}
           senderName={teamMember?.name}
+          tenantApps={tenantApps}
         />
       )}
     </div>

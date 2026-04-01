@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
+import { supabase } from "../lib/supabase";
 import { getTenantConfig, updateTenantConfig } from "../lib/config";
 import { fmt$ } from "../lib/utils";
 import SectionHeader from "../components/SectionHeader";
@@ -19,6 +20,53 @@ function Field({ label, children, wide, triple }) {
 }
 
 const STD_TERMS = [5, 15, 30, 45, 60, 90, 120];
+
+const QB_CLIENT_ID = "ABg3H5TIV6XdDtSWlJXDC3rM7u8zKI3k5yHlbUaIrIiYNiUmc7";
+const QB_REDIRECT_URI = "https://www.scmybiz.com/qb/callback";
+const QB_AUTH_URL = `https://appcenter.intuit.com/connect/oauth2?client_id=${QB_CLIENT_ID}&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}&response_type=code&scope=com.intuit.quickbooks.accounting&state=salescommand`;
+
+function QBIntegrationCard() {
+  const [status, setStatus] = useState(null); // null=loading, true=connected, false=disconnected
+  const [realmId, setRealmId] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.functions.invoke("qb-auth", { body: { action: "status" } });
+      setStatus(data?.connected || false);
+      setRealmId(data?.realm_id || null);
+    })();
+  }, []);
+
+  return (
+    <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, padding: "16px 20px", flex: 1, minWidth: 200 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textFaint, fontFamily: F.ui }}>QuickBooks</div>
+        {status === null ? (
+          <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>Checking…</span>
+        ) : status ? (
+          <span style={{ fontSize: 10, fontWeight: 700, color: C.green, background: C.dark, borderRadius: 4, padding: "2px 8px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Connected</span>
+        ) : (
+          <span style={{ fontSize: 10, fontWeight: 700, color: C.red, background: C.dark, borderRadius: 4, padding: "2px 8px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Disconnected</span>
+        )}
+      </div>
+      {status && realmId && (
+        <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginBottom: 8 }}>Realm ID: {realmId}</div>
+      )}
+      <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textMuted, marginBottom: 12 }}>
+        {status ? "Invoices and customers sync to QuickBooks Online." : "Connect to sync invoices and customers."}
+      </div>
+      {status ? (
+        <a href={QB_AUTH_URL} style={{ fontSize: 11, fontWeight: 700, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", textDecoration: "none" }}>
+          Reconnect
+        </a>
+      ) : (
+        <a href={QB_AUTH_URL} style={{ display: "inline-block", background: C.teal, color: C.dark, borderRadius: 6, padding: "6px 14px", fontSize: 11, fontWeight: 800, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none" }}>
+          Connect to QuickBooks
+        </a>
+      )}
+    </div>
+  );
+}
 
 export default function Settings() {
   const [form, setForm] = useState(null);
@@ -151,10 +199,7 @@ export default function Settings() {
       {/* ─── Integrations ─── */}
       <div style={sectionStyle}>Integrations</div>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-        <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, padding: "16px 20px", flex: 1, minWidth: 200 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textFaint, fontFamily: F.ui, marginBottom: 6 }}>QuickBooks</div>
-          <div style={{ fontSize: 13, fontFamily: F.ui, color: C.textMuted }}>Manage connection from the Invoices page</div>
-        </div>
+        <QBIntegrationCard />
         <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, padding: "16px 20px", flex: 1, minWidth: 200 }}>
           <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textFaint, fontFamily: F.ui, marginBottom: 6 }}>Stripe</div>
           <div style={{ fontSize: 13, fontFamily: F.ui, color: C.textMuted }}>Coming soon</div>

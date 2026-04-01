@@ -81,10 +81,13 @@ function SalesCommandApp() {
   const [teamMember, setTeamMember] = useState(null);
 
   useEffect(() => {
+    // Detect if this is a password recovery link — don't auto-login
+    const isRecovery = window.location.hash.includes("type=recovery");
+
     // If "Remember me" was unchecked, clear session on fresh tab open
     if (!sessionStorage.getItem("sc_session_only") && localStorage.getItem("sc_remember") === "false") {
       supabase.auth.signOut().then(() => setSession(null));
-    } else {
+    } else if (!isRecovery) {
       getSession().then(s => setSession(s ?? null));
     }
 

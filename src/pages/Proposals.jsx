@@ -604,14 +604,18 @@ useEffect(() => {
   function getWtcChecks(wtc) {
     const travelData = wtc.travel || {};
     const hasTravelEntries = Object.values(travelData).some(v => typeof v === "number" && v > 0);
+    const allWtcsLocked = wtcs.length > 0 && wtcs.every(w => w.locked);
     return [
-      { l: "Job Walk / Bid Off Plans", done: !!wtc.job_walk_type, custom: true },
-      { l: "Labor",                    done: (wtc.regular_hours || 0) > 0,                        tab: "labor" },
-      { l: "Materials",                done: Array.isArray(wtc.materials) && wtc.materials.length > 0, tab: "materials" },
-      { l: "Travel",                   done: hasTravelEntries,                                     tab: "travel" },
-      { l: "Field SOW",               done: Array.isArray(wtc.field_sow) && wtc.field_sow.length > 0, tab: "sow" },
-      { l: "Sales SOW",               done: !!(wtc.sales_sow),                                    tab: "sow" },
-      { l: "Review & Lock",           done: !!wtc.locked,                                          tab: "summary" },
+      { l: "Work type selected",       done: !!wtc.work_type_id,                                    tab: "bidding" },
+      { l: "Rates & dates set",        done: !!(wtc.start_date && wtc.end_date),                    tab: "bidding" },
+      { l: "Labor entered",            done: (wtc.regular_hours || 0) > 0,                          tab: "labor" },
+      { l: "Materials or SOW",         done: (Array.isArray(wtc.materials) && wtc.materials.length > 0) || !!(wtc.sales_sow), tab: "materials" },
+      { l: "Size / unit filled in",    done: !!(wtc.size && wtc.unit),                              tab: "sow" },
+      { l: "Travel",                   done: hasTravelEntries,                                       tab: "travel" },
+      { l: "Locked",                   done: !!wtc.locked,                                           tab: "summary" },
+      { l: "Proposal built",           done: allWtcsLocked },
+      { l: "Proposal sent",            done: ["Sent", "Sold"].includes(p.status) },
+      { l: "Proposal approved",        done: p.status === "Sold" },
     ];
   }
 
@@ -747,9 +751,22 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginTop: 4 }}>{fmt$(price)}</div>
                       <div style={{ fontSize: 11, color: C.textFaint, marginTop: 2, fontFamily: F.ui }}>Created {fmtD(wtc.created_at?.slice(0,10))}</div>
                     </div>
-                    <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                    <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, position: "relative" }}>
                       <div style={{ fontSize: 11, color: wtc.locked ? C.green : C.amber, fontWeight: 700, fontFamily: F.ui }}>{wtc.locked ? "🔒 Locked" : "⏳ In Progress"}</div>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: pct === 100 ? C.green : C.textHead, fontFamily: F.display }}>{pct}%</div>
+                      <button onClick={() => setExpandedWtc(expandedWtc === `progress-${wtc.id}` ? null : `progress-${wtc.id}`)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: pct === 100 ? C.green : C.teal, fontFamily: F.display, textDecoration: "underline", textDecorationStyle: "dotted" }}>{pct}%</span>
+                      </button>
+                      {expandedWtc === `progress-${wtc.id}` && (
+                        <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, background: C.dark, borderRadius: 10, padding: "14px 18px", boxShadow: "0 8px 32px rgba(0,0,0,0.4)", zIndex: 100, width: 220, textAlign: "left" }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: C.teal, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>WTC Progress</div>
+                          {checks.map((c, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12, fontFamily: F.ui, color: c.done ? C.teal : "rgba(255,255,255,0.4)" }}>
+                              <span style={{ fontSize: 13 }}>{c.done ? "✓" : "○"}</span>
+                              <span style={{ fontWeight: c.done ? 600 : 400 }}>{c.l}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>

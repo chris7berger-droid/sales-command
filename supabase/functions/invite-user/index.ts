@@ -38,17 +38,21 @@ serve(async (req) => {
       email_confirm: true, // skip email verification — we trust admin added correct email
     });
 
+    let authId = userData?.user?.id;
+
     if (createErr) {
-      // If user already exists, that's ok — just send the reset email
-      if (!createErr.message.includes("already been registered")) {
+      // If user already exists, look up their auth id
+      if (createErr.message.includes("already been registered")) {
+        const { data: { users } } = await supabase.auth.admin.listUsers();
+        const existing = users?.find((u: any) => u.email === email);
+        authId = existing?.id;
+      } else {
         return new Response(JSON.stringify({ error: createErr.message }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
           status: 400,
         });
       }
     }
-
-    const authId = userData?.user?.id;
 
     // Link auth_id to team_members row
     if (authId && teamMemberId) {

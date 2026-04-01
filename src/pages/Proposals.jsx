@@ -649,7 +649,7 @@ useEffect(() => {
     await supabase.from("proposal_wtc").update({ locked: false }).eq("proposal_id", p.id);
     // Reset proposal
     await supabase.from("proposals").update({
-      status: "Draft", approved_at: null,
+      status: "Draft", approved_at: null, sent_at: null, sent_to_email: null,
       internal_approval: false, approved_by: null, approval_reason: null,
     }).eq("id", p.id);
     // Reset call log stage
@@ -727,7 +727,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             <Btn sz="sm" v="ghost" onClick={() => setShowApproveModal(true)} style={{ color: C.green, borderColor: C.green }}>✓ Internal Approve</Btn>
           )}
           <Btn sz="sm" v="ghost" onClick={() => setShowPDF(true)}>Generate PDF</Btn>
-          {p.status !== "Sold" && p.status !== "Sent" && <Btn sz="sm" onClick={() => setShowPDF(true)}>Send Proposal</Btn>}
+          {p.status !== "Sold" && p.status !== "Sent" && wtcs.length > 0 && wtcs.every(w => w.locked) && <Btn sz="sm" onClick={() => setShowPDF(true)}>Send Proposal</Btn>}
         </div>
       </div>
 

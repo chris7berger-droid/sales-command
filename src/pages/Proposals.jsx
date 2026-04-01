@@ -611,7 +611,6 @@ useEffect(() => {
       { l: "Labor entered",            done: (wtc.regular_hours || 0) > 0,                          tab: "labor" },
       { l: "Materials or SOW",         done: (Array.isArray(wtc.materials) && wtc.materials.length > 0) || !!(wtc.sales_sow), tab: "materials" },
       { l: "Size / unit filled in",    done: !!(wtc.size && wtc.unit),                              tab: "sow" },
-      { l: "Travel",                   done: hasTravelEntries,                                       tab: "travel" },
       { l: "Locked",                   done: !!wtc.locked,                                           tab: "summary" },
       { l: "Proposal built",           done: allWtcsLocked },
       { l: "Proposal sent",            done: ["Sent", "Sold"].includes(p.status) },

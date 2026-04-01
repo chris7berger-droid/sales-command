@@ -134,7 +134,12 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName }) {
             </select>
           </div>
 
-          {editing && (
+          {editing && !member.auth_id && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "12px 14px", background: "rgba(245,158,11,0.07)", borderRadius: 8, border: "1px solid rgba(245,158,11,0.2)" }}>
+              <span style={{ fontSize: 13, color: C.amber, fontFamily: F.ui, fontWeight: 600 }}>This member has not been invited yet</span>
+            </div>
+          )}
+          {editing && member.auth_id && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "12px 14px", background: form.active ? "rgba(76,175,80,0.07)" : "rgba(239,68,68,0.07)", borderRadius: 8, border: `1px solid ${form.active ? "rgba(76,175,80,0.2)" : "rgba(239,68,68,0.2)"}` }}>
               <input type="checkbox" id="active" checked={form.active}
                 onChange={e => set("active")(e.target.checked)}
@@ -168,12 +173,12 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName }) {
           <div style={{ display: "flex", gap: 8 }}>
           <Btn sz="sm" v="ghost" onClick={onClose}>Cancel</Btn>
           {editing && !member.auth_id && (
-            <Btn sz="sm" v="ghost" onClick={() => sendInviteEmail(form.email, form.name, member.id)} disabled={inviting}>
+            <Btn sz="sm" onClick={() => sendInviteEmail(form.email, form.name, member.id)} disabled={inviting}>
               {inviting ? "Sending…" : "Send Invite"}
             </Btn>
           )}
           {editing ? (
-            <Btn sz="sm" onClick={() => handleSave(false)} disabled={saving}>{saving ? "Saving…" : "Save Changes"}</Btn>
+            <Btn sz="sm" v={member.auth_id ? undefined : "ghost"} onClick={() => handleSave(false)} disabled={saving}>{saving ? "Saving…" : "Save Changes"}</Btn>
           ) : (
             <>
               <Btn sz="sm" v="ghost" onClick={() => handleSave(false)} disabled={saving}>{saving ? "Saving…" : "Add Without Invite"}</Btn>
@@ -216,7 +221,7 @@ export default function Team({ teamMember }) {
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <Pill label={m.role} cm={ROLE_C} />
             {!m.auth_id && m.active !== false && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: C.amber, background: "rgba(245,158,11,0.1)", border: `1px solid rgba(245,158,11,0.25)`, borderRadius: 4, padding: "2px 6px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Needs Invite</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.amber, background: C.dark, borderRadius: 4, padding: "2px 8px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Needs Invite</span>
             )}
           </div>
         </div>

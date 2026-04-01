@@ -80,6 +80,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     billing_phone:    cust.billing_phone   || "",
     billing_email:    cust.billing_email   || "",
   });
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState(null);
   const [saved,  setSaved]  = useState(false);
@@ -230,6 +231,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   }
 
   const sc = stageColor(form.stage);
+  const iStyle = { ...iStyle, ...(editing ? {} : { opacity: 0.75, pointerEvents: "none" }) };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
@@ -251,10 +253,11 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           <span style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#9b59b6", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui }}>CO</span>
         )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          {!editing && <Btn sz="sm" v="ghost" onClick={() => setEditing(true)}>Edit</Btn>}
           {onNewProposal && (
             <Btn sz="sm" onClick={onNewProposal}>+ New Proposal</Btn>
           )}
-          {canDelete && (
+          {editing && canDelete && (
             <Btn sz="sm" v="ghost" onClick={handleDelete} style={{ color: C.red, borderColor: C.red }}>🗑 Delete</Btn>
           )}
         </div>
@@ -271,13 +274,13 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       <Section title="Job Info" defaultOpen={true}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 24px" }}>
           <Field label="Stage">
-            <select value={form.stage} onChange={e => set("stage", e.target.value)} style={inputStyle}>
+            <select value={form.stage} onChange={e => set("stage", e.target.value)} style={iStyle}>
               <option value="">— Select —</option>
               {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </Field>
           <Field label="Sales Rep">
-            <select value={form.sales_name} onChange={e => set("sales_name", e.target.value)} style={inputStyle}>
+            <select value={form.sales_name} onChange={e => set("sales_name", e.target.value)} style={iStyle}>
               <option value="">— Unassigned —</option>
               {teamMembers.map(m => (
                 <option key={m.id} value={m.name}>{m.name}</option>
@@ -285,16 +288,16 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
             </select>
           </Field>
           <Field label="Customer Name">
-            <input type="text" value={form.customer_name} onChange={e => set("customer_name", e.target.value)} placeholder="Customer name" style={inputStyle} />
+            <input type="text" value={form.customer_name} onChange={e => set("customer_name", e.target.value)} placeholder="Customer name" style={iStyle} />
           </Field>
           <Field label="Job Name">
-            <input type="text" value={form.job_name} onChange={e => set("job_name", e.target.value)} placeholder="Job name" style={inputStyle} />
+            <input type="text" value={form.job_name} onChange={e => set("job_name", e.target.value)} placeholder="Job name" style={iStyle} />
           </Field>
           <Field label="Bid Due">
-            <input type="date" value={form.bid_due} onChange={e => set("bid_due", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
+            <input type="date" value={form.bid_due} onChange={e => set("bid_due", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...iStyle, cursor: "pointer" }} />
           </Field>
           <Field label="Follow-Up Date">
-            <input type="date" value={form.follow_up} onChange={e => set("follow_up", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
+            <input type="date" value={form.follow_up} onChange={e => set("follow_up", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...iStyle, cursor: "pointer" }} />
           </Field>
         </div>
       </Section>
@@ -303,13 +306,13 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       <Section title="Contact & Billing">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 24px" }}>
           <Field label="Customer Email">
-            <input type="email" value={form.contact_email} onChange={e => set("contact_email", e.target.value)} placeholder="customer@example.com" style={inputStyle} />
+            <input type="email" value={form.contact_email} onChange={e => set("contact_email", e.target.value)} placeholder="customer@example.com" style={iStyle} />
           </Field>
           <Field label="Customer Phone">
-            <input type="tel" value={form.contact_phone} onChange={e => set("contact_phone", e.target.value)} placeholder="(555) 555-5555" style={inputStyle} />
+            <input type="tel" value={form.contact_phone} onChange={e => set("contact_phone", e.target.value)} placeholder="(555) 555-5555" style={iStyle} />
           </Field>
           <Field label="Billing Terms">
-            <select value={[5,15,30,45,60,90,120].includes(Number(form.billing_terms)) ? form.billing_terms : "custom"} onChange={e => set("billing_terms", e.target.value)} style={inputStyle}>
+            <select value={[5,15,30,45,60,90,120].includes(Number(form.billing_terms)) ? form.billing_terms : "custom"} onChange={e => set("billing_terms", e.target.value)} style={iStyle}>
               <option value="5">Net 5</option>
               <option value="15">Net 15</option>
               <option value="30">Net 30</option>
@@ -320,15 +323,15 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
               <option value="custom">Custom</option>
             </select>
             {![5,15,30,45,60,90,120].includes(Number(form.billing_terms)) && form.billing_terms !== "custom" && (
-              <input type="number" value={form.billing_terms} onChange={e => set("billing_terms", e.target.value)} placeholder="Days" style={{ ...inputStyle, marginTop: 8 }} />
+              <input type="number" value={form.billing_terms} onChange={e => set("billing_terms", e.target.value)} placeholder="Days" style={{ ...iStyle, marginTop: 8 }} />
             )}
             {form.billing_terms === "custom" && (
-              <input type="number" value="" onChange={e => set("billing_terms", e.target.value)} placeholder="Days" style={{ ...inputStyle, marginTop: 8 }} />
+              <input type="number" value="" onChange={e => set("billing_terms", e.target.value)} placeholder="Days" style={{ ...iStyle, marginTop: 8 }} />
             )}
           </Field>
         </div>
         <div style={{ marginTop: 14 }}>
-          <button onClick={() => set("billing_same", !form.billing_same)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}>
+          <button onClick={() => editing && set("billing_same", !form.billing_same)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: editing ? "pointer" : "default", padding: "4px 0", opacity: editing ? 1 : 0.75 }}>
             <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${!form.billing_same ? C.teal : C.borderStrong}`, background: !form.billing_same ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
               {!form.billing_same && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
             </div>
@@ -337,13 +340,13 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           {!form.billing_same && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 24px", marginTop: 10, padding: "12px 14px", background: C.linen, borderRadius: 8, border: `1px solid ${C.border}` }}>
               <Field label="Billing Contact Name" wide>
-                <input type="text" value={form.billing_name} onChange={e => set("billing_name", e.target.value)} placeholder="Billing contact name" style={inputStyle} />
+                <input type="text" value={form.billing_name} onChange={e => set("billing_name", e.target.value)} placeholder="Billing contact name" style={iStyle} />
               </Field>
               <Field label="Billing Phone">
-                <input type="tel" value={form.billing_phone} onChange={e => set("billing_phone", e.target.value)} placeholder="Billing phone" style={inputStyle} />
+                <input type="tel" value={form.billing_phone} onChange={e => set("billing_phone", e.target.value)} placeholder="Billing phone" style={iStyle} />
               </Field>
               <Field label="Billing Email">
-                <input type="email" value={form.billing_email} onChange={e => set("billing_email", e.target.value)} placeholder="Billing email" style={inputStyle} />
+                <input type="email" value={form.billing_email} onChange={e => set("billing_email", e.target.value)} placeholder="Billing email" style={iStyle} />
               </Field>
             </div>
           )}
@@ -353,11 +356,11 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       {/* Address */}
       <Section title="Jobsite Address">
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <input type="text" value={form.jobsite_address} onChange={e => set("jobsite_address", e.target.value)} placeholder="Street Address" style={inputStyle} />
+          <input type="text" value={form.jobsite_address} onChange={e => set("jobsite_address", e.target.value)} placeholder="Street Address" style={iStyle} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 100px", gap: 8 }}>
-            <input placeholder="City" value={form.jobsite_city} onChange={e => set("jobsite_city", e.target.value)} style={inputStyle} />
-            <input placeholder="State" value={form.jobsite_state} onChange={e => set("jobsite_state", e.target.value)} style={inputStyle} maxLength={2} />
-            <input placeholder="Zip" value={form.jobsite_zip} onChange={e => set("jobsite_zip", e.target.value)} style={inputStyle} />
+            <input placeholder="City" value={form.jobsite_city} onChange={e => set("jobsite_city", e.target.value)} style={iStyle} />
+            <input placeholder="State" value={form.jobsite_state} onChange={e => set("jobsite_state", e.target.value)} style={iStyle} maxLength={2} />
+            <input placeholder="Zip" value={form.jobsite_zip} onChange={e => set("jobsite_zip", e.target.value)} style={iStyle} />
           </div>
         </div>
       </Section>
@@ -369,7 +372,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           onChange={e => set("notes", e.target.value)}
           rows={4}
           placeholder="Add notes…"
-          style={{ ...inputStyle, resize: "vertical" }}
+          style={{ ...iStyle, resize: "vertical" }}
         />
       </Section>
 
@@ -377,8 +380,8 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       {workTypes?.length > 0 && (
         <div style={{ marginBottom: 24, position: "relative" }} ref={wtDropRef}>
           <div style={labelStyle}>Work Types</div>
-          <button type="button" onClick={() => setWtDropOpen(p => !p)}
-            style={{ ...inputStyle, textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <button type="button" onClick={() => editing && setWtDropOpen(p => !p)}
+            style={{ ...iStyle, textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ color: selectedWorkTypes.length ? C.textBody : C.textFaint, fontFamily: F.ui, fontSize: 13 }}>
               {selectedWorkTypes.length ? `${selectedWorkTypes.length} selected` : "Select work types…"}
             </span>
@@ -510,17 +513,22 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       )}
 
       {/* Save */}
-      {error && <div style={{ color: C.red, fontSize: 13, fontFamily: F.ui, marginBottom: 10 }}>{error}</div>}
-      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          style={{ background: C.teal, border: "none", borderRadius: 8, padding: "10px 28px", color: C.dark, fontWeight: 800, fontSize: 14, cursor: saving ? "not-allowed" : "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", opacity: saving ? 0.6 : 1 }}
-        >
-          {saving ? "Saving…" : "Save Changes"}
-        </button>
-        {saved && <span style={{ color: "#4ade80", fontSize: 13, fontFamily: F.ui, fontWeight: 600 }}>✓ Saved</span>}
-      </div>
+      {editing && (
+        <>
+          {error && <div style={{ color: C.red, fontSize: 13, fontFamily: F.ui, marginBottom: 10 }}>{error}</div>}
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <button
+              onClick={async () => { await handleSave(); setEditing(false); }}
+              disabled={saving}
+              style={{ background: C.teal, border: "none", borderRadius: 8, padding: "10px 28px", color: C.dark, fontWeight: 800, fontSize: 14, cursor: saving ? "not-allowed" : "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", opacity: saving ? 0.6 : 1 }}
+            >
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
+            <Btn sz="sm" v="ghost" onClick={() => setEditing(false)}>Cancel</Btn>
+            {saved && <span style={{ color: "#4ade80", fontSize: 13, fontFamily: F.ui, fontWeight: 600 }}>✓ Saved</span>}
+          </div>
+        </>
+      )}
 
     </div>
   );

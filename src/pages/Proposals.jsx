@@ -756,7 +756,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                     <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, position: "relative" }}>
                       <div style={{ fontSize: 11, color: wtc.locked ? C.green : C.amber, fontWeight: 700, fontFamily: F.ui }}>{wtc.locked ? "🔒 Locked" : "⏳ In Progress"}</div>
                       <button onClick={() => setExpandedWtc(expandedWtc === `progress-${wtc.id}` ? null : `progress-${wtc.id}`)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                        <span style={{ fontSize: 12, fontWeight: 800, color: pct === 100 ? C.green : C.teal, fontFamily: F.display, textDecoration: "underline", textDecorationStyle: "dotted" }}>{pct}%</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: pct === 100 ? C.green : C.teal, fontFamily: F.display, background: C.dark, borderRadius: 4, padding: "2px 8px" }}>{pct}%</span>
                       </button>
                       {expandedWtc === `progress-${wtc.id}` && (
                         <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, background: C.dark, borderRadius: 10, padding: "14px 18px", boxShadow: "0 8px 32px rgba(0,0,0,0.4)", zIndex: 100, width: 220, textAlign: "left" }}>

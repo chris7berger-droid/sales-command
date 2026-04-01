@@ -231,7 +231,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   }
 
   const sc = stageColor(form.stage);
-  const iStyle = { ...iStyle, ...(editing ? {} : { opacity: 0.75, pointerEvents: "none" }) };
+  const iStyle = { ...inputStyle, ...(editing ? {} : { opacity: 0.75, pointerEvents: "none" }) };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>

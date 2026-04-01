@@ -1042,7 +1042,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
       {showModal && (
         <NewProposalModal
           onClose={() => { setShowModal(false); setPreselectedJob(null); }}
-          onCreated={(newProposal) => { setShowModal(false); setPreselectedJob(null); setSel(newProposal); }}
+          onCreated={(newProposal) => { setShowModal(false); setPreselectedJob(null); setSel(newProposal); load(); }}
           preselectedJob={preselectedJob}
         />
       )}

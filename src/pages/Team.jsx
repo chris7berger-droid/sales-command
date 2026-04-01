@@ -64,14 +64,14 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName }) {
       memberId = inserted.id;
     }
     if (sendInvite) {
-      await sendInviteEmail(form.email, form.name, memberId);
+      await sendInviteEmail(form.email, form.name, memberId, !editing);
     } else {
       setSaving(false);
       onSaved();
     }
   };
 
-  const sendInviteEmail = async (email, name, teamMemberId) => {
+  const sendInviteEmail = async (email, name, teamMemberId, isNew = false) => {
     setInviting(true);
     setError("");
     // Mark as not onboarded so they see the welcome screen on first login
@@ -84,6 +84,8 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName }) {
     if (fnErr || data?.error) {
       const msg = data?.error || fnErr?.message || "Failed to send invite";
       console.error("invite-user error:", { fnErr, data });
+      // Roll back the inserted row if this was a new member
+      if (isNew) await supabase.from("team_members").delete().eq("id", teamMemberId);
       setError(msg);
       return;
     }
@@ -211,7 +213,12 @@ export default function Team({ teamMember }) {
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 800, fontSize: 15, color: C.textHead, fontFamily: F.display, letterSpacing: "0.03em" }}>{m.name}</div>
-          <Pill label={m.role} cm={ROLE_C} />
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <Pill label={m.role} cm={ROLE_C} />
+            {!m.auth_id && m.active !== false && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.amber, background: "rgba(245,158,11,0.1)", border: `1px solid rgba(245,158,11,0.25)`, borderRadius: 4, padding: "2px 6px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Needs Invite</span>
+            )}
+          </div>
         </div>
         <button onClick={() => setModal(m)}
           style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: C.textFaint, cursor: "pointer", fontFamily: F.ui }}

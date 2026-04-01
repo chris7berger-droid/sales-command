@@ -5,9 +5,27 @@ import { SalesCommandMark } from "./Logo";
 
 export default function WelcomeScreen({ teamMember, onComplete }) {
   const [loading, setLoading] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
 
   const handleGetStarted = async () => {
+    setError("");
+    if (!password || password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
     setLoading(true);
+    const { error: pwErr } = await supabase.auth.updateUser({ password });
+    if (pwErr) {
+      setError(pwErr.message);
+      setLoading(false);
+      return;
+    }
     await supabase
       .from("team_members")
       .update({ onboarded: true })
@@ -124,10 +142,56 @@ export default function WelcomeScreen({ teamMember, onComplete }) {
             </div>
           </div>
 
+          {/* Create password */}
+          <div style={{
+            background: C.darkRaised,
+            border: `1px solid ${C.darkBorder}`,
+            borderRadius: 14,
+            padding: "24px 28px",
+            marginTop: 18,
+            textAlign: "left",
+          }}>
+            <div style={{
+              fontSize: 14,
+              fontWeight: 700,
+              color: C.teal,
+              fontFamily: F.display,
+              letterSpacing: "0.03em",
+              marginBottom: 16,
+            }}>
+              Create Your Password
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6, fontFamily: F.ui }}>Password</div>
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: `1.5px solid ${C.darkBorder}`, background: C.dark, fontSize: 14, color: "#fff", outline: "none", boxSizing: "border-box", fontFamily: F.ui }}
+                onFocus={e => e.target.style.borderColor = C.teal}
+                onBlur={e => e.target.style.borderColor = C.darkBorder}
+              />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6, fontFamily: F.ui }}>Confirm Password</div>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: `1.5px solid ${C.darkBorder}`, background: C.dark, fontSize: 14, color: "#fff", outline: "none", boxSizing: "border-box", fontFamily: F.ui }}
+                onFocus={e => e.target.style.borderColor = C.teal}
+                onBlur={e => e.target.style.borderColor = C.darkBorder}
+              />
+            </div>
+            {error && (
+              <div style={{ fontSize: 12, color: C.red, fontFamily: F.ui, marginTop: 12 }}>{error}</div>
+            )}
+          </div>
+
           {/* Get Started button */}
           <button
             onClick={handleGetStarted}
-            disabled={loading}
+            disabled={loading || !password}
             style={{
               marginTop: 28,
               background: C.teal,

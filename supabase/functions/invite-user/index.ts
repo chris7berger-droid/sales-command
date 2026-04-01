@@ -62,9 +62,9 @@ serve(async (req) => {
         .eq("id", teamMemberId);
     }
 
-    // Generate password reset link so user can set their password
+    // Generate magic link — user gets signed in and the welcome screen handles password creation
     const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
-      type: "recovery",
+      type: "magiclink",
       email,
       options: { redirectTo: "https://www.scmybiz.com" },
     });

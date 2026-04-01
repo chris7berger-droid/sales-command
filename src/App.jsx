@@ -80,21 +80,8 @@ function SalesCommandApp() {
   const [session,    setSession]    = useState(undefined);
   const [teamMember, setTeamMember] = useState(undefined);
 
-  const [recoveryMode, setRecoveryMode] = useState(false);
-
   useEffect(() => {
-    // Register auth listener FIRST so we catch PASSWORD_RECOVERY before getSession
-    let recoveryDetected = false;
-
     const sub = onAuthStateChange(async (event, s) => {
-      if (event === "PASSWORD_RECOVERY") {
-        recoveryDetected = true;
-        setRecoveryMode(true);
-        setSession(null);
-        return;
-      }
-      // If we already detected recovery, ignore the SIGNED_IN that follows
-      if (recoveryDetected) return;
       setSession(s ?? null);
       if (s) {
         const member = await getCurrentTeamMember();
@@ -108,9 +95,12 @@ function SalesCommandApp() {
     if (!sessionStorage.getItem("sc_session_only") && localStorage.getItem("sc_remember") === "false") {
       supabase.auth.signOut().then(() => setSession(null));
     } else {
-      getSession().then(s => {
-        // Don't set session if recovery was detected by the listener
-        if (!recoveryDetected) setSession(s ?? null);
+      getSession().then(async (s) => {
+        setSession(s ?? null);
+        if (s) {
+          const member = await getCurrentTeamMember();
+          setTeamMember(member);
+        }
       });
     }
 
@@ -136,7 +126,7 @@ function SalesCommandApp() {
           <Route path="/sign/:token" element={<PublicSigningPage />} />
           <Route path="/invoice-paid" element={<InvoicePaidPage />} />
           <Route path="/qb/callback" element={<QBCallbackPage />} />
-          <Route path="*" element={recoveryMode ? <><style>{GLOBAL_CSS}</style><Login /></> : <LandingPage />} />
+          <Route path="*" element={<LandingPage />} />
         </Routes>
       </BrowserRouter>
     );

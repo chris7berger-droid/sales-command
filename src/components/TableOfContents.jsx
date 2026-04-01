@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { C, F } from "../lib/tokens";
 
 const BOOK = [
@@ -409,6 +409,9 @@ export function PageBadge({ pageNumber, onClick }) {
 export function TOCOverlay({ onClose, currentPageId, onNavigate }) {
   const [expanded, setExpanded] = useState(null);
   const [expandedFeature, setExpandedFeature] = useState(null); // "pg:featureIndex"
+  const currentRef = useCallback(node => {
+    if (node) setTimeout(() => node.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+  }, []);
 
   return (
     <div
@@ -464,7 +467,7 @@ export function TOCOverlay({ onClose, currentPageId, onNavigate }) {
                 const hasFeatures = p.features && p.features.length > 0;
 
                 return (
-                  <div key={p.pg}>
+                  <div key={p.pg} ref={isCurrent ? currentRef : undefined}>
                     {/* Page row */}
                     <div
                       style={{

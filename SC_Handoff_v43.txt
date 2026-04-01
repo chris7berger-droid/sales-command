@@ -1,0 +1,142 @@
+SC_Handoff_v43 — 2026-04-01
+============================================================
+Session: Claude Code / Opus 4.6 / ~/sales-command
+Repo: chris7berger-droid/sales-command (main branch)
+Deploys: Vercel (auto on push to main)
+============================================================
+
+WHAT GOT DONE THIS SESSION
+------------------------------------------------------------
+
+1. Invite Flow — End-to-End
+   - Invite emails now sent FROM the logged-in admin's email (e.g.
+     chris@hdspnv.com), not a hardcoded platform address
+   - App.jsx passes teamMember to Team page for sender identity
+   - Edge function (invite-user) accepts senderEmail/senderName
+   - Subject line: "Chris Berger invited you to Sales Command"
+   - Fallback sender: noreply@scmybiz.com
+   - All three Resend domains verified: hdspnv.com, scmybiz.com,
+     schmybiz.com
+
+2. Invite User Edge Function — Auth Linking Fix
+   - Fixed bug where existing auth users weren't getting their auth_id
+     linked to team_members (createUser fails silently for existing
+     users, now looks up the existing user's id)
+   - Switched from recovery link to magic link — user gets signed in
+     directly, password is set on the welcome screen
+
+3. Welcome Screen — Password Creation
+   - Welcome screen now includes "Create Your Password" fields
+     (password + confirm) that must be filled before "Get Started"
+   - This replaced the unreliable Supabase PASSWORD_RECOVERY event
+     approach — much simpler and more reliable
+   - No home screen flash — app shows LOADING… until teamMember data
+     resolves, then goes straight to welcome screen
+
+4. Team Page — Member Status Badges
+   - "Needs Invite" badge (amber on dark) — no auth_id
+   - "Invite Pending" badge (teal on dark) — has auth_id, not onboarded
+   - Normal active member — onboarded, no badge
+   - Uninvited members show amber notice instead of active checkbox
+   - Send Invite is primary button, Save Changes is ghost for uninvited
+
+5. Team Page — Duplicate Check
+   - Before adding/editing, checks if email, name, or phone already
+     exists on another team member
+   - Shows warning: "This email, name is already in use..."
+
+6. Team Page — Delete Cleans Up Auth
+   - New delete-user edge function removes both the auth user and
+     the team_members row (uses service role for auth.admin.deleteUser)
+   - If invite fails on "Add & Send Invite", the inserted row is
+     rolled back (no phantom entries)
+
+7. App Access Permissions (Multi-App Architecture)
+   - tenant_config.apps (jsonb) — which apps the tenant subscribes to
+   - team_members.apps (jsonb) — which apps each member can access
+   - SQL applied: ALTER TABLE tenant_config ADD COLUMN apps jsonb
+     DEFAULT '["sales"]'::jsonb
+   - SQL applied: ALTER TABLE team_members ADD COLUMN apps jsonb
+     DEFAULT '["sales"]'::jsonb
+   - HDSP updated to: apps = '["sales", "schedule"]'
+   - Team modal shows app access checkboxes when tenant has 2+ apps
+   - Member cards show app badges (Sales, Schedule, etc.) when 2+ apps
+   - APP_LABELS map: sales, schedule, field, ar
+
+8. Supabase CLI + Homebrew Installed
+   - Homebrew installed at /opt/homebrew/bin/brew
+   - Added to ~/.zprofile for PATH
+   - Supabase CLI available via npx (used for edge function deploys)
+   - Vercel CLI installed via brew, authenticated as chris7berger-droid
+
+9. Multi-Tenant Identity (Memory Saved)
+   - Sales Command (scmybiz.com) is the SaaS platform
+   - HDSP (hdspnv.com) is a customer/tenant
+   - Outbound emails come from the tenant admin, not the platform
+
+COMMITS THIS SESSION (oldest to newest)
+------------------------------------------------------------
+- 8694969  feat: invite emails sent from the admin who clicks Send Invite
+- d426dbc  feat: duplicate check before adding team members + delete cleans up auth user
+- 47c631e  fix: add Needs Invite badge on team cards + rollback row on failed invite
+- 899d517  fix: team card and modal polish for uninvited members
+- fc0b42f  feat: show Invite Pending badge for invited but not yet onboarded members
+- 244d7f4  fix: link auth_id when inviting an existing auth user
+- 8943090  fix: prevent auto-login on password recovery links
+- f2234df  fix: reliably catch PASSWORD_RECOVERY event before auto-login
+- cebc070  fix: prevent home screen flash before welcome screen
+- b3982f9  feat: password creation built into the welcome screen
+- e8aafe8  feat: app access permissions on team members
+
+All pushed to main, deployed via Vercel.
+Edge functions deployed: invite-user (v7), delete-user (v1).
+IMPORTANT: Edge functions must be deployed with --no-verify-jwt flag.
+
+KNOWN ISSUES / SESSION NOTES
+------------------------------------------------------------
+- Edge functions require --no-verify-jwt when deploying or they 401
+- Each app (Sales, Schedule, etc.) needs to gate login by checking
+  the member's apps array — not yet implemented
+- Chris's team_members.auth_id still needs to be linked (#4 from v42)
+- QB connection management still on Invoices page (not Settings yet)
+
+WHAT WAS IN PROGRESS / NOT FINISHED
+------------------------------------------------------------
+- App-level access gate (check member.apps on login per app)
+- Schedule Command needs its own WelcomeScreen, Team page, or shared
+  components to use the same invite/permission system
+
+PRIORITIES FOR NEXT SESSION (carried forward + new)
+------------------------------------------------------------
+1. App access gate — each app checks member.apps on login
+2. Share Team page / invite flow with Schedule Command
+3. Move QB connection management to Settings page
+4. Link Chris's team_members.auth_id to his auth user
+5. Update tagline in Settings
+6. QB pull-back cleanup (orphaned QB customers/jobs)
+7. Wire tenant_config into edge functions
+8. Field Command — next build
+
+ARCHITECTURE NOTES (updated)
+------------------------------------------------------------
+- Stack: React + Supabase + Vercel + GitHub
+- Supabase: RLS with tenant_id on all tables
+- Auth: Supabase Auth, invite via edge function + Resend (magic link)
+- Invite flow: Admin sends invite → magic link email from admin's
+  email → user clicks → welcome screen → set password → app
+- Multi-app: tenant_config.apps defines subscription, team_members.apps
+  defines per-member access. Apps: sales, schedule, field, ar
+- Anti-fragile: ErrorBoundary, TenantConfigProvider, useTenantConfig()
+- Design system: dark badge job numbers (teal on C.dark), Barlow
+  Condensed for display, Inter for UI, no white backgrounds
+- Edge functions: deploy with --no-verify-jwt always
+- The Directory: built-in instruction manual accessible from sidebar
+
+SESSION PROMPT FOR NEXT CLAUDE CODE SESSION
+------------------------------------------------------------
+Continue building Sales Command. Read SC_Handoff_v43.txt for context.
+Key new architecture: multi-app permissions via tenant_config.apps and
+team_members.apps (jsonb arrays). Next: implement app access gate on
+login, share invite flow with Schedule Command.
+============================================================
+End of SC_Handoff_v43

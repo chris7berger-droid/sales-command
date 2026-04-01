@@ -27,6 +27,7 @@ import QBCallbackPage from "./pages/QBCallbackPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import WelcomeScreen from "./components/WelcomeScreen";
 import { TenantConfigProvider } from "./lib/TenantConfigContext";
+import Import from "./pages/Import/Import";
 
 const NAV = [
   { id: "home",      label: "Home",       icon: "⌂"  },
@@ -175,6 +176,11 @@ function SalesCommandApp() {
         <Route path="/sign/:token" element={<PublicSigningPage />} />
         <Route path="/invoice-paid" element={<InvoicePaidPage />} />
         <Route path="/qb/callback" element={<QBCallbackPage />} />
+        <Route path="/import" element={
+          displayRole === "Admin"
+            ? <><style>{GLOBAL_CSS}</style><Import /></>
+            : <div style={{ minHeight: "100vh", background: C.linen, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.ui, color: C.textMuted }}>Not authorized</div>
+        } />
         <Route path="*" element={
           <>
             <AppShell

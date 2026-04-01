@@ -1,0 +1,128 @@
+SC_Handoff_v44 — 2026-04-01 (afternoon)
+============================================================
+Session: Claude Code / Opus 4.6 / ~/sales-command
+Repo: chris7berger-droid/sales-command (main branch)
+Deploys: Vercel (auto on push to main)
+============================================================
+
+WHAT GOT DONE THIS SESSION (continued from v43)
+------------------------------------------------------------
+
+1. Directory Auto-Scroll
+   - Opening The Directory now auto-scrolls to the "You're here" page
+
+2. Job Detail — Collapsible Sections + Edit Mode
+   - Reorganized into collapsible sections: Job Info (open by default),
+     Contact & Billing, Jobsite Address, Notes
+   - Added billing contact fields (name, phone, email) with "Is there
+     a separate billing contact?" checkbox
+   - All fields are read-only by default — must click Edit to unlock
+   - Save Changes + Cancel buttons appear in edit mode
+   - Delete only available in edit mode
+   - Customer fetch now includes billing_same/name/phone/email
+
+3. Billing Contact — Wizard + Detail
+   - Moved "Is there a separate billing contact?" from Contact Info
+     step to Customer step (step 3) in New Inquiry wizard
+   - Billing contact fields (name, phone, email) on both wizard and
+     job detail page
+   - "REQUIRED" badge now uses dark background per style rules
+
+4. Proposals List — Refresh Fix
+   - Proposals list now refreshes after creating a new proposal
+     (was showing stale data until navigating away and back)
+
+5. WTC Calculator Fixes
+   - End date picker uses start date as minimum (prevents invalid ranges)
+   - Prevailing wage syncs across all WTCs on the same proposal
+     (a job is PW or it isn't — toggling one WTC updates siblings)
+   - Closing WTC returns to proposal detail, not PDF screen
+
+6. WTC Progress Checklist (9 steps)
+   - Replaced misleading markup % with a 10-step → 9-step progress
+     indicator: work type selected, rates & dates set, labor entered,
+     materials or SOW, size/unit, locked, proposal built, sent, approved
+   - Percentage badge: teal on dark, Barlow Condensed 600, same
+     treatment as invoice number badges
+   - Clicking the percentage shows a popover checklist with completed
+     items checked in teal
+   - Travel removed from checklist (optional, not all jobs need it)
+
+7. WTC Cards — Enhanced Info
+   - Show tentative start/end dates with "Start" / "End" labels
+   - Progress badge uses unified dark badge treatment
+
+8. Proposal Summary — Financial Columns
+   - Summary now shows columns: Price, Cost, Margin, Profit per WTC
+   - Totals row at bottom with aggregated numbers
+   - Margin color-coded: green ≥30%, amber ≥15%, red <15%
+   - Fixed-width centered columns for clean alignment
+   - New calcWtcBreakdown() helper in src/lib/calc.js
+   - Proposal Activity timeline moved inside Summary block
+     (Created → Sent/Approved → Signed, no more separate section)
+   - Created/Status rows remain below the financial table
+
+COMMITS THIS SESSION (since v43, oldest to newest)
+------------------------------------------------------------
+- d7bccc9  feat: Directory auto-scrolls to current page on open
+- 69440bd  fix: REQUIRED badge uses dark background per style rules
+- 5f51ac5  fix: reword billing contact checkbox
+- 6d221e4  fix: move billing contact to Customer step
+- f4ef94b  feat: collapsible sections on job detail + billing contact
+- a0735d0  feat: job detail requires Edit button before changes
+- 885229d  fix: self-referencing iStyle variable crash
+- 1905f4a  fix: refresh proposals list after creating new proposal
+- 8f5231d  fix: WTC end date picker uses start date as minimum
+- bce697d  fix: sync prevailing wage across all WTCs
+- 3c4aa27  feat: WTC progress percentage is now a 10-step checklist
+- 040a525  feat: proposal summary shows each WTC with its amount
+- d2c80d4  feat: WTC cards show tentative start and end dates
+- ef859ff  fix: remove Travel from WTC progress checklist
+- f537358  fix: WTC progress percentage badge uses dark background
+- bed753f  fix: WTC card dates show Start and End labels
+- b106e49  fix: closing WTC returns to proposal detail
+- 4644dd9  fix: WTC progress badge uses same treatment as invoice badges
+- c41af41  feat: move Proposal Activity timeline into Summary block
+- 28849eb  feat: proposal summary shows Price, Cost, Margin, Profit
+- d941ad4  fix: summary columns use fixed widths and centered alignment
+
+All pushed to main, deployed via Vercel.
+
+KNOWN ISSUES / SESSION NOTES
+------------------------------------------------------------
+- Need to test invoice editing + QB sync end-to-end
+- Chris's team_members.auth_id still needs linking (#4 from v42)
+- QB connection management still on Invoices page (not Settings yet)
+- Edge functions require --no-verify-jwt when deploying
+
+WHAT WAS IN PROGRESS / NOT FINISHED
+------------------------------------------------------------
+- Invoice editing + QuickBooks sync testing
+- App access gate (check member.apps on login per app)
+- Schedule Command shared components
+
+PRIORITIES FOR NEXT SESSION
+------------------------------------------------------------
+1. Test invoice editing and QB sync end-to-end
+2. App access gate — each app checks member.apps on login
+3. Move QB connection management to Settings page
+4. Link Chris's team_members.auth_id to his auth user
+5. Share Team page / invite flow with Schedule Command
+6. QB pull-back cleanup (orphaned QB customers/jobs)
+7. Field Command — next build
+
+ARCHITECTURE NOTES (unchanged from v43)
+------------------------------------------------------------
+- Stack: React + Supabase + Vercel + GitHub
+- Multi-app: tenant_config.apps + team_members.apps (jsonb arrays)
+- Auth: Supabase Auth, invite via edge function + Resend (magic link)
+- Edge functions: deploy with --no-verify-jwt always
+- New: calcWtcBreakdown() in src/lib/calc.js for cost/margin analysis
+
+SESSION PROMPT FOR NEXT CLAUDE CODE SESSION
+------------------------------------------------------------
+Continue building Sales Command. Read SC_Handoff_v44.txt for context.
+Immediate task: test invoice editing and QuickBooks sync. Then app
+access gate and QB connection management move to Settings.
+============================================================
+End of SC_Handoff_v44

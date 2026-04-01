@@ -16,7 +16,7 @@ serve(async (req) => {
   }
 
   try {
-    const { email, name, teamMemberId } = await req.json();
+    const { email, name, teamMemberId, senderEmail, senderName } = await req.json();
 
     if (!email) {
       return new Response(JSON.stringify({ error: "Email is required" }), {
@@ -90,9 +90,9 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "estimates@hdspnv.com",
+        from: senderEmail || "noreply@scmybiz.com",
         to: email,
-        subject: "You're invited to Sales Command",
+        subject: `${senderName || "Your team"} invited you to Sales Command`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
             <div style="border-bottom: 4px solid #30cfac; padding-bottom: 16px; margin-bottom: 24px;">

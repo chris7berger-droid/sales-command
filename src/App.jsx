@@ -160,7 +160,7 @@ function SalesCommandApp() {
       case "invoices":  return <Invoices initialInvoiceId={initialInvoiceId} onClearInitialInvoice={() => setInitialInvoiceId(null)} setSubPage={setSubPage} />;
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
       case "customers": return <Customers setActive={setActive} setInitialProposal={setInitialProposal} setInitialInvoiceId={setInitialInvoiceId} initialCustomerId={initialCustomerId} onClearInitialCustomer={() => setInitialCustomerId(null)} setSubPage={setSubPage} />;
-      case "team":      return <Team />;
+      case "team":      return <Team teamMember={teamMember} />;
       case "settings":  return <Settings />;
       case "wtc":       return <Placeholder label="WTC" />;
       default:          return <Placeholder label={NAV.find(n => n.id === active)?.label || active} />;

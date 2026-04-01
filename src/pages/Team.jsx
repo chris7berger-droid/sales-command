@@ -9,7 +9,7 @@ import Btn from "../components/Btn";
 
 const ROLES = ["Admin", "Manager", "Sales Rep", "Office Staff", "Estimator", "Field"];
 
-function MemberModal({ member, onClose, onSaved }) {
+function MemberModal({ member, onClose, onSaved, senderEmail, senderName }) {
   const editing = !!member;
   const [form, setForm] = useState({
     name:   member?.name   || "",
@@ -61,7 +61,7 @@ function MemberModal({ member, onClose, onSaved }) {
     // Mark as not onboarded so they see the welcome screen on first login
     await supabase.from("team_members").update({ onboarded: false }).eq("id", teamMemberId);
     const { data, error: fnErr } = await supabase.functions.invoke("invite-user", {
-      body: { email, name, teamMemberId },
+      body: { email, name, teamMemberId, senderEmail, senderName },
     });
     setInviting(false);
     setSaving(false);
@@ -163,7 +163,7 @@ function MemberModal({ member, onClose, onSaved }) {
   );
 }
 
-export default function Team() {
+export default function Team({ teamMember }) {
   const [team,      setTeam]      = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [modal,     setModal]     = useState(null); // null | "add" | member object
@@ -233,6 +233,8 @@ export default function Team() {
           member={modal === "add" ? null : modal}
           onClose={() => setModal(null)}
           onSaved={handleSaved}
+          senderEmail={teamMember?.email}
+          senderName={teamMember?.name}
         />
       )}
     </div>

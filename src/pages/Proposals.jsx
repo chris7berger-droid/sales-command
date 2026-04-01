@@ -926,7 +926,19 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
 
           <div style={{ background: C.dark, border: `1px solid ${C.tealBorder}`, borderRadius: 10, padding: 20 }}>
             <div style={{ fontWeight: 800, fontSize: 12.5, color: C.teal, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>Summary</div>
-            {[["Customer", p.customer], ["Total", fmt$(wtcs.length ? wtcs.reduce((s, w) => s + calcWtcPrice(w), 0) : p.total)], ["Created", fmtD(p.created_at?.slice(0,10))], ["Status", p.status]].map(([k, val]) => (
+            {[["Customer", p.customer]].map(([k, val]) => (
+              <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
+                <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F.ui }}>{k}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui }}>{val}</span>
+              </div>
+            ))}
+            {wtcs.map((wtc, i) => (
+              <div key={`wtc-${wtc.id}`} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
+                <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F.ui }}>WTC {i + 1} — {wtc.work_types?.name || "Unnamed"}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui }}>{fmt$(calcWtcPrice(wtc))}</span>
+              </div>
+            ))}
+            {[["Total", fmt$(wtcs.length ? wtcs.reduce((s, w) => s + calcWtcPrice(w), 0) : p.total)], ["Created", fmtD(p.created_at?.slice(0,10))], ["Status", p.status]].map(([k, val]) => (
               <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
                 <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F.ui }}>{k}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui }}>{val}</span>

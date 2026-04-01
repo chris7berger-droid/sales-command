@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fmt$, fmtD } from "../lib/utils";
-import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice } from "../lib/calc";
+import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcWtcBreakdown } from "../lib/calc";
 import { PROP_C } from "../lib/mockData";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 import WTCCalculator from "./WTCCalculator";
@@ -862,13 +862,42 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui }}>{val}</span>
               </div>
             ))}
-            {wtcs.map((wtc, i) => (
-              <div key={`wtc-${wtc.id}`} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
-                <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F.ui }}>WTC {i + 1} — {wtc.work_types?.name || "Unnamed"}</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui }}>{fmt$(calcWtcPrice(wtc))}</span>
-              </div>
-            ))}
-            {[["Total", fmt$(wtcs.length ? wtcs.reduce((s, w) => s + calcWtcPrice(w), 0) : p.total)], ["Created", fmtD(p.created_at?.slice(0,10))], ["Status", p.status]].map(([k, val]) => (
+            {wtcs.length > 0 && (() => {
+              const breakdowns = wtcs.map(w => ({ ...calcWtcBreakdown(w), name: w.work_types?.name || "Unnamed" }));
+              const totals = breakdowns.reduce((a, b) => ({ price: a.price + b.price, cost: a.cost + b.cost, profit: a.profit + b.profit }), { price: 0, cost: 0, profit: 0 });
+              totals.margin = totals.price > 0 ? (totals.profit / totals.price) * 100 : 0;
+              const hdr = { fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "right" };
+              const cell = { fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui, textAlign: "right" };
+              const lbl = { fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F.ui };
+              return (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "0 14px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
+                    <span style={hdr} />
+                    <span style={hdr}>Price</span>
+                    <span style={hdr}>Cost</span>
+                    <span style={hdr}>Margin</span>
+                    <span style={hdr}>Profit</span>
+                  </div>
+                  {breakdowns.map((b, i) => (
+                    <div key={`wtc-s-${i}`} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "0 14px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
+                      <span style={lbl}>WTC {i + 1} — {b.name}</span>
+                      <span style={cell}>{fmt$(b.price)}</span>
+                      <span style={cell}>{fmt$(b.cost)}</span>
+                      <span style={{ ...cell, color: b.margin >= 30 ? C.green : b.margin >= 15 ? C.amber : C.red }}>{b.margin.toFixed(1)}%</span>
+                      <span style={{ ...cell, color: b.profit >= 0 ? C.green : C.red }}>{fmt$(b.profit)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "0 14px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
+                    <span style={{ ...lbl, fontWeight: 700, color: "rgba(255,255,255,0.6)" }}>Total</span>
+                    <span style={{ ...cell, fontWeight: 800 }}>{fmt$(totals.price)}</span>
+                    <span style={{ ...cell, fontWeight: 800 }}>{fmt$(totals.cost)}</span>
+                    <span style={{ ...cell, fontWeight: 800, color: totals.margin >= 30 ? C.green : totals.margin >= 15 ? C.amber : C.red }}>{totals.margin.toFixed(1)}%</span>
+                    <span style={{ ...cell, fontWeight: 800, color: totals.profit >= 0 ? C.green : C.red }}>{fmt$(totals.profit)}</span>
+                  </div>
+                </>
+              );
+            })()}
+            {[["Created", fmtD(p.created_at?.slice(0,10))], ["Status", p.status]].map(([k, val]) => (
               <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
                 <span style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F.ui }}>{k}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui }}>{val}</span>

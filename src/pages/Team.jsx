@@ -223,6 +223,9 @@ export default function Team({ teamMember }) {
             {!m.auth_id && m.active !== false && (
               <span style={{ fontSize: 10, fontWeight: 700, color: C.amber, background: C.dark, borderRadius: 4, padding: "2px 8px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Needs Invite</span>
             )}
+            {m.auth_id && m.onboarded === false && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 4, padding: "2px 8px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Invite Pending</span>
+            )}
           </div>
         </div>
         <button onClick={() => setModal(m)}

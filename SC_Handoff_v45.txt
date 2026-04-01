@@ -1,0 +1,84 @@
+SC_Handoff_v45 — 2026-04-01 (evening)
+============================================================
+Session: Claude Code / Opus 4.6 / ~/sales-command
+Repo: chris7berger-droid/sales-command (main branch)
+Deploys: Vercel (auto on push to main)
+============================================================
+
+WHAT GOT DONE THIS SESSION (continued from v44)
+------------------------------------------------------------
+
+1. QuickBooks Integration Card on Settings Page
+   - Live connection status check via qb-auth edge function
+   - Shows Connected (green badge) or Disconnected (red badge)
+   - Realm ID displayed when connected
+   - Connect / Reconnect button with OAuth URL
+   - Replaces old placeholder text
+
+2. All Outbound Emails — Sender Fix
+   - send-proposal: uses repEmail (sales rep's email from team_members)
+   - send-invoice: now receives senderEmail from teamMember prop
+   - invite-user: already fixed earlier in session
+   - No more hardcoded estimates@hdspnv.com in any edge function
+   - Deployed: send-proposal, send-invoice (--no-verify-jwt)
+
+3. Public Signing Page — Multi-WTC Fix
+   - Each WTC now renders in its own card with Work Type header
+   - Individual WTC totals shown when multiple WTCs exist
+   - Was previously combining all scopes into one flat block
+
+4. Proposal Pull-Back Guards
+   - Block pull-back when invoices are linked (same check as delete)
+   - Pull-back now clears sent_at and sent_to_email so activity
+     timeline doesn't show stale "Sent" / "Awaiting Signature"
+   - Send Proposal button hidden unless ALL WTCs are locked
+
+5. PDF Modal Close Fix
+   - Closing PDF modal now returns to proposal detail (not list)
+   - setShowPDF(false) runs before async data refresh
+   - Stable key prevents unnecessary remounts
+
+COMMITS THIS SESSION (since v44, oldest to newest)
+------------------------------------------------------------
+- a0002e4  feat: QuickBooks integration card on Settings page
+- c1e69eb  fix: block proposal pull-back when invoices are linked
+- bf8edbe  fix: all outbound emails sent from the logged-in user's email
+- 6eab260  fix: public signing page shows each WTC separately with total
+- 591db04  fix: pull-back clears sent_at + block Send when WTCs unlocked
+- 00367ef  fix: closing PDF modal returns to proposal detail immediately
+
+All pushed to main, deployed via Vercel.
+Edge functions deployed: send-proposal (v19), send-invoice (v17).
+
+KNOWN ISSUES / SESSION NOTES
+------------------------------------------------------------
+- If a proposal was pulled back BEFORE the sent_at fix, you need
+  to manually clear sent_at in the DB:
+  UPDATE proposals SET sent_at = NULL, sent_to_email = NULL
+  WHERE status = 'Draft' AND sent_at IS NOT NULL;
+- Edge functions require --no-verify-jwt when deploying
+
+WHAT WAS IN PROGRESS / NOT FINISHED
+------------------------------------------------------------
+- Invoice editing + QuickBooks sync testing (not started)
+- App access gate (check member.apps on login per app)
+- Chris's team_members.auth_id still needs linking
+- Schedule Command shared components
+
+PRIORITIES FOR NEXT SESSION
+------------------------------------------------------------
+1. Test invoice editing and QB sync end-to-end
+2. App access gate — each app checks member.apps on login
+3. Link Chris's team_members.auth_id to his auth user
+4. Share Team page / invite flow with Schedule Command
+5. QB pull-back cleanup (orphaned QB customers/jobs)
+6. Field Command — next build
+
+SESSION PROMPT FOR NEXT CLAUDE CODE SESSION
+------------------------------------------------------------
+Continue building Sales Command. Read SC_Handoff_v45.txt for context.
+Immediate task: test invoice editing and QuickBooks sync end-to-end.
+All email sender fixes are deployed. Public signing page now shows
+multi-WTC proposals correctly. Pull-back guards in place.
+============================================================
+End of SC_Handoff_v45

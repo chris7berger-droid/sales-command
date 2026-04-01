@@ -749,7 +749,9 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                       </div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginTop: 4 }}>{fmt$(price)}</div>
                       {wtc.start_date && wtc.end_date && (
-                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontFamily: F.ui }}>{fmtD(wtc.start_date)} — {fmtD(wtc.end_date)}</div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontFamily: F.ui }}>
+                          <span style={{ color: C.textFaint }}>Start</span> {fmtD(wtc.start_date)} — <span style={{ color: C.textFaint }}>End</span> {fmtD(wtc.end_date)}
+                        </div>
                       )}
                       <div style={{ fontSize: 11, color: C.textFaint, marginTop: 2, fontFamily: F.ui }}>Created {fmtD(wtc.created_at?.slice(0,10))}</div>
                     </div>

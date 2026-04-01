@@ -1706,6 +1706,13 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       const { data: newRow } = await supabase.from("proposal_wtc").insert(payload).select().single();
       if (newRow?.id) setWtcId(newRow.id);
     }
+    // Sync prevailing_wage to all sibling WTCs on this proposal
+    if (proposalId) {
+      await supabase.from("proposal_wtc")
+        .update({ prevailing_wage: bidding.prevailing_wage })
+        .eq("proposal_id", proposalId)
+        .neq("id", wtcId);
+    }
     // Update proposals.total by summing ALL WTCs for this proposal
     if (proposalId) {
       const { data: allWtcs } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", proposalId);

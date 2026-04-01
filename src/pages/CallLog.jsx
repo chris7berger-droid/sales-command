@@ -321,6 +321,22 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               ) : (
                 <input placeholder="Business Name" value={data.businessName} onChange={e => set("businessName", e.target.value)} style={inputStyle} />
               )}
+              <button onClick={() => set("billingSame", !data.billingSame)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0", marginTop: 4 }}>
+                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${!data.billingSame ? C.teal : C.borderStrong}`, background: !data.billingSame ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {!data.billingSame && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
+                </div>
+                <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Is there a separate billing contact?</span>
+              </button>
+              {!data.billingSame && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "12px 14px", background: C.linen, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui }}>Billing Contact</div>
+                  <input placeholder="Billing Contact Name" value={data.billingName} onChange={e => set("billingName", e.target.value)} style={inputStyle} />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <input placeholder="Billing Phone" value={data.billingPhone} onChange={e => set("billingPhone", e.target.value)} style={inputStyle} />
+                    <input placeholder="Billing Email" value={data.billingEmail} onChange={e => set("billingEmail", e.target.value)} style={inputStyle} />
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <StepFooter step={step} back={back} error={error} onNext={() => {
@@ -343,22 +359,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               <input placeholder="Phone" value={data.contactPhone} onChange={e => set("contactPhone", e.target.value)} style={inputStyle} />
               <input placeholder="Email" value={data.contactEmail} onChange={e => set("contactEmail", e.target.value)} style={inputStyle} />
             </div>
-            <button onClick={() => set("billingSame", !data.billingSame)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}>
-              <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${!data.billingSame ? C.teal : C.borderStrong}`, background: !data.billingSame ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {!data.billingSame && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
-              </div>
-              <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Is there a separate billing contact?</span>
-            </button>
-            {!data.billingSame && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "12px 14px", background: C.linen, borderRadius: 8, border: `1px solid ${C.border}` }}>
-                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui }}>Billing Contact</div>
-                <input placeholder="Billing Contact Name" value={data.billingName} onChange={e => set("billingName", e.target.value)} style={inputStyle} />
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <input placeholder="Billing Phone" value={data.billingPhone} onChange={e => set("billingPhone", e.target.value)} style={inputStyle} />
-                  <input placeholder="Billing Email" value={data.billingEmail} onChange={e => set("billingEmail", e.target.value)} style={inputStyle} />
-                </div>
-              </div>
-            )}
             <div style={{ marginTop: 6 }}>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, marginBottom: 4 }}>Billing Terms</div>
               <select value={data.billingTerms} onChange={e => set("billingTerms", e.target.value)} style={inputStyle}>

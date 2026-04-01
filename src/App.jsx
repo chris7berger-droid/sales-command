@@ -78,7 +78,7 @@ function SalesCommandApp() {
   const [showTOC,    setShowTOC]    = useState(false);
   const [subPage,    setSubPage]    = useState(null);
   const [session,    setSession]    = useState(undefined);
-  const [teamMember, setTeamMember] = useState(null);
+  const [teamMember, setTeamMember] = useState(undefined);
 
   const [recoveryMode, setRecoveryMode] = useState(false);
 
@@ -139,6 +139,15 @@ function SalesCommandApp() {
           <Route path="*" element={recoveryMode ? <><style>{GLOBAL_CSS}</style><Login /></> : <LandingPage />} />
         </Routes>
       </BrowserRouter>
+    );
+  }
+
+  // Wait for team member data before rendering the app
+  if (teamMember === undefined) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0f0f14", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Mono', monospace", fontSize: 13, color: "#4a4a6a", letterSpacing: "0.1em" }}>
+        LOADING…
+      </div>
     );
   }
 

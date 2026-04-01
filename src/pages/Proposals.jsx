@@ -832,80 +832,6 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             <Btn sz="sm" v="ghost" onClick={() => { setActiveWtcId(null); setShowWTC(true); }}>+ Add Work Type</Btn>
           </div>
 
-          <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
-            <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>Proposal Activity</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-              {/* Created */}
-              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: C.teal, flexShrink: 0 }} />
-                  <div style={{ width: 2, flex: 1, background: C.border, minHeight: 24 }} />
-                </div>
-                <div style={{ paddingBottom: 16 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Created</div>
-                  <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{p.created_at ? fmtD(p.created_at.slice(0, 10)) : "—"}</div>
-                </div>
-              </div>
-              {/* Sent or Internally Approved — show one or the other */}
-              {p.sent_at ? (
-                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: C.teal, flexShrink: 0 }} />
-                    <div style={{ width: 2, flex: 1, background: C.border, minHeight: 24 }} />
-                  </div>
-                  <div style={{ paddingBottom: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Sent</div>
-                    <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{fmtD(p.sent_at.slice(0, 10))}</div>
-                    {(p.call_log?.customer_name || p.customer) && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>To: {p.call_log?.customer_name || p.customer}</div>}
-                    {p.sent_to_email && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>{p.sent_to_email}</div>}
-                  </div>
-                </div>
-              ) : p.approved_at ? (
-                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: C.green, flexShrink: 0 }} />
-                    <div style={{ width: 2, flex: 1, background: C.border, minHeight: 24 }} />
-                  </div>
-                  <div style={{ paddingBottom: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Internally Approved</div>
-                    <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{fmtD(p.approved_at.slice(0, 10))}</div>
-                    {p.approved_by && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>By: {p.approved_by}</div>}
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: C.border, flexShrink: 0 }} />
-                    <div style={{ width: 2, flex: 1, background: C.border, minHeight: 24 }} />
-                  </div>
-                  <div style={{ paddingBottom: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Sent / Approved</div>
-                    <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui }}>—</div>
-                  </div>
-                </div>
-              )}
-              {/* Signed */}
-              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: signatureInfo?.signed_at ? C.green : C.border, flexShrink: 0 }} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Signed</div>
-                  {signatureInfo?.signed_at ? (
-                    <>
-                      <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{fmtD(signatureInfo.signed_at.slice(0, 10))}</div>
-                      <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>By: {signatureInfo.signer_name || p.customer || "—"}</div>
-                      <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>{signatureInfo.signer_email || p.call_log?.customers?.contact_email || ""}</div>
-                    </>
-                  ) : p.sent_at ? (
-                    <div style={{ fontSize: 11.5, color: C.red, fontWeight: 700, fontFamily: F.ui }}>
-                      {Math.max(0, Math.round((new Date() - new Date(p.sent_at)) / 86400000))}d awaiting signature
-                    </div>
-                  ) : <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui }}>—</div>}
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -948,6 +874,35 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui }}>{val}</span>
               </div>
             ))}
+            {/* Activity Timeline */}
+            <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${C.darkBorder}` }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: F.display, marginBottom: 10 }}>Activity</div>
+              {[
+                { label: "Created", date: p.created_at ? fmtD(p.created_at.slice(0, 10)) : null, done: true },
+                p.sent_at
+                  ? { label: "Sent", date: fmtD(p.sent_at.slice(0, 10)), detail: p.call_log?.customer_name || p.customer, done: true }
+                  : p.approved_at
+                    ? { label: "Internally Approved", date: fmtD(p.approved_at.slice(0, 10)), detail: p.approved_by, done: true }
+                    : { label: "Sent / Approved", done: false },
+                signatureInfo?.signed_at
+                  ? { label: "Signed", date: fmtD(signatureInfo.signed_at.slice(0, 10)), detail: signatureInfo.signer_name || p.customer, done: true }
+                  : p.sent_at
+                    ? { label: "Awaiting Signature", detail: `${Math.max(0, Math.round((new Date() - new Date(p.sent_at)) / 86400000))}d`, done: false, warn: true }
+                    : { label: "Signed", done: false },
+              ].map((item, i, arr) => (
+                <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 14 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: item.done ? C.teal : item.warn ? C.amber : "rgba(255,255,255,0.2)", flexShrink: 0, marginTop: 2 }} />
+                    {i < arr.length - 1 && <div style={{ width: 1.5, flex: 1, background: "rgba(255,255,255,0.1)", minHeight: 16 }} />}
+                  </div>
+                  <div style={{ paddingBottom: 8 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 600, color: item.done ? "#fff" : item.warn ? C.amber : "rgba(255,255,255,0.35)", fontFamily: F.ui }}>{item.label}</div>
+                    {item.date && <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", fontFamily: F.ui }}>{item.date}</div>}
+                    {item.detail && <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.3)", fontFamily: F.ui }}>{item.detail}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
             {p.status === "Sold" && (
               <div style={{ marginTop: 14 }}>
                 {signedPdfUrl && !p.internal_approval ? (

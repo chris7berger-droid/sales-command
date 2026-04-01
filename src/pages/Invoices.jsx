@@ -356,6 +356,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
           jobName: invoice.job_name || "",
           jobId: invoice.job_id || "",
           dueDate: invoice.due_date || null,
+          senderEmail: teamMember?.email || "noreply@scmybiz.com",
         },
       });
       if (fnError) throw new Error(fnError.message || "Send failed.");
@@ -912,7 +913,7 @@ const QB_CLIENT_ID = "ABg3H5TIV6XdDtSWlJXDC3rM7u8zKI3k5yHlbUaIrIiYNiUmc7";
 const QB_REDIRECT_URI = "https://www.scmybiz.com/qb/callback";
 const QB_AUTH_URL = `https://appcenter.intuit.com/connect/oauth2?client_id=${QB_CLIENT_ID}&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}&response_type=code&scope=com.intuit.quickbooks.accounting&state=salescommand`;
 
-export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setSubPage }) {
+export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setSubPage, teamMember }) {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);

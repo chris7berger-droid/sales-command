@@ -15,7 +15,7 @@ serve(async (req) => {
   }
 
   try {
-    const { invoiceId, customerEmail, customerName, amount, jobName, jobId, dueDate } = await req.json();
+    const { invoiceId, customerEmail, customerName, amount, jobName, jobId, dueDate, senderEmail } = await req.json();
 
     console.log("send-invoice invoked", { invoiceId, customerEmail, amount, jobName });
 
@@ -95,7 +95,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "estimates@hdspnv.com",
+        from: senderEmail || "noreply@scmybiz.com",
         to: customerEmail,
         subject: `Invoice #${invoiceId} — ${jobName || "High Desert Surface Prep"}`,
         html: `

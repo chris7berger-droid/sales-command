@@ -40,7 +40,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "estimates@hdspnv.com",
+        from: repEmail || "noreply@scmybiz.com",
         to: customerEmail,
         subject: `Proposal Ready for Review — ${jobName}`,
         html: `
@@ -81,7 +81,7 @@ serve(async (req) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            from: "estimates@hdspnv.com",
+            from: repEmail || "noreply@scmybiz.com",
             to: repEmail,
             subject: `Proposal Sent — ${jobName}`,
             html: `

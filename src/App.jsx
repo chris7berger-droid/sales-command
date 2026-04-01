@@ -169,7 +169,7 @@ function SalesCommandApp() {
       case "dashboard": return <SalesDash displayName={displayName} displayRole={displayRole} />;
       case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} stageFilter={stageFilter} onClearStageFilter={() => setStageFilter(null)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} onNavigateProposal={id => { setInitialProposal({ openId: id }); setActive("proposals"); }} onNavigateInvoice={(id) => { setInitialInvoiceId(id); setActive("invoices"); }} onNavigateCustomer={custId => { setInitialCustomerId(custId); setActive("customers"); }} setSubPage={setSubPage} />;
       case "proposals": return <Proposals teamMember={teamMember} initialProposal={initialProposal} onClearInitial={() => setInitialProposal(null)} setSubPage={setSubPage} onNavigateInvoice={(id) => { setInitialInvoiceId(id); setActive("invoices"); }} />;
-      case "invoices":  return <Invoices initialInvoiceId={initialInvoiceId} onClearInitialInvoice={() => setInitialInvoiceId(null)} setSubPage={setSubPage} />;
+      case "invoices":  return <Invoices initialInvoiceId={initialInvoiceId} onClearInitialInvoice={() => setInitialInvoiceId(null)} setSubPage={setSubPage} teamMember={teamMember} />;
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
       case "customers": return <Customers setActive={setActive} setInitialProposal={setInitialProposal} setInitialInvoiceId={setInitialInvoiceId} initialCustomerId={initialCustomerId} onClearInitialCustomer={() => setInitialCustomerId(null)} setSubPage={setSubPage} />;
       case "team":      return <Team teamMember={teamMember} />;

@@ -43,7 +43,7 @@ const AddressBlock = ({ label, required, fields, set, sectionKey }) => (
   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
     <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, display: "flex", alignItems: "center", gap: 6 }}>
       {label}
-      {required && <span style={{ fontSize: 10, color: C.teal, background: "rgba(0,180,160,0.12)", padding: "1px 6px", borderRadius: 4, letterSpacing: "0.08em" }}>REQUIRED</span>}
+      {required && <span style={{ fontSize: 10, color: C.teal, background: C.dark, padding: "1px 6px", borderRadius: 4, letterSpacing: "0.08em" }}>REQUIRED</span>}
       {!required && label && <span style={{ fontSize: 10, color: C.textFaint, background: C.linen, padding: "1px 6px", borderRadius: 4, border: `1px solid ${C.border}`, letterSpacing: "0.08em" }}>OPTIONAL</span>}
     </div>
     <input placeholder="Street Address" value={fields.address} onChange={e => set(sectionKey + "Address", e.target.value)} style={inputStyle} />

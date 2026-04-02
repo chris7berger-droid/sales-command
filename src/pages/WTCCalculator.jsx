@@ -181,6 +181,7 @@ const MATERIALS_DB = [
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n || 0);
+const fmtDec = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 const pct = n => `${(n || 0).toFixed(1)}%`;
 
 // Calc helpers imported from ../lib/calc.js (single source of truth)
@@ -1052,7 +1053,7 @@ function SowTab({ data, onChange, locked, wtcMaterials }) {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 12 }}>
         {[
-          { label: `${unit || "Sqft"} Price`, value: fmt(sqftPrice) },
+          { label: `${unit || "Sqft"} Price`, value: fmtDec(sqftPrice) },
           { label: "Labor Cost",              value: fmt(labor.subtotal || 0) },
           { label: "Profit Margin",           value: pct(profitMargin) },
           { label: "Proposal Price",          value: fmt(proposalPrice), large: true },
@@ -1124,7 +1125,7 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
           <div style={{ marginTop: 12, background: T.gray50, borderRadius: 10, border: `1px solid ${T.gray200}`, padding: "12px 16px", display: "flex", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.gray400, letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 4 }}>{sow.unit || "Sqft"} Price</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: T.gray900 }}>{fmt(sqftPrice)}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: T.gray900 }}>{fmtDec(sqftPrice)}</div>
               <div style={{ fontSize: 11, color: T.gray400, marginTop: 6 }}>Profit margin: {pct(profitMargin)}</div>
             </div>
           </div>

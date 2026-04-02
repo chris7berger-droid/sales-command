@@ -138,6 +138,7 @@ export default function PublicSigningPage() {
       doc.text("SCOPE OF WORK", margin, y); y += 14;
       doc.setFontSize(10); doc.setFont("helvetica", "normal");
       doc.setTextColor(...dark);
+      const combinedSow = (wtc || []).map(w => (w.sales_sow || "").trim()).filter(Boolean).join("\n\n");
       const sowText = combinedSow || "No scope of work provided.";
       const sowLines = doc.splitTextToSize(sowText, contentW);
       sowLines.forEach(line => {

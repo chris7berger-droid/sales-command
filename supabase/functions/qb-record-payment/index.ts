@@ -137,6 +137,9 @@ serve(async (req) => {
     const qbPaymentId = result.Payment.Id;
     console.log("qb-record-payment: created QB payment ID:", qbPaymentId);
 
+    // Persist QB payment ID back to invoices table
+    await sb.from("invoices").update({ qb_payment_id: qbPaymentId }).eq("id", invoiceId);
+
     return new Response(JSON.stringify({ success: true, qbPaymentId }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,

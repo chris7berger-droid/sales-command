@@ -50,7 +50,7 @@ export function calcWtcBreakdown(wtc) {
     return s + base + tax + freight;
   }, 0);
   const trav = calcTravel(wtc.travel);
-  const totalPrice = labor.total + mats + trav - (wtc.discount || 0);
+  const totalPrice = Math.ceil(labor.total + mats + trav - (wtc.discount || 0));
   const totalCost = labor.subtotal + matsCost + trav;
   const profit = totalPrice - totalCost;
   const margin = totalPrice > 0 ? (profit / totalPrice) * 100 : 0;
@@ -70,5 +70,5 @@ export function calcWtcPrice(wtc) {
   });
   const mats = (wtc.materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
   const trav = calcTravel(wtc.travel);
-  return labor.total + mats + trav - (wtc.discount || 0);
+  return Math.ceil(labor.total + mats + trav - (wtc.discount || 0));
 }

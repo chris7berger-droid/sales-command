@@ -1040,7 +1040,7 @@ function SowTab({ data, onChange, locked, wtcMaterials }) {
   const travelTotal  = calcTravel(travel);
   const discountAmt  = discount.amount || 0;
   const subtotal     = laborTotal + matTotal + travelTotal;
-  const proposalPrice = subtotal - discountAmt;
+  const proposalPrice = Math.ceil(subtotal - discountAmt);
   const totalCost     = (labor.subtotal || 0) + matTotal + travelTotal;
   const profitDollars = proposalPrice - totalCost;
   const profitMargin  = proposalPrice > 0 ? (profitDollars / proposalPrice) * 100 : 0;
@@ -1281,7 +1281,7 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
   const { labor, materials, travel, discount, sow, proposalNumber, jobInfo = {} } = proposal;
   const matTotal      = (materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
   const travelTotal   = calcTravel(travel || {});
-  const proposalPrice = (labor.total || 0) + matTotal + travelTotal - ((discount || {}).amount || 0);
+  const proposalPrice = Math.ceil((labor.total || 0) + matTotal + travelTotal - ((discount || {}).amount || 0));
   const today         = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, address: "" });
@@ -1466,7 +1466,7 @@ function CustomerSigningPage({ proposal, onClose }) {
   const { labor, materials, travel, discount, sow } = proposal;
   const matTotal      = (materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
   const travelTotal   = Object.values(travel || {}).reduce((s, v) => s + (parseFloat(v) || 0), 0);
-  const proposalPrice = (labor.total || 0) + matTotal + travelTotal - ((discount || {}).amount || 0);
+  const proposalPrice = Math.ceil((labor.total || 0) + matTotal + travelTotal - ((discount || {}).amount || 0));
 
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email });
 

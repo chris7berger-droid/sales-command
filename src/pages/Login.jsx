@@ -20,12 +20,13 @@ export default function Login() {
   const [remember, setRemember] = useState(() => localStorage.getItem("sc_remember") !== "false")
 
   useEffect(() => {
+    // Only enter reset mode if the URL actually contains a recovery token
+    const hasRecoveryHash = window.location.hash.includes("type=recovery");
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY" && mode !== "reset") {
+      if (event === "PASSWORD_RECOVERY" && hasRecoveryHash) {
         setMode("reset")
       }
       if (event === "SIGNED_IN" && mode === "reset") {
-        // Password was set successfully, clear recovery state
         window.history.replaceState({}, "", window.location.pathname)
         setMode("login")
       }

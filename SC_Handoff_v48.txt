@@ -1,0 +1,78 @@
+SC_Handoff_v48 — 2026-04-02 (afternoon, terminal 2)
+============================================================
+Session: Claude Code / Opus 4.6 / ~/sales-command
+Repo: chris7berger-droid/sales-command (main branch)
+Deploys: Vercel (auto on push to main)
+============================================================
+
+WHAT GOT DONE THIS SESSION (continued from v47)
+------------------------------------------------------------
+
+1. WTC Calculator Print Feature
+   - Added "Print" button to the WTC header bar (next to Proposals/Close)
+   - Calls window.print() with a @media print stylesheet
+   - Print stylesheet hides all interactive UI (tabs, inputs, nav,
+     buttons) via [data-wtc-no-print] attribute
+   - Renders a hidden [data-wtc-print-only] section that becomes
+     visible only during print
+   - Clean table-based printout includes:
+     * Header: work type name, job number, customer, date
+     * Bidding info: burden rates, tax rate, PW rates if applicable,
+       size, start/end dates
+     * Labor breakdown: regular hours, OT, subtotal, markup, total
+     * Materials table: name, qty, unit price, tax%, freight, markup%,
+       row total + materials grand total
+     * Travel table: drive/fly/lodging/per diem (only rows with values)
+     * Discount line (if applicable, with reason)
+     * Summary totals: labor, materials, travel, discount, proposal
+       price, sqft price, profit margin, total cost
+   - Follows same data-*-no-print / @media print pattern used in
+     PublicSigningPage.jsx and Proposals.jsx PDF modal
+   - White background for print (allowed per CLAUDE.md style rules —
+     white is OK for PDF/print content)
+
+NOTE: A parallel terminal session was also running during this session,
+handling separate tasks (work type name display on proposals, customer
+contacts, data import tool column mapper, work_types duplicate cleanup).
+Those changes are tracked in their own commits and may have their own
+handoff doc.
+
+COMMITS THIS SESSION (this terminal only)
+------------------------------------------------------------
+- 1b19725  feat: add print button to WTC Calculator
+
+KNOWN ISSUES / SESSION NOTES
+------------------------------------------------------------
+- All pre-existing validation warnings (useRef() without initial value,
+  "use client" suggestions) are NOT from this session — they are
+  artifacts of the Vite/React app being validated against Next.js rules
+  by the hook. Not applicable to this project.
+- WTCCalculator still uses its own color system (T) instead of C from
+  tokens.js — noted in v47 audit, too risky to refactor while live
+- The print layout uses inline styles (consistent with rest of WTC)
+- Print layout computes its own totals using the same calc functions
+  (calcLabor, calcMaterialRow, calcTravel) for consistency
+
+WHAT WAS IN PROGRESS / NOT FINISHED
+------------------------------------------------------------
+- Work types duplicate cleanup (other terminal)
+- Joe's testing feedback (ongoing)
+- Invoice editing + QB sync end-to-end testing
+- App access gate (check member.apps on login per app)
+- Chris's team_members.auth_id still needs linking
+- Schedule Command shared components
+- QB pull-back cleanup (orphaned QB customers/jobs)
+- Manage materials/price list page for Settings
+- Data Import Tool (continued in other terminal)
+
+SESSION PROMPT FOR NEXT CLAUDE CODE SESSION
+------------------------------------------------------------
+Continue building Sales Command. Read SC_Handoff_v48.txt for context.
+WTC Calculator now has a print feature (print button in header, clean
+table layout for printouts). Parallel session handled work type names
+on proposals, customer contacts, data import column mapper, and DB
+duplicate cleanup — check their commits/handoff for details.
+Joe is actively testing — process his feedback first, then continue
+with priorities from v47.
+============================================================
+End of SC_Handoff_v48

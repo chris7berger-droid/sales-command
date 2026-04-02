@@ -220,7 +220,7 @@ export function classifyCustomerName(name) {
   });
 
   if (isBusiness) {
-    return { customer_type: "Business", first_name: "", last_name: "" };
+    return { customer_type: "Commercial", first_name: "", last_name: "" };
   }
 
   // Heuristic: if it looks like "First Last" (2-3 words, no business words), treat as residential
@@ -236,7 +236,7 @@ export function classifyCustomerName(name) {
     return { customer_type: "Residential", first_name: trimmed, last_name: "" };
   }
 
-  return { customer_type: "Business", first_name: "", last_name: "" };
+  return { customer_type: "Commercial", first_name: "", last_name: "" };
 }
 
 /**

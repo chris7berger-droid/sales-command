@@ -45,15 +45,18 @@ export default function PublicSigningPage() {
         .single();
 
       if (propErr || !prop) { setError("Proposal not found."); setLoading(false); return; }
+
+      // Fetch rep contact info for header
+      const salesName = prop.call_log?.sales_name;
+      if (salesName) {
+        const { data: rep } = await supabase.from("team_members").select("name, email, phone").eq("name", salesName).maybeSingle();
+        if (rep) setRepInfo(rep);
+      }
+
       if (prop.status === "Sold") { setSigned(true); setProposal(prop); setLoading(false); return; }
 
-      // If proposal is Draft (pulled back) or not in a signable state, block signing
+      // If proposal is Draft (pulled back), block signing
       if (prop.status === "Draft") {
-        const salesName = prop.call_log?.sales_name;
-        if (salesName) {
-          const { data: rep } = await supabase.from("team_members").select("name, email, phone").eq("name", salesName).maybeSingle();
-          if (rep) setRepInfo(rep);
-        }
         setPulledBack(true);
         setProposal(prop);
         setLoading(false);
@@ -306,8 +309,8 @@ export default function PublicSigningPage() {
               <div style={{ fontSize: 11, color: T.gray500, marginTop: 3 }}>{config.tagline}</div>
             </div>
             <div style={{ textAlign: "right", fontSize: 11, color: T.gray500, lineHeight: 1.7 }}>
-              {config.phone && <div>{config.phone}</div>}
-              {config.email && <div>{config.email}</div>}
+              <div>{repInfo?.phone || config.phone}</div>
+              <div>{repInfo?.email || config.email}</div>
               {config.website && <div>{config.website}</div>}
               {config.license_number && <div style={{ color: T.gray400 }}>{config.license_number}</div>}
             </div>

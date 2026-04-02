@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { C, F } from "../../lib/tokens";
-import { TARGET_FIELDS, autoMatch, transformValue, getMissingRequired } from "./importUtils";
+import { TARGET_FIELDS, autoMatch, transformValue, getMissingRequired, enrichCustomerRow } from "./importUtils";
 
 const CONFIDENCE_COLORS = {
   high:   { bg: "rgba(67,160,71,0.12)", border: "rgba(67,160,71,0.35)", dot: C.green,  label: "Auto-matched", hint: null },
@@ -43,20 +43,33 @@ export default function ColumnMapper({ fileData, dataType, mappings, onMappingsC
   const previewRow = useMemo(() => {
     if (!rows.length) return null;
     const row = rows[0];
-    const result = {};
+    const mapped = {};
     for (const [header, mapping] of Object.entries(mappings)) {
       if (!mapping.target) continue;
       const field = fields.find(f => f.key === mapping.target);
       if (!field) continue;
       const raw = row[header];
-      result[mapping.target] = {
-        raw: raw ?? "",
-        transformed: transformValue(raw, field.type),
-        label: field.label,
+      mapped[mapping.target] = transformValue(raw, field.type);
+    }
+
+    // Enrich with auto-detected fields (customer_type, first/last name)
+    const enriched = dataType === "customers" ? enrichCustomerRow(mapped, mappings) : mapped;
+
+    // Build display result
+    const result = {};
+    for (const [key, val] of Object.entries(enriched)) {
+      const field = fields.find(f => f.key === key);
+      const label = field?.label || key;
+      const wasAutoFilled = !(key in mapped) || (mapped[key] == null && val != null);
+      result[key] = {
+        raw: mapped[key] ?? "",
+        transformed: val ?? "",
+        label,
+        autoFilled: wasAutoFilled,
       };
     }
     return result;
-  }, [mappings, rows, fields]);
+  }, [mappings, rows, fields, dataType]);
 
   function handleTargetChange(header, targetKey) {
     onMappingsChange({
@@ -213,13 +226,22 @@ export default function ColumnMapper({ fileData, dataType, mappings, onMappingsC
             display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px",
           }}>
             {Object.entries(previewRow).map(([key, val]) => {
-              const changed = String(val.raw) !== String(val.transformed) && val.transformed !== "";
+              const changed = !val.autoFilled && String(val.raw) !== String(val.transformed) && val.transformed !== "";
               return (
                 <div key={key} style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 12, fontFamily: F.ui }}>
                   <span style={{ color: C.textFaint, fontWeight: 600, minWidth: 100 }}>{val.label}:</span>
                   <span style={{ color: C.textBody }}>
                     {val.transformed || <span style={{ color: C.textFaint, fontStyle: "italic" }}>empty</span>}
                   </span>
+                  {val.autoFilled && val.transformed && (
+                    <span style={{
+                      background: C.dark, color: C.teal, padding: "1px 6px",
+                      borderRadius: 4, fontSize: 9.5, fontWeight: 700,
+                      fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase",
+                    }}>
+                      auto-detected
+                    </span>
+                  )}
                   {changed && (
                     <span style={{ color: C.tealDark, fontSize: 10.5 }}>
                       (was: {String(val.raw)})

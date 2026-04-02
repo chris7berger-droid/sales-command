@@ -186,6 +186,84 @@ function parseBool(v) {
   return v;
 }
 
+/* ── Customer name classification ── */
+
+const BUSINESS_INDICATORS = [
+  "llc", "inc", "corp", "corporation", "company", "co.", "ltd", "lp",
+  "construction", "plumbing", "electric", "electrical", "mechanical",
+  "roofing", "painting", "flooring", "landscaping", "services", "solutions",
+  "builders", "contracting", "contractors", "enterprises", "industries",
+  "group", "associates", "partners", "holdings", "properties", "realty",
+  "development", "design", "consulting", "management", "supply", "systems",
+  "technologies", "tech", "hvac", "excavation", "excavating", "paving",
+  "concrete", "masonry", "welding", "fabrication", "demolition", "hauling",
+  "trucking", "disposal", "environmental", "restoration", "insulation",
+  "drywall", "framing", "glazing", "steel", "iron", "fire protection",
+  "sheet metal", "millwork", "cabinet",
+];
+
+/**
+ * Classify a name as Business or Residential, and split residential
+ * names into first/last.
+ * Returns { customer_type, first_name, last_name }
+ */
+export function classifyCustomerName(name) {
+  if (!name || !name.trim()) return { customer_type: "", first_name: "", last_name: "" };
+  const trimmed = name.trim();
+  const lower = trimmed.toLowerCase();
+
+  // Check for business indicators
+  const isBusiness = BUSINESS_INDICATORS.some((ind) => {
+    // Match whole word or at end: "ABC Construction" but not "construct" in "John Construct"
+    const regex = new RegExp(`\\b${ind.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    return regex.test(lower);
+  });
+
+  if (isBusiness) {
+    return { customer_type: "Business", first_name: "", last_name: "" };
+  }
+
+  // Heuristic: if it looks like "First Last" (2-3 words, no business words), treat as residential
+  const words = trimmed.split(/\s+/);
+  if (words.length >= 2 && words.length <= 3) {
+    const first = words[0];
+    const last = words.slice(1).join(" ");
+    return { customer_type: "Residential", first_name: first, last_name: last };
+  }
+
+  // Single word or 4+ words — can't tell, default to Business
+  if (words.length === 1) {
+    return { customer_type: "Residential", first_name: trimmed, last_name: "" };
+  }
+
+  return { customer_type: "Business", first_name: "", last_name: "" };
+}
+
+/**
+ * Enrich a full row of mapped data for customers.
+ * Auto-fills customer_type, first_name, last_name from the name field
+ * when those fields aren't explicitly mapped.
+ */
+export function enrichCustomerRow(mappedRow, mappings) {
+  const result = { ...mappedRow };
+  const mappedTargets = new Set(Object.values(mappings).map(m => m.target).filter(Boolean));
+
+  // Only enrich if name is mapped but customer_type / first_name / last_name are not
+  if (result.name != null) {
+    const classified = classifyCustomerName(String(result.name));
+    if (!mappedTargets.has("customer_type") && classified.customer_type) {
+      result.customer_type = classified.customer_type;
+    }
+    if (!mappedTargets.has("first_name") && classified.first_name) {
+      result.first_name = classified.first_name;
+    }
+    if (!mappedTargets.has("last_name") && classified.last_name) {
+      result.last_name = classified.last_name;
+    }
+  }
+  return result;
+}
+
 /* ── Validation helpers ── */
 
 export function validateEmail(v) {

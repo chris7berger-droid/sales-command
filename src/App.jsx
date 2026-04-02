@@ -80,6 +80,14 @@ function SalesCommandApp() {
   const [session,    setSession]    = useState(undefined);
   const [teamMember, setTeamMember] = useState(undefined);
 
+  // Clean up stale hash fragments (leftover from Supabase auth redirects)
+  useEffect(() => {
+    const h = window.location.hash;
+    if (h === "#" || h === "#/" || (h && !h.includes("type=recovery") && !h.includes("access_token"))) {
+      window.history.replaceState({}, "", window.location.pathname + window.location.search);
+    }
+  }, []);
+
   useEffect(() => {
     const sub = onAuthStateChange(async (event, s) => {
       // Ignore PASSWORD_RECOVERY — only handle it if the URL has a recovery hash

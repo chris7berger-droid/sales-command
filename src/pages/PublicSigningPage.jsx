@@ -38,7 +38,7 @@ export default function PublicSigningPage() {
 
       const { data: prop, error: propErr } = await supabase
         .from("proposals")
-        .select("*, call_log_id, call_log(job_name, display_job_number, customer_name, sales_name)")
+        .select("*, call_log_id, call_log(job_name, display_job_number, customer_name, sales_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, customers(business_address, business_city, business_state, business_zip, contact_email))")
         .eq("signing_token", token)
         .single();
 
@@ -257,29 +257,71 @@ export default function PublicSigningPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#F0F4FF", fontFamily: "'DM Sans', sans-serif", paddingBottom: 60 }}>
-      {/* Header */}
-      <div style={{ background: "white", borderBottom: `1px solid ${T.gray200}`, padding: "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: T.gray900 }}>{config.company_name}</div>
-          <div style={{ fontSize: 12, color: T.gray500 }}>{config.tagline}</div>
-        </div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: T.green }}>{fmt(total)}</div>
-      </div>
+      <div style={{ maxWidth: 680, margin: "0 auto", padding: "0 20px" }}>
 
-      <div style={{ maxWidth: 680, margin: "32px auto", padding: "0 20px" }}>
+        {/* Header — matches PDF format */}
+        <div style={{ background: "white", padding: "28px 32px 20px", borderRadius: "0 0 14px 14px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: 16, borderBottom: `4px solid ${T.green}`, marginBottom: 20 }}>
+            <div>
+              {config.logo_url && <img src={config.logo_url} alt={config.company_name} style={{ height: 50, marginBottom: 6 }} />}
+              <div style={{ fontSize: 18, fontWeight: 800, color: T.gray900, letterSpacing: "0.02em", textTransform: "uppercase" }}>{config.company_name}</div>
+              <div style={{ fontSize: 11, color: T.gray500, marginTop: 3 }}>{config.tagline}</div>
+            </div>
+            <div style={{ textAlign: "right", fontSize: 11, color: T.gray500, lineHeight: 1.7 }}>
+              {config.phone && <div>{config.phone}</div>}
+              {config.email && <div>{config.email}</div>}
+              {config.website && <div>{config.website}</div>}
+              {config.license_number && <div style={{ color: T.gray400 }}>{config.license_number}</div>}
+            </div>
+          </div>
 
-        {/* Job info */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 13, color: T.gray500, marginBottom: 4 }}>Proposal for</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: T.gray900 }}>{customerName}</div>
-          <div style={{ fontSize: 13, color: T.gray400 }}>{jobName}</div>
+          {/* Prepared For + Proposal # */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: 16, borderBottom: `1px solid ${T.gray200}` }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: T.gray900, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Prepared For</div>
+              <div style={{ fontSize: 13, color: T.gray500 }}>{customerName}</div>
+              {proposal.call_log?.customers?.business_address && (
+                <div style={{ fontSize: 11, color: T.gray400, marginTop: 2, lineHeight: 1.7 }}>
+                  {proposal.call_log.customers.business_address}
+                  {proposal.call_log.customers.business_city ? ", " + proposal.call_log.customers.business_city : ""}
+                  {proposal.call_log.customers.business_state ? ", " + proposal.call_log.customers.business_state : ""}
+                  {proposal.call_log.customers.business_zip ? " " + proposal.call_log.customers.business_zip : ""}
+                </div>
+              )}
+              {proposal.call_log?.jobsite_address && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: T.gray900, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Jobsite Address</div>
+                  <div style={{ fontSize: 11, color: T.gray400, lineHeight: 1.7 }}>
+                    {proposal.call_log.jobsite_address}
+                    {proposal.call_log.jobsite_city ? ", " + proposal.call_log.jobsite_city : ""}
+                    {proposal.call_log.jobsite_state ? ", " + proposal.call_log.jobsite_state : ""}
+                    {proposal.call_log.jobsite_zip ? " " + proposal.call_log.jobsite_zip : ""}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: T.gray900, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Proposal #</div>
+              <div style={{ fontSize: 12, color: T.gray500 }}>{proposal.call_log?.display_job_number || "—"}-P{proposal.proposal_number || 1}</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: T.gray900, letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Date</div>
+              <div style={{ fontSize: 12, color: T.gray500 }}>{new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
+            </div>
+          </div>
         </div>
+
+        {/* Scope of Work heading */}
+        <div style={{ fontSize: 10, fontWeight: 700, color: T.gray400, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10, marginTop: 8 }}>Scope of Work</div>
 
         {/* SOW — one section per WTC */}
         {wtcs.filter(w => (w.sales_sow || "").trim()).map((w, i) => (
           <div key={i} style={{ background: "white", borderRadius: 14, border: `1px solid ${T.gray200}`, padding: "28px 32px", marginBottom: 16, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.gray400, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>
-              {wtcs.length > 1 ? `Work Type ${i + 1}` : "Scope of Work"}
+            {/* Work Type header with teal lines */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <div style={{ flex: 1, height: 3, background: T.green, borderRadius: 2 }} />
+              <div style={{ fontSize: 12, fontWeight: 800, color: T.gray900, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                Work Type {i + 1}
+              </div>
+              <div style={{ flex: 1, height: 3, background: T.green, borderRadius: 2 }} />
             </div>
             <pre style={{ margin: 0, fontSize: 13, color: T.gray700, lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>{w.sales_sow}</pre>
             {wtcs.length > 1 && (
@@ -297,10 +339,10 @@ export default function PublicSigningPage() {
         )}
 
         {/* Total */}
-        <div style={{ background: "white", borderRadius: 14, border: `1px solid ${T.gray200}`, padding: "20px 28px", marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+        <div style={{ background: "white", borderRadius: 14, border: `2px solid ${T.green}`, padding: "20px 28px", marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: T.gray700 }}>Total Investment</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: T.green }}>{fmt(total)}</div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: T.gray500, letterSpacing: "0.06em", textTransform: "uppercase" }}>Proposal Total</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: T.gray900 }}>{fmt(total)}</div>
           </div>
         </div>
 

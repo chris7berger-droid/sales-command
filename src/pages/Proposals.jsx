@@ -871,7 +871,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {attachments.length > 0 && (
             <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
-              <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Attachments</div>
+              <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Reference Files</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {attachments.map(att => (
                   <a

@@ -1,32 +1,55 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { C, F } from "../lib/tokens";
 
 /**
  * Searchable dropdown replacement for <select> with many options.
- * Props:
- *   value       — currently selected value (option.value)
- *   onChange     — called with the selected option's value
- *   options      — [{ value, label }]
- *   placeholder  — text when nothing is selected
+ * Uses position:fixed so it breaks out of any parent overflow clipping.
  */
 export default function SearchSelect({ value, onChange, options, placeholder = "— Select —" }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const ref = useRef();
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const triggerRef = useRef();
+  const panelRef = useRef();
   const inputRef = useRef();
+
+  // Calculate position from trigger button
+  const updatePos = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+  }, []);
 
   // Close on outside click
   useEffect(() => {
     if (!open) return;
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const handler = (e) => {
+      if (triggerRef.current?.contains(e.target)) return;
+      if (panelRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // Focus search input on open
+  // Focus search input + calc position on open
   useEffect(() => {
-    if (open && inputRef.current) inputRef.current.focus();
-  }, [open]);
+    if (open) {
+      updatePos();
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [open, updatePos]);
+
+  // Recalc on scroll/resize while open
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener("scroll", updatePos, true);
+    window.addEventListener("resize", updatePos);
+    return () => {
+      window.removeEventListener("scroll", updatePos, true);
+      window.removeEventListener("resize", updatePos);
+    };
+  }, [open, updatePos]);
 
   const filtered = search
     ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
@@ -34,10 +57,14 @@ export default function SearchSelect({ value, onChange, options, placeholder = "
 
   const selectedLabel = options.find(o => o.value === value)?.label;
 
+  // How tall can the dropdown be? Don't overflow below viewport.
+  const maxH = open ? Math.max(200, window.innerHeight - pos.top - 16) : 400;
+
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div>
       {/* Trigger button */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => { setOpen(!open); setSearch(""); }}
         style={{
@@ -55,16 +82,19 @@ export default function SearchSelect({ value, onChange, options, placeholder = "
         <span style={{ color: C.textFaint, fontSize: 10, marginLeft: 8, flexShrink: 0 }}>▼</span>
       </button>
 
-      {/* Dropdown panel */}
+      {/* Dropdown panel — fixed position, breaks out of overflow */}
       {open && (
-        <div style={{
-          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
-          background: C.dark, borderRadius: 8, border: `1px solid ${C.darkBorder}`,
-          zIndex: 100, boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-          maxHeight: 300, display: "flex", flexDirection: "column",
-        }}>
+        <div
+          ref={panelRef}
+          style={{
+            position: "fixed", top: pos.top, left: pos.left, width: pos.width,
+            background: C.dark, borderRadius: 8, border: `1px solid ${C.darkBorder}`,
+            zIndex: 9999, boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+            maxHeight: maxH, display: "flex", flexDirection: "column",
+          }}
+        >
           {/* Search input */}
-          <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.darkBorder}` }}>
+          <div style={{ padding: "8px 10px", borderBottom: `1px solid ${C.darkBorder}`, flexShrink: 0 }}>
             <input
               ref={inputRef}
               type="text"

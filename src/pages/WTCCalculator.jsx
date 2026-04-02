@@ -1041,7 +1041,8 @@ function SowTab({ data, onChange, locked, wtcMaterials }) {
   const discountAmt  = discount.amount || 0;
   const subtotal     = laborTotal + matTotal + travelTotal;
   const proposalPrice = subtotal - discountAmt;
-  const profitDollars = proposalPrice - (labor.subtotal || 0);
+  const totalCost     = (labor.subtotal || 0) + matTotal + travelTotal;
+  const profitDollars = proposalPrice - totalCost;
   const profitMargin  = proposalPrice > 0 ? (profitDollars / proposalPrice) * 100 : 0;
   const sqftPrice     = (size || 0) > 0 ? proposalPrice / size : 0;
 
@@ -1086,7 +1087,8 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
   const travelTotal   = calcTravel(travel);
   const discountAmt   = discount.amount || 0;
   const proposalPrice = laborTotal + matTotal + travelTotal - discountAmt;
-  const profitDollars = proposalPrice - (labor.subtotal || 0);
+  const totalCost     = (labor.subtotal || 0) + matTotal + travelTotal;
+  const profitDollars = proposalPrice - totalCost;
   const profitMargin  = proposalPrice > 0 ? (profitDollars / proposalPrice) * 100 : 0;
   const sqftPrice     = (sow.size || 0) > 0 ? proposalPrice / sow.size : 0;
 

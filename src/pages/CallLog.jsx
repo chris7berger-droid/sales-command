@@ -8,6 +8,7 @@ import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
 import CallLogDetail from "../components/CallLogDetail";
+import SearchSelect from "../components/SearchSelect";
 
 const inputStyle = {
   padding: "10px 14px", borderRadius: 8,
@@ -298,21 +299,23 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
             <ChoiceBtn label="New Customer" selected={data.customerMode === "new"} onClick={() => set("customerMode", "new")} />
           </div>
           {data.customerMode === "existing" && (
-            <select value={data.customerId} onChange={e => {
-              const chosen = customers.find(c => c.id === e.target.value)
-              set("customerId", e.target.value)
-              if (chosen) {
-                set("customerType", chosen.customer_type)
-                if (chosen.billing_terms) {
-                  const std = [5,15,30,45,60,90,120];
-                  if (std.includes(chosen.billing_terms)) { set("billingTerms", String(chosen.billing_terms)); set("billingTermsCustom", ""); }
-                  else { set("billingTerms", "custom"); set("billingTermsCustom", String(chosen.billing_terms)); }
+            <SearchSelect
+              value={data.customerId}
+              placeholder="— Select Customer —"
+              options={customers.filter(c => c.customer_type === data.customerType).map(c => ({ value: c.id, label: c.name }))}
+              onChange={(val) => {
+                const chosen = customers.find(c => c.id === val);
+                set("customerId", val);
+                if (chosen) {
+                  set("customerType", chosen.customer_type);
+                  if (chosen.billing_terms) {
+                    const std = [5,15,30,45,60,90,120];
+                    if (std.includes(chosen.billing_terms)) { set("billingTerms", String(chosen.billing_terms)); set("billingTermsCustom", ""); }
+                    else { set("billingTerms", "custom"); set("billingTermsCustom", String(chosen.billing_terms)); }
+                  }
                 }
-              }
-            }} style={inputStyle}>
-              <option value="">— Select Customer —</option>
-              {customers.filter(c => c.customer_type === data.customerType).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+              }}
+            />
           )}
           {data.customerMode === "new" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

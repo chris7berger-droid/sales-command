@@ -118,7 +118,7 @@ function NewProposalModal({ onClose, onCreated, preselectedJob }) {
 
 // COMPANY is loaded from tenant_config in components that need it
 
-function ProposalPDFModal({ proposal, onClose }) {
+function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
   const [wtcs, setWtcs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("preview");
@@ -296,8 +296,8 @@ function ProposalPDFModal({ proposal, onClose }) {
             {view === "preview" && !sendDone && (
               <>
                 <button onClick={() => window.print()} style={{ background: "none", border: "1.5px solid #E5E7EB", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4B5563", cursor: "pointer", fontFamily: "inherit" }}>🖨 Print</button>
-                {proposal.status !== "Sold" && wtcs.length > 0 && wtcs.every(w => w.locked) && <button onClick={() => setView("send")} style={{ background: "#1976D2", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "white", cursor: "pointer", fontFamily: "inherit" }}>📨 Send to Customer →</button>}
-                {proposal.status !== "Sold" && (wtcs.length === 0 || !wtcs.every(w => w.locked)) && <span style={{ fontSize: 11, fontWeight: 700, color: "#e53935", fontFamily: "inherit", padding: "7px 12px" }}>Lock all WTCs to send</span>}
+                {mode === "send" && proposal.status !== "Sold" && wtcs.length > 0 && wtcs.every(w => w.locked) && <button onClick={() => setView("send")} style={{ background: "#1976D2", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "white", cursor: "pointer", fontFamily: "inherit" }}>📨 Send to Customer →</button>}
+                {mode === "send" && proposal.status !== "Sold" && (wtcs.length === 0 || !wtcs.every(w => w.locked)) && <span style={{ fontSize: 11, fontWeight: 700, color: "#e53935", fontFamily: "inherit", padding: "7px 12px" }}>Lock all WTCs to send</span>}
               </>
             )}
             {view === "send" && !sendDone && (
@@ -503,6 +503,7 @@ function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember }) {
   const [showWTC, setShowWTC] = useState(false);
 const [activeWtcId, setActiveWtcId] = useState(null);
 const [showPDF, setShowPDF] = useState(false);
+const [pdfMode, setPdfMode] = useState("preview");
 const [signatureInfo, setSignatureInfo] = useState(null);
 const [wtcInitialTab, setWtcInitialTab] = useState(null);
 const missingJobsite = !p.call_log?.jobsite_address;
@@ -711,7 +712,7 @@ useEffect(() => {
     setApproveReason("");
   }
 
-if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); setShowPDF(!!openPDF); }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} />;
+if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -749,8 +750,8 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           {p.status !== "Sold" && p.status !== "Sent" && (
             <Btn sz="sm" v="ghost" onClick={() => setShowApproveModal(true)} style={{ color: C.green, borderColor: C.green }}>✓ Internal Approve</Btn>
           )}
-          <Btn sz="sm" v="ghost" onClick={() => setShowPDF(true)}>Generate PDF</Btn>
-          {p.status !== "Sold" && p.status !== "Sent" && wtcs.length > 0 && wtcs.every(w => w.locked) && <Btn sz="sm" onClick={() => setShowPDF(true)}>Send Proposal</Btn>}
+          <Btn sz="sm" v="ghost" onClick={() => { setPdfMode("preview"); setShowPDF(true); }}>Generate PDF</Btn>
+          {p.status !== "Sold" && p.status !== "Sent" && wtcs.length > 0 && wtcs.every(w => w.locked) && <Btn sz="sm" onClick={() => { setPdfMode("send"); setShowPDF(true); }}>Send Proposal</Btn>}
         </div>
       </div>
 

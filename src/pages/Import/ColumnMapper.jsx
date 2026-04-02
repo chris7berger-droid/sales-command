@@ -175,7 +175,10 @@ export default function ColumnMapper({ fileData, dataType, mappings, onMappingsC
 
                 {/* Hint text for medium/low confidence */}
                 {mapping.target && conf?.hint && (
-                  <div style={{ fontSize: 11, color: conf.dot, fontFamily: F.ui, fontWeight: 600, paddingLeft: 2 }}>
+                  <div style={{
+                    fontSize: 11, color: conf.dot, fontFamily: F.ui, fontWeight: 600,
+                    background: C.dark, padding: "3px 10px", borderRadius: 6, alignSelf: "flex-start",
+                  }}>
                     {conf.hint}
                   </div>
                 )}

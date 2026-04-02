@@ -21,12 +21,17 @@ export default function Login() {
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
+      if (event === "PASSWORD_RECOVERY" && mode !== "reset") {
         setMode("reset")
+      }
+      if (event === "SIGNED_IN" && mode === "reset") {
+        // Password was set successfully, clear recovery state
+        window.history.replaceState({}, "", window.location.pathname)
+        setMode("login")
       }
     })
     return () => subscription.unsubscribe()
-  }, [])
+  }, [mode])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -72,8 +77,12 @@ export default function Login() {
     try {
       const { error } = await supabase.auth.updateUser({ password: newPassword })
       if (error) throw error
-      setMessage("Password updated! Redirecting...")
-      setTimeout(() => { window.location.href = "https://www.scmybiz.com" }, 1500)
+      setMessage("Password updated! Signing you in...")
+      // Clear the recovery token from the URL to prevent the PASSWORD_RECOVERY loop
+      window.history.replaceState({}, "", window.location.pathname)
+      setMode("login")
+      // The user is already authenticated after updateUser, trigger a reload
+      setTimeout(() => { window.location.replace("/") }, 1200)
     } catch (err) {
       setError(err.message || "Failed to update password.")
     } finally {

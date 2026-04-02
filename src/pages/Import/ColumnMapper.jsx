@@ -4,9 +4,9 @@ import { TARGET_FIELDS, autoMatch, transformValue, getMissingRequired, enrichCus
 
 const CONFIDENCE_COLORS = {
   high:   { bg: "rgba(67,160,71,0.12)", border: "rgba(67,160,71,0.35)", dot: C.green,  label: "Auto-matched", hint: null },
-  medium: { bg: "rgba(249,168,37,0.10)", border: "rgba(249,168,37,0.30)", dot: C.amber,  label: "Best guess", hint: "Check this — change it if wrong" },
-  low:    { bg: "rgba(229,57,53,0.08)",  border: "rgba(229,57,53,0.20)",  dot: "#e67e22", label: "Uncertain",  hint: "Probably wrong — pick the right field" },
-  manual: { bg: "transparent",           border: C.borderStrong,          dot: C.tealDark, label: "Manual", hint: null },
+  medium: { bg: "rgba(249,168,37,0.10)", border: "rgba(249,168,37,0.30)", dot: C.amber,  label: "Best guess", hint: "Use the dropdown to pick where this data should go in Sales Command" },
+  low:    { bg: "rgba(229,57,53,0.08)",  border: "rgba(229,57,53,0.20)",  dot: "#e67e22", label: "Uncertain",  hint: "Use the dropdown to pick where this data should go in Sales Command" },
+  manual: { bg: "transparent",           border: C.borderStrong,          dot: C.tealDark, label: "You chose this", hint: null },
 };
 
 export default function ColumnMapper({ fileData, dataType, mappings, onMappingsChange }) {
@@ -94,8 +94,9 @@ export default function ColumnMapper({ fileData, dataType, mappings, onMappingsC
       </div>
 
       <div style={{ fontSize: 12, color: C.textMuted, fontFamily: F.ui, marginBottom: 16, lineHeight: 1.5 }}>
-        Green rows are good to go. Yellow rows are our best guess — use the dropdown to change them if they're wrong.
-        Any column set to "Skip" won't be imported.
+        For each column in your file, choose where that data should land in Sales Command.
+        Green rows were matched automatically. Yellow rows need you to confirm or change.
+        Set any column to "Skip" if you don't need it imported.
       </div>
 
       {/* Required field warnings */}

@@ -1788,7 +1788,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             {onBackToList && <Btn onClick={onBackToList} variant="secondary" small>← Proposals</Btn>}
-            {onClose && <Btn onClick={onClose} variant="ghost">✕ Close</Btn>}
+            {onClose && <Btn onClick={() => onClose()} variant="ghost">✕ Close</Btn>}
           </div>
         </div>
 

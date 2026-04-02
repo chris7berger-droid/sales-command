@@ -1,0 +1,142 @@
+SC_Handoff_v46 — 2026-04-02 (morning/afternoon)
+============================================================
+Session: Claude Code / Opus 4.6 / ~/sales-command
+Repo: chris7berger-droid/sales-command (main branch)
+Deploys: Vercel (auto on push to main)
+============================================================
+
+WHAT GOT DONE THIS SESSION (continued from v45)
+------------------------------------------------------------
+
+1. QB Sync — Invoice Update (not just create)
+   - qb-sync-invoice now UPDATES existing QB invoice when re-sent
+     (fetches SyncToken, does full update) instead of skipping
+   - qb-record-payment now persists qb_payment_id back to invoices
+   - Added qb_payment_id column to invoices table in Supabase
+   - Edge functions deployed: qb-sync-invoice, qb-record-payment
+
+2. WTC Lock Guards & UI
+   - Generate PDF = preview only (print, no send button)
+   - Send Proposal = opens modal with send flow
+   - PDF modal blocks send unless ALL WTCs are locked
+   - Lock/Unlock button added directly on each WTC card
+   - Unlocked WTCs get amber left border for visibility
+   - Lock validates checklist (work type, rates, labor, materials, size)
+   - X Close on WTC no longer opens PDF modal (React event arg bug)
+
+3. Public Signing Page Overhaul
+   - Header now matches PDF format: logo, company info, rep phone/email
+   - Prepared For section with customer address + jobsite address
+   - Proposal # and Date in right column
+   - Work Type sections use teal-line dividers
+   - Total box with teal border
+   - Print and Save as PDF buttons (hidden when printing)
+   - "Scroll down to sign electronically" CTA button
+   - Signing form hidden when printing (clean proposal output)
+   - Pulled-back proposals show "Proposal Withdrawn" with rep contact
+   - Rep phone/email fetched from team_members (not hardcoded)
+   - Fixed combinedSow undefined error that broke signing
+
+4. Signing → Status Update Fix
+   - Client-side proposals.update was silently blocked by RLS (anon key)
+   - proposal-signed edge function now ALWAYS called (not just when
+     rep email exists) — handles status update with service role key
+   - Edge function returns success even without rep email
+   - Console logging added for debugging edge function calls
+
+5. Proposal Attachments Feature (NEW)
+   - New "Proposal Attachments" section on proposal detail
+   - Upload files to send with proposal (stored in job-attachments/proposal-{id}/)
+   - Delete individual attachments with × button
+   - Attachments appear on public signing page as downloadable links
+   - Old "Attachments" renamed to "Reference Files" to distinguish
+
+6. WTC Calculator Improvements
+   - Material price_per_unit now editable (was read-only)
+   - ALL dollar amounts show 2 decimal places (was rounding to whole $)
+   - Sqft price, labor costs, markup, subtotals, proposal price all fixed
+
+7. Auth / Login Fixes (PASSWORD_RECOVERY loop)
+   - Joe (sales2@hdspnv.com) was stuck in password reset loop
+   - Root cause: Supabase PASSWORD_RECOVERY events firing without
+     recovery token in URL, previous fixes were calling signOut()
+     which made it worse
+   - Final fix: stale PASSWORD_RECOVERY events completely IGNORED
+     in both App.jsx and Login.jsx — no signOut, no session change
+   - URL hash cleanup on app load (removes stale /#)
+   - Cleared Joe's recovery_token in auth.users via SQL
+   - "Manage price list" link was <a href> to non-existent route,
+     causing full page reload and session loss — now disabled
+
+COMMITS THIS SESSION (since v45, oldest to newest)
+------------------------------------------------------------
+- 377d5e6  fix: persist QB payment ID back to invoices table
+- bb66d5f  feat: qb-sync-invoice updates existing QB invoice
+- ad0cdf3  fix: WTC lock guards — lock button on cards
+- 790d262  fix: X Close on WTC no longer opens PDF modal
+- 4ca6451  fix: public signing page header matches PDF format
+- 0cb318c  fix: block signing page when proposal pulled back
+- 8e0e618  fix: Generate PDF preview-only, Send shows send option
+- 1b2dfce  fix: always show logo on public signing page
+- 5e8293e  fix: signing page shows estimator phone/email
+- 3eee2e4  feat: Print and Save as PDF buttons on signing page
+- fd32cd1  fix: rename Attachments to Reference Files
+- 29df253  feat: proposal attachments — upload files to send
+- ea1267b  fix: define combinedSow in handleSign
+- 9a27c82  feat: scroll-to-sign CTA on signing page
+- 15622ec  fix: signing always updates status via edge function
+- e0598a9  fix: add logging/fallback for signing status update
+- 91c6544  fix: make material price_per_unit editable
+- 992211e  fix: break password reset loop on login page
+- b17167f  fix: only show reset when URL has recovery token
+- 31e0ba8  fix: force sign-out on stale PASSWORD_RECOVERY
+- 2525933  fix: intercept PASSWORD_RECOVERY in App.jsx
+- 77f00df  fix: sqft price with 2 decimal places
+- 870eac5  fix: all WTC dollar amounts show 2 decimal places
+- 5898553  fix: stop signing out on stale PASSWORD_RECOVERY
+- c3d1c5b  fix: clean up stale hash fragments from URL
+- ec987cf  fix: disable manage price list link
+
+All pushed to main, deployed via Vercel.
+Edge functions deployed: qb-sync-invoice, qb-record-payment, proposal-signed.
+
+KNOWN ISSUES / SESSION NOTES
+------------------------------------------------------------
+- Proposal 10004 (John Doe) status may still be "Sent" in DB
+  despite being signed — run SQL to fix:
+  UPDATE proposals SET status = 'Sold', approved_at = NOW()
+  WHERE id = 'd1b0569d-9e6f-474f-b74f-40a68b6cb7e8';
+  UPDATE call_log SET stage = 'Sold' WHERE id = 37;
+- Joe's auth: cleared recovery_token via SQL, PASSWORD_RECOVERY
+  events now ignored. Monitor if issue recurs.
+- Edge functions require --no-verify-jwt when deploying
+- Manage price list page not built yet (link disabled)
+
+WHAT WAS IN PROGRESS / NOT FINISHED
+------------------------------------------------------------
+- Invoice editing + QB sync end-to-end testing (started, not completed)
+- App access gate (check member.apps on login per app)
+- Chris's team_members.auth_id still needs linking
+- Schedule Command shared components
+- QB pull-back cleanup (orphaned QB customers/jobs)
+- Manage materials/price list page for Settings
+
+PRIORITIES FOR NEXT SESSION
+------------------------------------------------------------
+1. Fix proposal 10004 status in DB (SQL above)
+2. Verify Joe's auth is stable (no more PASSWORD_RECOVERY loop)
+3. Complete invoice editing + QB sync end-to-end test
+4. Build materials/price list management page (Settings)
+5. App access gate — each app checks member.apps on login
+6. Link Chris's team_members.auth_id to his auth user
+7. QB pull-back cleanup (orphaned QB customers/jobs)
+
+SESSION PROMPT FOR NEXT CLAUDE CODE SESSION
+------------------------------------------------------------
+Continue building Sales Command. Read SC_Handoff_v46.txt for context.
+Major work done: signing page overhaul, QB sync update (not just create),
+WTC lock guards, proposal attachments, auth loop fix. Need to finish
+invoice/QB testing, build materials management page, fix Joe's auth
+if still broken, and complete remaining priorities from v45.
+============================================================
+End of SC_Handoff_v46

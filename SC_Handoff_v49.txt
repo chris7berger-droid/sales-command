@@ -1,0 +1,133 @@
+SC_Handoff_v49 — 2026-04-02 (evening, combined)
+============================================================
+Session: Claude Code / Opus 4.6 / ~/sales-command
+Repo: chris7berger-droid/sales-command (main branch)
+Deploys: Vercel (auto on push to main)
+============================================================
+
+WHAT GOT DONE THIS SESSION (continued from v47, parallel to v48)
+------------------------------------------------------------
+
+1. Work Type Name Display Fix (Joe's Feedback)
+   - Proposals, PDFs, and signing pages were showing "Work Type 1"
+     without the actual work type name (e.g., "Epoxy", "Polish")
+   - Proposals.jsx (PDF modal / sent proposal): "Work Type 1" now
+     shows "Work Type 1 — Epoxy" in both the SOW header and the
+     per-WTC total line
+   - PublicSigningPage.jsx (customer-facing signing page): same fix,
+     PLUS fixed a bug where .map((w) => ...) was missing the index
+     parameter — `i` was undefined, so "Work Type {i+1}" rendered
+     as "Work Type NaN"
+   - PublicSigningPage.jsx (signed PDF generation): the combinedSow
+     text now includes "── Work Type 1 — Epoxy ──" headers when
+     there are multiple WTCs (previously concatenated SOWs with
+     no labels at all)
+   - Invoices.jsx already showed work type names — no changes needed
+   - Data available via existing work_types(name) join on proposal_wtc
+
+2. Duplicate work_types Cleanup (Database)
+   - 16 work type names had duplicate entries (2-4 copies each)
+   - Total went from ~100 rows down to 51 unique work types
+   - Updated 2 proposal_wtc rows pointing to duplicate IDs → canonical
+   - Updated 2 job_work_types rows pointing to duplicate IDs → canonical
+   - Deleted all duplicate rows (kept lowest ID per name)
+   - SQL script saved at sql/cleanup_duplicate_work_types.sql for
+     reference (can be re-run safely — no-ops if no dupes)
+   - Executed via `npx supabase db query --linked`
+
+3. Customer Multi-Contact Support (Feature)
+   - New `customer_contacts` table in Supabase:
+     id (uuid PK), customer_id (FK customers, ON DELETE CASCADE),
+     name, phone, email, role, is_primary (bool), created_at
+   - RLS: full CRUD for authenticated users
+   - Index on customer_id
+   - Customers.jsx: new ContactModal component for add/edit/delete
+   - Contact cards displayed between Quick Info bar and Jobs/Proposals/
+     Invoices tabs on customer detail view
+   - Role dropdown: Project Manager, Office Manager, Billing Contact
+   - Primary contact toggle (clears other primaries automatically)
+   - Delete with confirmation
+   - Cards show: name, role badge (teal on dark), phone, email,
+     "Primary" indicator
+   - Click card to edit, "+ Add Contact" button to add
+   - CLAUDE.md updated with customer_contacts schema
+
+4. Data Import Tool — Column Mapper (Step 3)
+   - New ColumnMapper.jsx component: maps CSV columns to DB fields
+   - Auto-match logic: fuzzy matching of CSV headers to known fields
+   - importUtils.js: shared utilities for import processing
+   - Hint text: dark background pill for readability
+   - Auto-detect Business vs Residential from customer name patterns
+   - Improved UX clarity on where imported data lands
+
+5. WTC Calculator Print Feature (from v48 parallel session)
+   - See SC_Handoff_v48.txt for details
+   - Print button in WTC header, @media print stylesheet,
+     clean table-based printout
+
+COMMITS THIS SESSION (oldest to newest, all terminals combined)
+------------------------------------------------------------
+- 1ff5605  fix: show work type name alongside number on proposals,
+           signing page, and signed PDFs
+- 5166839  feat: add Column Mapper (Step 3) to Data Import Tool
+- 4d7bc56  feat: add customer contacts — multi-contact cards on
+           customer detail
+- eb07b34  fix: improve column mapper auto-match and UX clarity
+- 1b19725  feat: add print button to WTC Calculator
+- d55defa  fix: hint text on dark background pill for readability
+- 50ddc0b  feat: auto-detect Business vs Residential from customer name
+- 2c4b098  fix: clearer hint text guiding user to pick where data
+           should land
+- 08ffba8  docs: SC_Handoff_v48 — WTC print feature
+
+All pushed to main, deployed via Vercel.
+Database: work_types duplicates cleaned up (16 groups, 51 unique remain).
+
+KNOWN ISSUES / SESSION NOTES
+------------------------------------------------------------
+- Existing contact_phone/contact_email fields on customers table are
+  NOT removed — they remain as legacy fields used by proposal/invoice
+  sending. Future work can wire up the contact picker to those flows.
+- Proposal 10004 (John Doe) status fix SQL from v46 may still need
+  to be run (see v47 notes)
+- Chris's team_members.auth_id still needs linking
+- WTCCalculator still uses its own color system (T) instead of C from
+  tokens.js — noted in v47 audit, too risky to refactor while live
+- .gitignore has uncommitted changes adding .vercel and .env*.local
+
+WHAT WAS IN PROGRESS / NOT FINISHED
+------------------------------------------------------------
+- Wire contact picker into proposal/invoice sending flows
+- Wire contact auto-populate into New Inquiry wizard customer step
+- Show contacts in CallLogDetail
+- Data Import Tool: Step 4+ (preview, validation, actual import)
+- Joe's testing feedback (ongoing)
+- Invoice editing + QB sync end-to-end testing
+- App access gate (check member.apps on login per app)
+- Chris's team_members.auth_id still needs linking
+- Schedule Command shared components
+- QB pull-back cleanup (orphaned QB customers/jobs)
+- Manage materials/price list page for Settings
+
+PRIORITIES FOR NEXT SESSION
+------------------------------------------------------------
+1. Continue processing Joe's testing feedback
+2. Wire contact picker into proposal/invoice sending flows
+3. Data Import Tool — preview + validation + execute steps
+4. Complete invoice editing + QB sync end-to-end test
+5. Build materials/price list management page (Settings)
+6. App access gate — each app checks member.apps on login
+7. Link Chris's team_members.auth_id
+8. QB pull-back cleanup
+
+SESSION PROMPT FOR NEXT CLAUDE CODE SESSION
+------------------------------------------------------------
+Continue building Sales Command. Read SC_Handoff_v49.txt for context.
+This session (across parallel terminals): work type names now display
+on proposals/signing pages/PDFs, work_types DB duplicates cleaned up
+(51 unique remain), customer multi-contact support added, data import
+tool column mapper built, WTC calculator print feature added.
+Joe is actively testing — process his feedback first, then continue
+with priorities.
+============================================================
+End of SC_Handoff_v49

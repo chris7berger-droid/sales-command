@@ -50,25 +50,37 @@ export const TARGET_FIELDS = {
 const AUTO_MATCH_RULES = {
   customers: [
     { patterns: ["customer name", "company name", "client name", "account name", "customer", "company", "client", "account"], target: "name", confidence: "high" },
+    { patterns: ["name"],                                         target: "name",             confidence: "medium" },
     { patterns: ["customer type", "type", "category"],            target: "customer_type",    confidence: "medium" },
     { patterns: ["first name", "first", "contact first"],         target: "first_name",       confidence: "high" },
     { patterns: ["last name", "last", "surname", "contact last"], target: "last_name",        confidence: "high" },
-    { patterns: ["contact phone", "mobile", "cell"],              target: "contact_phone",    confidence: "medium" },
-    { patterns: ["contact email", "contact e-mail"],              target: "contact_email",    confidence: "high" },
+    { patterns: ["contact phone", "contactphone", "mobile", "cell"], target: "contact_phone", confidence: "medium" },
+    { patterns: ["contact email", "contactemail", "contact e-mail"], target: "contact_email", confidence: "high" },
     { patterns: ["phone", "tel", "telephone"],                    target: "phone",            confidence: "high" },
     { patterns: ["email", "e-mail"],                              target: "email",            confidence: "high" },
     { patterns: ["address", "street", "address 1", "addr"],       target: "business_address", confidence: "medium" },
     { patterns: ["city", "town"],                                 target: "business_city",    confidence: "high" },
-    { patterns: ["state", "province", "st"],                      target: "business_state",   confidence: "high" },
+    { patterns: ["state", "province"],                            target: "business_state",   confidence: "high" },
     { patterns: ["zip", "postal", "zip code", "zipcode"],         target: "business_zip",     confidence: "high" },
-    { patterns: ["billing name"],                                 target: "billing_name",     confidence: "high" },
-    { patterns: ["billing phone"],                                target: "billing_phone",    confidence: "high" },
-    { patterns: ["billing email"],                                target: "billing_email",    confidence: "high" },
+    { patterns: ["billing name", "billingname", "billing/contactname", "billingcontactname"], target: "billing_name", confidence: "high" },
+    { patterns: ["billing phone", "billingphone", "billing/contactphone", "billingcontactphone"], target: "billing_phone", confidence: "high" },
+    { patterns: ["billing email", "billingemail", "billing/contactemail"], target: "billing_email", confidence: "high" },
     { patterns: ["billing terms", "net", "payment terms", "terms"], target: "billing_terms", confidence: "medium" },
   ],
 };
 
 /* ── Auto-match algorithm ── */
+
+/* Normalize a header for matching: "billing/contactName" → "billing contactname",
+   "FirstName" → "first name", strip punctuation */
+function normalizeHeader(h) {
+  return h
+    .replace(/([a-z])([A-Z])/g, "$1 $2")  // camelCase → spaces
+    .replace(/[/_\-\.]+/g, " ")             // slashes, underscores, dashes, dots → spaces
+    .toLowerCase()
+    .trim();
+}
+
 export function autoMatch(headers, dataType) {
   const rules = AUTO_MATCH_RULES[dataType] || [];
   const mappings = {};          // sourceHeader → { target, confidence }
@@ -82,7 +94,7 @@ export function autoMatch(headers, dataType) {
   });
 
   for (const header of headers) {
-    const h = header.toLowerCase().trim();
+    const h = normalizeHeader(header);
     for (const rule of sortedRules) {
       if (usedTargets.has(rule.target)) continue;
       const matched = rule.patterns.some((p) => h === p || h.includes(p));

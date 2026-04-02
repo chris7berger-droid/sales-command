@@ -3,10 +3,10 @@ import { C, F } from "../../lib/tokens";
 import { TARGET_FIELDS, autoMatch, transformValue, getMissingRequired } from "./importUtils";
 
 const CONFIDENCE_COLORS = {
-  high:   { bg: "rgba(67,160,71,0.12)", border: "rgba(67,160,71,0.35)", dot: C.green,  label: "Auto-matched" },
-  medium: { bg: "rgba(249,168,37,0.10)", border: "rgba(249,168,37,0.30)", dot: C.amber,  label: "Verify match" },
-  low:    { bg: "rgba(229,57,53,0.08)",  border: "rgba(229,57,53,0.20)",  dot: "#e67e22", label: "Likely wrong" },
-  manual: { bg: "transparent",           border: C.borderStrong,          dot: C.tealDark, label: "Manual" },
+  high:   { bg: "rgba(67,160,71,0.12)", border: "rgba(67,160,71,0.35)", dot: C.green,  label: "Auto-matched", hint: null },
+  medium: { bg: "rgba(249,168,37,0.10)", border: "rgba(249,168,37,0.30)", dot: C.amber,  label: "Best guess", hint: "Check this — change it if wrong" },
+  low:    { bg: "rgba(229,57,53,0.08)",  border: "rgba(229,57,53,0.20)",  dot: "#e67e22", label: "Uncertain",  hint: "Probably wrong — pick the right field" },
+  manual: { bg: "transparent",           border: C.borderStrong,          dot: C.tealDark, label: "Manual", hint: null },
 };
 
 export default function ColumnMapper({ fileData, dataType, mappings, onMappingsChange }) {
@@ -81,8 +81,8 @@ export default function ColumnMapper({ fileData, dataType, mappings, onMappingsC
       </div>
 
       <div style={{ fontSize: 12, color: C.textMuted, fontFamily: F.ui, marginBottom: 16, lineHeight: 1.5 }}>
-        We auto-matched what we could. Verify yellow matches and fix anything that looks wrong.
-        Unmapped columns will be skipped.
+        Green rows are good to go. Yellow rows are our best guess — use the dropdown to change them if they're wrong.
+        Any column set to "Skip" won't be imported.
       </div>
 
       {/* Required field warnings */}
@@ -136,36 +136,48 @@ export default function ColumnMapper({ fileData, dataType, mappings, onMappingsC
                 →
               </div>
 
-              {/* Target dropdown + confidence dot */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <select
-                  value={mapping.target}
-                  onChange={(e) => handleTargetChange(header, e.target.value)}
-                  style={{
-                    flex: 1, padding: "6px 10px", borderRadius: 6,
-                    border: `1px solid ${C.borderStrong}`, background: C.linenDeep,
-                    color: mapping.target ? C.textBody : C.textFaint,
-                    fontSize: 12.5, fontFamily: F.ui, WebkitAppearance: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  <option value="">— Skip this column —</option>
-                  {fields.map((f) => {
-                    const taken = usedTargets.has(f.key) && mapping.target !== f.key;
-                    return (
-                      <option key={f.key} value={f.key} disabled={taken}>
-                        {f.label}{f.required ? " *" : ""}{taken ? " (already mapped)" : ""}
-                      </option>
-                    );
-                  })}
-                </select>
+              {/* Target dropdown + confidence badge */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <select
+                    value={mapping.target}
+                    onChange={(e) => handleTargetChange(header, e.target.value)}
+                    style={{
+                      flex: 1, padding: "6px 10px", borderRadius: 6,
+                      border: `1px solid ${C.borderStrong}`, background: C.linenDeep,
+                      color: mapping.target ? C.textBody : C.textFaint,
+                      fontSize: 12.5, fontFamily: F.ui, WebkitAppearance: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <option value="">— Skip this column —</option>
+                    {fields.map((f) => {
+                      const taken = usedTargets.has(f.key) && mapping.target !== f.key;
+                      return (
+                        <option key={f.key} value={f.key} disabled={taken}>
+                          {f.label}{f.required ? " *" : ""}{taken ? " (already mapped)" : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
 
-                {/* Confidence indicator */}
-                {mapping.target && conf && (
-                  <div title={conf.label} style={{
-                    width: 10, height: 10, borderRadius: "50%",
-                    background: conf.dot, flexShrink: 0,
-                  }} />
+                  {/* Confidence badge */}
+                  {mapping.target && conf && (
+                    <span style={{
+                      padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+                      fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase",
+                      background: conf.dot, color: "#fff", whiteSpace: "nowrap", flexShrink: 0,
+                    }}>
+                      {conf.label}
+                    </span>
+                  )}
+                </div>
+
+                {/* Hint text for medium/low confidence */}
+                {mapping.target && conf?.hint && (
+                  <div style={{ fontSize: 11, color: conf.dot, fontFamily: F.ui, fontWeight: 600, paddingLeft: 2 }}>
+                    {conf.hint}
+                  </div>
                 )}
               </div>
             </div>

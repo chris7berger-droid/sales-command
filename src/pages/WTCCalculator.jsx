@@ -563,11 +563,10 @@ function MaterialsTab({ items, taxRate, onChange }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
         <SectionHeader label="Materials" hint="Search the 159-product price list — selecting auto-fills kit size, price, and coverage rate" />
-        <a href="/settings/materials" style={{ fontSize: 12, color: T.gray400, fontWeight: 500, textDecoration: "none", marginBottom: 10, whiteSpace: "nowrap" }}
-          onMouseEnter={e => e.target.style.color = T.green}
-          onMouseLeave={e => e.target.style.color = T.gray400}>
-          ⚙ Manage price list →
-        </a>
+        <span style={{ fontSize: 12, color: T.gray300, fontWeight: 500, marginBottom: 10, whiteSpace: "nowrap", cursor: "default" }}
+          title="Coming soon">
+          ⚙ Manage price list (coming soon)
+        </span>
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: items.length > 0 ? 4 : 16 }}>
         <MaterialPicker onSelect={addFromDB} />

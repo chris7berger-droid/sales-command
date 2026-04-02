@@ -26,10 +26,15 @@ export default function WelcomeScreen({ teamMember, onComplete }) {
       setLoading(false);
       return;
     }
-    await supabase
+    const { error: obErr } = await supabase
       .from("team_members")
       .update({ onboarded: true })
       .eq("id", teamMember.id);
+    if (obErr) {
+      setError("Could not complete onboarding. Please contact your admin.");
+      setLoading(false);
+      return;
+    }
     onComplete();
   };
 

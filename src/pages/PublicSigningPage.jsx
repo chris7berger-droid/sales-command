@@ -301,7 +301,7 @@ export default function PublicSigningPage() {
         <div style={{ background: "white", padding: "28px 32px 20px", borderRadius: "0 0 14px 14px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: 16, borderBottom: `4px solid ${T.green}`, marginBottom: 20 }}>
             <div>
-              {config.logo_url && <img src={config.logo_url} alt={config.company_name} style={{ height: 50, marginBottom: 6 }} />}
+              <img src={config.logo_url || "/hdsp-logo.png"} alt={config.company_name} style={{ height: 50, marginBottom: 6 }} />
               <div style={{ fontSize: 18, fontWeight: 800, color: T.gray900, letterSpacing: "0.02em", textTransform: "uppercase" }}>{config.company_name}</div>
               <div style={{ fontSize: 11, color: T.gray500, marginTop: 3 }}>{config.tagline}</div>
             </div>

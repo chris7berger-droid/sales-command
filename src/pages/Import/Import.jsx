@@ -4,6 +4,8 @@ import { SalesCommandMark } from "../../components/Logo";
 import Btn from "../../components/Btn";
 import FileUpload, { FilePreview } from "./FileUpload";
 import DataTypeSelector from "./DataTypeSelector";
+import ColumnMapper from "./ColumnMapper";
+import { getMissingRequired } from "./importUtils";
 import * as XLSX from "xlsx";
 
 const STEPS = [
@@ -17,10 +19,12 @@ export default function Import() {
   const [step, setStep] = useState(0);
   const [fileData, setFileData] = useState(null);
   const [dataType, setDataType] = useState(null);
+  const [mappings, setMappings] = useState({});
 
   const canNext = () => {
     if (step === 0) return !!fileData;
     if (step === 1) return !!dataType;
+    if (step === 2) return dataType && getMissingRequired(dataType, mappings).length === 0;
     return false;
   };
 
@@ -43,6 +47,7 @@ export default function Import() {
     setStep(0);
     setFileData(null);
     setDataType(null);
+    setMappings({});
   }, []);
 
   return (
@@ -126,11 +131,16 @@ export default function Import() {
         )}
 
         {step === 1 && (
-          <DataTypeSelector selected={dataType} onSelect={setDataType} />
+          <DataTypeSelector selected={dataType} onSelect={(dt) => { setDataType(dt); setMappings({}); }} />
         )}
 
-        {step === 2 && (
-          <PlaceholderStep label="Column Mapping" desc="Coming in Session 2" />
+        {step === 2 && fileData && dataType && (
+          <ColumnMapper
+            fileData={fileData}
+            dataType={dataType}
+            mappings={mappings}
+            onMappingsChange={setMappings}
+          />
         )}
 
         {step === 3 && (

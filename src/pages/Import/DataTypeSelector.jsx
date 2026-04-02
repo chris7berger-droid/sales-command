@@ -122,6 +122,19 @@ export default function DataTypeSelector({ selected, onSelect }) {
           );
         })}
       </div>
+
+      {/* Selection confirmation */}
+      {selected && (
+        <div style={{
+          marginTop: 16, padding: "10px 14px",
+          background: C.tealGlow, border: `1px solid ${C.tealBorder}`,
+          borderRadius: 8, fontSize: 13, fontFamily: F.ui, color: C.tealDeep,
+          fontWeight: 600, display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <span style={{ fontSize: 15 }}>&#10003;</span>
+          Importing <strong style={{ margin: "0 3px" }}>{DATA_TYPES.find(d => d.id === selected)?.label}</strong> — click <strong style={{ margin: "0 3px" }}>Next</strong> to map your columns.
+        </div>
+      )}
     </div>
   );
 }

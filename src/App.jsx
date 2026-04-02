@@ -21,7 +21,6 @@ import Customers from "./pages/Customers";
 import Team from "./pages/Team";
 import Settings from "./pages/Settings";
 import { getPageNumber, PageBadge, TOCOverlay } from "./components/TableOfContents";
-import RegressionTest from "./components/RegressionTest";
 import InvoicePaidPage from "./pages/InvoicePaidPage";
 import QBCallbackPage from "./pages/QBCallbackPage";
 import ErrorBoundary from "./components/ErrorBoundary";

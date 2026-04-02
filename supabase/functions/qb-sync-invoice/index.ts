@@ -80,7 +80,7 @@ async function findItemExact(name: string, accessToken: string, realmId: string)
 
 serve(async (req) => {
   const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": "https://www.scmybiz.com",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   };
 
@@ -89,14 +89,31 @@ serve(async (req) => {
   }
 
   try {
+    const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    // Verify caller is authenticated
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401,
+      });
+    }
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: authErr } = await sb.auth.getUser(token);
+    if (authErr || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401,
+      });
+    }
+
     const { invoiceId } = await req.json();
     if (!invoiceId) {
       return new Response(JSON.stringify({ error: "invoiceId is required" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400,
       });
     }
-
-    const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Fetch invoice
     const { data: invoice } = await sb.from("invoices").select("*").eq("id", invoiceId).single();

@@ -39,8 +39,8 @@ function GoalCard({ label, actual, goal, fmt = v => v, items = [] }) {
       </div>
       {open && items.length > 0 && (
         <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 200, overflowY: "auto" }} onClick={e => e.stopPropagation()}>
-          {items.map((it, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, fontFamily: F.ui, color: C.textBody, padding: "4px 0" }}>
+          {items.map((it) => (
+            <div key={it.id || it.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, fontFamily: F.ui, color: C.textBody, padding: "4px 0" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 0 }}>
                 <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</span>
                 {it.sub && <span style={{ fontSize: 11, color: C.textFaint }}>{it.sub}</span>}
@@ -316,7 +316,7 @@ function CashFlowModal({ data, onClose }) {
                 const hasJobs = m.invoiceJobs.length > 0 || m.receivedJobs.length > 0;
                 const expanded = expandedRow === i;
                 return (
-                  <React.Fragment key={i}>
+                  <React.Fragment key={m.month}>
                     <tr
                       onClick={() => hasJobs && setExpandedRow(expanded ? null : i)}
                       style={{

@@ -49,7 +49,7 @@ function GoalDrilldown({ title, items, onClose }) {
             <div style={{ padding: "24px 20px", textAlign: "center", color: C.textFaint, fontFamily: F.ui, fontSize: 13 }}>No items to show</div>
           )}
           {items.map((item, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", background: i % 2 === 0 ? "transparent" : C.linenDeep, gap: 12 }}>
+            <div key={item.id || item.label || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", background: i % 2 === 0 ? "transparent" : C.linenDeep, gap: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {item.jobName || "Untitled"}

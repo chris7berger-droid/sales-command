@@ -65,7 +65,7 @@ export default function PublicSigningPage() {
 
       const { data: wtcData } = await supabase
         .from("proposal_wtc")
-        .select("sales_sow, discount, materials, travel, regular_hours, ot_hours, markup_pct, burden_rate, ot_burden_rate, tax_rate, prevailing_wage, pw_rate, pw_ot_rate, size")
+        .select("*, work_types(name)")
         .eq("proposal_id", prop.id)
         .order("created_at", { ascending: true });
 
@@ -390,8 +390,8 @@ export default function PublicSigningPage() {
         <div style={{ fontSize: 10, fontWeight: 700, color: T.gray400, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10, marginTop: 8 }}>Scope of Work</div>
 
         {/* SOW — one section per WTC */}
-        {wtcs.filter(w => (w.sales_sow || "").trim()).map((w, i) => (
-          <div key={i} style={{ background: "white", borderRadius: 14, border: `1px solid ${T.gray200}`, padding: "28px 32px", marginBottom: 16, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+        {wtcs.filter(w => (w.sales_sow || "").trim()).map((w) => (
+          <div key={w.id} style={{ background: "white", borderRadius: 14, border: `1px solid ${T.gray200}`, padding: "28px 32px", marginBottom: 16, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
             {/* Work Type header with teal lines */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
               <div style={{ flex: 1, height: 3, background: T.green, borderRadius: 2 }} />

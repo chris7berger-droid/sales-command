@@ -99,7 +99,7 @@ export default function Managers() {
             {loading
               ? <tr><td colSpan={9} style={{ padding: 24, textAlign: "center", color: C.textFaint, fontFamily: F.ui }}>Loading…</td></tr>
               : rows.map((r, i) => (
-              <tr key={i} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? C.linenLight : C.linen }}>
+              <tr key={r.month} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? C.linenLight : C.linen }}>
                 <td style={{ padding: "11px 14px", fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em" }}>{r.month}</td>
                 {[r.newCalls, r.propsSent, r.propsAccepted].map((val, j) => (
                   <td key={j} style={{ padding: "11px 14px", textAlign: "right", color: val === 0 ? C.textFaint : C.textBody }}>{val || "—"}</td>

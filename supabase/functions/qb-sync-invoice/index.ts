@@ -102,11 +102,7 @@ serve(async (req) => {
     const { data: invoice } = await sb.from("invoices").select("*").eq("id", invoiceId).single();
     if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
 
-    if (invoice.qb_invoice_id) {
-      return new Response(JSON.stringify({ success: true, qbInvoiceId: invoice.qb_invoice_id, message: "Already synced" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
-      });
-    }
+    const isUpdate = !!invoice.qb_invoice_id;
 
     // Fetch invoice lines with WTC + work type info
     const { data: lines } = await sb.from("invoice_lines")
@@ -175,6 +171,17 @@ serve(async (req) => {
       });
     }
 
+    // Add discount if present
+    if (invoice.discount && invoice.discount > 0) {
+      qbLines.push({
+        DetailType: "DiscountLineDetail",
+        Amount: invoice.discount,
+        DiscountLineDetail: {
+          PercentBased: false,
+        },
+      });
+    }
+
     // ── Determine location from jobsite state ──────────────────────────
     // QB uses "Department" for Location tracking
     let departmentRef = null;
@@ -189,7 +196,7 @@ serve(async (req) => {
       }
     }
 
-    // ── Create QB invoice ──────────────────────────────────────────────
+    // ── Build QB invoice object ───────────────────────────────────────
     const qbInvoice: any = {
       CustomerRef: { value: qbCustomerId },
       DocNumber: invoiceId,
@@ -197,17 +204,6 @@ serve(async (req) => {
       DueDate: invoice.due_date || undefined,
       Line: qbLines,
     };
-
-    // Add discount if present
-    if (invoice.discount && invoice.discount > 0) {
-      qbLines.push({
-        DetailType: "DiscountLineDetail",
-        Amount: invoice.discount,
-        DiscountLineDetail: {
-          PercentBased: false,
-        },
-      });
-    }
 
     if (departmentRef) {
       qbInvoice.DepartmentRef = departmentRef;
@@ -218,18 +214,37 @@ serve(async (req) => {
       qbInvoice.CustomerMemo = { value: invoice.description };
     }
 
-    console.log("qb-sync-invoice: creating invoice", invoiceId, "for QB customer", qbCustomerId);
-    const result = await qbApi("POST", "/invoice", accessToken, realmId, qbInvoice);
-    const qbInvoiceId = result.Invoice.Id;
-    console.log("qb-sync-invoice: created QB invoice ID:", qbInvoiceId);
+    let qbInvoiceId: string;
 
-    // Save QB invoice ID back to our invoices table
-    await sb.from("invoices").update({ qb_invoice_id: qbInvoiceId }).eq("id", invoiceId);
+    if (isUpdate) {
+      // ── Update existing QB invoice ────────────────────────────────────
+      // Fetch existing QB invoice to get SyncToken (required for updates)
+      const existing = await qbApi("GET", `/invoice/${invoice.qb_invoice_id}`, accessToken, realmId);
+      const syncToken = existing.Invoice.SyncToken;
+      qbInvoice.Id = invoice.qb_invoice_id;
+      qbInvoice.SyncToken = syncToken;
+      qbInvoice.sparse = false; // full update replaces all fields
+
+      console.log("qb-sync-invoice: updating QB invoice", invoice.qb_invoice_id, "for SC invoice", invoiceId);
+      const result = await qbApi("POST", "/invoice", accessToken, realmId, qbInvoice);
+      qbInvoiceId = result.Invoice.Id;
+      console.log("qb-sync-invoice: updated QB invoice ID:", qbInvoiceId);
+    } else {
+      // ── Create new QB invoice ─────────────────────────────────────────
+      console.log("qb-sync-invoice: creating invoice", invoiceId, "for QB customer", qbCustomerId);
+      const result = await qbApi("POST", "/invoice", accessToken, realmId, qbInvoice);
+      qbInvoiceId = result.Invoice.Id;
+      console.log("qb-sync-invoice: created QB invoice ID:", qbInvoiceId);
+
+      // Save QB invoice ID back to our invoices table
+      await sb.from("invoices").update({ qb_invoice_id: qbInvoiceId }).eq("id", invoiceId);
+    }
 
     return new Response(JSON.stringify({
       success: true,
       qbInvoiceId,
       docNumber: invoiceId,
+      action: isUpdate ? "updated" : "created",
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,

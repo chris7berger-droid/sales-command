@@ -511,6 +511,8 @@ const missingJobsite = !p.call_log?.jobsite_address;
 const [wtcs, setWtcs] = useState([]);
 const [signedPdfUrl, setSignedPdfUrl] = useState(null);
 const [attachments, setAttachments] = useState([]);
+const [proposalAttachments, setProposalAttachments] = useState([]);
+const [uploadingPropAttach, setUploadingPropAttach] = useState(false);
 const [expandedWtc, setExpandedWtc] = useState("auto");
 const [showApproveModal, setShowApproveModal] = useState(false);
 const [approveBy, setApproveBy] = useState(teamMember?.name || "");
@@ -582,6 +584,55 @@ useEffect(() => {
   }
   loadAttachments();
 }, [p.call_log_id]);
+
+// Proposal attachments (files sent with the proposal to the customer)
+useEffect(() => {
+  async function loadPropAttachments() {
+    const prefix = `proposal-${p.id}`;
+    const { data, error } = await supabase.storage.from("job-attachments").list(prefix);
+    if (error || !data) return;
+    setProposalAttachments(
+      data.filter(f => f.name !== ".emptyFolderPlaceholder").map(file => {
+        const { data: urlData } = supabase.storage.from("job-attachments").getPublicUrl(`${prefix}/${file.name}`);
+        const display = file.name.replace(/^\d+-/, "");
+        return { name: display, fullName: file.name, url: urlData.publicUrl };
+      })
+    );
+  }
+  loadPropAttachments();
+}, [p.id]);
+
+async function handlePropAttachUpload(e) {
+  const files = e.target.files;
+  if (!files || files.length === 0) return;
+  setUploadingPropAttach(true);
+  const prefix = `proposal-${p.id}`;
+  for (const file of files) {
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const storageName = `${Date.now()}-${safeName}`;
+    await supabase.storage.from("job-attachments").upload(`${prefix}/${storageName}`, file, { upsert: false });
+  }
+  // Reload
+  const { data } = await supabase.storage.from("job-attachments").list(prefix);
+  if (data) {
+    setProposalAttachments(
+      data.filter(f => f.name !== ".emptyFolderPlaceholder").map(file => {
+        const { data: urlData } = supabase.storage.from("job-attachments").getPublicUrl(`${prefix}/${file.name}`);
+        const display = file.name.replace(/^\d+-/, "");
+        return { name: display, fullName: file.name, url: urlData.publicUrl };
+      })
+    );
+  }
+  setUploadingPropAttach(false);
+  e.target.value = "";
+}
+
+async function deletePropAttachment(fullName) {
+  if (!window.confirm("Remove this attachment from the proposal?")) return;
+  const prefix = `proposal-${p.id}`;
+  await supabase.storage.from("job-attachments").remove([`${prefix}/${fullName}`]);
+  setProposalAttachments(prev => prev.filter(a => a.fullName !== fullName));
+}
 
   async function setJobWalkType(wtcId, currentVal, type) {
     const newVal = currentVal === type ? null : type;
@@ -887,6 +938,32 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               </div>
             </div>
           )}
+
+          {/* Proposal Attachments — files sent with the proposal to customer */}
+          <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Proposal Attachments</div>
+              <label style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", padding: "5px 12px", borderRadius: 6, cursor: "pointer", textTransform: "uppercase" }}>
+                {uploadingPropAttach ? "Uploading…" : "+ Add"}
+                <input type="file" multiple onChange={handlePropAttachUpload} style={{ display: "none" }} disabled={uploadingPropAttach} />
+              </label>
+            </div>
+            {proposalAttachments.length === 0 && (
+              <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>No attachments yet. Add files to include with this proposal.</div>
+            )}
+            {proposalAttachments.length > 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {proposalAttachments.map(att => (
+                  <div key={att.fullName} style={{ display: "flex", alignItems: "center", gap: 6, background: C.dark, borderRadius: 6, padding: "4px 6px 4px 14px" }}>
+                    <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textDecoration: "none" }}>
+                      {att.name}
+                    </a>
+                    <button onClick={() => deletePropAttachment(att.fullName)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontSize: 14, padding: "2px 4px", lineHeight: 1 }} title="Remove">×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div style={{ background: C.dark, border: `1px solid ${C.tealBorder}`, borderRadius: 10, padding: 20 }}>
             <div style={{ fontWeight: 800, fontSize: 12.5, color: C.teal, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>Summary</div>

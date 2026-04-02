@@ -69,7 +69,16 @@ export default function PublicSigningPage() {
         .eq("proposal_id", prop.id)
         .order("created_at", { ascending: true });
 
-      setProposal(prop);
+      // Load proposal attachments
+      const prefix = `proposal-${prop.id}`;
+      const { data: attData } = await supabase.storage.from("job-attachments").list(prefix);
+      const propAttachments = (attData || []).filter(f => f.name !== ".emptyFolderPlaceholder").map(file => {
+        const { data: urlData } = supabase.storage.from("job-attachments").getPublicUrl(`${prefix}/${file.name}`);
+        const display = file.name.replace(/^\d+-/, "");
+        return { name: display, url: urlData.publicUrl };
+      });
+
+      setProposal({ ...prop, _attachments: propAttachments });
       setWtc(wtcData || []);
       setLoading(false);
     }
@@ -403,6 +412,20 @@ export default function PublicSigningPage() {
             <div style={{ fontSize: 24, fontWeight: 800, color: T.gray900 }}>{fmt(total)}</div>
           </div>
         </div>
+
+        {/* Proposal Attachments */}
+        {(proposal._attachments || []).length > 0 && (
+          <div style={{ background: "white", borderRadius: 14, border: `1px solid ${T.gray200}`, padding: "20px 28px", marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.gray400, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Attachments</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {proposal._attachments.map(att => (
+                <a key={att.url} href={att.url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-block", background: T.gray900, color: T.green, fontWeight: 700, fontSize: 12, padding: "6px 14px", borderRadius: 6, textDecoration: "none" }}>
+                  {att.name}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Signing */}
         {!signed ? (

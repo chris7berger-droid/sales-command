@@ -223,19 +223,31 @@ export function classifyCustomerName(name) {
     return { customer_type: "Commercial", first_name: "", last_name: "" };
   }
 
-  // Heuristic: if it looks like "First Last" (2-3 words, no business words), treat as residential
   const words = trimmed.split(/\s+/);
+
+  // Single word: ALL CAPS or mixed-case non-name patterns → Commercial
+  // Common first names are typically Title Case and short — but acronyms (ABTC, IGT)
+  // and brand names (FedEx, Subaru) are not standard first names
+  if (words.length === 1) {
+    const isAllCaps = trimmed === trimmed.toUpperCase() && trimmed.length >= 2;
+    const hasMixedCase = /[a-z]/.test(trimmed) && /[A-Z]/.test(trimmed.slice(1)); // e.g. FedEx, BergmanKPRS
+    const hasDigit = /\d/.test(trimmed);
+    const hasPunctuation = /[-\/&.]/.test(trimmed);
+    if (isAllCaps || hasMixedCase || hasDigit || hasPunctuation) {
+      return { customer_type: "Commercial", first_name: "", last_name: "" };
+    }
+    // Single title-case word — likely a first name
+    return { customer_type: "Residential", first_name: trimmed, last_name: "" };
+  }
+
+  // 2-3 words, no business indicators: likely "First Last"
   if (words.length >= 2 && words.length <= 3) {
     const first = words[0];
     const last = words.slice(1).join(" ");
     return { customer_type: "Residential", first_name: first, last_name: last };
   }
 
-  // Single word or 4+ words — can't tell, default to Business
-  if (words.length === 1) {
-    return { customer_type: "Residential", first_name: trimmed, last_name: "" };
-  }
-
+  // 4+ words — likely a business name
   return { customer_type: "Commercial", first_name: "", last_name: "" };
 }
 

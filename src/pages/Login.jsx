@@ -20,19 +20,26 @@ export default function Login() {
   const [remember, setRemember] = useState(() => localStorage.getItem("sc_remember") !== "false")
 
   useEffect(() => {
-    // Only enter reset mode if the URL actually contains a recovery token
-    const hasRecoveryHash = window.location.hash.includes("type=recovery");
+    const hash = window.location.hash || "";
+    const hasRecoveryHash = hash.includes("type=recovery");
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY" && hasRecoveryHash) {
-        setMode("reset")
-      }
-      if (event === "SIGNED_IN" && mode === "reset") {
-        window.history.replaceState({}, "", window.location.pathname)
-        setMode("login")
+      if (event === "PASSWORD_RECOVERY") {
+        if (hasRecoveryHash) {
+          setMode("reset")
+        } else {
+          // Stale recovery event with no token in URL — sign out to clear it
+          console.warn("PASSWORD_RECOVERY fired without recovery hash, clearing auth state");
+          supabase.auth.signOut();
+          setMode("login")
+        }
       }
     })
+    // Also clear recovery hash from URL on mount if present
+    if (hasRecoveryHash) {
+      window.history.replaceState({}, "", window.location.pathname)
+    }
     return () => subscription.unsubscribe()
-  }, [mode])
+  }, [])
 
   async function handleSubmit(e) {
     e.preventDefault()

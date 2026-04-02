@@ -23,18 +23,11 @@ export default function Login() {
     const hash = window.location.hash || "";
     const hasRecoveryHash = hash.includes("type=recovery");
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        if (hasRecoveryHash) {
-          setMode("reset")
-        } else {
-          // Stale recovery event with no token in URL — sign out to clear it
-          console.warn("PASSWORD_RECOVERY fired without recovery hash, clearing auth state");
-          supabase.auth.signOut();
-          setMode("login")
-        }
+      if (event === "PASSWORD_RECOVERY" && hasRecoveryHash) {
+        setMode("reset")
       }
+      // Ignore stale PASSWORD_RECOVERY — don't sign out, don't change mode
     })
-    // Also clear recovery hash from URL on mount if present
     if (hasRecoveryHash) {
       window.history.replaceState({}, "", window.location.pathname)
     }

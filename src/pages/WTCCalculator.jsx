@@ -1775,10 +1775,259 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const tabs = TABS.map(t => t.key);
   const idx = tabs.indexOf(tab);
 
+  // ── Print helpers ──────────────────────────────────────────────────────────
+  const workTypeName = workTypes.find(w => w.id === selectedWorkTypeId)?.name || "—";
+  const printLaborComputed = laborComputed;
+  const printMatTotal = materials.reduce((s, i) => s + calcMaterialRow(i), 0);
+  const printTravelTotal = calcTravel(travel);
+  const printDiscountAmt = discount.amount || 0;
+  const printSubtotal = (printLaborComputed.total || 0) + printMatTotal + printTravelTotal;
+  const printProposalPrice = Math.ceil(printSubtotal - printDiscountAmt);
+  const printTotalCost = (printLaborComputed.subtotal || 0) + printMatTotal + printTravelTotal;
+  const printProfitDollars = printProposalPrice - printTotalCost;
+  const printProfitMargin = printProposalPrice > 0 ? (printProfitDollars / printProposalPrice) * 100 : 0;
+  const printSqftPrice = (sow.size || 0) > 0 ? printProposalPrice / sow.size : 0;
+
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: T.gray50, minHeight: "100%", paddingBottom: 60 }}>
+      {/* Print stylesheet */}
+      <style>{`
+        @media print {
+          body, html { background: white !important; margin: 0 !important; padding: 0 !important; }
+          [data-wtc-no-print] { display: none !important; }
+          [data-wtc-print-only] { display: block !important; }
+          div { box-shadow: none !important; }
+        }
+        @media screen {
+          [data-wtc-print-only] { display: none !important; }
+        }
+      `}</style>
+
+      {/* ── Print-only layout ──────────────────────────────────────────────── */}
+      <div data-wtc-print-only style={{ padding: "24px 40px", fontFamily: "'Inter', sans-serif", color: "#1c1814", fontSize: 12 }}>
+        {/* Print header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: "3px solid #30cfac", paddingBottom: 14, marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-0.02em" }}>Work Type Calculator</div>
+            <div style={{ fontSize: 13, color: "#6b6358", marginTop: 4 }}>{workTypeName}</div>
+          </div>
+          <div style={{ textAlign: "right", fontSize: 11, color: "#6b6358" }}>
+            {jobInfo.displayJobNumber && <div style={{ fontWeight: 700, fontSize: 13, color: "#1c1814" }}>{jobInfo.displayJobNumber}</div>}
+            {jobInfo.customerName && <div>{jobInfo.customerName}</div>}
+            <div>{new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
+          </div>
+        </div>
+
+        {/* Bidding info */}
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6b6358", marginBottom: 6 }}>Bidding Info</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <tbody>
+              <tr>
+                <td style={{ padding: "4px 8px", color: "#6b6358" }}>Burden Rate</td>
+                <td style={{ padding: "4px 8px", fontWeight: 600 }}>{fmt(bidding.burden_rate)}/hr</td>
+                <td style={{ padding: "4px 8px", color: "#6b6358" }}>OT Rate</td>
+                <td style={{ padding: "4px 8px", fontWeight: 600 }}>{fmt(bidding.ot_burden_rate)}/hr</td>
+                <td style={{ padding: "4px 8px", color: "#6b6358" }}>Tax Rate</td>
+                <td style={{ padding: "4px 8px", fontWeight: 600 }}>{pct(bidding.tax_rate)}</td>
+              </tr>
+              {bidding.prevailing_wage && (
+                <tr>
+                  <td style={{ padding: "4px 8px", color: "#6b6358" }}>PW Rate</td>
+                  <td style={{ padding: "4px 8px", fontWeight: 600 }}>{fmt(bidding.pw_rate)}/hr</td>
+                  <td style={{ padding: "4px 8px", color: "#6b6358" }}>PW OT Rate</td>
+                  <td style={{ padding: "4px 8px", fontWeight: 600 }}>{fmt(bidding.pw_ot_rate)}/hr</td>
+                  <td colSpan={2} />
+                </tr>
+              )}
+              <tr>
+                <td style={{ padding: "4px 8px", color: "#6b6358" }}>Size</td>
+                <td style={{ padding: "4px 8px", fontWeight: 600 }}>{(sow.size || 0).toLocaleString()} {sow.unit || "SQFT"}</td>
+                {bidding.start_date && <><td style={{ padding: "4px 8px", color: "#6b6358" }}>Start</td><td style={{ padding: "4px 8px", fontWeight: 600 }}>{bidding.start_date}</td></>}
+                {bidding.end_date && <><td style={{ padding: "4px 8px", color: "#6b6358" }}>End</td><td style={{ padding: "4px 8px", fontWeight: 600 }}>{bidding.end_date}</td></>}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Labor breakdown */}
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6b6358", marginBottom: 6 }}>Labor Breakdown</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: "2px solid #e5e0d8" }}>
+                <th style={{ textAlign: "left", padding: "6px 8px", fontWeight: 700 }}>Item</th>
+                <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 700 }}>Hours</th>
+                <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 700 }}>Rate</th>
+                <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 700 }}>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style={{ borderBottom: "1px solid #e5e0d8" }}>
+                <td style={{ padding: "6px 8px" }}>Regular Hours</td>
+                <td style={{ padding: "6px 8px", textAlign: "right" }}>{labor.regular_hours}</td>
+                <td style={{ padding: "6px 8px", textAlign: "right" }}>{fmt(effRate)}</td>
+                <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{fmt(printLaborComputed.regularCost)}</td>
+              </tr>
+              {labor.ot_hours > 0 && (
+                <tr style={{ borderBottom: "1px solid #e5e0d8" }}>
+                  <td style={{ padding: "6px 8px" }}>Overtime Hours</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right" }}>{labor.ot_hours}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right" }}>{fmt(effOtRate)}</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{fmt(printLaborComputed.otCost)}</td>
+                </tr>
+              )}
+              <tr style={{ borderBottom: "1px solid #e5e0d8" }}>
+                <td style={{ padding: "6px 8px" }}>Subtotal (cost)</td>
+                <td colSpan={2} />
+                <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{fmt(printLaborComputed.subtotal)}</td>
+              </tr>
+              <tr style={{ borderBottom: "1px solid #e5e0d8" }}>
+                <td style={{ padding: "6px 8px" }}>Markup ({labor.markup_pct}%)</td>
+                <td colSpan={2} />
+                <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{fmt(printLaborComputed.markupAmt)}</td>
+              </tr>
+              <tr style={{ borderBottom: "2px solid #1c1814" }}>
+                <td style={{ padding: "6px 8px", fontWeight: 700 }}>Labor Total (billed)</td>
+                <td colSpan={2} />
+                <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, fontSize: 13 }}>{fmt(printLaborComputed.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Materials list */}
+        {materials.length > 0 && (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6b6358", marginBottom: 6 }}>Materials</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid #e5e0d8" }}>
+                  <th style={{ textAlign: "left", padding: "6px 8px", fontWeight: 700 }}>Material</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 700 }}>Qty</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 700 }}>Unit Price</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 700 }}>Tax</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 700 }}>Freight</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 700 }}>Markup</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 700 }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {materials.map((m, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid #e5e0d8" }}>
+                    <td style={{ padding: "6px 8px" }}>{m.name || "—"}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{m.qty || 0}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{fmt(m.price_per_unit)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{pct(m.tax)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{fmt(m.freight)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{pct(m.markup_pct)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{fmt(calcMaterialRow(m))}</td>
+                  </tr>
+                ))}
+                <tr style={{ borderBottom: "2px solid #1c1814" }}>
+                  <td colSpan={6} style={{ padding: "6px 8px", fontWeight: 700 }}>Materials Total</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, fontSize: 13 }}>{fmt(printMatTotal)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Travel */}
+        {printTravelTotal > 0 && (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6b6358", marginBottom: 6 }}>Travel</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid #e5e0d8" }}>
+                  <th style={{ textAlign: "left", padding: "6px 8px", fontWeight: 700 }}>Category</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 700 }}>Rate</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 700 }}>Qty</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 700 }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {travel.drive_rate > 0 && travel.drive_miles > 0 && (
+                  <tr style={{ borderBottom: "1px solid #e5e0d8" }}>
+                    <td style={{ padding: "6px 8px" }}>Drive</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{fmt(travel.drive_rate)}/mi</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{travel.drive_miles} mi</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{fmt(travel.drive_rate * travel.drive_miles)}</td>
+                  </tr>
+                )}
+                {travel.fly_rate > 0 && travel.fly_tickets > 0 && (
+                  <tr style={{ borderBottom: "1px solid #e5e0d8" }}>
+                    <td style={{ padding: "6px 8px" }}>Fly</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{fmt(travel.fly_rate)}/ticket</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{travel.fly_tickets}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{fmt(travel.fly_rate * travel.fly_tickets)}</td>
+                  </tr>
+                )}
+                {travel.stay_rate > 0 && travel.stay_nights > 0 && (
+                  <tr style={{ borderBottom: "1px solid #e5e0d8" }}>
+                    <td style={{ padding: "6px 8px" }}>Lodging</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{fmt(travel.stay_rate)}/night</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{travel.stay_nights}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{fmt(travel.stay_rate * travel.stay_nights)}</td>
+                  </tr>
+                )}
+                {travel.per_diem_rate > 0 && travel.per_diem_days > 0 && (
+                  <tr style={{ borderBottom: "1px solid #e5e0d8" }}>
+                    <td style={{ padding: "6px 8px" }}>Per Diem</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{fmt(travel.per_diem_rate)}/person/day</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right" }}>{travel.per_diem_days}d x {travel.per_diem_crew} crew</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>{fmt(travel.per_diem_rate * travel.per_diem_days * travel.per_diem_crew)}</td>
+                  </tr>
+                )}
+                <tr style={{ borderBottom: "2px solid #1c1814" }}>
+                  <td colSpan={3} style={{ padding: "6px 8px", fontWeight: 700 }}>Travel Total</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, fontSize: 13 }}>{fmt(printTravelTotal)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Discount */}
+        {printDiscountAmt > 0 && (
+          <div style={{ marginBottom: 18, fontSize: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px", background: "#FFF8E1", borderRadius: 6 }}>
+              <span style={{ fontWeight: 600 }}>Discount{discount.reason ? ` — ${discount.reason}` : ""}</span>
+              <span style={{ fontWeight: 700 }}>-{fmt(printDiscountAmt)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Summary totals */}
+        <div style={{ borderTop: "3px solid #30cfac", paddingTop: 16 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <tbody>
+              <tr><td style={{ padding: "5px 8px", color: "#6b6358" }}>Labor</td><td style={{ padding: "5px 8px", textAlign: "right" }}>{fmt(printLaborComputed.total)}</td></tr>
+              <tr><td style={{ padding: "5px 8px", color: "#6b6358" }}>Materials</td><td style={{ padding: "5px 8px", textAlign: "right" }}>{fmt(printMatTotal)}</td></tr>
+              <tr><td style={{ padding: "5px 8px", color: "#6b6358" }}>Travel</td><td style={{ padding: "5px 8px", textAlign: "right" }}>{fmt(printTravelTotal)}</td></tr>
+              {printDiscountAmt > 0 && <tr><td style={{ padding: "5px 8px", color: "#92400e" }}>Discount</td><td style={{ padding: "5px 8px", textAlign: "right", color: "#92400e" }}>-{fmt(printDiscountAmt)}</td></tr>}
+              <tr style={{ borderTop: "2px solid #1c1814" }}>
+                <td style={{ padding: "8px 8px", fontWeight: 800, fontSize: 16 }}>Proposal Price</td>
+                <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 800, fontSize: 16 }}>{fmt(printProposalPrice)}</td>
+              </tr>
+              <tr>
+                <td style={{ padding: "4px 8px", color: "#6b6358", fontSize: 12 }}>{sow.unit || "Sqft"} Price</td>
+                <td style={{ padding: "4px 8px", textAlign: "right", fontSize: 12 }}>{fmtDec(printSqftPrice)}</td>
+              </tr>
+              <tr>
+                <td style={{ padding: "4px 8px", color: "#6b6358", fontSize: 12 }}>Profit Margin</td>
+                <td style={{ padding: "4px 8px", textAlign: "right", fontSize: 12 }}>{pct(printProfitMargin)}</td>
+              </tr>
+              <tr>
+                <td style={{ padding: "4px 8px", color: "#6b6358", fontSize: 12 }}>Total Cost</td>
+                <td style={{ padding: "4px 8px", textAlign: "right", fontSize: 12 }}>{fmt(printTotalCost)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
       {/* Sticky header + tab bar wrapper */}
-      <div style={{ position: "sticky", top: 0, zIndex: 100, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}>
+      <div data-wtc-no-print style={{ position: "sticky", top: 0, zIndex: 100, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}>
         {/* Header */}
         <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "12px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
@@ -1789,6 +2038,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
             <div style={{ fontSize: 20, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>Work Type Calculator</div>
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <Btn onClick={() => window.print()} variant="secondary" small icon="🖨">Print</Btn>
             {onBackToList && <Btn onClick={onBackToList} variant="secondary" small>← Proposals</Btn>}
             {onClose && <Btn onClick={() => onClose()} variant="ghost">✕ Close</Btn>}
           </div>
@@ -1809,7 +2059,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       </div>
 
       {/* Content area */}
-      <div style={{ maxWidth: 940, margin: "0 auto", padding: "28px 20px" }}>
+      <div data-wtc-no-print style={{ maxWidth: 940, margin: "0 auto", padding: "28px 20px" }}>
         {(locked || proposalSold) && tab !== "summary" && (
           <div style={{ background: "#FFF8E1", border: "1px solid #F59E0B", borderRadius: 10, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 20 }}>🔒</span>

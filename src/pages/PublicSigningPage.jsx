@@ -28,6 +28,8 @@ export default function PublicSigningPage() {
   const [signing, setSigning] = useState(false);
   const [signed, setSigned] = useState(false);
   const [config, setConfig] = useState(DEFAULTS);
+  const [pulledBack, setPulledBack] = useState(false);
+  const [repInfo, setRepInfo] = useState(null);
 
   useEffect(() => { getTenantConfig().then(setConfig); }, []);
 
@@ -44,6 +46,19 @@ export default function PublicSigningPage() {
 
       if (propErr || !prop) { setError("Proposal not found."); setLoading(false); return; }
       if (prop.status === "Sold") { setSigned(true); setProposal(prop); setLoading(false); return; }
+
+      // If proposal is Draft (pulled back) or not in a signable state, block signing
+      if (prop.status === "Draft") {
+        const salesName = prop.call_log?.sales_name;
+        if (salesName) {
+          const { data: rep } = await supabase.from("team_members").select("name, email, phone").eq("name", salesName).maybeSingle();
+          if (rep) setRepInfo(rep);
+        }
+        setPulledBack(true);
+        setProposal(prop);
+        setLoading(false);
+        return;
+      }
 
       const { data: wtcData } = await supabase
         .from("proposal_wtc")
@@ -243,6 +258,29 @@ export default function PublicSigningPage() {
       <div style={{ textAlign: "center" }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
         <div style={{ fontSize: 18, fontWeight: 700, color: "#1c1814" }}>{error}</div>
+      </div>
+    </div>
+  );
+
+  if (pulledBack) return (
+    <div style={{ minHeight: "100vh", background: "#F0F4FF", fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 20px", textAlign: "center" }}>
+        <div style={{ background: "white", borderRadius: 14, border: `2px solid ${T.gray200}`, padding: "40px 32px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>&#9888;&#65039;</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: T.gray900, marginBottom: 8 }}>Proposal Withdrawn</div>
+          <div style={{ fontSize: 14, color: T.gray500, marginBottom: 24, lineHeight: 1.7 }}>
+            This proposal has been pulled back and is no longer available for signing. Please contact your estimator for an updated proposal.
+          </div>
+          {repInfo && (
+            <div style={{ background: "#F0F4FF", borderRadius: 10, padding: "18px 24px", textAlign: "left" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.gray400, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Your Estimator</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.gray900, marginBottom: 4 }}>{repInfo.name}</div>
+              {repInfo.phone && <div style={{ fontSize: 13, color: T.gray500, marginBottom: 2 }}><a href={"tel:" + repInfo.phone} style={{ color: T.green, textDecoration: "none", fontWeight: 600 }}>{repInfo.phone}</a></div>}
+              {repInfo.email && <div style={{ fontSize: 13, color: T.gray500 }}><a href={"mailto:" + repInfo.email} style={{ color: T.green, textDecoration: "none", fontWeight: 600 }}>{repInfo.email}</a></div>}
+            </div>
+          )}
+        </div>
+        <div style={{ marginTop: 24, fontSize: 11, color: T.gray400 }}>{config.company_name} · {config.website}</div>
       </div>
     </div>
   );

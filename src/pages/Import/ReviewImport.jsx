@@ -215,9 +215,13 @@ export default function ReviewImport({ fileData, dataType, mappings }) {
                       )}
                     </div>
                     {row._issues.length > 0 && (
-                      <div style={{ marginTop: 2 }}>
+                      <div style={{ marginTop: 3, display: "flex", flexDirection: "column", gap: 2 }}>
                         {row._issues.map((iss, j) => (
-                          <div key={j} style={{ fontSize: 10.5, color: iss.level === "error" ? C.red : C.amber }}>
+                          <div key={j} style={{
+                            fontSize: 10.5, color: iss.level === "error" ? C.red : C.amber,
+                            background: C.dark, padding: "2px 8px", borderRadius: 4,
+                            alignSelf: "flex-start", whiteSpace: "normal",
+                          }}>
                             {iss.msg}
                           </div>
                         ))}

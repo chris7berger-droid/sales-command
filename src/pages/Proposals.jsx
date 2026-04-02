@@ -296,7 +296,8 @@ function ProposalPDFModal({ proposal, onClose }) {
             {view === "preview" && !sendDone && (
               <>
                 <button onClick={() => window.print()} style={{ background: "none", border: "1.5px solid #E5E7EB", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4B5563", cursor: "pointer", fontFamily: "inherit" }}>🖨 Print</button>
-                {proposal.status !== "Sold" && <button onClick={() => setView("send")} style={{ background: "#1976D2", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "white", cursor: "pointer", fontFamily: "inherit" }}>📨 Send to Customer →</button>}
+                {proposal.status !== "Sold" && wtcs.length > 0 && wtcs.every(w => w.locked) && <button onClick={() => setView("send")} style={{ background: "#1976D2", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "white", cursor: "pointer", fontFamily: "inherit" }}>📨 Send to Customer →</button>}
+                {proposal.status !== "Sold" && (wtcs.length === 0 || !wtcs.every(w => w.locked)) && <span style={{ fontSize: 11, fontWeight: 700, color: "#e53935", fontFamily: "inherit", padding: "7px 12px" }}>Lock all WTCs to send</span>}
               </>
             )}
             {view === "send" && !sendDone && (
@@ -595,6 +596,28 @@ useEffect(() => {
     setWtcs(prev => prev.filter(w => w.id !== wtcId));
   }
 
+  async function toggleWtcLock(wtcId) {
+    const wtc = wtcs.find(w => w.id === wtcId);
+    if (!wtc) return;
+    const newLocked = !wtc.locked;
+    // If locking, confirm the WTC checklist is complete enough
+    if (newLocked) {
+      const checks = getWtcChecks(wtc);
+      const preChecks = checks.slice(0, 5); // work type, rates, labor, materials, size
+      const incomplete = preChecks.filter(c => !c.done);
+      if (incomplete.length > 0) {
+        alert(`Cannot lock — incomplete: ${incomplete.map(c => c.l).join(", ")}`);
+        return;
+      }
+    }
+    await supabase.from("proposal_wtc").update({ locked: newLocked }).eq("id", wtcId);
+    setWtcs(prev => prev.map(w => w.id === wtcId ? { ...w, locked: newLocked } : w));
+    // Sync proposals.total
+    const { data: allWtcs } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", p.id);
+    const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcPrice(w), 0);
+    await supabase.from("proposals").update({ total: proposalTotal }).eq("id", p.id);
+  }
+
   function openWtcTab(wtcId, tab) {
     setActiveWtcId(wtcId);
     setWtcInitialTab(tab);
@@ -746,7 +769,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               const typeName = wtc.work_types?.name;
               const isExpanded = expandedWtc === wtc.id || (expandedWtc === "auto" && wtcs.length === 1);
               return (
-                <div key={wtc.id} style={{ background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 12 }}>
+                <div key={wtc.id} style={{ background: C.linen, border: `1px solid ${wtc.locked ? C.border : (C.amber || "#e6a800")}`, borderLeft: wtc.locked ? `1px solid ${C.border}` : `4px solid ${C.amber || "#e6a800"}`, borderRadius: 8, padding: "14px 16px", marginBottom: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div>
                       <div style={{ fontWeight: 800, fontSize: 15, color: C.textHead, fontFamily: F.display }}>
@@ -785,6 +808,11 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                       fontSize: 11, fontWeight: 700, color: C.textFaint, cursor: "pointer", fontFamily: F.display,
                       letterSpacing: "0.05em", textTransform: "uppercase",
                     }}>{isExpanded ? "Hide Checklist" : "Checklist"}</button>
+                    <button onClick={() => toggleWtcLock(wtc.id)} style={{
+                      background: wtc.locked ? C.green : "none", border: `1px solid ${wtc.locked ? C.green : (C.amber || "#e6a800")}`, borderRadius: 6, padding: "4px 12px",
+                      fontSize: 11, fontWeight: 700, color: wtc.locked ? C.dark : (C.amber || "#e6a800"), cursor: "pointer", fontFamily: F.display,
+                      letterSpacing: "0.05em", textTransform: "uppercase",
+                    }}>{wtc.locked ? "Locked" : "Lock"}</button>
                     <button onClick={() => deleteWtc(wtc.id)} style={{
                       background: "none", border: `1px solid ${C.red || "#e53935"}`, borderRadius: 6, padding: "4px 10px",
                       fontSize: 11, fontWeight: 700, color: C.red || "#e53935", cursor: "pointer", fontFamily: F.display,

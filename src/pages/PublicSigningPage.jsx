@@ -230,7 +230,8 @@ export default function PublicSigningPage() {
         const { data: rep } = await supabase.from("team_members").select("email").eq("name", salesName).maybeSingle();
         repEmail = rep?.email || "";
       }
-      await supabase.functions.invoke("proposal-signed", {
+      console.log("Calling proposal-signed edge function", { proposalId: proposal.id, callLogId: proposal.call_log_id, repEmail, salesName });
+      const { data: fnData, error: fnError } = await supabase.functions.invoke("proposal-signed", {
         body: {
           repEmail,
           repName: salesName,
@@ -242,6 +243,12 @@ export default function PublicSigningPage() {
           callLogId: proposal.call_log_id,
         },
       });
+      console.log("proposal-signed result:", fnData, fnError);
+      if (fnError) {
+        console.error("proposal-signed edge function failed, attempting direct update:", fnError);
+        await supabase.from("proposals").update({ status: "Sold", approved_at: new Date().toISOString() }).eq("id", proposal.id);
+        if (proposal.call_log_id) await supabase.from("call_log").update({ stage: "Sold" }).eq("id", proposal.call_log_id);
+      }
       // QB job sync (non-blocking)
       if (proposal.call_log_id) {
         supabase.functions.invoke("qb-create-job", { body: { callLogId: proposal.call_log_id } }).catch(() => {});

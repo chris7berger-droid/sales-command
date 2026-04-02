@@ -182,7 +182,7 @@ const MATERIALS_DB = [
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 const fmtDec = fmt; // alias for backward compat
-const pct = n => `${(n || 0).toFixed(1)}%`;
+const pct = n => `${(n || 0).toFixed(2)}%`;
 
 // Calc helpers imported from ../lib/calc.js (single source of truth)
 

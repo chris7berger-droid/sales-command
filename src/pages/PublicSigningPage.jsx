@@ -298,6 +298,13 @@ export default function PublicSigningPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#F0F4FF", fontFamily: "'DM Sans', sans-serif", paddingBottom: 60 }}>
+      <style>{`
+        @media print {
+          [data-no-print] { display: none !important; }
+          body, html { background: white !important; }
+          div { box-shadow: none !important; }
+        }
+      `}</style>
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "0 20px" }}>
 
         {/* Header — matches PDF format */}
@@ -350,6 +357,16 @@ export default function PublicSigningPage() {
           </div>
         </div>
 
+        {/* Print / Save buttons */}
+        <div data-no-print style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginBottom: 12 }}>
+          <button onClick={() => window.print()} style={{ background: "white", border: `1px solid ${T.gray200}`, borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, color: T.gray700, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+            Print
+          </button>
+          <button onClick={() => window.print()} style={{ background: "white", border: `1px solid ${T.gray200}`, borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, color: T.gray700, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+            Save as PDF
+          </button>
+        </div>
+
         {/* Scope of Work heading */}
         <div style={{ fontSize: 10, fontWeight: 700, color: T.gray400, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10, marginTop: 8 }}>Scope of Work</div>
 
@@ -389,7 +406,7 @@ export default function PublicSigningPage() {
 
         {/* Signing */}
         {!signed ? (
-          <div style={{ background: "white", borderRadius: 14, border: `2px solid ${T.green}`, padding: "28px 32px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+          <div data-no-print style={{ background: "white", borderRadius: 14, border: `2px solid ${T.green}`, padding: "28px 32px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: T.gray900, marginBottom: 6 }}>Accept &amp; Sign</div>
             <div style={{ fontSize: 13, color: T.gray500, marginBottom: 20 }}>Type your full name below to electronically sign and accept this proposal.</div>
             <div style={{ marginBottom: 16 }}>

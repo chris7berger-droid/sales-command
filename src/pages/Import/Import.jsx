@@ -5,6 +5,7 @@ import Btn from "../../components/Btn";
 import FileUpload, { FilePreview } from "./FileUpload";
 import DataTypeSelector from "./DataTypeSelector";
 import ColumnMapper from "./ColumnMapper";
+import ReviewImport from "./ReviewImport";
 import { getMissingRequired } from "./importUtils";
 import * as XLSX from "xlsx";
 
@@ -143,12 +144,17 @@ export default function Import() {
           />
         )}
 
-        {step === 3 && (
-          <PlaceholderStep label="Review & Import" desc="Coming in Session 3" />
+        {step === 3 && fileData && dataType && (
+          <ReviewImport
+            fileData={fileData}
+            dataType={dataType}
+            mappings={mappings}
+          />
         )}
       </div>
 
-      {/* Footer navigation */}
+      {/* Footer navigation (hidden on step 4 — ReviewImport has its own controls) */}
+      {step < 3 && (
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20 }}>
         <div>
           {step > 0 && (
@@ -163,6 +169,7 @@ export default function Import() {
           )}
         </div>
       </div>
+      )}
       </div>
     </div>
   );

@@ -1,27 +1,28 @@
 import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
-import { inits } from "../lib/utils";
+import { inits, fmtD } from "../lib/utils";
 import { ROLE_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
+import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
 
 const ROLES = ["Admin", "Manager", "Sales Rep", "Office Staff", "Estimator", "Field"];
 const APP_LABELS = { sales: "Sales Command", schedule: "Schedule Command", field: "Field Command", ar: "AR Command" };
 
-function MemberModal({ member, onClose, onSaved, senderEmail, senderName, tenantApps }) {
+function MemberModal({ member, onClose, onSaved, onDeactivated, senderEmail, senderName, tenantApps }) {
   const editing = !!member;
   const [form, setForm] = useState({
     name:   member?.name   || "",
     email:  member?.email  || "",
     phone:  member?.phone  || "",
     role:   member?.role   || "Sales Rep",
-    active: member?.active ?? true,
     apps:   member?.apps   || tenantApps || ["sales"],
   });
   const [saving, setSaving] = useState(false);
   const [inviting, setInviting] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
   const [error,  setError]  = useState("");
   const [success, setSuccess] = useState("");
 
@@ -53,7 +54,7 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName, tenant
     if (editing) {
       const { error: err } = await supabase
         .from("team_members")
-        .update({ name: form.name, email: form.email, phone: form.phone, role: form.role, active: form.active, apps: form.apps })
+        .update({ name: form.name, email: form.email, phone: form.phone, role: form.role, apps: form.apps })
         .eq("id", member.id);
       if (err) { setError(err.message); setSaving(false); return; }
     } else {
@@ -157,19 +158,14 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName, tenant
             </div>
           )}
 
-          {editing && !member.auth_id && (
+          {editing && !member.auth_id && member.active !== false && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "12px 14px", background: "rgba(245,158,11,0.07)", borderRadius: 8, border: "1px solid rgba(245,158,11,0.2)" }}>
               <span style={{ fontSize: 13, color: C.amber, fontFamily: F.ui, fontWeight: 600 }}>This member has not been invited yet</span>
             </div>
           )}
-          {editing && member.auth_id && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "12px 14px", background: form.active ? "rgba(76,175,80,0.07)" : "rgba(239,68,68,0.07)", borderRadius: 8, border: `1px solid ${form.active ? "rgba(76,175,80,0.2)" : "rgba(239,68,68,0.2)"}` }}>
-              <input type="checkbox" id="active" checked={form.active}
-                onChange={e => set("active")(e.target.checked)}
-                style={{ accentColor: C.teal, width: 16, height: 16, cursor: "pointer" }} />
-              <label htmlFor="active" style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui, cursor: "pointer", fontWeight: 600 }}>
-                {form.active ? "Active — member can log in and use the app" : "Inactive — member is deactivated"}
-              </label>
+          {editing && member.active === false && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "12px 14px", background: "rgba(239,68,68,0.07)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.2)" }}>
+              <span style={{ fontSize: 13, color: C.red, fontFamily: F.ui, fontWeight: 600 }}>This member is deactivated — they cannot log in. Re-invite to reactivate.</span>
             </div>
           )}
 
@@ -179,9 +175,23 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName, tenant
 
         {/* Footer */}
         <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 22px 20px" }}>
-          {editing ? (
+          {editing && member.active !== false ? (
             <Btn sz="sm" v="ghost" onClick={async () => {
-              if (!window.confirm(`Delete ${form.name}? This cannot be undone.`)) return;
+              if (!window.confirm(`Deactivate ${form.name}?\n\nThis will revoke their login access. Their jobs will appear in "Unassigned Work" for reassignment.`)) return;
+              setDeactivating(true);
+              setError("");
+              const { data, error: fnErr } = await supabase.functions.invoke("deactivate-user", {
+                body: { teamMemberId: member.id },
+              });
+              setDeactivating(false);
+              if (fnErr || data?.error) { setError(data?.error || fnErr?.message || "Failed to deactivate"); return; }
+              onDeactivated(member.name, data?.unassignedJobs || 0);
+            }} disabled={deactivating || saving}>
+              <span style={{ color: C.red }}>{deactivating ? "Deactivating…" : "Deactivate"}</span>
+            </Btn>
+          ) : editing && member.active === false ? (
+            <Btn sz="sm" v="ghost" onClick={async () => {
+              if (!window.confirm(`Delete ${form.name} permanently? This cannot be undone.`)) return;
               setSaving(true);
               const { data, error: fnErr } = await supabase.functions.invoke("delete-user", {
                 body: { teamMemberId: member.id },
@@ -190,14 +200,19 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName, tenant
               if (fnErr || data?.error) { setError(data?.error || fnErr?.message || "Failed to delete"); return; }
               onSaved();
             }} disabled={saving}>
-              <span style={{ color: C.red }}>Delete</span>
+              <span style={{ color: C.red }}>Delete Permanently</span>
             </Btn>
           ) : <div />}
           <div style={{ display: "flex", gap: 8 }}>
           <Btn sz="sm" v="ghost" onClick={onClose}>Cancel</Btn>
-          {editing && !member.auth_id && (
+          {editing && !member.auth_id && member.active !== false && (
             <Btn sz="sm" onClick={() => sendInviteEmail(form.email, form.name, member.id)} disabled={inviting}>
               {inviting ? "Sending…" : "Send Invite"}
+            </Btn>
+          )}
+          {editing && member.active === false && !member.auth_id && (
+            <Btn sz="sm" onClick={() => handleSave(true)} disabled={saving || inviting}>
+              {saving || inviting ? "Sending…" : "Reactivate & Send Invite"}
             </Btn>
           )}
           {editing ? (
@@ -215,11 +230,135 @@ function MemberModal({ member, onClose, onSaved, senderEmail, senderName, tenant
   );
 }
 
+const STAGE_C = { "New Lead": C.teal, "Estimating": C.amber, "Has Bid": C.blue || "#3b82f6", "Sold": C.green, "Lost": C.red };
+
+function UnassignedWork({ inactiveNames, activeMembers, onReassigned }) {
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(new Set());
+  const [assignTo, setAssignTo] = useState("");
+  const [reassigning, setReassigning] = useState(false);
+  const [successMsg, setSuccessMsg] = useState("");
+
+  useEffect(() => {
+    if (inactiveNames.length === 0) { setJobs([]); setLoading(false); return; }
+    (async () => {
+      const { data } = await supabase
+        .from("call_log")
+        .select("id, display_job_number, job_name, customer_name, sales_name, stage, created_at")
+        .in("sales_name", inactiveNames)
+        .order("created_at", { ascending: false });
+      setJobs(data || []);
+      setLoading(false);
+    })();
+  }, [inactiveNames.join(",")]);
+
+  const toggleAll = () => {
+    if (selected.size === jobs.length) setSelected(new Set());
+    else setSelected(new Set(jobs.map(j => j.id)));
+  };
+
+  const toggle = (id) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelected(next);
+  };
+
+  const handleReassign = async () => {
+    if (!assignTo || selected.size === 0) return;
+    setReassigning(true);
+    setSuccessMsg("");
+    const ids = Array.from(selected);
+    const { error } = await supabase
+      .from("call_log")
+      .update({ sales_name: assignTo })
+      .in("id", ids);
+    setReassigning(false);
+    if (error) { alert(error.message); return; }
+    setSuccessMsg(`${ids.length} job${ids.length > 1 ? "s" : ""} reassigned to ${assignTo}`);
+    setSelected(new Set());
+    setJobs(prev => prev.filter(j => !ids.includes(j.id)));
+    setTimeout(() => setSuccessMsg(""), 3000);
+    onReassigned();
+  };
+
+  if (loading) return null;
+  if (jobs.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: F.ui }}>Unassigned Work</div>
+          <span style={{ fontSize: 11, fontWeight: 800, color: C.red, background: C.dark, borderRadius: 6, padding: "2px 10px", fontFamily: F.ui }}>{jobs.length} job{jobs.length !== 1 ? "s" : ""}</span>
+        </div>
+        {selected.size > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12, color: C.textMuted, fontFamily: F.ui, fontWeight: 600 }}>{selected.size} selected</span>
+            <select
+              value={assignTo}
+              onChange={e => setAssignTo(e.target.value)}
+              style={{ border: `1.5px solid ${C.borderStrong}`, borderRadius: 8, padding: "6px 10px", fontSize: 13, fontFamily: F.ui, background: C.linenLight, color: C.textHead, outline: "none" }}
+            >
+              <option value="">Assign to...</option>
+              {activeMembers.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+            </select>
+            <Btn sz="sm" onClick={handleReassign} disabled={!assignTo || reassigning}>
+              {reassigning ? "Reassigning…" : "Reassign"}
+            </Btn>
+          </div>
+        )}
+      </div>
+      {successMsg && (
+        <div style={{ fontSize: 13, color: C.green, fontFamily: F.ui, fontWeight: 600, marginBottom: 10, padding: "8px 14px", background: "rgba(76,175,80,0.07)", borderRadius: 8 }}>{successMsg}</div>
+      )}
+      <div style={{ overflowX: "auto", borderRadius: 10, border: `1px solid ${C.borderStrong}`, boxShadow: "0 2px 10px rgba(28,24,20,0.08)" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: F.ui }}>
+          <thead>
+            <tr style={{ background: C.dark }}>
+              <th style={{ padding: "11px 15px", textAlign: "left", width: 36 }}>
+                <input type="checkbox" checked={selected.size === jobs.length && jobs.length > 0} onChange={toggleAll}
+                  style={{ accentColor: C.teal, width: 15, height: 15, cursor: "pointer" }} />
+              </th>
+              {["Job #", "Job Name", "Customer", "Former Rep", "Stage", "Created"].map(h => (
+                <th key={h} style={{ padding: "11px 15px", textAlign: "left", fontWeight: 700, fontSize: 10.5, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: `1px solid ${C.darkBorder}`, whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {jobs.map((j, i) => (
+              <tr key={j.id} style={{ borderBottom: `1px solid ${C.border}`, background: selected.has(j.id) ? "rgba(48,207,172,0.06)" : i % 2 === 0 ? C.linenLight : C.linen, cursor: "pointer" }}
+                onClick={() => toggle(j.id)}>
+                <td style={{ padding: "12px 15px" }}>
+                  <input type="checkbox" checked={selected.has(j.id)} onChange={() => toggle(j.id)}
+                    onClick={e => e.stopPropagation()}
+                    style={{ accentColor: C.teal, width: 15, height: 15, cursor: "pointer" }} />
+                </td>
+                <td style={{ padding: "12px 15px", color: C.textBody, fontWeight: 700, fontFamily: F.display }}>{j.display_job_number || "—"}</td>
+                <td style={{ padding: "12px 15px", color: C.textBody }}>{j.job_name || "—"}</td>
+                <td style={{ padding: "12px 15px", color: C.textBody }}>{j.customer_name || "—"}</td>
+                <td style={{ padding: "12px 15px" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.red, background: C.dark, borderRadius: 4, padding: "2px 8px", fontFamily: F.ui }}>{j.sales_name}</span>
+                </td>
+                <td style={{ padding: "12px 15px" }}>
+                  <Pill label={j.stage || "New Lead"} cm={STAGE_C} />
+                </td>
+                <td style={{ padding: "12px 15px", color: C.textMuted }}>{fmtD(j.created_at?.slice(0, 10))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function Team({ teamMember }) {
   const [team,      setTeam]      = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [modal,     setModal]     = useState(null); // null | "add" | member object
   const [tenantApps, setTenantApps] = useState(["sales"]);
+  const [deactivatedMsg, setDeactivatedMsg] = useState("");
 
   async function load() {
     const { data } = await supabase.from("team_members").select("*").order("name");
@@ -236,8 +375,20 @@ export default function Team({ teamMember }) {
 
   const handleSaved = () => { setModal(null); load(); };
 
+  const handleDeactivated = (name, jobCount) => {
+    setModal(null);
+    load();
+    if (jobCount > 0) {
+      setDeactivatedMsg(`${name} deactivated. ${jobCount} job${jobCount !== 1 ? "s" : ""} now unassigned — reassign below.`);
+    } else {
+      setDeactivatedMsg(`${name} deactivated. No open jobs to reassign.`);
+    }
+    setTimeout(() => setDeactivatedMsg(""), 6000);
+  };
+
   const active   = team.filter(m => m.active !== false);
   const inactive = team.filter(m => m.active === false);
+  const inactiveNames = inactive.map(m => m.name);
 
   const MemberCard = ({ m }) => (
     <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20, boxShadow: "0 2px 8px rgba(28,24,20,0.07)", opacity: m.active === false ? 0.5 : 1 }}>
@@ -284,6 +435,10 @@ export default function Team({ teamMember }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <SectionHeader title="Our Team" action={<Btn sz="sm" onClick={() => setModal("add")}>+ Add Member</Btn>} />
 
+      {deactivatedMsg && (
+        <div style={{ fontSize: 13, color: C.amber, fontFamily: F.ui, fontWeight: 600, padding: "12px 16px", background: "rgba(245,158,11,0.07)", borderRadius: 8, border: "1px solid rgba(245,158,11,0.2)" }}>{deactivatedMsg}</div>
+      )}
+
       {loading ? (
         <div style={{ color: C.textFaint, fontFamily: F.ui, fontSize: 13 }}>Loading...</div>
       ) : (
@@ -300,6 +455,8 @@ export default function Team({ teamMember }) {
               </div>
             </>
           )}
+
+          <UnassignedWork inactiveNames={inactiveNames} activeMembers={active} onReassigned={load} />
         </>
       )}
 
@@ -308,6 +465,7 @@ export default function Team({ teamMember }) {
           member={modal === "add" ? null : modal}
           onClose={() => setModal(null)}
           onSaved={handleSaved}
+          onDeactivated={handleDeactivated}
           senderEmail={teamMember?.email}
           senderName={teamMember?.name}
           tenantApps={tenantApps}

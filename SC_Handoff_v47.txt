@@ -1,0 +1,157 @@
+SC_Handoff_v47 — 2026-04-02 (afternoon)
+============================================================
+Session: Claude Code / Opus 4.6 / ~/sales-command
+Repo: chris7berger-droid/sales-command (main branch)
+Deploys: Vercel (auto on push to main)
+============================================================
+
+WHAT GOT DONE THIS SESSION (continued from v46)
+------------------------------------------------------------
+
+1. Joe Votaw Auth Fix (CRITICAL — live user)
+   - PASSWORD_RECOVERY events were dropping Joe's session on every
+     restore. App.jsx was returning early without calling setSession().
+     Fixed to fall through and set session normally for stale events.
+   - Login.jsx: removed onAuthStateChange listener for PASSWORD_RECOVERY,
+     now only checks URL hash at mount time.
+   - WelcomeScreen RLS bug: onboarded=true update was silently blocked
+     by RLS (Sales Rep can't update team_members). Added "self set
+     onboarded" RLS policy. Also added error handling so silent
+     failures surface.
+   - Nuked Joe's auth sessions via SQL, set onboarded=true directly.
+   - Root cause chain: stale PASSWORD_RECOVERY -> session dropped ->
+     login page -> WelcomeScreen (onboarded=false) -> RLS blocked
+     the update -> loop on every visit.
+
+2. Deactivate Team Member + Unassigned Work Reassignment
+   - New edge function: deactivate-user (revokes auth, sets
+     active=false, returns orphaned job count)
+   - Team page: "Deactivate" button replaces old active checkbox,
+     confirmation dialog shows job impact
+   - Unassigned Work section: table of jobs from inactive reps with
+     checkboxes, bulk select, dropdown to pick new owner, reassign
+   - Reactivate: "Reactivate & Send Invite" for deactivated members
+   - "Delete Permanently" only for already-deactivated members
+
+3. Full Code Audit & Security Hardening
+   RLS:
+   - Enabled RLS on 5 unprotected tables: invoices, invoice_lines,
+     job_work_types, proposal_signatures, qb_connection
+   - QB OAuth tokens (qb_connection) locked to admin-only
+   - Removed 4 duplicate "Allow authenticated delete" policies that
+     overrode role-based restrictions on call_log, proposals,
+     proposal_wtc, proposal_signatures
+   - Added self-update policy on team_members for onboarding
+
+   Edge Functions:
+   - Added JWT auth checks to 9 functions (all except
+     proposal-signed and stripe-webhook)
+   - CORS locked to scmybiz.com on 9 functions
+   - proposal-signed + stripe-webhook kept at * (public/webhook)
+   - qb-record-payment has service-role-key bypass for internal
+     calls from stripe-webhook
+
+   Dead Code:
+   - Removed RegressionTest.jsx (unused component + import)
+   - Removed Jobs.jsx (unused page, was already out of nav)
+   - Removed 7 unused mock data exports from mockData.js
+
+   Data Integrity:
+   - PublicSigningPage: now fetches all proposal_wtc fields +
+     work_types(name) join
+
+   Performance:
+   - Fixed index-based React keys in Managers, SalesDash, Home,
+     PublicSigningPage (replaced with stable IDs)
+
+4. WTC Profit Margin Fix
+   - Summary and SummaryTab were computing margin as
+     (price - laborCost) / price — ignoring materials + travel
+   - Fixed to: (price - totalCost) / price where
+     totalCost = laborSubtotal + materials + travel
+   - Changed pct() from toFixed(1) to toFixed(2) per Chris's request
+   - Added Math.ceil() to proposal price everywhere (calcWtcPrice,
+     calcWtcBreakdown, all inline calculations) — contractors round
+     up on contracts
+
+5. Project Name Field (New Inquiry Wizard)
+   - New "Project Name" step after customer selection in wizard
+   - Replaces customer name in display_job_number for at-a-glance
+     readability (customer is already in adjacent column)
+   - display_job_number now stores "10005 - Project Name"
+   - job_name stores the raw project name
+   - Preview box updates live as you type
+   - Optional — falls back to customer name if left blank
+   - CallLogDetail: renamed "Job Name" to "Project Name", editing
+     it syncs display_job_number automatically
+
+COMMITS THIS SESSION (oldest to newest)
+------------------------------------------------------------
+- 76779a0  fix: stop dropping session on stale PASSWORD_RECOVERY
+- e3a3886  fix: WelcomeScreen onboarded update silently blocked by RLS
+- a03a190  feat: deactivate team member + unassigned work reassignment
+- 1ce399c  audit: security hardening, dead code cleanup, key prop fixes
+- 796a284  fix: profit margin calculation using total cost, not just labor
+- 381bc92  fix: show profit margin with 2 decimal places
+- 5123b0a  fix: round proposal price up to nearest dollar (Math.ceil)
+- b969644  feat: add Project Name field to New Inquiry wizard
+
+All pushed to main, deployed via Vercel.
+Edge functions deployed: all 11 redeployed (9 with auth + CORS).
+
+KNOWN ISSUES / SESSION NOTES
+------------------------------------------------------------
+- Proposal 10004 (John Doe) status may still be "Sent" in DB
+  despite being signed — SQL from v46 still applies if not run:
+  UPDATE proposals SET status = 'Sold', approved_at = NOW()
+  WHERE id = 'd1b0569d-9e6f-474f-b74f-40a68b6cb7e8';
+  UPDATE call_log SET stage = 'Sold' WHERE id = 37;
+- Joe's auth is now stable — session nuked, onboarded=true,
+  PASSWORD_RECOVERY handled correctly
+- Chris's team_members.auth_id still needs linking
+- WTCCalculator uses its own color system (T) instead of C from
+  tokens.js — noted in audit, too risky to refactor while live
+- Dashboard views use proposals.total for aggregates (acceptable
+  since handleLock keeps it in sync)
+- 10s polling on Proposals/Invoices — could move to Supabase
+  Realtime later
+
+AUDIT NOTES (for reference)
+------------------------------------------------------------
+Style violations noted but not fixed (low priority):
+- WTCCalculator inputs use #bfb3a1 instead of C.linenDeep
+- 3 hamburger menu bars on landing pages use hardcoded #fff
+- Managers.jsx table footer uses #fff instead of C.teal
+- Proposals.jsx/Invoices.jsx have #1976D2 buttons (should be C.teal)
+
+WHAT WAS IN PROGRESS / NOT FINISHED
+------------------------------------------------------------
+- Joe's testing feedback (more items incoming)
+- Invoice editing + QB sync end-to-end testing
+- App access gate (check member.apps on login per app)
+- Chris's team_members.auth_id still needs linking
+- Schedule Command shared components
+- QB pull-back cleanup (orphaned QB customers/jobs)
+- Manage materials/price list page for Settings
+- Data Import Tool (Session 2+)
+
+PRIORITIES FOR NEXT SESSION
+------------------------------------------------------------
+1. Continue processing Joe's testing feedback
+2. Existing jobs need Project Name backfilled (optional — admin tool)
+3. Complete invoice editing + QB sync end-to-end test
+4. Build materials/price list management page (Settings)
+5. App access gate — each app checks member.apps on login
+6. Link Chris's team_members.auth_id
+7. QB pull-back cleanup
+
+SESSION PROMPT FOR NEXT CLAUDE CODE SESSION
+------------------------------------------------------------
+Continue building Sales Command. Read SC_Handoff_v47.txt for context.
+Major work done: Joe's auth fix (PASSWORD_RECOVERY + WelcomeScreen
+RLS), deactivate/reassign feature, full security audit (RLS + edge
+functions), profit margin fix, Math.ceil rounding, Project Name field.
+Joe is actively testing — process his feedback first, then continue
+with priorities from v46/v47.
+============================================================
+End of SC_Handoff_v47

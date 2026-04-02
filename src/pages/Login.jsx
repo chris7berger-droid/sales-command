@@ -21,17 +21,10 @@ export default function Login() {
 
   useEffect(() => {
     const hash = window.location.hash || "";
-    const hasRecoveryHash = hash.includes("type=recovery");
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY" && hasRecoveryHash) {
-        setMode("reset")
-      }
-      // Ignore stale PASSWORD_RECOVERY — don't sign out, don't change mode
-    })
-    if (hasRecoveryHash) {
+    if (hash.includes("type=recovery")) {
+      setMode("reset")
       window.history.replaceState({}, "", window.location.pathname)
     }
-    return () => subscription.unsubscribe()
   }, [])
 
   async function handleSubmit(e) {

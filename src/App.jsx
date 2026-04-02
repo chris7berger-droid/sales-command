@@ -90,7 +90,7 @@ function SalesCommandApp() {
 
   useEffect(() => {
     const sub = onAuthStateChange(async (event, s) => {
-      // Ignore PASSWORD_RECOVERY — only handle it if the URL has a recovery hash
+      // PASSWORD_RECOVERY: only drop to login if the URL has a real recovery hash
       if (event === "PASSWORD_RECOVERY") {
         const hasRecoveryHash = (window.location.hash || "").includes("type=recovery");
         if (hasRecoveryHash) {
@@ -99,9 +99,8 @@ function SalesCommandApp() {
           setSession(null);
           return;
         }
-        // Stale recovery event — ignore it completely, don't touch the session
-        console.warn("Ignoring stale PASSWORD_RECOVERY event");
-        return;
+        // Stale recovery event — set session normally so the user stays logged in
+        console.warn("Stale PASSWORD_RECOVERY event — setting session normally");
       }
       setSession(s ?? null);
       if (s) {

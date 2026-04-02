@@ -590,7 +590,7 @@ function MaterialsTab({ items, taxRate, onChange }) {
                     {cellInput(item, "kit_size", "text", 80)}
                     {cellInput(item, "coverage_rate", "text", 90)}
                     {cellInput(item, "supplier", "text", 80)}
-                    <td style={{ ...td, fontWeight: 500, color: T.gray900, paddingLeft: 8, width: 90 }}>{fmt(item.price_per_unit || 0)}</td>
+                    {cellInput(item, "price_per_unit", "number", 90)}
                     {cellInput(item, "qty", "number", 55)}
                     {cellInput(item, "tax", "number", 55)}
                     {cellInput(item, "freight", "number", 65)}

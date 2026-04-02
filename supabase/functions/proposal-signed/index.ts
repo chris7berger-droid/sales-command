@@ -35,9 +35,10 @@ serve(async (req) => {
     }
 
     if (!repEmail) {
-      return new Response(JSON.stringify({ error: "Rep email is required" }), {
+      console.log("proposal-signed: no rep email, skipping notification but status updated");
+      return new Response(JSON.stringify({ success: true, message: "Status updated, no email sent" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 400,
+        status: 200,
       });
     }
 

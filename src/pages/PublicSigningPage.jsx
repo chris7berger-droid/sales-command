@@ -223,34 +223,29 @@ export default function PublicSigningPage() {
         signed_at: new Date().toISOString(),
       });
 
-      await supabase.from("proposals").update({ status: "Sold", approved_at: new Date().toISOString() }).eq("id", proposal.id);
+      // Update status + notify rep via edge function (uses service role key to bypass RLS)
+      const salesName = proposal.call_log?.sales_name || "";
+      let repEmail = "";
+      if (salesName) {
+        const { data: rep } = await supabase.from("team_members").select("email").eq("name", salesName).maybeSingle();
+        repEmail = rep?.email || "";
+      }
+      await supabase.functions.invoke("proposal-signed", {
+        body: {
+          repEmail,
+          repName: salesName,
+          customerName: proposal.call_log?.customer_name || "Customer",
+          signerName: name.trim(),
+          proposalNumber: proposal.proposal_number || proposal.id,
+          jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
+          proposalId: proposal.id,
+          callLogId: proposal.call_log_id,
+        },
+      });
+      // QB job sync (non-blocking)
       if (proposal.call_log_id) {
-        await supabase.from("call_log").update({ stage: "Sold" }).eq("id", proposal.call_log_id);
-        // Sync job to QuickBooks (non-blocking)
         supabase.functions.invoke("qb-create-job", { body: { callLogId: proposal.call_log_id } }).catch(() => {});
       }
-
-      // Notify rep that proposal was signed (non-blocking)
-      try {
-        const salesName = proposal.call_log?.sales_name || "";
-        if (salesName) {
-          const { data: rep } = await supabase.from("team_members").select("email").eq("name", salesName).maybeSingle();
-          if (rep?.email) {
-            await supabase.functions.invoke("proposal-signed", {
-              body: {
-                repEmail: rep.email,
-                repName: salesName,
-                customerName: proposal.call_log?.customer_name || "Customer",
-                signerName: name.trim(),
-                proposalNumber: proposal.proposal_number || proposal.id,
-                jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
-                proposalId: proposal.id,
-                callLogId: proposal.call_log_id,
-              },
-            });
-          }
-        }
-      } catch (e) { console.warn("Rep notification failed:", e); }
 
       setSigned(true);
     } catch (e) {

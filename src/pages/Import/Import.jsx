@@ -123,6 +123,7 @@ export default function Import() {
       </div>
 
       {/* Step Content */}
+      {step < 3 && (
       <div style={{ background: C.linenCard, borderRadius: 12, padding: 28, border: `1px solid ${C.borderStrong}` }}>
         {step === 0 && (
           <>
@@ -143,15 +144,10 @@ export default function Import() {
             onMappingsChange={setMappings}
           />
         )}
-
-        {step === 3 && fileData && dataType && (
-          <ReviewImport
-            fileData={fileData}
-            dataType={dataType}
-            mappings={mappings}
-          />
-        )}
       </div>
+      )}
+
+      {/* Review step breaks out below — rendered full-width outside the 900px wrapper */}
 
       {/* Footer navigation (hidden on step 4 — ReviewImport has its own controls) */}
       {step < 3 && (
@@ -171,6 +167,19 @@ export default function Import() {
       </div>
       )}
       </div>
+
+      {/* Review step — full width, outside the 900px wrapper */}
+      {step === 3 && fileData && dataType && (
+        <div style={{ padding: "0 28px 32px" }}>
+          <div style={{ background: C.linenCard, borderRadius: 12, padding: 28, border: `1px solid ${C.borderStrong}` }}>
+            <ReviewImport
+              fileData={fileData}
+              dataType={dataType}
+              mappings={mappings}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

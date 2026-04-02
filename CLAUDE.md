@@ -57,6 +57,11 @@ customers: id, name, customer_type, first_name, last_name, phone, email,
   billing_email, billing_terms (integer, default 30), business_address,
   business_city, business_state, business_zip
 
+customer_contacts: id (uuid), customer_id (uuid FK customers, ON DELETE CASCADE),
+  name (text), phone (text), email (text), role (text — "Project Manager",
+  "Office Manager", or "Billing Contact"), is_primary (bool, default false),
+  created_at (timestamptz)
+
 proposal_wtc: id, proposal_id, work_type_id (INTEGER 1-40), burden_rate,
   ot_burden_rate, tax_rate, prevailing_wage, regular_hours, ot_hours,
   markup_pct, materials (jsonb), size, unit, sales_sow, field_sow (jsonb),

@@ -7,6 +7,7 @@ import DataTable from "../components/DataTable";
 import Btn from "../components/Btn";
 
 const STD_TERMS = [5, 15, 30, 45, 60, 90, 120];
+const CONTACT_ROLES = ["Project Manager", "Office Manager", "Billing Contact"];
 const inputStyle = { width: "100%", padding: "9px 12px", borderRadius: 7, border: `1px solid ${C.borderStrong}`, background: C.linenDeep, color: C.textBody, fontSize: 13, fontFamily: F.ui, WebkitAppearance: "none" };
 const stageColor = s => ({ "New Inquiry": C.teal, "Wants Bid": C.amber, "Has Bid": C.purple, Sold: C.green, Lost: C.red }[s] || C.textFaint);
 
@@ -135,13 +136,101 @@ function CustomerModal({ customer, onClose, onSaved }) {
   );
 }
 
+/* ─── Contact Modal ─── */
+function ContactModal({ contact, customerId, onClose, onSaved }) {
+  const isNew = !contact;
+  const [form, setForm] = useState({
+    name:  contact?.name  || "",
+    phone: contact?.phone || "",
+    email: contact?.email || "",
+    role:  contact?.role  || "",
+    is_primary: contact?.is_primary || false,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSave = async () => {
+    if (!form.name.trim()) { setError("Name is required"); return; }
+    setSaving(true); setError("");
+    const payload = {
+      customer_id: customerId,
+      name: form.name.trim(), phone: form.phone || null, email: form.email || null,
+      role: form.role || null, is_primary: form.is_primary,
+    };
+    // If marking as primary, clear other primaries first
+    if (form.is_primary) {
+      await supabase.from("customer_contacts").update({ is_primary: false }).eq("customer_id", customerId);
+    }
+    let err;
+    if (isNew) ({ error: err } = await supabase.from("customer_contacts").insert([payload]));
+    else ({ error: err } = await supabase.from("customer_contacts").update(payload).eq("id", contact.id));
+    setSaving(false);
+    if (err) { setError(err.message); return; }
+    onSaved();
+  };
+
+  const handleDelete = async () => {
+    if (!confirm("Delete this contact?")) return;
+    const { error: err } = await supabase.from("customer_contacts").delete().eq("id", contact.id);
+    if (err) { setError(err.message); return; }
+    onSaved();
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }} onClick={onClose}>
+      <div style={{ background: C.linenCard, borderRadius: 14, padding: 28, width: 420, maxHeight: "85vh", overflowY: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.25)" }} onClick={e => e.stopPropagation()}>
+        <h2 style={{ margin: "0 0 20px", fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.03em", textTransform: "uppercase" }}>
+          {isNew ? "Add Contact" : "Edit Contact"}
+        </h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Field label="Name"><input value={form.name} onChange={e => set("name", e.target.value)} style={inputStyle} /></Field>
+          <Field label="Role">
+            <select value={form.role} onChange={e => set("role", e.target.value)} style={inputStyle}>
+              <option value="">— Select Role —</option>
+              {CONTACT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </Field>
+          <Field label="Phone"><input value={form.phone} onChange={e => set("phone", e.target.value)} style={inputStyle} /></Field>
+          <Field label="Email"><input type="email" value={form.email} onChange={e => set("email", e.target.value)} style={inputStyle} /></Field>
+          <Field label="Primary Contact?">
+            <button onClick={() => set("is_primary", !form.is_primary)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}>
+              <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${form.is_primary ? C.teal : C.borderStrong}`, background: form.is_primary ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {form.is_primary && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
+              </div>
+              <span style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>Mark as primary contact</span>
+            </button>
+          </Field>
+        </div>
+        {error && <div style={{ marginTop: 14, color: C.red, fontSize: 13, fontFamily: F.ui }}>{error}</div>}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
+          <div>
+            {!isNew && <Btn v="ghost" sz="sm" onClick={handleDelete} style={{ color: C.red }}>Delete</Btn>}
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <Btn v="ghost" sz="sm" onClick={onClose}>Cancel</Btn>
+            <Btn sz="sm" onClick={handleSave} disabled={saving}>{saving ? "Saving..." : isNew ? "Add Contact" : "Save"}</Btn>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Customer Detail View ─── */
 function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigateProposal, onNavigateInvoice }) {
   const [jobs, setJobs]           = useState([]);
   const [proposals, setProposals] = useState([]);
   const [invoices, setInvoices]   = useState([]);
+  const [contacts, setContacts]   = useState([]);
   const [loading, setLoading]     = useState(true);
   const [tab, setTab]             = useState("jobs");
+  const [contactModal, setContactModal] = useState(null); // null | "new" | contact obj
+
+  const loadContacts = async () => {
+    const { data } = await supabase.from("customer_contacts").select("*").eq("customer_id", customer.id).order("is_primary", { ascending: false }).order("name");
+    setContacts(data || []);
+  };
 
   useEffect(() => {
     async function load() {
@@ -157,6 +246,7 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
       setLoading(false);
     }
     load();
+    loadContacts();
   }, [customer.id]);
 
   const tabs = [
@@ -197,6 +287,38 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
         <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textBody }}><span style={{ color: C.textFaint, fontWeight: 700 }}>Terms:</span> {termsLabel}</div>
         {addr && <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textBody }}><span style={{ color: C.textFaint, fontWeight: 700 }}>Address:</span> {addr}</div>}
       </div>
+
+      {/* Contacts */}
+      <div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui }}>Contacts</div>
+          <Btn sz="sm" v="ghost" onClick={() => setContactModal("new")}>+ Add Contact</Btn>
+        </div>
+        {contacts.length === 0 ? (
+          <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>No contacts on file</div>
+        ) : (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {contacts.map(c => (
+              <div key={c.id} onClick={() => setContactModal(c)} style={{
+                background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: "12px 16px",
+                minWidth: 200, cursor: "pointer", position: "relative",
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, marginBottom: 2 }}>{c.name || "—"}</div>
+                {c.role && (
+                  <div style={{ display: "inline-block", fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
+                    background: C.dark, color: C.teal, borderRadius: 4, padding: "2px 7px", fontFamily: F.display, marginBottom: 4 }}>{c.role}</div>
+                )}
+                {c.phone && <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{c.phone}</div>}
+                {c.email && <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{c.email}</div>}
+                {c.is_primary && <div style={{ position: "absolute", top: 8, right: 10, fontSize: 9, fontWeight: 700, color: C.teal, fontFamily: F.display, textTransform: "uppercase", letterSpacing: "0.08em" }}>Primary</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Contact Modal */}
+      {contactModal && <ContactModal contact={contactModal === "new" ? null : contactModal} customerId={customer.id} onClose={() => setContactModal(null)} onSaved={() => { setContactModal(null); loadContacts(); }} />}
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 6 }}>

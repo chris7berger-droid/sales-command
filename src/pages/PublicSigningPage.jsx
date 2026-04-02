@@ -138,7 +138,12 @@ export default function PublicSigningPage() {
       doc.text("SCOPE OF WORK", margin, y); y += 14;
       doc.setFontSize(10); doc.setFont("helvetica", "normal");
       doc.setTextColor(...dark);
-      const combinedSow = (wtc || []).map(w => (w.sales_sow || "").trim()).filter(Boolean).join("\n\n");
+      const combinedSow = (wtc || []).map((w, i) => {
+        const sow = (w.sales_sow || "").trim();
+        if (!sow) return "";
+        const header = wtc.length > 1 ? `── Work Type ${i + 1}${w.work_types?.name ? ` — ${w.work_types.name}` : ""} ──\n` : "";
+        return header + sow;
+      }).filter(Boolean).join("\n\n");
       const sowText = combinedSow || "No scope of work provided.";
       const sowLines = doc.splitTextToSize(sowText, contentW);
       sowLines.forEach(line => {
@@ -390,20 +395,20 @@ export default function PublicSigningPage() {
         <div style={{ fontSize: 10, fontWeight: 700, color: T.gray400, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10, marginTop: 8 }}>Scope of Work</div>
 
         {/* SOW — one section per WTC */}
-        {wtcs.filter(w => (w.sales_sow || "").trim()).map((w) => (
+        {wtcs.filter(w => (w.sales_sow || "").trim()).map((w, i) => (
           <div key={w.id} style={{ background: "white", borderRadius: 14, border: `1px solid ${T.gray200}`, padding: "28px 32px", marginBottom: 16, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
             {/* Work Type header with teal lines */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
               <div style={{ flex: 1, height: 3, background: T.green, borderRadius: 2 }} />
               <div style={{ fontSize: 12, fontWeight: 800, color: T.gray900, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
-                Work Type {i + 1}
+                Work Type {i + 1}{w.work_types?.name ? ` — ${w.work_types.name}` : ""}
               </div>
               <div style={{ flex: 1, height: 3, background: T.green, borderRadius: 2 }} />
             </div>
             <pre style={{ margin: 0, fontSize: 13, color: T.gray700, lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>{w.sales_sow}</pre>
             {wtcs.length > 1 && (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.gray200}` }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: T.gray500 }}>Work Type {i + 1} Total</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.gray500 }}>Work Type {i + 1}{w.work_types?.name ? ` — ${w.work_types.name}` : ""} Total</div>
                 <div style={{ fontSize: 16, fontWeight: 800, color: T.green }}>{fmt(calcWtcPrice(w))}</div>
               </div>
             )}

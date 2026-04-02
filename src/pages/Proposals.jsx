@@ -384,7 +384,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
                         {arr.length > 1 && (
                           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, marginTop: i > 0 ? 8 : 0 }}>
                             <div style={{ height: 3, flex: 1, background: "#30cfac", borderRadius: 2 }} />
-                            <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1814", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Work Type {i + 1}</div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: "#1c1814", letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Work Type {i + 1}{wtc.work_types?.name ? ` — ${wtc.work_types.name}` : ""}</div>
                             <div style={{ height: 3, flex: 1, background: "#30cfac", borderRadius: 2 }} />
                           </div>
                         )}
@@ -393,7 +393,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
                         </div>
                         {arr.length > 1 && (
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, padding: "8px 18px", background: "rgba(48,207,172,0.08)", borderRadius: 6, border: "1px solid rgba(48,207,172,0.25)" }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: "#4a4238", letterSpacing: "0.06em", textTransform: "uppercase" }}>Work Type {i + 1} Total</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#4a4238", letterSpacing: "0.06em", textTransform: "uppercase" }}>Work Type {i + 1}{wtc.work_types?.name ? ` — ${wtc.work_types.name}` : ""} Total</div>
                             <div style={{ fontSize: 16, fontWeight: 800, color: "#1c1814" }}>{fmt$(wtcTotal)}</div>
                           </div>
                         )}

@@ -191,6 +191,9 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         stage:           form.stage,
         customer_name:   form.customer_name  || null,
         job_name:        form.job_name       || null,
+        display_job_number: form.job_name
+          ? (job.display_job_number || "").replace(/ - .*$/, ` - ${form.job_name}`)
+          : job.display_job_number,
         bid_due:         form.bid_due        || null,
         follow_up:       form.follow_up      || null,
         notes:           form.notes,
@@ -290,8 +293,8 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           <Field label="Customer Name">
             <input type="text" value={form.customer_name} onChange={e => set("customer_name", e.target.value)} placeholder="Customer name" style={iStyle} />
           </Field>
-          <Field label="Job Name">
-            <input type="text" value={form.job_name} onChange={e => set("job_name", e.target.value)} placeholder="Job name" style={iStyle} />
+          <Field label="Project Name">
+            <input type="text" value={form.job_name} onChange={e => set("job_name", e.target.value)} placeholder="e.g. Warehouse Demo" style={iStyle} />
           </Field>
           <Field label="Bid Due">
             <input type="date" value={form.bid_due} onChange={e => set("bid_due", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...iStyle, cursor: "pointer" }} />

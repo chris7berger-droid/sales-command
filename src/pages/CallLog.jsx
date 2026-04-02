@@ -75,6 +75,7 @@ function buildStepList(jobType) {
   if (jobType === "co") { steps.push("parentJob"); steps.push("coTreatment"); }
   steps.push("customerType");
   steps.push("customerSelect");
+  steps.push("projectName");
   steps.push("contactInfo");
   steps.push("addresses");
   steps.push("salesRep");
@@ -102,6 +103,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     firstName: "",
     lastName: "",
     businessName: "",
+    projectName: "",
     contactPhone: "",
     contactEmail: "",
     billingSame: true,
@@ -138,7 +140,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
 
   const previewNum = data.jobType === "override" && data.manualJobNum ? data.manualJobNum : "####";
   const previewCO = data.jobType === "co" && data.parentJobId ? " CO#" : "";
-  const previewName = custName() || "Customer";
+  const previewName = data.projectName || custName() || "Customer";
   const previewDisplay = `${previewNum}${previewCO} - ${previewName}`;
 
   const uploadFiles = async (jobId) => {
@@ -170,9 +172,10 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       coNum = cos && cos.length > 0 ? (cos[0].co_number || 0) + 1 : 1;
     }
 
+    const displayLabel = data.projectName || name;
     const displayJobNum = data.jobType === "co" && coNum
-      ? `${jobNum} CO${coNum} - ${name}`
-      : `${jobNum} - ${name}`;
+      ? `${jobNum} CO${coNum} - ${displayLabel}`
+      : `${jobNum} - ${displayLabel}`;
 
     const billingAddrStreet = data.billingAddressSame ? data.businessAddress : data.billingAddrStreet;
     const billingAddrCity   = data.billingAddressSame ? data.businessCity    : data.billingAddrCity;
@@ -199,7 +202,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     }
 
     const { data: newJob, error: err } = await supabase.from("call_log").insert([{
-      job_number: jobNum, display_job_number: displayJobNum, job_name: displayJobNum,
+      job_number: jobNum, display_job_number: displayJobNum, job_name: data.projectName || null,
       customer_name: name, customer_type: data.customerType, customer_id: customerId,
       sales_name: data.salesName, stage: data.stage,
       bid_due: data.bidDue || null,
@@ -348,6 +351,23 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
             }
             next();
           }} />
+        </div>
+      );
+
+      case "projectName": return (
+        <div>
+          <StepLabel n={step + 1} label="Project Name" />
+          <div style={{ fontSize: 12, color: C.textMuted, fontFamily: F.ui, marginBottom: 12 }}>
+            A short name for this project (e.g. "Warehouse Demo", "Lobby Polish"). This replaces the customer name in job number displays for easier scanning.
+          </div>
+          <input
+            placeholder="e.g. Warehouse Demo, Lobby Polish"
+            value={data.projectName}
+            onChange={e => set("projectName", e.target.value)}
+            style={inputStyle}
+            autoFocus
+          />
+          <StepFooter step={step} back={back} error={error} onNext={next} />
         </div>
       );
 

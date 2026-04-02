@@ -82,6 +82,20 @@ function SalesCommandApp() {
 
   useEffect(() => {
     const sub = onAuthStateChange(async (event, s) => {
+      // Intercept stale PASSWORD_RECOVERY — don't treat it as a valid session
+      if (event === "PASSWORD_RECOVERY") {
+        const hasRecoveryHash = (window.location.hash || "").includes("type=recovery");
+        if (!hasRecoveryHash) {
+          console.warn("Stale PASSWORD_RECOVERY event, signing out");
+          await supabase.auth.signOut();
+          setSession(null);
+          setTeamMember(null);
+          return;
+        }
+        // Real recovery — let Login handle it, don't set session
+        setSession(null);
+        return;
+      }
       setSession(s ?? null);
       if (s) {
         const member = await getCurrentTeamMember();

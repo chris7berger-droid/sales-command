@@ -105,6 +105,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     lastName: "",
     businessName: "",
     projectName: "",
+    contactName: "",
     contactPhone: "",
     contactEmail: "",
     billingSame: true,
@@ -317,6 +318,12 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
                   if (chosen.business_city) set("businessCity", chosen.business_city);
                   if (chosen.business_state) set("businessState", chosen.business_state);
                   if (chosen.business_zip) set("businessZip", chosen.business_zip);
+                  const cName = [chosen.first_name, chosen.last_name].filter(Boolean).join(" ");
+                  if (cName) set("contactName", cName);
+                  if (chosen.contact_phone) set("contactPhone", chosen.contact_phone);
+                  else if (chosen.phone) set("contactPhone", chosen.phone);
+                  if (chosen.contact_email) set("contactEmail", chosen.contact_email);
+                  else if (chosen.email) set("contactEmail", chosen.email);
                 }
               }}
             />
@@ -382,6 +389,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
         <div>
           <StepLabel n={step + 1} label="Contact Information" />
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <input placeholder="Contact Name" value={data.contactName} onChange={e => set("contactName", e.target.value)} style={inputStyle} />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <input placeholder="Phone" value={data.contactPhone} onChange={e => set("contactPhone", e.target.value)} style={inputStyle} />
               <input placeholder="Email" value={data.contactEmail} onChange={e => set("contactEmail", e.target.value)} style={inputStyle} />

@@ -82,6 +82,13 @@ invoice_lines: id (int8), invoice_id (text FK invoices), proposal_wtc_id
 
 job_work_types: id, call_log_id, work_type_id
 
+proposal_recipients: id (uuid), proposal_id (text FK proposals ON DELETE CASCADE),
+  contact_name (text), contact_email (text),
+  role (text — 'signer' | 'viewer'), sent_at (timestamptz),
+  viewed_at (timestamptz), created_at (timestamptz)
+
+proposals: ... intro (text) — introduction text shown above SOW
+
 customers: ... qb_customer_id (text) — QB parent customer ID
 call_log: ... qb_customer_id (text) — QB sub-customer (job) ID
 
@@ -120,21 +127,39 @@ This applies to both the CallLog wizard upload and CallLogDetail upload.
 
 ## Key File Locations
 
+### Pages (list views only — detail/modals extracted to components)
 - `src/pages/WTCCalculator.jsx` — Work Type Calculator
-- `src/pages/CallLog.jsx` — Call Log list + New Inquiry wizard
-- `src/pages/Proposals.jsx` — Proposals list + ProposalDetail + ProposalPDFModal
+- `src/pages/CallLog.jsx` — Call Log list page (176 lines)
+- `src/pages/Proposals.jsx` — Proposals list page (181 lines)
 - `src/pages/PublicSigningPage.jsx` — Customer-facing signing page
 - `src/pages/Home.jsx` — Dashboard (personal, for sales reps)
-- `src/pages/SalesDash.jsx` — Sales Dashboard (admin/manager view, salesperson picker, goal drill-down, Cash Flow Forecast, Analytics)
-- `src/pages/Customers.jsx` — Customer list + detail view (jobs/proposals/invoices tabs) + edit modal
-- `src/pages/Jobs.jsx` — Jobs page (unused, removed from nav but file exists)
+- `src/pages/SalesDash.jsx` — Sales Dashboard (admin/manager view)
+- `src/pages/Customers.jsx` — Customer list + detail view + edit modal
+- `src/pages/Invoices.jsx` — Invoices list + detail + new invoice modal
 - `src/pages/Login.jsx` — Auth login
+
+### Extracted Components (v52 refactor)
+- `src/components/NewInquiryWizard.jsx` — Full New Inquiry wizard (from CallLog)
+- `src/components/ProposalDetail.jsx` — Proposal detail view (from Proposals)
+- `src/components/ProposalPDFModal.jsx` — PDF preview + send flow (from Proposals)
+- `src/components/NewProposalModal.jsx` — Job selection for new proposals (from Proposals)
+
+### Shared Components
 - `src/components/CallLogDetail.jsx` — Job detail/edit view
+- `src/components/FilterBar.jsx` — Shared filter bar (Sales Rep, Date Range, Work Type, Customer, Job #)
+- `src/components/DataTable.jsx` — Reusable table component
 - `src/components/Btn.jsx` — Shared button component
+- `src/components/Pill.jsx` — Status pill/badge
+- `src/components/SearchSelect.jsx` — Searchable dropdown
+
+### Libraries
 - `src/lib/supabase.js` — Supabase client (uses env vars)
+- `src/lib/supabaseHelpers.js` — fetchAll() for paginated queries (bypasses 1000-row limit)
 - `src/lib/auth.js` — Auth helpers
 - `src/lib/utils.js` — fmt$, fmtD, tod, over, inits
 - `src/lib/tokens.js` — Design tokens (C, F, GLOBAL_CSS)
+- `src/lib/calc.js` — WTC calculations (calcLabor, calcMaterialRow, calcTravel, calcWtcPrice)
+- `src/lib/config.js` — Tenant config (getTenantConfig, DEFAULTS)
 - `src/App.jsx` — Root nav + auth state
 
 ## Production

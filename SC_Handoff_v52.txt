@@ -1,0 +1,120 @@
+SC_Handoff_v52 — April 3, 2026
+Session: Live bug fixes, filter bars, proposal intro, multi-contact/recipient, code extraction refactor
+
+═══════════════════════════════════════════════════════════════════════════════
+WHAT WAS DONE
+═══════════════════════════════════════════════════════════════════════════════
+
+1. FIX: Customer list showing only ~1000 of 2042 customers
+   - Root cause: Supabase PostgREST caps responses at 1000 rows
+   - Fix: Paginated fetch in batches of 1000 in Customers.jsx and CallLog.jsx
+   - Verified against live PostgREST API: content-range: 0-999/2042
+   - Tested pagination: 1000 + 1000 + 42 = 2042 confirmed
+
+2. FIX: Browser cache preventing deploys from taking effect
+   - Added no-cache headers for index.html in vercel.json
+   - Hashed JS/CSS bundles still cache normally (content-hash filenames)
+
+3. FEAT: Filter bar on Call Log, Proposals, and Invoices
+   - New shared FilterBar component (src/components/FilterBar.jsx)
+   - Filters: Sales Rep, Date Range (From/To), Work Type, Customer, Job #
+   - Clear button resets all filters
+   - CallLog: filters on sales_name, created_at, job_work_types, customer_name
+   - Proposals: now fetches work_types table + work_type_id in proposal_wtc
+   - Invoices: joins proposals→call_log for sales_name/customer_name
+
+4. FIX: Contact email not saving from New Inquiry wizard for existing customers
+   - Bug: wizard captured contact info but only saved it for NEW customers
+   - Fix: now updates customer record on save when existing customer selected
+
+5. FEAT: Customer Name field added to Contact & Billing section (CallLogDetail)
+
+6. FIX: Proposal # and Date labels — left-aligned, job number bolded
+   - Applied to both internal proposal view and public signing page
+
+7. FEAT: Proposal Introduction text field
+   - New `intro` column on proposals table
+   - Editable text area in proposal detail sidebar with "Use Template" button
+   - Renders above Scope of Work on internal preview and signing page
+   - BUG FOUND & FIXED: intro wasn't rendering in PDF modal (scope issue)
+
+8. FEAT: Multiple contacts in New Inquiry wizard
+   - "+ Add Contact" expandable cards (Name, Role, Phone, Email)
+   - Loads existing customer_contacts when selecting existing customer
+   - Saves new contacts to customer_contacts table
+
+9. FEAT: Multi-recipient proposal send
+   - New `proposal_recipients` table (signer/viewer roles, sent_at, viewed_at)
+   - Recipient picker in send modal: one Signer (required) + multiple Viewers
+   - All recipients get emailed the proposal link
+   - Recipients section in Summary card shows sent/view status
+   - View tracking: signing page records viewed_at when opened
+
+10. REFACTOR: Extracted monolithic page files into focused components
+    Proposals.jsx: 1,432 → 181 lines
+      → ProposalPDFModal.jsx (481 lines)
+      → ProposalDetail.jsx (677 lines)
+      → NewProposalModal.jsx (114 lines)
+    CallLog.jsx: 826 → 176 lines
+      → NewInquiryWizard.jsx (658 lines)
+    + supabaseHelpers.js — shared fetchAll() for paginated queries
+    + Disabled Vercel plugin for this Vite project (.claude/settings.json)
+
+═══════════════════════════════════════════════════════════════════════════════
+DATABASE CHANGES
+═══════════════════════════════════════════════════════════════════════════════
+
+1. proposals.intro (text) — introduction text shown above SOW
+
+2. proposal_recipients — NEW TABLE
+   id (uuid PK), proposal_id (text FK proposals ON DELETE CASCADE),
+   contact_name (text), contact_email (text),
+   role (text CHECK 'signer'|'viewer'), sent_at (timestamptz),
+   viewed_at (timestamptz), created_at (timestamptz)
+   RLS: authenticated users full access
+   Index: idx_proposal_recipients_proposal_id
+
+═══════════════════════════════════════════════════════════════════════════════
+ARCHITECTURE CHANGES (v52 REFACTOR)
+═══════════════════════════════════════════════════════════════════════════════
+
+Key principle: page files are now LIST VIEWS ONLY. All detail views, modals,
+and wizards are extracted to src/components/.
+
+Before:
+  Proposals.jsx (1,432 lines) — list + detail + PDF modal + new modal
+  CallLog.jsx (826 lines) — list + full wizard
+
+After:
+  Proposals.jsx (181 lines) — list only, imports components
+  CallLog.jsx (176 lines) — list only, imports components
+  src/components/ProposalDetail.jsx — proposal detail view
+  src/components/ProposalPDFModal.jsx — PDF preview + send flow
+  src/components/NewProposalModal.jsx — job selection modal
+  src/components/NewInquiryWizard.jsx — full inquiry wizard
+
+This means:
+  - To edit the send flow → ProposalPDFModal.jsx
+  - To edit the wizard → NewInquiryWizard.jsx
+  - To edit proposal detail → ProposalDetail.jsx
+  - To edit list columns/filters → Proposals.jsx or CallLog.jsx
+  - Invoices.jsx (1,039 lines) is next candidate for extraction
+
+═══════════════════════════════════════════════════════════════════════════════
+KNOWN ISSUES / NEXT UP
+═══════════════════════════════════════════════════════════════════════════════
+
+- Invoices.jsx (1,039 lines) should be extracted next (InvoiceDetail, NewInvoiceModal)
+- WTCCalculator.jsx (2,100 lines) is the largest file — field SOW section
+  should be extracted before Field Command connects
+- Settings page still needed (invoice numbering, company info, per-tenant config)
+- Vercel plugin disabled for this project (.claude/settings.json) to stop
+  irrelevant Next.js validation warnings — re-enable if needed for deploy ops
+
+═══════════════════════════════════════════════════════════════════════════════
+PRODUCTION
+═══════════════════════════════════════════════════════════════════════════════
+
+URL: https://www.scmybiz.com
+Vercel: auto-deploys on push to main
+All changes pushed and deployed.

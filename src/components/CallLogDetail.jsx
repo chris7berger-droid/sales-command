@@ -263,8 +263,18 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         {job.is_change_order && (
           <span style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#9b59b6", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui }}>CO</span>
         )}
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           {!editing && <Btn sz="sm" v="ghost" onClick={() => setEditing(true)}>Edit</Btn>}
+          {editing && (
+            <button
+              onClick={async () => { await handleSave(); setEditing(false); }}
+              disabled={saving}
+              style={{ background: C.teal, border: "none", borderRadius: 8, padding: "7px 20px", color: C.dark, fontWeight: 800, fontSize: 12, cursor: saving ? "not-allowed" : "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", opacity: saving ? 0.6 : 1 }}
+            >
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
+          )}
+          {editing && <Btn sz="sm" v="ghost" onClick={() => setEditing(false)}>Cancel</Btn>}
           {onNewProposal && (
             <Btn sz="sm" onClick={onNewProposal}>+ New Proposal</Btn>
           )}

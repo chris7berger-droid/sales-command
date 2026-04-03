@@ -53,9 +53,12 @@ export default function SearchSelect({ value, onChange, options, placeholder = "
     };
   }, [open, updatePos]);
 
-  const filtered = search
+  const MAX_VISIBLE = 50;
+  const allFiltered = search
     ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
     : options;
+  const filtered = allFiltered.slice(0, MAX_VISIBLE);
+  const hasMore = allFiltered.length > MAX_VISIBLE;
 
   const selectedLabel = options.find(o => o.value === value)?.label;
 
@@ -116,6 +119,12 @@ export default function SearchSelect({ value, onChange, options, placeholder = "
             {opt.label}
           </button>
         ))}
+
+        {hasMore && (
+          <div style={{ padding: "10px 14px", textAlign: "center", fontSize: 12, color: C.teal, fontFamily: F.ui, fontWeight: 600, borderTop: `1px solid ${C.darkBorder}` }}>
+            {allFiltered.length - MAX_VISIBLE} more — type to narrow results
+          </div>
+        )}
       </div>
     </div>,
     document.body

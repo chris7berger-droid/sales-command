@@ -342,9 +342,17 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, showCents }) {
   const [billingName, setBillingName] = useState("");
   const [loadingContact, setLoadingContact] = useState(true);
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
+  const [repContact, setRepContact] = useState({ phone: "", email: "" });
 
   useEffect(() => {
     getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url }));
+    // Load sales rep contact info
+    const salesName = invoice.proposals?.call_log?.sales_name;
+    if (salesName) {
+      supabase.from("team_members").select("phone, email").eq("name", salesName).maybeSingle().then(({ data }) => {
+        if (data) setRepContact({ phone: data.phone || "", email: data.email || "" });
+      });
+    }
   }, []);
 
   const netTotal = (invoice.amount || 0) - (invoice.discount || 0);
@@ -458,8 +466,8 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, showCents }) {
                   <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3 }}>{COMPANY.tagline}</div>
                 </div>
                 <div style={{ textAlign: "right", fontSize: 11, color: "#4a4238", lineHeight: 1.7 }}>
-                  <div>{COMPANY.phone}</div>
-                  <div>{COMPANY.email}</div>
+                  <div>{repContact.phone || COMPANY.phone}</div>
+                  <div>{repContact.email || COMPANY.email}</div>
                   <div>{COMPANY.website}</div>
                   <div style={{ color: "#887c6e" }}>{COMPANY.license}</div>
                 </div>
@@ -555,7 +563,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, showCents }) {
                     <div style={{ fontSize: 12, color: "#4a4238", fontWeight: 600, marginTop: 4 }}>{fmtD(invoice.paid_at)}</div>
                   </div>
                   <div style={{ fontSize: 11, color: "#887c6e", marginTop: 16 }}>
-                    Questions? Contact {COMPANY.email} or call {COMPANY.phone}
+                    Questions? Contact {repContact.email || COMPANY.email} or call {repContact.phone || COMPANY.phone}
                   </div>
                 </div>
               ) : (
@@ -564,7 +572,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, showCents }) {
                     Payment due upon receipt{invoice.due_date ? ` · Due by ${fmtD(invoice.due_date)}` : ""}
                   </div>
                   <div style={{ fontSize: 11, color: "#887c6e", marginTop: 4 }}>
-                    Questions? Contact {COMPANY.email} or call {COMPANY.phone}
+                    Questions? Contact {repContact.email || COMPANY.email} or call {repContact.phone || COMPANY.phone}
                   </div>
                 </div>
               )}

@@ -340,6 +340,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, showCents }) {
   const [sendError, setSendError] = useState(null);
   const [billingEmail, setBillingEmail] = useState("");
   const [billingName, setBillingName] = useState("");
+  const [jobsiteAddress, setJobsiteAddress] = useState("");
   const [loadingContact, setLoadingContact] = useState(true);
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
   const [repContact, setRepContact] = useState({ phone: "", email: "" });
@@ -363,13 +364,18 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, showCents }) {
       if (!invoice.proposal_id) { setLoadingContact(false); return; }
       const { data: prop } = await supabase
         .from("proposals")
-        .select("call_log_id, call_log(customer_id, customer_name, customers(billing_email, billing_name, contact_email, first_name, last_name, name))")
+        .select("call_log_id, call_log(customer_id, customer_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, customers(billing_email, billing_name, contact_email, first_name, last_name, name))")
         .eq("id", invoice.proposal_id)
         .maybeSingle();
-      const cust = prop?.call_log?.customers;
+      const cl = prop?.call_log;
+      const cust = cl?.customers;
       if (cust) {
         setBillingEmail(cust.billing_email || cust.contact_email || "");
         setBillingName(cust.billing_name || [cust.first_name, cust.last_name].filter(Boolean).join(" ") || cust.name || "");
+      }
+      if (cl) {
+        const parts = [cl.jobsite_address, cl.jobsite_city, cl.jobsite_state, cl.jobsite_zip].filter(Boolean);
+        setJobsiteAddress(parts.length > 1 ? `${cl.jobsite_address || ""}\n${[cl.jobsite_city, cl.jobsite_state].filter(Boolean).join(", ")}${cl.jobsite_zip ? " " + cl.jobsite_zip : ""}` : parts.join(""));
       }
       setLoadingContact(false);
     }
@@ -476,23 +482,29 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, showCents }) {
               {/* Invoice info row */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid rgba(28,24,20,0.12)" }}>
                 <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Bill To</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#1c1814" }}>{billingName || invoice.job_name || "—"}</div>
-                  {billingEmail && <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3 }}>{billingEmail}</div>}
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Bill To</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{billingName || invoice.job_name || "—"}</div>
+                  {billingEmail && <div style={{ fontSize: 11, fontWeight: 400, color: "#887c6e", marginTop: 2 }}>{billingEmail}</div>}
+                  {jobsiteAddress && (
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Jobsite Address</div>
+                      <div style={{ fontSize: 11, fontWeight: 400, color: "#887c6e", lineHeight: 1.7, whiteSpace: "pre-line" }}>{jobsiteAddress}</div>
+                    </div>
+                  )}
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Invoice #</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1814" }}>{invoice.id}</div>
+                <div style={{ textAlign: "left" }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Invoice #</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{invoice.id}</div>
                   {invoice.job_id && (
                     <>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Job #</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1814" }}>{invoice.job_id}</div>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Job #</div>
+                      <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{invoice.job_id}</div>
                     </>
                   )}
                   {invoice.due_date && (
                     <>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Due Date</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1c1814" }}>{fmtD(invoice.due_date)}</div>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Due Date</div>
+                      <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{fmtD(invoice.due_date)}</div>
                     </>
                   )}
                 </div>

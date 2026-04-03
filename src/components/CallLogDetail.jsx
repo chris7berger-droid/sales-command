@@ -63,6 +63,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [form, setForm] = useState({
     stage:            job.stage            || "",
     customer_name:    job.customer_name    || "",
+    job_number:       job.job_number != null ? String(job.job_number) : "",
     job_name:         job.job_name         || "",
     bid_due:          job.bid_due          || "",
     follow_up:        job.follow_up        || "",
@@ -185,23 +186,30 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   async function handleSave() {
     setSaving(true);
     setError(null);
+    // Rebuild display_job_number from job_number + job_name
+    const numPart = form.job_number || (job.display_job_number || "").split(/ - | CO/)[0].trim();
+    const oldDisplay = job.display_job_number || "";
+    const coMatch = oldDisplay.match(/ (CO\d+)/);
+    const coTag = coMatch ? ` ${coMatch[1]}` : "";
+    const namePart = form.job_name || "";
+    const newDisplay = namePart ? `${numPart}${coTag} - ${namePart}` : `${numPart}${coTag}`;
+
     const { error: err } = await supabase
       .from("call_log")
       .update({
-        stage:           form.stage,
-        customer_name:   form.customer_name  || null,
-        job_name:        form.job_name       || null,
-        display_job_number: form.job_name
-          ? (job.display_job_number || "").replace(/ - .*$/, ` - ${form.job_name}`)
-          : job.display_job_number,
-        bid_due:         form.bid_due        || null,
-        follow_up:       form.follow_up      || null,
-        notes:           form.notes,
-        sales_name:      form.sales_name     || null,
-        jobsite_address: form.jobsite_address || null,
-        jobsite_city:    form.jobsite_city    || null,
-        jobsite_state:   form.jobsite_state   || null,
-        jobsite_zip:     form.jobsite_zip     || null,
+        stage:              form.stage,
+        customer_name:      form.customer_name  || null,
+        job_name:           form.job_name       || null,
+        job_number:         form.job_number ? parseInt(form.job_number) : job.job_number,
+        display_job_number: newDisplay,
+        bid_due:            form.bid_due        || null,
+        follow_up:          form.follow_up      || null,
+        notes:              form.notes,
+        sales_name:         form.sales_name     || null,
+        jobsite_address:    form.jobsite_address || null,
+        jobsite_city:       form.jobsite_city    || null,
+        jobsite_state:      form.jobsite_state   || null,
+        jobsite_zip:        form.jobsite_zip     || null,
       })
       .eq("id", job.id);
     setSaving(false);
@@ -289,6 +297,9 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                 <option key={m.id} value={m.name}>{m.name}</option>
               ))}
             </select>
+          </Field>
+          <Field label="Job Number">
+            <input type="text" value={form.job_number} onChange={e => set("job_number", e.target.value)} placeholder="e.g. 10001" style={iStyle} />
           </Field>
           <Field label="Customer Name">
             <input type="text" value={form.customer_name} onChange={e => set("customer_name", e.target.value)} placeholder="Customer name" style={iStyle} />

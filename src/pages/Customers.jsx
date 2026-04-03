@@ -431,7 +431,7 @@ export default function Customers({ setActive, setInitialProposal, setInitialInv
   const [search, setSearch] = useState("");
 
   const load = async () => {
-    const { data } = await supabase.from("customers").select("*").order("name");
+    const { data } = await supabase.from("customers").select("*").order("name").range(0, 4999);
     setCustomers(data || []);
     setLoading(false);
     // Auto-open customer if navigated from another page

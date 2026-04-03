@@ -86,7 +86,8 @@ export async function detectDuplicates(rows, dataType) {
   // Fetch existing customers
   const { data: existing, error } = await supabase
     .from("customers")
-    .select("id, name, phone, email");
+    .select("id, name, phone, email")
+    .range(0, 4999);
 
   if (error || !existing) return rows.map(r => ({ ...r, _duplicate: null }));
 

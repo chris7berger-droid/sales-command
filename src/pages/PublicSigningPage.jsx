@@ -365,9 +365,9 @@ export default function PublicSigningPage() {
                 </div>
               )}
             </div>
-            <div style={{ textAlign: "right" }}>
+            <div style={{ textAlign: "left" }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: T.gray900, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Proposal #</div>
-              <div style={{ fontSize: 12, color: T.gray500 }}>{proposal.call_log?.display_job_number || "—"}-P{proposal.proposal_number || 1}</div>
+              <div style={{ fontSize: 12, color: T.gray500 }}><span style={{ fontWeight: 800, color: T.gray900 }}>{(proposal.call_log?.display_job_number || "—").split(" - ")[0]}</span>{(() => { const djn = proposal.call_log?.display_job_number || ""; const idx = djn.indexOf(" - "); return idx > -1 ? " - " + djn.slice(idx + 3) : ""; })()}-P{proposal.proposal_number || 1}</div>
               <div style={{ fontSize: 12, fontWeight: 800, color: T.gray900, letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Date</div>
               <div style={{ fontSize: 12, color: T.gray500 }}>{new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
             </div>

@@ -1,0 +1,85 @@
+SC_Handoff_v53 — April 3, 2026
+Session: Email flow fix, CallLogDetail edits, show_cents toggle, invoice PDF improvements
+
+═══════════════════════════════════════════════════════════════════════════════
+WHAT WAS DONE
+═══════════════════════════════════════════════════════════════════════════════
+
+1. FIX: Wizard not saving email to customer record for existing customers
+   - Root cause: existing-customer update path in NewInquiryWizard only wrote
+     contact_email/contact_phone but skipped the top-level email/phone fields
+   - Fix: now updates all four fields (phone, email, contact_phone, contact_email)
+   - Also added email fallback in ProposalPDFModal — checks contact_email first,
+     then falls back to email field
+   - All proposal queries (Proposals.jsx, ProposalDetail.jsx, NewProposalModal.jsx)
+     now include email in the customers() join
+   - NOTE: Existing customers with missing emails need manual fix on the
+     Customers page — the wizard fix only applies going forward
+
+2. FEAT: Editable Job Number field in CallLogDetail
+   - job_number input in Job Info section
+   - Save rebuilds display_job_number from edited number + project name,
+     preserving CO tags for change orders
+
+3. FEAT: Save/Cancel buttons in CallLogDetail header bar
+   - When editing, Save Changes and Cancel buttons appear in the top-right
+     header area next to Edit/New Proposal for visibility
+
+4. FIX: Missing Pill import in ProposalDetail (crash fix)
+
+5. FEAT: show_cents toggle for legacy Glide jobs (done by other terminal)
+   - New show_cents boolean column on call_log
+   - Checkbox toggle in CallLogDetail
+   - fmt$c formatter in utils.js (2 decimal places)
+   - When enabled, ProposalDetail, ProposalPDFModal, Invoices,
+     PublicSigningPage all show cents instead of rounding
+
+6. FEAT: Invoice description in PDF preview (done by other terminal)
+   - Description/introduction field was only in detail view, now shows
+     in the customer-facing invoice PDF
+
+7. FEAT: Default intro/description text for proposals and invoices
+   - tenant_config defaults in config.js: default_proposal_intro,
+     default_invoice_description
+
+8. FEAT: Sales rep email/phone on invoice PDF
+   - Invoice PDF now shows the assigned sales rep's contact info
+     instead of company defaults
+
+9. FEAT: Jobsite address on invoice PDF
+   - Matches proposal PDF styling
+
+═══════════════════════════════════════════════════════════════════════════════
+DATABASE CHANGES
+═══════════════════════════════════════════════════════════════════════════════
+
+1. call_log.show_cents (boolean) — toggles cent display for legacy jobs
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES CHANGED (this session)
+═══════════════════════════════════════════════════════════════════════════════
+
+src/components/NewInquiryWizard.jsx — added phone/email to existing customer update
+src/components/ProposalPDFModal.jsx — email fallback (contact_email → email)
+src/components/ProposalDetail.jsx — added email to customers() join (all queries)
+src/components/NewProposalModal.jsx — added email to customers() join
+src/pages/Proposals.jsx — added email to customers() join (2 queries)
+
+═══════════════════════════════════════════════════════════════════════════════
+KNOWN ISSUES / NEXT UP
+═══════════════════════════════════════════════════════════════════════════════
+
+- Existing customers with missing emails (e.g. "1A Auto") need manual fix
+  on the Customers page
+- Cents rounding toggle (on/off) being worked on in separate terminal
+- Invoices.jsx (1,039 lines) should be extracted next (InvoiceDetail, NewInvoiceModal)
+- WTCCalculator.jsx (2,100 lines) is the largest file — extract field SOW
+- Settings page still needed (invoice numbering, company info, per-tenant config)
+
+═══════════════════════════════════════════════════════════════════════════════
+PRODUCTION
+═══════════════════════════════════════════════════════════════════════════════
+
+URL: https://www.scmybiz.com
+Vercel: auto-deploys on push to main
+All changes pushed and deployed.

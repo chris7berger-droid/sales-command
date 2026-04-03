@@ -1,0 +1,172 @@
+SC_Handoff_v51 — 2026-04-02 (evening)
+============================================================
+Session: Claude Code / Opus 4.6 / ~/sales-command
+Repo: chris7berger-droid/sales-command (main branch)
+Deploys: Vercel (auto on push to main)
+============================================================
+
+WHAT GOT DONE THIS SESSION
+------------------------------------------------------------
+
+1. Data Import Tool — Complete (Steps 1-4)
+   - Session 1 built Steps 1-2 (FileUpload + DataTypeSelector)
+   - THIS SESSION built Steps 3-4:
+
+   Step 3 — Column Mapper (ColumnMapper.jsx + importUtils.js):
+   - Two-column mapping UI: source headers → SC field dropdowns
+   - Auto-match algorithm with header normalization (camelCase,
+     slashes, underscores all handled)
+   - Confidence badges: green "Auto-matched", yellow "Best guess",
+     orange "Uncertain" — all on dark background pills
+   - Hint text guides users: "Use the dropdown to pick where this
+     data should go in Sales Command"
+   - Field transformations: phone formatting, state normalization,
+     zip validation, email lowercasing, date parsing, money parsing
+   - Live preview row showing Row 1 as a SC record
+   - Required field validation blocks Next until mapped
+   - DB columns from CLAUDE.md as source of truth (NOT build spec)
+
+   Step 4 — Review & Import (ReviewImport.jsx + importApi.js):
+   - Validation pass: clean (green), warning (yellow), error (red)
+   - Filter pills: All / Clean / Warnings / Errors / Duplicates
+   - Duplicate detection against existing Supabase customers
+     (by normalized name, phone, email)
+   - Per-row action dropdowns: Import / Skip / Merge
+   - Batch insert to Supabase in groups of 50 with progress bar
+   - Post-import summary with counts + "View Customers" button
+   - Review step renders full-width (breaks out of 900px wrapper)
+
+   Auto-Classification:
+   - Classifies customer names as Commercial or Residential
+   - Business indicators: LLC, Inc, Construction, etc.
+   - ALL CAPS single words → Commercial (ABTC, IGT, UNR)
+   - Mixed case (FedEx, BergmanKPRS) → Commercial
+   - Title-case single words (Mike, Andrea) → Residential
+   - 2-3 word names without indicators → Residential + splits
+     into first_name / last_name
+   - Preview shows "auto-detected" badge on enriched fields
+
+2. Customer Import Completed (~2042 customers imported)
+   - Chris's CSV with 2049 rows processed
+   - ~2042 unique customers imported to Supabase
+   - 10 rows not imported (junk data, name/phone column splits,
+     email duplicates — details in conversation)
+   - Fixed customer_type: "Business" → "Commercial" (79 records
+     via SQL + classifier code updated)
+
+3. SearchSelect Component (new: src/components/SearchSelect.jsx)
+   - Replaces native <select> for long lists
+   - Dark dropdown with search input, type-to-filter
+   - Uses createPortal to document.body (escapes modal overflow)
+   - Limits to 50 visible items + "X more — type to narrow" message
+   - stopPropagation on all portal elements to prevent close-on-type
+   - Used in CallLog wizard for customer selection
+
+4. Customers Page — Search Bar
+   - New search input above the DataTable
+   - Filters by name, city, phone, email, first/last name
+   - Shows "X of Y" match count while searching
+
+5. CallLog Wizard Improvements
+   - Existing customer autofills: business address, city, state, zip
+   - Contact Name field added to Contact Information step
+   - Contact name, phone, email autofill from customer record
+   - Real next job number in preview (fetched on mount, not ####)
+   - "New Site Build — No Address Available Yet" checkbox on
+     jobsite address step (saves new_site_build flag to call_log,
+     DB column added)
+
+6. Nav Role Restrictions
+   - Sales Dash: now Admin + Manager only (was visible to all)
+   - Settings: now Admin + Manager only (was Admin only)
+   - Sales Reps see: Home, Call Log, Proposals, Invoices,
+     Customers, Our Team, Directory
+
+7. Supabase Row Limit Fix
+   - All customer queries now use .range(0, 4999)
+   - Default Supabase limit is 1000 rows — was truncating
+     customer list at ~K alphabetically
+   - Fixed in: Customers.jsx, CallLog.jsx, importApi.js
+   - VERIFY: hard refresh after Vercel deploys — this was the
+     last commit and may not have been live when session ended
+
+COMMITS THIS SESSION (oldest to newest)
+------------------------------------------------------------
+- 5166839  feat: add Column Mapper (Step 3) to Data Import Tool
+- eb07b34  fix: improve column mapper auto-match and UX clarity
+- d55defa  fix: hint text on dark background pill for readability
+- 50ddc0b  feat: auto-detect Business vs Residential from customer name
+- 2c4b098  fix: clearer hint text guiding user to pick where data should land
+- f496223  feat: add Review & Import step (Step 4) to Data Import Tool
+- 8263c11  fix: issue messages on dark background pills for readability
+- a67a181  fix: Review & Import step renders full-width outside 900px wrapper
+- 96066a2  fix: use 'Commercial' not 'Business' for customer_type
+- e7f8d70  fix: smarter single-word name classification for customer imports
+- 8a367b0  feat: searchable customer dropdown in CallLog wizard
+- 6e5da6d  fix: SearchSelect uses position:fixed to avoid overflow clipping
+- cbfc8ca  fix: use createPortal for SearchSelect dropdown
+- 5706086  feat: add search bar to Customers page
+- 02da3c7  feat: autofill business address when selecting existing customer
+- 84f227d  feat: add contact name field to New Inquiry wizard + autofill
+- e66d3d3  feat: show real next job number in wizard preview
+- 175f6fd  feat: add 'New Site Build — No Address Available Yet' checkbox
+- cab7c2b  fix: limit SearchSelect to 50 visible items, prompt to type for more
+- b25dea6  fix: SearchSelect search input now works reliably in portal
+- 4e526a1  fix: hide Sales Dash and Settings from Sales Rep role
+- 35a0353  fix: fetch all customers by adding .range(0, 4999)
+
+All pushed to main, deployed via Vercel.
+
+DB CHANGES THIS SESSION
+------------------------------------------------------------
+- call_log: added column new_site_build (boolean, default false)
+- customers: 79 records updated Business → Commercial
+- customers: ~2042 records imported from Chris's CSV
+- UNR customer_type fixed to Commercial
+
+KNOWN ISSUES / VERIFY NEXT SESSION
+------------------------------------------------------------
+- **CRITICAL**: Verify .range(0, 4999) fix is live — last commit
+  of session, may not have been deployed when Chris tested.
+  Hard refresh scmybiz.com/customers and confirm L-Z customers appear.
+- SearchSelect search typing: was fixed with stopPropagation but
+  verify it works in production (portal + event bubbling edge case)
+- Import tool: 10 CSV rows not imported (junk data + name/phone
+  column splits from Glide). Details in conversation — can manually
+  fix the 4-5 legitimate ones (Marcelo Acob, Graeme Ware, etc.)
+- 40 duplicate name sets in CSV were deduplicated (correct behavior)
+- new_site_build checkbox: monthly email reminder system is a
+  future feature (not built yet, just the flag)
+- Chris's team_members.auth_id still needs linking
+
+WHAT WAS NOT FINISHED / CARRY FORWARD
+------------------------------------------------------------
+- Joe's continued testing feedback
+- Email reminder system for new_site_build jobs
+- Invoice editing + QB sync end-to-end testing
+- App access gate (check member.apps on login per app)
+- Chris's team_members.auth_id linking
+- Schedule Command shared components
+- QB pull-back cleanup (orphaned QB customers/jobs)
+- Manage materials/price list page for Settings
+- import_logs table + audit trail (per build spec Session 4)
+
+PRIORITIES FOR NEXT SESSION
+------------------------------------------------------------
+1. Verify .range(0, 4999) fix is live (customer list shows L-Z)
+2. Process any remaining Joe testing feedback
+3. Fix the 4-5 legitimate missing CSV customers (name/phone split)
+4. Invoice editing + QB sync
+5. Materials/price list management page
+6. App access gate
+7. import_logs table for audit trail
+
+SESSION PROMPT FOR NEXT CLAUDE CODE SESSION
+------------------------------------------------------------
+Continue building Sales Command. Read SC_Handoff_v51.txt for context.
+Data Import Tool is complete (all 4 steps). ~2042 customers imported.
+First priority: verify the .range(0, 4999) fix is live — customer
+list should show all customers L-Z. Then process Joe's feedback and
+continue with priorities from v51.
+============================================================
+End of SC_Handoff_v51

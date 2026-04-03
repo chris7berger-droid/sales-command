@@ -953,8 +953,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
           lines={lines}
           showCents={showCents}
           onClose={() => setShowPDF(false)}
-          onSent={async () => {
-            const updates = { status: "Sent", sent_at: new Date().toISOString() };
+          onSent={async (responseData) => {
+            const updates = { status: "Sent", sent_at: new Date().toISOString(), stripe_checkout_id: responseData?.checkoutId || null };
             await supabase.from("invoices").update(updates).eq("id", inv.id);
             setInv(prev => ({ ...prev, ...updates }));
             onUpdated && onUpdated();

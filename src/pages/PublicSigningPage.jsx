@@ -391,6 +391,16 @@ export default function PublicSigningPage() {
           </div>
         )}
 
+        {/* Introduction */}
+        {(proposal.intro || "").trim() && (
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.gray400, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10, marginTop: 8 }}>Introduction</div>
+            <div style={{ background: "white", borderRadius: 14, border: `1px solid ${T.gray200}`, padding: "28px 32px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+              <pre style={{ margin: 0, fontSize: 14, color: T.gray700, lineHeight: 1.75, whiteSpace: "pre-wrap", fontFamily: "'Inter', Arial, sans-serif" }}>{proposal.intro.trim()}</pre>
+            </div>
+          </div>
+        )}
+
         {/* Scope of Work heading */}
         <div style={{ fontSize: 10, fontWeight: 700, color: T.gray400, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10, marginTop: 8 }}>Scope of Work</div>
 

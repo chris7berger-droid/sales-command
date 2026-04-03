@@ -362,6 +362,16 @@ function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
                 </div>
               </div>
 
+              {/* Introduction */}
+              {(intro || "").trim() && (
+                <div style={{ marginBottom: 28 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Introduction</div>
+                  <div style={{ border: "1.5px solid rgba(28,24,20,0.2)", borderRadius: 8, padding: "16px 18px", background: "white" }}>
+                    <pre style={{ margin: 0, fontSize: 13, color: "#2d2720", lineHeight: 1.75, whiteSpace: "pre-wrap", fontFamily: "Arial, sans-serif" }}>{intro.trim()}</pre>
+                  </div>
+                </div>
+              )}
+
               {/* Scope of Work */}
               <div style={{ marginBottom: 28 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Scope of Work</div>
@@ -519,10 +529,23 @@ const [showApproveModal, setShowApproveModal] = useState(false);
 const [approveBy, setApproveBy] = useState(teamMember?.name || "");
 const [approveReason, setApproveReason] = useState("");
 const [allTeamMembers, setAllTeamMembers] = useState([]);
+const [intro, setIntro] = useState(pInit.intro || "");
+const [introSaving, setIntroSaving] = useState(false);
+const [introSaved, setIntroSaved] = useState(false);
 
 useEffect(() => {
   supabase.from("team_members").select("id, name").eq("active", true).order("name").then(({ data }) => setAllTeamMembers(data || []));
 }, []);
+
+const defaultIntro = `Thank you for the opportunity to provide this proposal for ${p.call_log?.job_name || p.customer || "your project"}. We are pleased to present the following scope of work and pricing for your review.`;
+
+async function saveIntro() {
+  setIntroSaving(true);
+  await supabase.from("proposals").update({ intro }).eq("id", p.id);
+  setIntroSaving(false);
+  setIntroSaved(true);
+  setTimeout(() => setIntroSaved(false), 2000);
+}
 
 // Auto-refresh when proposal is Sent (waiting for customer signature)
 useEffect(() => {
@@ -921,6 +944,29 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Proposal Introduction */}
+          <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Introduction</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {introSaved && <span style={{ fontSize: 11, color: C.green, fontWeight: 700, fontFamily: F.ui }}>Saved</span>}
+                {!intro && (
+                  <button onClick={() => setIntro(defaultIntro)} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                    Use Template
+                  </button>
+                )}
+                <Btn sz="sm" v="secondary" onClick={saveIntro} disabled={introSaving}>{introSaving ? "Saving..." : "Save"}</Btn>
+              </div>
+            </div>
+            <textarea
+              value={intro}
+              onChange={e => setIntro(e.target.value)}
+              placeholder="Write an introduction to accompany this proposal..."
+              rows={5}
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, color: C.textBody, fontSize: 13, fontFamily: F.ui, resize: "vertical", WebkitAppearance: "none", lineHeight: 1.6 }}
+            />
+          </div>
+
           {attachments.length > 0 && (
             <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
               <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Reference Files</div>

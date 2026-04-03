@@ -313,6 +313,10 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
                     if (std.includes(chosen.billing_terms)) { set("billingTerms", String(chosen.billing_terms)); set("billingTermsCustom", ""); }
                     else { set("billingTerms", "custom"); set("billingTermsCustom", String(chosen.billing_terms)); }
                   }
+                  if (chosen.business_address) set("businessAddress", chosen.business_address);
+                  if (chosen.business_city) set("businessCity", chosen.business_city);
+                  if (chosen.business_state) set("businessState", chosen.business_state);
+                  if (chosen.business_zip) set("businessZip", chosen.business_zip);
                 }
               }}
             />

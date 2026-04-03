@@ -29,7 +29,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
     }
     // Load customer contacts
     const custId = proposal.call_log?.customer_id;
-    const primaryEmail = proposal.call_log?.customers?.contact_email || "";
+    const primaryEmail = proposal.call_log?.customers?.contact_email || proposal.call_log?.customers?.email || "";
     const primaryName = proposal.call_log?.customer_name || proposal.customer || "";
     const allContacts = [];
     if (primaryEmail) allContacts.push({ name: primaryName, email: primaryEmail, role: "Primary", isPrimary: true });

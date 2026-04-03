@@ -191,6 +191,8 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     // Update existing customer's contact/billing info if changed
     if (data.customerMode === "existing" && customerId) {
       await supabase.from("customers").update({
+        phone: data.contactPhone || null,
+        email: data.contactEmail || null,
         contact_email: data.contactEmail || null,
         contact_phone: data.contactPhone || null,
         billing_same: data.billingSame,

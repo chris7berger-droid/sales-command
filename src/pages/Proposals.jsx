@@ -31,7 +31,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
       (async () => {
         const { data } = await supabase
           .from("proposals")
-          .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(contact_email, business_address, business_city, business_state, business_zip))")
+          .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(email, contact_email, business_address, business_city, business_state, business_zip))")
           .eq("id", initialProposal.openId)
           .maybeSingle();
         if (data) setSel(data);
@@ -44,7 +44,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
     const [{ data }, { data: invData }, { data: wtData }] = await Promise.all([
       supabase
         .from("proposals")
-        .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id)")
+        .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(email, contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id)")
         .order("created_at", { ascending: false }),
       supabase.from("invoices").select("id, status, proposal_id"),
       supabase.from("work_types").select("*").order("name"),

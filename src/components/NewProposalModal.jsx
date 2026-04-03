@@ -49,7 +49,7 @@ function NewProposalModal({ onClose, onCreated, preselectedJob }) {
         proposal_number: proposalNumber,
         signing_token: crypto.randomUUID(),
       }])
-      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))")
+      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))")
       .single();
     setSaving(false);
     if (err) { setError(err.message); return; }

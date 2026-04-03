@@ -412,11 +412,23 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
 }
 
 /* ─── Main Customers Page ─── */
+function matchSearch(c, q) {
+  const s = q.toLowerCase();
+  return (c.name || "").toLowerCase().includes(s)
+    || (c.business_city || "").toLowerCase().includes(s)
+    || (c.phone || "").toLowerCase().includes(s)
+    || (c.email || "").toLowerCase().includes(s)
+    || (c.contact_email || "").toLowerCase().includes(s)
+    || (c.first_name || "").toLowerCase().includes(s)
+    || (c.last_name || "").toLowerCase().includes(s);
+}
+
 export default function Customers({ setActive, setInitialProposal, setInitialInvoiceId, initialCustomerId, onClearInitialCustomer, setSubPage }) {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
+  const [search, setSearch] = useState("");
 
   const load = async () => {
     const { data } = await supabase.from("customers").select("*").order("name");
@@ -473,6 +485,27 @@ export default function Customers({ setActive, setInitialProposal, setInitialInv
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <SectionHeader title="Customers" action={<Btn sz="sm" onClick={() => setEditing("new")}>+ Add Customer</Btn>} />
+
+      {/* Search bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name, city, phone, or email..."
+          style={{
+            flex: 1, padding: "9px 14px", borderRadius: 8,
+            border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep,
+            color: C.textBody, fontSize: 13, fontFamily: F.ui, WebkitAppearance: "none",
+          }}
+        />
+        {search && (
+          <span style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, whiteSpace: "nowrap" }}>
+            {customers.filter(c => matchSearch(c, search)).length} of {customers.length}
+          </span>
+        )}
+      </div>
+
       {loading ? (
         <div style={{ color: C.textFaint, fontFamily: F.ui, fontSize: 13 }}>Loading...</div>
       ) : (
@@ -484,7 +517,7 @@ export default function Customers({ setActive, setInitialProposal, setInitialInv
             { k: "phone",          l: "Phone" },
             { k: "billing_terms",  l: "Terms",         r: v => termsLabel(v) },
           ]}
-          rows={customers}
+          rows={search ? customers.filter(c => matchSearch(c, search)) : customers}
           onRow={row => setViewing(row)}
         />
       )}

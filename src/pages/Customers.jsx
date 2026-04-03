@@ -89,8 +89,8 @@ function CustomerModal({ customer, onClose, onSaved }) {
           ) : (
             <Field label="Company Name" wide><input value={form.name} onChange={e => set("name", e.target.value)} style={inputStyle} /></Field>
           )}
-          <Field label="Phone"><input value={form.phone} onChange={e => set("phone", e.target.value)} style={inputStyle} /></Field>
-          <Field label="Email"><input type="email" value={form.email} onChange={e => set("email", e.target.value)} style={inputStyle} /></Field>
+          <Field label="Company Phone"><input value={form.phone} onChange={e => set("phone", e.target.value)} style={inputStyle} /></Field>
+          <Field label="Company Email"><input type="email" value={form.email} onChange={e => set("email", e.target.value)} style={inputStyle} /></Field>
           <Field label="Contact Phone"><input value={form.contact_phone} onChange={e => set("contact_phone", e.target.value)} style={inputStyle} /></Field>
           <Field label="Contact Email"><input type="email" value={form.contact_email} onChange={e => set("contact_email", e.target.value)} style={inputStyle} /></Field>
           <Field label="Billing Contact Same?" wide>

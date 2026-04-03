@@ -1,0 +1,61 @@
+SC_Handoff_v50 — 2026-04-02 (evening hotfix)
+============================================================
+Session: Claude Code / Opus 4.6 / ~/sales-command
+Repo: chris7berger-droid/sales-command (main branch)
+Deploys: Vercel (auto on push to main)
+============================================================
+
+WHAT GOT DONE THIS SESSION
+------------------------------------------------------------
+
+1. CRITICAL FIX: Public Signing Page Showing $0 / No Data
+   - Customer reported proposal signing page showed $0 total, no
+     customer name, no scope of work, empty "PREPARED FOR" section
+   - Root cause: RLS policies. The `proposals` table had a public
+     SELECT policy (by signing_token), but all joined tables
+     (call_log, customers, proposal_wtc, team_members, work_types)
+     only allowed `{authenticated}` reads
+   - When Chris opened the link he was logged in → authenticated →
+     everything worked. Customer was unauthenticated → anon key →
+     all joined data returned null → $0, empty fields
+   - FIX: Added scoped anon SELECT policies via `npx supabase db
+     query --linked`:
+     • call_log: anon can read rows linked to proposals with
+       a signing_token
+     • customers: anon can read rows linked via call_log →
+       proposal with signing_token
+     • proposal_wtc: anon can read rows for proposals with
+       a signing_token
+     • team_members: anon can read (for rep contact info)
+     • work_types: anon can read (reference data, names/codes)
+   - Fix is live immediately (database-level, no deploy needed)
+   - proposal_signatures already had anon insert/read ✓
+   - tenant_config already had anon read ✓
+
+2. Edit Customer Form Label Fix
+   - "Phone" → "Company Phone"
+   - "Email" → "Company Email"
+   - Distinguishes from "Contact Phone" / "Contact Email" fields
+     below them
+   - File: src/pages/Customers.jsx lines 92-93
+   - NOT YET DEPLOYED (needs git push)
+
+PENDING / AWAITING CONFIRMATION
+------------------------------------------------------------
+- Customer has not yet confirmed the signing page is working
+  after the RLS fix. Have them refresh the same link.
+
+WHAT TO WATCH FOR
+------------------------------------------------------------
+- If signing page still doesn't work for customer, check browser
+  console for Supabase errors — could be a cached response or
+  the specific proposal missing a signing_token value
+- The anon policies are scoped: call_log/customers/proposal_wtc
+  only readable when linked to a proposal with signing_token.
+  team_members and work_types are open to anon reads (low-risk
+  reference data)
+
+NOT YET PUSHED
+------------------------------------------------------------
+- Label fix (Company Phone / Company Email) is local only
+- Run: git add src/pages/Customers.jsx && git commit && git push

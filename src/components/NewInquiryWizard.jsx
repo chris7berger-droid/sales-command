@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
+import { STAGES } from "../lib/mockData";
 import Btn from "./Btn";
 import SearchSelect from "./SearchSelect";
 

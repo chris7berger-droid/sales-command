@@ -6,6 +6,7 @@ import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcWtcBreakdown 
 import { PROP_C } from "../lib/mockData";
 import WTCCalculator from "../pages/WTCCalculator";
 import Btn from "./Btn";
+import Pill from "./Pill";
 import ProposalPDFModal from "./ProposalPDFModal";
 
 function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember }) {

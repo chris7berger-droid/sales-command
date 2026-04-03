@@ -10,6 +10,7 @@ import StatCard from "../components/StatCard";
 import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
+import FilterBar from "../components/FilterBar";
 
 // ── Shared styles ─────────────────────────────────────────────────────────
 const inputStyle = {
@@ -919,9 +920,10 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
   const [showModal, setShowModal] = useState(false);
   const [sel, setSel] = useState(null);
   const [qbConnected, setQbConnected] = useState(null);
+  const [filters, setFilters] = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
 
   const load = async () => {
-    const { data } = await supabase.from("invoices").select("*").order("sent_at", { ascending: false });
+    const { data } = await supabase.from("invoices").select("*, proposals(call_log(sales_name, customer_name, display_job_number))").order("sent_at", { ascending: false });
     setInvoices(data || []);
     setLoading(false);
     return data;
@@ -952,6 +954,18 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
     if (!inv.due_date || inv.status === "Paid") return null;
     return Math.round((new Date() - new Date(inv.due_date)) / 86400000);
   };
+
+  const filteredInvoices = invoices.filter(inv => {
+    const sales = inv.proposals?.call_log?.sales_name || "";
+    const cust = inv.proposals?.call_log?.customer_name || inv.job_name || "";
+    const jobNum = inv.proposals?.call_log?.display_job_number || inv.job_id || "";
+    if (filters.sales && sales !== filters.sales) return false;
+    if (filters.dateFrom && (inv.sent_at || "").slice(0, 10) < filters.dateFrom) return false;
+    if (filters.dateTo && (inv.sent_at || "").slice(0, 10) > filters.dateTo) return false;
+    if (filters.customer && !cust.toLowerCase().includes(filters.customer.toLowerCase())) return false;
+    if (filters.jobNumber && !jobNum.toLowerCase().includes(filters.jobNumber.toLowerCase())) return false;
+    return true;
+  });
 
   // Track sub-page for TOC
   useEffect(() => {
@@ -988,6 +1002,12 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
           <StatCard label="Total Paid"    value={fmt$(paid)}    accent={C.green} />
         </div>
 
+        <FilterBar
+          filters={filters}
+          onChange={setFilters}
+          salesOptions={[...new Set(invoices.map(i => i.proposals?.call_log?.sales_name).filter(Boolean))].sort()}
+        />
+
         {loading ? (
           <div style={{ color: C.textFaint, fontFamily: F.ui, fontSize: 13 }}>Loading...</div>
         ) : (
@@ -1009,7 +1029,7 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
                 </span>;
               }},
             ]}
-            rows={invoices}
+            rows={filteredInvoices}
             onRow={row => setSel(row)}
           />
         )}

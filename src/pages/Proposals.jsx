@@ -10,6 +10,7 @@ import SectionHeader from "../components/SectionHeader";
 import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
+import FilterBar from "../components/FilterBar";
 
 function NewProposalModal({ onClose, onCreated, preselectedJob }) {
   const [jobs, setJobs]       = useState([]);
@@ -1114,6 +1115,8 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
 
   const [preselectedJob, setPreselectedJob] = useState(null);
   const [statusFilter, setStatusFilter]     = useState("All");
+  const [workTypes, setWorkTypes]           = useState([]);
+  const [filters, setFilters]               = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
 
   useEffect(() => {
     if (initialProposal?.job) {
@@ -1134,12 +1137,15 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
   }, [initialProposal]);
 
   const load = async () => {
-    const { data } = await supabase
-      .from("proposals")
-      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date)")
-      .order("created_at", { ascending: false });
-    // Fetch invoices separately and attach to proposals
-    const { data: invData } = await supabase.from("invoices").select("id, status, proposal_id");
+    const [{ data }, { data: invData }, { data: wtData }] = await Promise.all([
+      supabase
+        .from("proposals")
+        .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id)")
+        .order("created_at", { ascending: false }),
+      supabase.from("invoices").select("id, status, proposal_id"),
+      supabase.from("work_types").select("*").order("name"),
+    ]);
+    setWorkTypes(wtData || []);
     const invByProposal = {};
     (invData || []).forEach(inv => {
       if (inv.proposal_id) {
@@ -1154,9 +1160,16 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
   useEffect(() => { load(); }, []);
 
   const STATUS_TABS = ["All", "Draft", "Sent", "Sold", "Lost"];
-  const filteredProposals = statusFilter === "All"
-    ? proposals
-    : proposals.filter(p => p.status === statusFilter);
+  const filteredProposals = proposals.filter(p => {
+    if (statusFilter !== "All" && p.status !== statusFilter) return false;
+    if (filters.sales && p.call_log?.sales_name !== filters.sales) return false;
+    if (filters.dateFrom && (p.created_at || "").slice(0, 10) < filters.dateFrom) return false;
+    if (filters.dateTo && (p.created_at || "").slice(0, 10) > filters.dateTo) return false;
+    if (filters.workType && !(p.proposal_wtc || []).some(w => String(w.work_type_id) === filters.workType)) return false;
+    if (filters.customer && !(p.customer || "").toLowerCase().includes(filters.customer.toLowerCase())) return false;
+    if (filters.jobNumber && !(p.call_log?.display_job_number || "").toLowerCase().includes(filters.jobNumber.toLowerCase())) return false;
+    return true;
+  });
 
   // Track sub-page for TOC
   useEffect(() => {
@@ -1204,6 +1217,12 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
             );
           })}
         </div>
+        <FilterBar
+          filters={filters}
+          onChange={setFilters}
+          salesOptions={[...new Set(proposals.map(p => p.call_log?.sales_name).filter(Boolean))].sort()}
+          workTypeOptions={workTypes}
+        />
         {loading ? (
           <div style={{ color: C.textFaint, fontFamily: F.ui, fontSize: 13 }}>Loading...</div>
         ) : (
@@ -1215,13 +1234,17 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
               { k: "total",      l: "Total",      r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$(v)}</span> },
               { k: "created_at", l: "Created",    r: v => fmtD(v?.slice(0,10)) },
               { k: "approved_at",l: "Approved",   r: v => v ? fmtD(v?.slice(0,10)) : <span style={{ color: C.textFaint }}>—</span> },
-              { k: "proposal_wtc", l: "Start", r: v => {
+              { k: "proposal_wtc", l: "WTCs", r: v => {
+                const count = (v || []).length;
+                return <span style={{ fontWeight: 700, fontFamily: F.display }}>{count || "—"}</span>;
+              }},
+              { k: "proposal_wtc", l: "Job Start", r: v => {
                 const dates = (v || []).map(w => w.start_date).filter(Boolean);
                 if (dates.length === 0) return <span style={{ color: C.textFaint }}>—</span>;
                 if (dates.length > 1) return <span style={{ color: C.textFaint, fontStyle: "italic" }}>Multiple</span>;
                 return fmtD(dates[0]);
               }},
-              { k: "proposal_wtc", l: "End", r: v => {
+              { k: "proposal_wtc", l: "Job End", r: v => {
                 const dates = (v || []).map(w => w.end_date).filter(Boolean);
                 if (dates.length === 0) return <span style={{ color: C.textFaint }}>—</span>;
                 if (dates.length > 1) return <span style={{ color: C.textFaint, fontStyle: "italic" }}>Multiple</span>;

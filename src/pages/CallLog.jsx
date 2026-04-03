@@ -8,6 +8,7 @@ import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
 import CallLogDetail from "../components/CallLogDetail";
+import FilterBar from "../components/FilterBar";
 import SearchSelect from "../components/SearchSelect";
 
 const inputStyle = {
@@ -605,6 +606,7 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
   const [loading, setLoading]     = useState(true);
   const [filter, setFilter]       = useState(stageFilter || "All");
   const [q, setQ]                 = useState("");
+  const [filters, setFilters]     = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
   const [showModal, setShowModal] = useState(false);
   const [selJob, setSelJob]       = useState(null);  // SC-20
 
@@ -665,11 +667,18 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
   }
 
   const tod = new Date().toISOString().slice(0, 10);
-  const filtered = rows.filter(r =>
-    (bidDueFilter ? r.bid_due === tod : (filter === "All" || r.stage === filter)) &&
-    ((r.display_job_number || r.job_name)?.toLowerCase().includes(q.toLowerCase()) ||
-     String(r.job_number || r.id).includes(q))
-  );
+  const filtered = rows.filter(r => {
+    if (bidDueFilter && r.bid_due !== tod) return false;
+    if (!bidDueFilter && filter !== "All" && r.stage !== filter) return false;
+    if (q && !((r.display_job_number || r.job_name)?.toLowerCase().includes(q.toLowerCase()) || String(r.job_number || r.id).includes(q))) return false;
+    if (filters.sales && r.sales_name !== filters.sales) return false;
+    if (filters.dateFrom && (r.created_at || "").slice(0, 10) < filters.dateFrom) return false;
+    if (filters.dateTo && (r.created_at || "").slice(0, 10) > filters.dateTo) return false;
+    if (filters.workType && !(r.job_work_types || []).some(jwt => String(jwt.work_type_id) === filters.workType)) return false;
+    if (filters.customer && !(r.customer_name || "").toLowerCase().includes(filters.customer.toLowerCase())) return false;
+    if (filters.jobNumber && !(r.display_job_number || String(r.job_number || "")).toLowerCase().includes(filters.jobNumber.toLowerCase())) return false;
+    return true;
+  });
 
   return (
     <>
@@ -705,6 +714,12 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
             })}
           </div>
         </div>
+        <FilterBar
+          filters={filters}
+          onChange={setFilters}
+          salesOptions={[...new Set(rows.map(r => r.sales_name).filter(Boolean))].sort()}
+          workTypeOptions={workTypes}
+        />
         {loading ? (
           <div style={{ color: C.textFaint, fontFamily: F.ui, fontSize: 13 }}>Loading...</div>
         ) : (

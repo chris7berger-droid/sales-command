@@ -33,11 +33,11 @@ const NAV = [
   { id: "calllog",   label: "Call Log",   icon: "📋" },
   { id: "proposals", label: "Proposals",  icon: "📄" },
   { id: "invoices",  label: "Invoices",   icon: "💵" },
-  { id: "dashboard", label: "Sales Dash", icon: "📊" },
+  { id: "dashboard", label: "Sales Dash", icon: "📊", roles: ["Admin", "Manager"] },
   { id: "managers",  label: "Managers",   icon: "🏆", roles: ["Manager"] },
   { id: "customers", label: "Customers",  icon: "🏢" },
   { id: "team",      label: "Our Team",   icon: "👥" },
-  { id: "settings",  label: "Settings",   icon: "⚙", roles: ["Admin"] },
+  { id: "settings",  label: "Settings",   icon: "⚙", roles: ["Admin", "Manager"] },
   { id: "directory", label: "The Directory", icon: "📖", action: "directory" },
 ];
 

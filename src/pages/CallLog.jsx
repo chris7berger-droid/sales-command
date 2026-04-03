@@ -123,7 +123,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     billingTerms: "30",
     billingTermsCustom: "",
     businessAddress: "", businessCity: "", businessState: "", businessZip: "",
-    jobsiteAddress: "", jobsiteCity: "", jobsiteState: "", jobsiteZip: "",
+    jobsiteAddress: "", jobsiteCity: "", jobsiteState: "", jobsiteZip: "", newSiteBuild: false,
     billingAddressSame: true,
     billingAddrStreet: "", billingAddrCity: "", billingAddrState: "", billingAddrZip: "",
     salesName: "",
@@ -224,6 +224,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       co_standalone: data.jobType === "co" ? data.coStandalone : false,
       jobsite_address: data.jobsiteAddress || null, jobsite_city: data.jobsiteCity || null,
       jobsite_state: data.jobsiteState || null, jobsite_zip: data.jobsiteZip || null,
+      new_site_build: data.newSiteBuild || false,
       billing_address: billingAddrStreet || null, billing_city: billingAddrCity || null,
       billing_state: billingAddrState || null, billing_zip: billingAddrZip || null,
       billing_address_same: data.billingAddressSame,
@@ -438,12 +439,18 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
             <div style={{ padding: 16, background: C.linen, borderRadius: 10, border: `1.5px solid ${C.borderStrong}` }}>
               <AddressBlock label="Job Site Address" required={false} sectionKey="jobsite"
                 fields={{ address: data.jobsiteAddress, city: data.jobsiteCity, state: data.jobsiteState, zip: data.jobsiteZip }} set={set} />
-              {!data.jobsiteAddress && (
+              {!data.jobsiteAddress && !data.newSiteBuild && (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, padding: "7px 10px", background: "rgba(230,168,0,0.08)", borderRadius: 7, border: "1px solid rgba(230,168,0,0.25)" }}>
                   <span style={{ fontSize: 13 }}>⚠️</span>
                   <span style={{ fontSize: 12, color: "#a07800", fontFamily: F.ui, fontWeight: 600 }}>Required before a proposal can be created</span>
                 </div>
               )}
+              <button onClick={() => set("newSiteBuild", !data.newSiteBuild)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0", marginTop: 10 }}>
+                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${data.newSiteBuild ? C.teal : C.borderStrong}`, background: data.newSiteBuild ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {data.newSiteBuild && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
+                </div>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: C.textMuted, fontFamily: F.ui }}>New Site Build — No Address Available Yet</span>
+              </button>
             </div>
             <div style={{ padding: 16, background: C.linen, borderRadius: 10, border: `1.5px solid ${C.borderStrong}` }}>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>

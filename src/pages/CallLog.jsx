@@ -194,6 +194,18 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     const billingAddrZip    = data.billingAddressSame ? data.businessZip     : data.billingAddrZip;
 
     let customerId = data.customerId || null;
+    // Update existing customer's contact/billing info if changed
+    if (data.customerMode === "existing" && customerId) {
+      await supabase.from("customers").update({
+        contact_email: data.contactEmail || null,
+        contact_phone: data.contactPhone || null,
+        billing_same: data.billingSame,
+        billing_name: data.billingSame ? null : data.billingName,
+        billing_phone: data.billingSame ? null : data.billingPhone,
+        billing_email: data.billingSame ? null : data.billingEmail,
+        billing_terms: data.billingTerms === "custom" ? (parseInt(data.billingTermsCustom) || 30) : (parseInt(data.billingTerms) || 30),
+      }).eq("id", customerId);
+    }
     if (data.customerMode === "new") {
       const { data: nc, error: custErr } = await supabase.from("customers").insert([{
         name, customer_type: data.customerType,

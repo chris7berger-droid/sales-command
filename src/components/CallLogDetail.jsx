@@ -308,6 +308,9 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       {/* Contact & Billing */}
       <Section title="Contact & Billing">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 24px" }}>
+          <Field label="Customer Name" wide>
+            <input type="text" value={form.customer_name} onChange={e => set("customer_name", e.target.value)} placeholder="Customer name" style={iStyle} disabled />
+          </Field>
           <Field label="Customer Email">
             <input type="email" value={form.contact_email} onChange={e => set("contact_email", e.target.value)} placeholder="customer@example.com" style={iStyle} />
           </Field>

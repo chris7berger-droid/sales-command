@@ -117,7 +117,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     billingTerms: "30",
     billingTermsCustom: "",
     businessAddress: "", businessCity: "", businessState: "", businessZip: "",
-    jobsiteAddress: "", jobsiteCity: "", jobsiteState: "", jobsiteZip: "", newSiteBuild: false,
+    jobsiteAddress: "", jobsiteCity: "", jobsiteState: "", jobsiteZip: "", newSiteBuild: false, jobsiteSame: false,
     billingAddressSame: true,
     billingAddrStreet: "", billingAddrCity: "", billingAddrState: "", billingAddrZip: "",
     salesName: "",
@@ -231,8 +231,10 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       parent_job_id: data.jobType === "co" && data.parentJobId ? parseInt(data.parentJobId) : null,
       co_number: coNum,
       co_standalone: data.jobType === "co" ? data.coStandalone : false,
-      jobsite_address: data.jobsiteAddress || null, jobsite_city: data.jobsiteCity || null,
-      jobsite_state: data.jobsiteState || null, jobsite_zip: data.jobsiteZip || null,
+      jobsite_address: (data.jobsiteSame ? data.businessAddress : data.jobsiteAddress) || null,
+      jobsite_city: (data.jobsiteSame ? data.businessCity : data.jobsiteCity) || null,
+      jobsite_state: (data.jobsiteSame ? data.businessState : data.jobsiteState) || null,
+      jobsite_zip: (data.jobsiteSame ? data.businessZip : data.jobsiteZip) || null,
       new_site_build: data.newSiteBuild || false,
       billing_address: billingAddrStreet || null, billing_city: billingAddrCity || null,
       billing_state: billingAddrState || null, billing_zip: billingAddrZip || null,
@@ -494,24 +496,38 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
           <StepLabel n={step + 1} label="Addresses" />
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             <div style={{ padding: 16, background: C.linen, borderRadius: 10, border: `1.5px solid ${C.borderStrong}` }}>
-              <AddressBlock label="Business Address" required sectionKey="business"
+              <AddressBlock label={data.customerType === "Residential" ? "Customer Address" : "Business Address"} required sectionKey="business"
                 fields={{ address: data.businessAddress, city: data.businessCity, state: data.businessState, zip: data.businessZip }} set={set} />
             </div>
             <div style={{ padding: 16, background: C.linen, borderRadius: 10, border: `1.5px solid ${C.borderStrong}` }}>
-              <AddressBlock label="Job Site Address" required={false} sectionKey="jobsite"
-                fields={{ address: data.jobsiteAddress, city: data.jobsiteCity, state: data.jobsiteState, zip: data.jobsiteZip }} set={set} />
-              {!data.jobsiteAddress && !data.newSiteBuild && (
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, padding: "7px 10px", background: "rgba(230,168,0,0.08)", borderRadius: 7, border: "1px solid rgba(230,168,0,0.25)" }}>
-                  <span style={{ fontSize: 13 }}>⚠️</span>
-                  <span style={{ fontSize: 12, color: "#a07800", fontFamily: F.ui, fontWeight: 600 }}>Required before a proposal can be created</span>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+                Job Site Address
+                <span style={{ fontSize: 10, color: C.textFaint, background: C.linenLight, padding: "1px 6px", borderRadius: 4, border: `1px solid ${C.border}` }}>OPTIONAL</span>
+              </div>
+              <button onClick={() => set("jobsiteSame", !data.jobsiteSame)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "2px 0", marginBottom: 10 }}>
+                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${data.jobsiteSame ? C.teal : C.borderStrong}`, background: data.jobsiteSame ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {data.jobsiteSame && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
                 </div>
-              )}
-              <button onClick={() => set("newSiteBuild", !data.newSiteBuild)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0", marginTop: 10 }}>
-                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${data.newSiteBuild ? C.teal : C.borderStrong}`, background: data.newSiteBuild ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {data.newSiteBuild && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
-                </div>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: C.textMuted, fontFamily: F.ui }}>New Site Build — No Address Available Yet</span>
+                <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Same as {data.customerType === "Residential" ? "customer" : "business"} address</span>
               </button>
+              {!data.jobsiteSame && (
+                <>
+                  <AddressBlock label="" required={false} sectionKey="jobsite"
+                    fields={{ address: data.jobsiteAddress, city: data.jobsiteCity, state: data.jobsiteState, zip: data.jobsiteZip }} set={set} />
+                  {!data.jobsiteAddress && !data.newSiteBuild && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, padding: "7px 10px", background: "rgba(230,168,0,0.08)", borderRadius: 7, border: "1px solid rgba(230,168,0,0.25)" }}>
+                      <span style={{ fontSize: 13 }}>⚠️</span>
+                      <span style={{ fontSize: 12, color: "#a07800", fontFamily: F.ui, fontWeight: 600 }}>Required before a proposal can be created</span>
+                    </div>
+                  )}
+                  <button onClick={() => set("newSiteBuild", !data.newSiteBuild)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0", marginTop: 10 }}>
+                    <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${data.newSiteBuild ? C.teal : C.borderStrong}`, background: data.newSiteBuild ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {data.newSiteBuild && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
+                    </div>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: C.textMuted, fontFamily: F.ui }}>New Site Build — No Address Available Yet</span>
+                  </button>
+                </>
+              )}
             </div>
             <div style={{ padding: 16, background: C.linen, borderRadius: 10, border: `1.5px solid ${C.borderStrong}` }}>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
@@ -522,7 +538,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
                 <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${data.billingAddressSame ? C.teal : C.borderStrong}`, background: data.billingAddressSame ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   {data.billingAddressSame && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
                 </div>
-                <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Same as business address</span>
+                <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Same as {data.customerType === "Residential" ? "customer" : "business"} address</span>
               </button>
               {!data.billingAddressSame && (
                 <AddressBlock label="" required={false} sectionKey="billingAddr"
@@ -532,7 +548,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
           </div>
           <StepFooter step={step} back={back} error={error} onNext={() => {
             if (!data.businessAddress || !data.businessCity || !data.businessState || !data.businessZip) {
-              setError("Business address is required (street, city, state, zip)");
+              setError(`${data.customerType === "Residential" ? "Customer" : "Business"} address is required (street, city, state, zip)`);
               return;
             }
             next();

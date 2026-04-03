@@ -73,6 +73,10 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     jobsite_city:     job.jobsite_city     || "",
     jobsite_state:    job.jobsite_state    || "",
     jobsite_zip:      job.jobsite_zip      || "",
+    business_address: cust.business_address || "",
+    business_city:    cust.business_city   || "",
+    business_state:   cust.business_state  || "",
+    business_zip:     cust.business_zip    || "",
     contact_email:    cust.contact_email   || "",
     contact_phone:    cust.contact_phone   || "",
     billing_terms:    cust.billing_terms != null ? String(cust.billing_terms) : "30",
@@ -220,6 +224,10 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     // Save customer contact info
     if (job.customer_id) {
       await supabase.from("customers").update({
+        business_address: form.business_address || null,
+        business_city: form.business_city || null,
+        business_state: form.business_state || null,
+        business_zip: form.business_zip || null,
         contact_email: form.contact_email || null,
         contact_phone: form.contact_phone || null,
         billing_terms: parseInt(form.billing_terms) || 30,
@@ -333,6 +341,18 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
             </div>
             <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Show cents on proposals & invoices (legacy jobs)</span>
           </button>
+        </div>
+      </Section>
+
+      {/* Customer / Business Address */}
+      <Section title={job.customer_type === "Residential" ? "Customer Address" : "Business Address"}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <input type="text" value={form.business_address} onChange={e => set("business_address", e.target.value)} placeholder="Street Address" style={iStyle} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 100px", gap: 8 }}>
+            <input placeholder="City" value={form.business_city} onChange={e => set("business_city", e.target.value)} style={iStyle} />
+            <input placeholder="State" value={form.business_state} onChange={e => set("business_state", e.target.value)} style={iStyle} maxLength={2} />
+            <input placeholder="Zip" value={form.business_zip} onChange={e => set("business_zip", e.target.value)} style={iStyle} />
+          </div>
         </div>
       </Section>
 

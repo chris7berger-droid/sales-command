@@ -81,6 +81,13 @@ export default function PublicSigningPage() {
       setProposal({ ...prop, _attachments: propAttachments });
       setWtc(wtcData || []);
       setLoading(false);
+
+      // Track view — update viewed_at for any recipients who haven't viewed yet
+      supabase.from("proposal_recipients")
+        .update({ viewed_at: new Date().toISOString() })
+        .eq("proposal_id", prop.id)
+        .is("viewed_at", null)
+        .then(() => {});
     }
     load();
   }, [token]);

@@ -135,6 +135,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     followUp: "",
     notes: "",
     attachments: [],
+    additionalContacts: [],
   });
 
   const set = (k, v) => setData(d => ({ ...d, [k]: v }));
@@ -253,6 +254,17 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     }
 
     if (data.attachments.length > 0) await uploadFiles(newJob.id);
+
+    // Save additional contacts to customer_contacts
+    if (customerId && data.additionalContacts.length > 0) {
+      const newContacts = data.additionalContacts.filter(c => !c.existingId && (c.name || c.email));
+      if (newContacts.length > 0) {
+        await supabase.from("customer_contacts").insert(
+          newContacts.map(c => ({ customer_id: customerId, name: c.name, phone: c.phone, email: c.email, role: c.role }))
+        );
+      }
+    }
+
     setSaving(false);
     onSaved();
   };
@@ -346,6 +358,10 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
                   else if (chosen.phone) set("contactPhone", chosen.phone);
                   if (chosen.contact_email) set("contactEmail", chosen.contact_email);
                   else if (chosen.email) set("contactEmail", chosen.email);
+                  // Load existing contacts for this customer
+                  supabase.from("customer_contacts").select("*").eq("customer_id", val).order("created_at").then(({ data: contacts }) => {
+                    set("additionalContacts", (contacts || []).map(c => ({ name: c.name || "", phone: c.phone || "", email: c.email || "", role: c.role || "Project Manager", existingId: c.id })));
+                  });
                 }
               }}
             />
@@ -433,6 +449,43 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               )}
             </div>
           </div>
+
+          {/* Additional Contacts */}
+          <div style={{ marginTop: 16 }}>
+            {data.additionalContacts.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 10 }}>
+                {data.additionalContacts.map((c, i) => (
+                  <div key={i} style={{ padding: "12px 14px", background: C.linen, borderRadius: 10, border: `1.5px solid ${C.borderStrong}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textFaint, fontFamily: F.display }}>Contact {i + 2}</span>
+                      <button onClick={() => set("additionalContacts", data.additionalContacts.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: C.textFaint, cursor: "pointer", fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <input placeholder="Name" value={c.name} onChange={e => { const upd = [...data.additionalContacts]; upd[i] = { ...upd[i], name: e.target.value }; set("additionalContacts", upd); }} style={inputStyle} />
+                        <select value={c.role} onChange={e => { const upd = [...data.additionalContacts]; upd[i] = { ...upd[i], role: e.target.value }; set("additionalContacts", upd); }} style={inputStyle}>
+                          <option value="Project Manager">Project Manager</option>
+                          <option value="Office Manager">Office Manager</option>
+                          <option value="Billing Contact">Billing Contact</option>
+                        </select>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <input placeholder="Phone" value={c.phone} onChange={e => { const upd = [...data.additionalContacts]; upd[i] = { ...upd[i], phone: e.target.value }; set("additionalContacts", upd); }} style={inputStyle} />
+                        <input placeholder="Email" value={c.email} onChange={e => { const upd = [...data.additionalContacts]; upd[i] = { ...upd[i], email: e.target.value }; set("additionalContacts", upd); }} style={inputStyle} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => set("additionalContacts", [...data.additionalContacts, { name: "", phone: "", email: "", role: "Project Manager" }])}
+              style={{ background: "none", border: `1.5px dashed ${C.borderStrong}`, borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", width: "100%" }}
+            >
+              + Add Contact
+            </button>
+          </div>
+
           <StepFooter step={step} back={back} error={error} onNext={() => {
             if (!data.billingTerms) { setError("Billing terms are required"); return; }
             if (data.billingTerms === "custom" && !data.billingTermsCustom) { setError("Enter custom billing terms (days)"); return; }

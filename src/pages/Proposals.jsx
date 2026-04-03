@@ -128,6 +128,9 @@ function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
   const [sendError, setSendError] = useState(null);
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
   const [repContact, setRepContact] = useState({ phone: "", email: "" });
+  const [contacts, setContacts] = useState([]);
+  const [signerEmail, setSignerEmail] = useState("");
+  const [viewerEmails, setViewerEmails] = useState([]);
 
   useEffect(() => {
     getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url }));
@@ -137,43 +140,87 @@ function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
         if (data) setRepContact({ phone: data.phone || "", email: data.email || "" });
       });
     }
+    // Load customer contacts
+    const custId = proposal.call_log?.customer_id;
+    const primaryEmail = proposal.call_log?.customers?.contact_email || "";
+    const primaryName = proposal.call_log?.customer_name || proposal.customer || "";
+    const allContacts = [];
+    if (primaryEmail) allContacts.push({ name: primaryName, email: primaryEmail, role: "Primary", isPrimary: true });
+    if (custId) {
+      supabase.from("customer_contacts").select("*").eq("customer_id", custId).order("created_at").then(({ data }) => {
+        const extra = (data || []).filter(c => c.email && c.email !== primaryEmail).map(c => ({ name: c.name, email: c.email, role: c.role }));
+        setContacts([...allContacts, ...extra]);
+        if (primaryEmail) setSignerEmail(primaryEmail);
+      });
+    } else {
+      setContacts(allContacts);
+      if (primaryEmail) setSignerEmail(primaryEmail);
+    }
   }, []);
   const signingUrl = `https://www.scmybiz.com/sign/${proposal.signing_token}`;
 
   async function handleSend() {
-    const customerEmail = proposal.call_log?.customers?.contact_email || "";
-    if (!customerEmail) {
-      setSendError("No customer email on file. Add a contact email to the customer record first.");
+    if (!signerEmail) {
+      setSendError("Please select a signer.");
       return;
     }
     setSending(true);
     setSendError(null);
     try {
-      // Look up rep email from team_members by sales_name
       const salesName = proposal.call_log?.sales_name || "";
       let repEmail = "";
       if (salesName) {
         const { data: rep } = await supabase.from("team_members").select("email").eq("name", salesName).maybeSingle();
         repEmail = rep?.email || "";
       }
+      // Send to signer
+      const signerContact = contacts.find(c => c.email === signerEmail);
       const { data: fnData, error: fnError } = await supabase.functions.invoke("send-proposal", {
         body: {
-          customerEmail,
-          customerName:  proposal.call_log?.customer_name  || "Customer",
+          customerEmail: signerEmail,
+          customerName: signerContact?.name || proposal.call_log?.customer_name || "Customer",
           repEmail,
-          repName:       salesName,
+          repName: salesName,
           proposalNumber: proposal.proposal_number || proposal.id,
-          jobName:       proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
+          jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
           signingUrl,
         },
       });
       if (fnError) throw new Error(fnError.message || "Send failed.");
       if (fnData?.error) throw new Error(fnData.error);
+
+      // Send to viewers (same email, they get the link but page shows read-only for non-signers)
+      for (const vEmail of viewerEmails) {
+        const vContact = contacts.find(c => c.email === vEmail);
+        await supabase.functions.invoke("send-proposal", {
+          body: {
+            customerEmail: vEmail,
+            customerName: vContact?.name || "Viewer",
+            repEmail,
+            repName: salesName,
+            proposalNumber: proposal.proposal_number || proposal.id,
+            jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
+            signingUrl,
+          },
+        });
+      }
+
+      // Save recipients to proposal_recipients
+      const now = new Date().toISOString();
+      const recipients = [
+        { proposal_id: proposal.id, contact_name: signerContact?.name || "", contact_email: signerEmail, role: "signer", sent_at: now },
+        ...viewerEmails.map(vEmail => {
+          const vc = contacts.find(c => c.email === vEmail);
+          return { proposal_id: proposal.id, contact_name: vc?.name || "", contact_email: vEmail, role: "viewer", sent_at: now };
+        }),
+      ];
+      await supabase.from("proposal_recipients").insert(recipients);
+
       setSendDone(true);
       if (proposal.call_log_id) {
         await supabase.from("call_log").update({ stage: "Has Bid" }).eq("id", proposal.call_log_id);
       }
-      await supabase.from("proposals").update({ status: "Sent", sent_at: new Date().toISOString(), sent_to_email: customerEmail }).eq("id", proposal.id);
+      await supabase.from("proposals").update({ status: "Sent", sent_at: now, sent_to_email: signerEmail }).eq("id", proposal.id);
     } catch (e) {
       setSendError(e.message || "Send failed. Please try again.");
     }
@@ -474,18 +521,54 @@ function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
           {view === "send" && !sendDone && (
             <div style={{ maxWidth: 520, margin: "0 auto" }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 6 }}>Send Proposal to Customer</div>
-              <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 24 }}>This will email the customer a link to review and sign electronically.</div>
-              <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Sending to</div>
-                <div style={{ fontWeight: 600, color: "#111827" }}>{proposal.call_log?.customers?.contact_email || <span style={{ color: "#e53935" }}>No customer email on file</span>}</div>
+              <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 24 }}>Select a signer and optional viewers. All recipients will receive an email with the proposal link.</div>
+
+              {/* Recipient picker */}
+              <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "14px 16px", marginBottom: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Recipients</div>
+                {contacts.length === 0 && (
+                  <div style={{ fontSize: 12, color: "#e53935" }}>No contacts on file. Add a contact email to the customer record first.</div>
+                )}
+                {contacts.map(c => {
+                  const isSigner = signerEmail === c.email;
+                  const isViewer = viewerEmails.includes(c.email);
+                  return (
+                    <div key={c.email} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #E5E7EB" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{c.name || c.email}</div>
+                        <div style={{ fontSize: 11, color: "#9CA3AF" }}>{c.email}{c.role ? ` · ${c.role}` : ""}</div>
+                      </div>
+                      <button
+                        onClick={() => { setSignerEmail(c.email); setViewerEmails(v => v.filter(e => e !== c.email)); }}
+                        style={{
+                          padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                          background: isSigner ? "#30cfac" : "transparent", color: isSigner ? "#1c1814" : "#6B7280",
+                          border: `1.5px solid ${isSigner ? "#30cfac" : "#D1D5DB"}`,
+                        }}
+                      >Signer</button>
+                      <button
+                        onClick={() => {
+                          if (isSigner) return;
+                          setViewerEmails(v => isViewer ? v.filter(e => e !== c.email) : [...v, c.email]);
+                        }}
+                        style={{
+                          padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: isSigner ? "default" : "pointer", fontFamily: "inherit",
+                          background: isViewer ? "#1c1814" : "transparent", color: isViewer ? "#30cfac" : "#6B7280",
+                          border: `1.5px solid ${isViewer ? "#1c1814" : "#D1D5DB"}`, opacity: isSigner ? 0.3 : 1,
+                        }}
+                      >Viewer</button>
+                    </div>
+                  );
+                })}
               </div>
+
               <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 12, color: "#6B7280", wordBreak: "break-all" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Signing Link</div>
                 {signingUrl}
               </div>
               {sendError && <div style={{ fontSize: 12, color: "#e53935", marginBottom: 12, background: "rgba(229,57,53,0.06)", border: "1px solid rgba(229,57,53,0.2)", borderRadius: 8, padding: "10px 14px" }}>{sendError}</div>}
-              <button onClick={handleSend} disabled={sending} style={{ width: "100%", background: sending ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: sending ? "default" : "pointer", fontFamily: "inherit" }}>
-                {sending ? "Sending…" : "Send to Customer"}
+              <button onClick={handleSend} disabled={sending || !signerEmail} style={{ width: "100%", background: sending || !signerEmail ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: sending || !signerEmail ? "default" : "pointer", fontFamily: "inherit" }}>
+                {sending ? "Sending…" : `Send to ${1 + viewerEmails.length} Recipient${viewerEmails.length > 0 ? "s" : ""}`}
               </button>
             </div>
           )}
@@ -532,9 +615,11 @@ const [allTeamMembers, setAllTeamMembers] = useState([]);
 const [intro, setIntro] = useState(pInit.intro || "");
 const [introSaving, setIntroSaving] = useState(false);
 const [introSaved, setIntroSaved] = useState(false);
+const [recipients, setRecipients] = useState([]);
 
 useEffect(() => {
   supabase.from("team_members").select("id, name").eq("active", true).order("name").then(({ data }) => setAllTeamMembers(data || []));
+  supabase.from("proposal_recipients").select("*").eq("proposal_id", p.id).order("created_at").then(({ data }) => setRecipients(data || []));
 }, []);
 
 const defaultIntro = `Thank you for the opportunity to provide this proposal for ${p.call_log?.job_name || p.customer || "your project"}. We are pleased to present the following scope of work and pricing for your review.`;
@@ -1090,6 +1175,26 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                 </div>
               ))}
             </div>
+            {/* Recipients */}
+            {recipients.length > 0 && (
+              <div style={{ marginTop: 16, paddingTop: 12, borderTop: `1px solid ${C.darkBorder}` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: F.display, marginBottom: 10 }}>Recipients</div>
+                {recipients.map(r => (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
+                    <span style={{ fontSize: 14, flexShrink: 0 }}>📧</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#fff", fontFamily: F.ui }}>{r.contact_name || r.contact_email}</div>
+                      <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", fontFamily: F.ui }}>
+                        {r.role === "signer" ? <span style={{ color: C.teal }}>Signer</span> : <span>Viewer</span>}
+                        {r.sent_at && <span> · Sent {fmtD(r.sent_at.slice(0, 10))}</span>}
+                        {r.viewed_at ? <span> · Viewed {fmtD(r.viewed_at.slice(0, 10))}</span> : r.sent_at ? <span style={{ color: C.amber }}> · Not viewed</span> : null}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {p.status === "Sold" && (
               <div style={{ marginTop: 14 }}>
                 {signedPdfUrl && !p.internal_approval ? (

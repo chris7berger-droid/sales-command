@@ -2,47 +2,49 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { C, F } from "../lib/tokens";
 
+const MAX_VISIBLE = 50;
+
 /**
  * Searchable dropdown replacement for <select> with many options.
- * Uses createPortal to render the dropdown on document.body,
- * breaking out of any parent overflow clipping.
+ * Uses createPortal to render the dropdown on document.body.
  */
 export default function SearchSelect({ value, onChange, options, placeholder = "— Select —" }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
-  const triggerRef = useRef();
-  const panelRef = useRef();
-  const inputRef = useRef();
+  const triggerRef = useRef(null);
+  const panelRef = useRef(null);
+  const inputRef = useRef(null);
+  // Track open state in a ref so the mousedown handler always sees the latest panel ref
+  const panelEl = useRef(null);
 
-  // Calculate position from trigger button
   const updatePos = useCallback(() => {
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
     setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
   }, []);
 
-  // Close on outside click
+  // Close on outside click — use refs to avoid stale closure issues with portal
   useEffect(() => {
     if (!open) return;
     const handler = (e) => {
       if (triggerRef.current?.contains(e.target)) return;
-      if (panelRef.current?.contains(e.target)) return;
+      if (panelEl.current?.contains(e.target)) return;
       setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // Focus search input + calc position on open
   useEffect(() => {
     if (open) {
       updatePos();
-      setTimeout(() => inputRef.current?.focus(), 0);
+      // Small delay to let portal mount before focusing
+      const t = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
     }
   }, [open, updatePos]);
 
-  // Recalc on scroll/resize while open
   useEffect(() => {
     if (!open) return;
     window.addEventListener("scroll", updatePos, true);
@@ -53,7 +55,6 @@ export default function SearchSelect({ value, onChange, options, placeholder = "
     };
   }, [open, updatePos]);
 
-  const MAX_VISIBLE = 50;
   const allFiltered = search
     ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
     : options;
@@ -61,13 +62,17 @@ export default function SearchSelect({ value, onChange, options, placeholder = "
   const hasMore = allFiltered.length > MAX_VISIBLE;
 
   const selectedLabel = options.find(o => o.value === value)?.label;
-
-  // How tall can the dropdown be? Don't overflow below viewport.
   const maxH = open ? Math.max(200, window.innerHeight - pos.top - 16) : 400;
+
+  function handleSelect(val) {
+    onChange(val);
+    setOpen(false);
+    setSearch("");
+  }
 
   const dropdown = open && createPortal(
     <div
-      ref={panelRef}
+      ref={(el) => { panelRef.current = el; panelEl.current = el; }}
       style={{
         position: "fixed", top: pos.top, left: pos.left, width: pos.width,
         background: C.dark, borderRadius: 8, border: `1px solid ${C.darkBorder}`,
@@ -81,7 +86,8 @@ export default function SearchSelect({ value, onChange, options, placeholder = "
           ref={inputRef}
           type="text"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { e.stopPropagation(); setSearch(e.target.value); }}
+          onMouseDown={(e) => e.stopPropagation()}
           placeholder="Type to search..."
           style={{
             width: "100%", padding: "6px 10px", borderRadius: 5,
@@ -94,12 +100,7 @@ export default function SearchSelect({ value, onChange, options, placeholder = "
 
       {/* Options list */}
       <div style={{ overflowY: "auto", flex: 1 }}>
-        {/* Clear selection option */}
-        <button
-          type="button"
-          onClick={() => { onChange(""); setOpen(false); }}
-          style={optionStyle(false)}
-        >
+        <button type="button" onMouseDown={(e) => e.stopPropagation()} onClick={() => handleSelect("")} style={optionStyle(false)}>
           <span style={{ color: C.textFaint, fontStyle: "italic" }}>{placeholder}</span>
         </button>
 
@@ -113,7 +114,8 @@ export default function SearchSelect({ value, onChange, options, placeholder = "
           <button
             key={opt.value}
             type="button"
-            onClick={() => { onChange(opt.value); setOpen(false); }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => handleSelect(opt.value)}
             style={optionStyle(opt.value === value)}
           >
             {opt.label}
@@ -132,7 +134,6 @@ export default function SearchSelect({ value, onChange, options, placeholder = "
 
   return (
     <div>
-      {/* Trigger button */}
       <button
         ref={triggerRef}
         type="button"
@@ -151,7 +152,6 @@ export default function SearchSelect({ value, onChange, options, placeholder = "
         </span>
         <span style={{ color: C.textFaint, fontSize: 10, marginLeft: 8, flexShrink: 0 }}>▼</span>
       </button>
-
       {dropdown}
     </div>
   );

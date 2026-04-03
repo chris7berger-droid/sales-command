@@ -156,6 +156,37 @@ serve(async (req) => {
       });
     }
 
+    // Notification to sender (non-blocking)
+    if (senderEmail) {
+      try {
+        await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: senderEmail,
+            to: senderEmail,
+            subject: `Invoice Sent — #${invoiceId} (${customerName})`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
+                <p>Invoice <strong>#${invoiceId}</strong> has been sent to <strong>${customerName}</strong> (${customerEmail}).</p>
+                <div style="background: #f8f6f3; border: 1.5px solid #e5e0d8; border-radius: 10px; padding: 16px; margin: 16px 0;">
+                  ${jobId ? `<div style="font-size: 12px; color: #887c6e; margin-bottom: 4px;">Job #${jobId}${jobName ? ` — ${jobName}` : ""}</div>` : ""}
+                  <div style="font-size: 22px; font-weight: 800; color: #1c1814; margin-top: 8px;">$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  ${dueDate ? `<div style="font-size: 12px; color: #887c6e; margin-top: 4px;">Due ${new Date(dueDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>` : ""}
+                </div>
+                <p style="color: #887c6e; font-size: 12px;">You will receive another notification when the customer pays.</p>
+              </div>
+            `,
+          }),
+        });
+      } catch (e) {
+        console.error("Sender notification failed (non-fatal):", e.message);
+      }
+    }
+
     return new Response(JSON.stringify({ success: true, checkoutId, checkoutUrl }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,

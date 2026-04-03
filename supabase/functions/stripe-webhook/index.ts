@@ -32,7 +32,7 @@ async function verifyStripeSignature(payload: string, sigHeader: string, secret:
   return expected === signature;
 }
 
-async function sendEmail(to: string, subject: string, html: string) {
+async function sendEmail(to: string, subject: string, html: string, from?: string) {
   if (!RESEND_API_KEY || !to) return;
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -41,7 +41,7 @@ async function sendEmail(to: string, subject: string, html: string) {
         "Authorization": `Bearer ${RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ from: "estimates@hdspnv.com", to, subject, html }),
+      body: JSON.stringify({ from: from || "noreply@scmybiz.com", to, subject, html }),
     });
     console.log("Email to", to, ":", res.status);
   } catch (e) {
@@ -139,6 +139,17 @@ serve(async (req) => {
       const amountStr = `$${amountTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       const paidDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
+      // Look up rep email for from address
+      let repEmail = "";
+      if (salesName) {
+        const { data: rep } = await supabase
+          .from("team_members")
+          .select("email")
+          .eq("name", salesName)
+          .maybeSingle();
+        repEmail = rep?.email || "";
+      }
+
       // Email to customer — payment receipt
       if (customerEmail) {
         await sendEmail(
@@ -160,21 +171,15 @@ serve(async (req) => {
             </div>
             <p style="color: #887c6e; font-size: 12px;">This serves as your payment receipt. Questions? Reply to this email or call (775) 300-1900.</p>
           </div>
-          `
+          `,
+          repEmail || undefined
         );
       }
 
       // Email to sales rep — payment notification
-      if (salesName) {
-        const { data: rep } = await supabase
-          .from("team_members")
-          .select("email")
-          .eq("name", salesName)
-          .maybeSingle();
-
-        if (rep?.email) {
+      if (repEmail) {
           await sendEmail(
-            rep.email,
+            repEmail,
             `Payment Received — Invoice #${invoiceId} (${customerName})`,
             `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
@@ -187,9 +192,9 @@ serve(async (req) => {
                 <div style="font-size: 12px; color: #30cfac; font-weight: 700;">PAID — ${paidDate}</div>
               </div>
             </div>
-            `
+            `,
+            repEmail
           );
-        }
       }
     }
 

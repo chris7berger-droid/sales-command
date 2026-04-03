@@ -467,6 +467,13 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, showCents }) {
                 </div>
               </div>
 
+              {/* Description / Introduction */}
+              {invoice.description && (
+                <div style={{ fontSize: 13, color: "#4a4238", lineHeight: 1.6, marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid rgba(28,24,20,0.12)", whiteSpace: "pre-wrap" }}>
+                  {invoice.description}
+                </div>
+              )}
+
               {/* Line items table */}
               <div style={{ marginBottom: 24 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Line Items</div>

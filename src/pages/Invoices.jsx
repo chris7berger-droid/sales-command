@@ -41,7 +41,17 @@ function NewInvoiceModal({ onClose, onCreated }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [dueDate, setDueDate] = useState("");
+  const [description, setDescription] = useState("");
   const money = selProposal?.call_log?.show_cents ? fmt$c : fmt$;
+
+  // Load default invoice description
+  useEffect(() => {
+    getTenantConfig().then(cfg => {
+      if (cfg.default_invoice_description && !description) {
+        setDescription(cfg.default_invoice_description);
+      }
+    });
+  }, []);
 
   // Step 1: load Sold proposals
   useEffect(() => {
@@ -141,6 +151,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
         discount: 0,
         proposal_id: selProposal.id,
         due_date: dueDate || null,
+        description: description.trim() || null,
       }])
       .select()
       .single();
@@ -286,6 +297,18 @@ function NewInvoiceModal({ onClose, onCreated }) {
             <div style={{ marginTop: 12 }}>
               <div style={labelStyle}>Due Date *</div>
               <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, width: 200, cursor: "pointer" }} />
+            </div>
+
+            {/* Description / Introduction */}
+            <div style={{ marginTop: 12 }}>
+              <div style={labelStyle}>Invoice Description</div>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                rows={3}
+                placeholder="Add a message to appear on the invoice..."
+                style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+              />
             </div>
 
             {/* Total + Create */}

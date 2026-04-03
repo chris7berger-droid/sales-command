@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
 import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcWtcBreakdown } from "../lib/calc";
 import { PROP_C } from "../lib/mockData";
+import { getTenantConfig } from "../lib/config";
 import WTCCalculator from "../pages/WTCCalculator";
 import Btn from "./Btn";
 import Pill from "./Pill";
@@ -31,6 +32,7 @@ const [approveBy, setApproveBy] = useState(teamMember?.name || "");
 const [approveReason, setApproveReason] = useState("");
 const [allTeamMembers, setAllTeamMembers] = useState([]);
 const [intro, setIntro] = useState(pInit.intro || "");
+const [introLoaded, setIntroLoaded] = useState(!!pInit.intro);
 const [introSaving, setIntroSaving] = useState(false);
 const [introSaved, setIntroSaved] = useState(false);
 const [recipients, setRecipients] = useState([]);
@@ -40,7 +42,19 @@ useEffect(() => {
   supabase.from("proposal_recipients").select("*").eq("proposal_id", p.id).order("created_at").then(({ data }) => setRecipients(data || []));
 }, []);
 
-const defaultIntro = `Thank you for the opportunity to provide this proposal for ${p.call_log?.job_name || p.customer || "your project"}. We are pleased to present the following scope of work and pricing for your review.`;
+const [defaultIntro, setDefaultIntro] = useState(`Thank you for the opportunity to provide this proposal for ${p.call_log?.job_name || p.customer || "your project"}. We are pleased to present the following scope of work and pricing for your review.`);
+
+useEffect(() => {
+  getTenantConfig().then(cfg => {
+    if (cfg.default_proposal_intro) {
+      const tmpl = cfg.default_proposal_intro.replace("{job_name}", p.call_log?.job_name || p.customer || "your project");
+      setDefaultIntro(tmpl);
+      if (!introLoaded && !intro) {
+        setIntro(tmpl);
+      }
+    }
+  });
+}, []);
 
 async function saveIntro() {
   setIntroSaving(true);

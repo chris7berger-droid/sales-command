@@ -91,7 +91,15 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [nextJobNum, setNextJobNum] = useState(null);
   const fileRef = useRef();
+
+  useEffect(() => {
+    supabase.from("call_log").select("job_number").order("job_number", { ascending: false }).limit(1)
+      .then(({ data: last }) => {
+        setNextJobNum(last && last.length > 0 ? (last[0].job_number || 9999) + 1 : 10000);
+      });
+  }, []);
 
   const [data, setData] = useState({
     jobType: null,
@@ -140,7 +148,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     return data.businessName.trim();
   };
 
-  const previewNum = data.jobType === "override" && data.manualJobNum ? data.manualJobNum : "####";
+  const previewNum = data.jobType === "override" && data.manualJobNum ? data.manualJobNum : (nextJobNum || "####");
   const previewCO = data.jobType === "co" && data.parentJobId ? " CO#" : "";
   const previewName = data.projectName || custName() || "Customer";
   const previewDisplay = `${previewNum}${previewCO} - ${previewName}`;

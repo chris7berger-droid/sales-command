@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
-import { fmt$, fmtD } from "../lib/utils";
+import { fmt$, fmt$c, fmtD } from "../lib/utils";
 import { calcWtcPrice } from "../lib/calc";
 import { INV_C, PROP_C } from "../lib/mockData";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
@@ -41,13 +41,14 @@ function NewInvoiceModal({ onClose, onCreated }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [dueDate, setDueDate] = useState("");
+  const money = selProposal?.call_log?.show_cents ? fmt$c : fmt$;
 
   // Step 1: load Sold proposals
   useEffect(() => {
     async function loadProposals() {
       const { data } = await supabase
         .from("proposals")
-        .select("id, customer, total, proposal_number, call_log_id, call_log(display_job_number, customer_name, job_name)")
+        .select("id, customer, total, proposal_number, call_log_id, call_log(display_job_number, customer_name, job_name, show_cents)")
         .eq("status", "Sold")
         .order("created_at", { ascending: false });
       setProposals(data || []);
@@ -211,7 +212,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
                     </div>
                     <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>{p.call_log?.customer_name || p.customer}</div>
                   </div>
-                  <span style={{ fontWeight: 800, fontFamily: F.display, color: C.textHead }}>{fmt$(p.total)}</span>
+                  <span style={{ fontWeight: 800, fontFamily: F.display, color: C.textHead }}>{(p.call_log?.show_cents ? fmt$c : fmt$)(p.total)}</span>
                 </div>
               ))}
             </div>
@@ -239,7 +240,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                       <div>
                         <div style={{ fontWeight: 800, fontSize: 14, color: C.textHead, fontFamily: F.display }}>{w.work_types?.name || `WTC ${w.id}`}</div>
-                        <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>Total: {fmt$(total)}</div>
+                        <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>Total: {money(total)}</div>
                       </div>
                       <div style={{ textAlign: "right" }}>
                         <div style={{ fontSize: 11, fontFamily: F.ui, color: billed > 0 ? C.amber : C.textFaint }}>
@@ -272,7 +273,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
                           Bill Remaining
                         </button>
                         {pctVal > 0 && (
-                          <div style={{ fontSize: 14, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>= {fmt$(lineAmt)}</div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>= {money(lineAmt)}</div>
                         )}
                       </div>
                     </div>
@@ -291,7 +292,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
               <div>
                 <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.display, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Invoice Total</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{fmt$(invoiceTotal)}</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(invoiceTotal)}</div>
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 {error && <div style={{ color: C.red, fontSize: 12, fontFamily: F.ui, maxWidth: 200 }}>{error}</div>}
@@ -308,7 +309,8 @@ function NewInvoiceModal({ onClose, onCreated }) {
 }
 
 // ── Invoice PDF Modal ─────────────────────────────────────────────────────
-function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
+function InvoicePDFModal({ invoice, lines, onClose, onSent, showCents }) {
+  const money = showCents ? fmt$c : fmt$;
   const [view, setView] = useState("preview");
   const [sending, setSending] = useState(false);
   const [sendDone, setSendDone] = useState(false);
@@ -402,7 +404,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
             </div>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Invoice Preview</div>
-              <div style={{ fontSize: 11, color: "#6B7280" }}>#{invoice.id} · {fmt$(netTotal)}</div>
+              <div style={{ fontSize: 11, color: "#6B7280" }}>#{invoice.id} · {money(netTotal)}</div>
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -483,9 +485,9 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
                       return (
                         <tr key={l.id} style={{ borderBottom: "1px solid rgba(28,24,20,0.1)" }}>
                           <td style={{ padding: "10px 12px", fontWeight: 600 }}>{wtc?.work_types?.name || "—"}</td>
-                          <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt$(wtcTotal)}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(wtcTotal)}</td>
                           <td style={{ padding: "10px 12px", textAlign: "right" }}>{l.billing_pct}%</td>
-                          <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{fmt$(l.amount)}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{money(l.amount)}</td>
                         </tr>
                       );
                     })}
@@ -498,7 +500,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
                   <div style={{ display: "flex", gap: 40, fontSize: 13 }}>
                     <span style={{ color: "#887c6e", fontWeight: 600 }}>Subtotal</span>
-                    <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt$(invoice.amount)}</span>
+                    <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(invoice.amount)}</span>
                   </div>
                 </div>
               )}
@@ -506,13 +508,13 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
                   <div style={{ display: "flex", gap: 40, fontSize: 13 }}>
                     <span style={{ color: "#e53935", fontWeight: 600 }}>Discount</span>
-                    <span style={{ fontWeight: 700, color: "#e53935", fontVariantNumeric: "tabular-nums" }}>-{fmt$(invoice.discount)}</span>
+                    <span style={{ fontWeight: 700, color: "#e53935", fontVariantNumeric: "tabular-nums" }}>-{money(invoice.discount)}</span>
                   </div>
                 </div>
               )}
               <div style={{ border: "2px solid #30cfac", borderRadius: 8, padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#4a4238", letterSpacing: "0.08em", textTransform: "uppercase" }}>Amount Due</div>
-                <div style={{ fontSize: 26, fontWeight: 800, color: "#1c1814", letterSpacing: "-0.01em" }}>{fmt$(netTotal)}</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: "#1c1814", letterSpacing: "-0.01em" }}>{money(netTotal)}</div>
               </div>
 
               {/* Payment status */}
@@ -554,7 +556,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
                   </div>
                   <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Amount</div>
-                    <div style={{ fontWeight: 700, color: "#111827", fontSize: 18 }}>{fmt$(netTotal)}</div>
+                    <div style={{ fontWeight: 700, color: "#111827", fontSize: 18 }}>{money(netTotal)}</div>
                   </div>
                   {sendError && <div style={{ fontSize: 12, color: "#e53935", marginBottom: 12, background: "rgba(229,57,53,0.06)", border: "1px solid rgba(229,57,53,0.2)", borderRadius: 8, padding: "10px 14px" }}>{sendError}</div>}
                   <button onClick={handleSend} disabled={sending} style={{ width: "100%", background: sending ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: sending ? "default" : "pointer", fontFamily: "inherit" }}>
@@ -582,6 +584,8 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
 
 // ── Invoice Detail ────────────────────────────────────────────────────────
 function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
+  const showCents = invoice.proposals?.call_log?.show_cents;
+  const money = showCents ? fmt$c : fmt$;
   const [inv, setInv] = useState(invoice);
   const [lines, setLines] = useState([]);
   const [wtcMap, setWtcMap] = useState({});
@@ -804,9 +808,9 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
             </div>
           )}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 24 }}>
-            <StatCard label="Invoice Amount" value={fmt$(inv.amount)} accent={C.teal} />
-            <StatCard label="Discount" value={inv.discount > 0 ? fmt$(inv.discount) : "—"} accent={C.amber} />
-            <StatCard label="Net Total" value={fmt$((inv.amount || 0) - (inv.discount || 0))} accent={C.green} />
+            <StatCard label="Invoice Amount" value={money(inv.amount)} accent={C.teal} />
+            <StatCard label="Discount" value={inv.discount > 0 ? money(inv.discount) : "—"} accent={C.amber} />
+            <StatCard label="Net Total" value={money((inv.amount || 0) - (inv.discount || 0))} accent={C.green} />
           </div>
         </>
       )}
@@ -837,7 +841,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
                   return (
                     <tr key={l.id} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? C.linenLight : C.linen }}>
                       <td style={{ padding: "12px 15px", fontWeight: 700, color: C.textHead }}>{wtc?.work_types?.name || "—"}</td>
-                      <td style={{ padding: "12px 15px", fontVariantNumeric: "tabular-nums" }}>{fmt$(wtcTotal)}</td>
+                      <td style={{ padding: "12px 15px", fontVariantNumeric: "tabular-nums" }}>{money(wtcTotal)}</td>
                       <td style={{ padding: "12px 15px" }}>
                         {editing ? (
                           <input type="number" min="0" max="100" step="1" value={editPcts[l.id] || ""} onChange={e => setEditPcts(prev => ({ ...prev, [l.id]: e.target.value }))} style={{ ...inputStyle, width: 70, padding: "4px 8px", fontSize: 12, textAlign: "right" }} />
@@ -845,7 +849,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
                           <span style={{ background: C.dark, color: C.teal, padding: "2px 8px", borderRadius: 6, fontWeight: 800, fontSize: 12 }}>{l.billing_pct}%</span>
                         )}
                       </td>
-                      <td style={{ padding: "12px 15px", fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{editing ? fmt$(editAmt) : fmt$(l.amount)}</td>
+                      <td style={{ padding: "12px 15px", fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{editing ? money(editAmt) : money(l.amount)}</td>
                     </tr>
                   );
                 })}
@@ -888,6 +892,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
         <InvoicePDFModal
           invoice={inv}
           lines={lines}
+          showCents={showCents}
           onClose={() => setShowPaidPDF(false)}
         />
       )}
@@ -896,6 +901,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
         <InvoicePDFModal
           invoice={inv}
           lines={lines}
+          showCents={showCents}
           onClose={() => setShowPDF(false)}
           onSent={async () => {
             const updates = { status: "Sent", sent_at: new Date().toISOString() };
@@ -923,7 +929,7 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
   const [filters, setFilters] = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
 
   const load = async () => {
-    const { data } = await supabase.from("invoices").select("*, proposals(call_log(sales_name, customer_name, display_job_number))").order("sent_at", { ascending: false });
+    const { data } = await supabase.from("invoices").select("*, proposals(call_log(sales_name, customer_name, display_job_number, show_cents))").order("sent_at", { ascending: false });
     setInvoices(data || []);
     setLoading(false);
     return data;

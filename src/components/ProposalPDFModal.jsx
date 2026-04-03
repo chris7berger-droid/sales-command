@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
-import { fmt$ } from "../lib/utils";
+import { fmt$, fmt$c } from "../lib/utils";
 import { calcLabor, calcMaterialRow, calcTravel } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 
 function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
+  const money = proposal.call_log?.show_cents ? fmt$c : fmt$;
   const [wtcs, setWtcs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("preview");
@@ -223,7 +224,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
             </div>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Proposal Preview</div>
-              <div style={{ fontSize: 11, color: "#6B7280" }}>{wtcs.length} Work Type{wtcs.length !== 1 ? "s" : ""} · {fmt$(proposalPrice)}</div>
+              <div style={{ fontSize: 11, color: "#6B7280" }}>{wtcs.length} Work Type{wtcs.length !== 1 ? "s" : ""} · {money(proposalPrice)}</div>
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -338,7 +339,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
                         {arr.length > 1 && (
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, padding: "8px 18px", background: "rgba(48,207,172,0.08)", borderRadius: 6, border: "1px solid rgba(48,207,172,0.25)" }}>
                             <div style={{ fontSize: 11, fontWeight: 700, color: "#4a4238", letterSpacing: "0.06em", textTransform: "uppercase" }}>Work Type {i + 1}{wtc.work_types?.name ? ` — ${wtc.work_types.name}` : ""} Total</div>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: "#1c1814" }}>{fmt$(wtcTotal)}</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: "#1c1814" }}>{money(wtcTotal)}</div>
                           </div>
                         )}
                       </div>
@@ -350,7 +351,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
               {/* Proposal Total */}
               <div style={{ border: "2px solid #30cfac", borderRadius: 8, padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#4a4238", letterSpacing: "0.08em", textTransform: "uppercase" }}>Proposal Total</div>
-                <div style={{ fontSize: 26, fontWeight: 800, color: "#1c1814", letterSpacing: "-0.01em" }}>{fmt$(proposalPrice)}</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: "#1c1814", letterSpacing: "-0.01em" }}>{money(proposalPrice)}</div>
               </div>
 
               {/* Signature / Approval block */}

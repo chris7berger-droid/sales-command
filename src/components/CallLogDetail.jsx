@@ -80,6 +80,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     billing_name:     cust.billing_name    || "",
     billing_phone:    cust.billing_phone   || "",
     billing_email:    cust.billing_email   || "",
+    show_cents:       job.show_cents       || false,
   });
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -210,6 +211,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         jobsite_city:       form.jobsite_city    || null,
         jobsite_state:      form.jobsite_state   || null,
         jobsite_zip:        form.jobsite_zip     || null,
+        show_cents:         form.show_cents,
       })
       .eq("id", job.id);
     setSaving(false);
@@ -323,6 +325,14 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           <Field label="Follow-Up Date">
             <input type="date" value={form.follow_up} onChange={e => set("follow_up", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...iStyle, cursor: "pointer" }} />
           </Field>
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <button onClick={() => editing && set("show_cents", !form.show_cents)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: editing ? "pointer" : "default", padding: "4px 0", opacity: editing ? 1 : 0.75 }}>
+            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${form.show_cents ? C.teal : C.borderStrong}`, background: form.show_cents ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {form.show_cents && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
+            </div>
+            <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Show cents on proposals & invoices (legacy jobs)</span>
+          </button>
         </div>
       </Section>
 

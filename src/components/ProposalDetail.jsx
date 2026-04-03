@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
-import { fmt$, fmtD } from "../lib/utils";
+import { fmt$, fmt$c, fmtD } from "../lib/utils";
 import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcWtcBreakdown } from "../lib/calc";
 import { PROP_C } from "../lib/mockData";
 import WTCCalculator from "../pages/WTCCalculator";
@@ -11,6 +11,7 @@ import ProposalPDFModal from "./ProposalPDFModal";
 
 function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember }) {
   const [p, setP] = useState(pInit);
+  const money = p.call_log?.show_cents ? fmt$c : fmt$;
   const [showWTC, setShowWTC] = useState(false);
 const [activeWtcId, setActiveWtcId] = useState(null);
 const [showPDF, setShowPDF] = useState(false);
@@ -55,7 +56,7 @@ useEffect(() => {
   const interval = setInterval(async () => {
     const { data } = await supabase
       .from("proposals")
-      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))")
+      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(contact_email, business_address, business_city, business_state, business_zip))")
       .eq("id", p.id)
       .single();
     if (data && data.status !== p.status) setP(data);
@@ -258,7 +259,7 @@ async function deletePropAttachment(fullName) {
       await supabase.from("call_log").update({ stage: "Wants Bid" }).eq("id", p.call_log_id);
     }
     // Refresh
-    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
+    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);
     const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true });
     setWtcs(wtcData || []);
@@ -283,13 +284,13 @@ async function deletePropAttachment(fullName) {
         .catch(e => console.warn("QB sync failed:", e.message));
     }
     // Refresh
-    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
+    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);
     setShowApproveModal(false);
     setApproveReason("");
   }
 
-if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} />;
+if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -353,7 +354,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                       <div style={{ fontWeight: 800, fontSize: 15, color: C.textHead, fontFamily: F.display }}>
                         {wtcLabel}{typeName ? ` — ${typeName}` : ""}
                       </div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginTop: 4 }}>{fmt$(price)}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginTop: 4 }}>{money(price)}</div>
                       {wtc.start_date && wtc.end_date && (
                         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontFamily: F.ui }}>
                           <span style={{ color: C.textFaint }}>Start</span> {fmtD(wtc.start_date)} — <span style={{ color: C.textFaint }}>End</span> {fmtD(wtc.end_date)}
@@ -541,18 +542,18 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                   {breakdowns.map((b, i) => (
                     <div key={`wtc-s-${i}`} style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 62px 72px", gap: "0 10px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
                       <span style={lbl}>WTC {i + 1} — {b.name}</span>
-                      <span style={cell}>{fmt$(b.price)}</span>
-                      <span style={cell}>{fmt$(b.cost)}</span>
+                      <span style={cell}>{money(b.price)}</span>
+                      <span style={cell}>{money(b.cost)}</span>
                       <span style={{ ...cell, color: b.margin >= 30 ? C.green : b.margin >= 15 ? C.amber : C.red }}>{b.margin.toFixed(1)}%</span>
-                      <span style={{ ...cell, color: b.profit >= 0 ? C.green : C.red }}>{fmt$(b.profit)}</span>
+                      <span style={{ ...cell, color: b.profit >= 0 ? C.green : C.red }}>{money(b.profit)}</span>
                     </div>
                   ))}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 62px 72px", gap: "0 10px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
                     <span style={{ ...lbl, fontWeight: 700, color: "rgba(255,255,255,0.6)" }}>Total</span>
-                    <span style={{ ...cell, fontWeight: 800 }}>{fmt$(totals.price)}</span>
-                    <span style={{ ...cell, fontWeight: 800 }}>{fmt$(totals.cost)}</span>
+                    <span style={{ ...cell, fontWeight: 800 }}>{money(totals.price)}</span>
+                    <span style={{ ...cell, fontWeight: 800 }}>{money(totals.cost)}</span>
                     <span style={{ ...cell, fontWeight: 800, color: totals.margin >= 30 ? C.green : totals.margin >= 15 ? C.amber : C.red }}>{totals.margin.toFixed(1)}%</span>
-                    <span style={{ ...cell, fontWeight: 800, color: totals.profit >= 0 ? C.green : C.red }}>{fmt$(totals.profit)}</span>
+                    <span style={{ ...cell, fontWeight: 800, color: totals.profit >= 0 ? C.green : C.red }}>{money(totals.profit)}</span>
                   </div>
                 </>
               );

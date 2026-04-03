@@ -40,7 +40,7 @@ export default function PublicSigningPage() {
 
       const { data: prop, error: propErr } = await supabase
         .from("proposals")
-        .select("*, call_log_id, call_log(job_name, display_job_number, customer_name, sales_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, customers(business_address, business_city, business_state, business_zip, contact_email))")
+        .select("*, call_log_id, call_log(job_name, display_job_number, customer_name, sales_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, customers(business_address, business_city, business_state, business_zip, contact_email))")
         .eq("signing_token", token)
         .single();
 
@@ -314,7 +314,8 @@ export default function PublicSigningPage() {
 
   const jobName = proposal.call_log?.job_name || proposal.call_log?.display_job_number || "Proposal";
   const customerName = proposal.call_log?.customer_name || "";
-  const fmt = n => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  const cents = proposal.call_log?.show_cents;
+  const fmt = n => n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
 
   const total = (wtc || []).reduce((sum, w) => sum + calcWtcPrice(w), 0);
 

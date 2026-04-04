@@ -14,6 +14,7 @@
 - **Orphaned invoice_lines** — deleted stale invoice 10000 + lines that showed 100% billed
 - **`stripe_checkout_id` not saved** — payment webhook couldn't match invoices; now saved on send
 - **Proposal signing page blank for customers** — `proposals` table was missing anon RLS policies; customers (unauthenticated) couldn't read proposal data. Added anon SELECT + UPDATE policies on `proposals` and anon UPDATE on `call_log`
+- **`STAGES is not defined` crash in New Inquiry wizard** — when NewInquiryWizard.jsx was extracted from CallLog.jsx in the v52 refactor, the `STAGES` import was not carried over. Added `import { STAGES } from "../lib/mockData"` to fix
 
 ### Features Added
 - **Editable Job Number** in CallLogDetail (Job Info section)

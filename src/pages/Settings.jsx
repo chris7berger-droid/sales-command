@@ -68,7 +68,185 @@ function QBIntegrationCard() {
   );
 }
 
-export default function Settings() {
+const APP_LABELS = { sales: "Sales Command", schedule: "Schedule Command" };
+const DEPLOYED_APPS = ["sales", "schedule"];
+const PRICE_PER_APP = 699;
+const BUNDLE_DISCOUNT = 0.107;
+
+function BillingSection() {
+  const [status, setStatus] = useState(null); // null=loading
+  const [loading, setLoading] = useState(true);
+  const [selectedApps, setSelectedApps] = useState(["sales"]);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke("create-billing-session", {
+          body: { action: "status" },
+        });
+        if (error) throw error;
+        setStatus(data);
+        if (data?.subscribed_apps?.length) setSelectedApps(data.subscribed_apps);
+      } catch (e) {
+        console.error("Failed to load billing status:", e);
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  const hasSubscription = status?.subscription_status === "active" || status?.subscription_status === "past_due";
+
+  const toggleApp = (app) => {
+    setSelectedApps(prev =>
+      prev.includes(app) ? prev.filter(a => a !== app) : [...prev, app]
+    );
+  };
+
+  const subtotal = selectedApps.length * PRICE_PER_APP;
+  const discountAmt = selectedApps.length >= 2 ? subtotal * BUNDLE_DISCOUNT : 0;
+  const total = subtotal - discountAmt;
+
+  const handleCheckout = async () => {
+    if (!selectedApps.length) return;
+    setActionLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("create-billing-session", {
+        body: { action: "checkout", apps: selectedApps },
+      });
+      if (error) throw error;
+      if (data?.url) window.location.href = data.url;
+    } catch (e) {
+      alert("Failed to start checkout: " + e.message);
+    }
+    setActionLoading(false);
+  };
+
+  const handlePortal = async () => {
+    setActionLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("create-billing-session", {
+        body: { action: "portal" },
+      });
+      if (error) throw error;
+      if (data?.url) window.location.href = data.url;
+    } catch (e) {
+      alert("Failed to open billing portal: " + e.message);
+    }
+    setActionLoading(false);
+  };
+
+  if (loading) return <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui, padding: "12px 0" }}>Loading billing...</div>;
+
+  const statusColor = status?.subscription_status === "active" ? C.green : status?.subscription_status === "past_due" ? C.orange : C.red;
+  const statusLabel = status?.subscription_status === "active" ? "Active" : status?.subscription_status === "past_due" ? "Past Due" : status?.subscription_status === "canceled" ? "Canceled" : "No Subscription";
+
+  return (
+    <div style={{ background: C.linenCard, borderRadius: 12, border: `1px solid ${C.borderStrong}`, padding: "24px 28px" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div style={{ fontFamily: F.display, fontSize: 14, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: C.textHead }}>
+          Subscription Plan
+        </div>
+        {hasSubscription && (
+          <span style={{
+            fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
+            color: statusColor, background: C.dark, borderRadius: 4, padding: "3px 10px", fontFamily: F.ui,
+          }}>
+            {statusLabel}
+          </span>
+        )}
+      </div>
+
+      {/* App list */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+        {DEPLOYED_APPS.map(app => {
+          const isSubscribed = hasSubscription && status?.subscribed_apps?.includes(app);
+          const isSelected = selectedApps.includes(app);
+
+          return (
+            <div key={app} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "14px 18px", borderRadius: 10,
+              background: isSubscribed ? "rgba(48,207,172,0.06)" : C.linenDeep,
+              border: `1px solid ${isSubscribed ? C.tealBorder : C.borderStrong}`,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {!hasSubscription && (
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleApp(app)}
+                    style={{ width: 16, height: 16, accentColor: C.teal }}
+                  />
+                )}
+                <div>
+                  <div style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: C.textHead }}>
+                    {APP_LABELS[app]}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontFamily: F.ui, fontSize: 14, fontWeight: 700, color: C.textBody }}>$699/mo</span>
+                {isSubscribed && (
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
+                    color: C.teal, background: C.dark, borderRadius: 4, padding: "2px 8px", fontFamily: F.ui,
+                  }}>
+                    Subscribed
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Pricing summary */}
+      <div style={{
+        borderTop: `1px solid ${C.borderStrong}`, paddingTop: 16, marginBottom: 20,
+        display: "flex", flexDirection: "column", gap: 6,
+      }}>
+        {selectedApps.length > 0 && (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: F.ui, fontSize: 13, color: C.textMuted }}>
+              <span>Subtotal ({selectedApps.length} app{selectedApps.length > 1 ? "s" : ""})</span>
+              <span>${subtotal.toLocaleString("en-US", { minimumFractionDigits: 2 })}/mo</span>
+            </div>
+            {discountAmt > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontFamily: F.ui, fontSize: 13, color: C.green }}>
+                <span>Bundle Discount (10.7%)</span>
+                <span>-${discountAmt.toLocaleString("en-US", { minimumFractionDigits: 2 })}/mo</span>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: F.display, fontSize: 16, fontWeight: 800, color: C.textHead, marginTop: 4 }}>
+              <span>Monthly Total</span>
+              <span>${total.toLocaleString("en-US", { minimumFractionDigits: 2 })}/mo</span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Actions */}
+      {hasSubscription ? (
+        <Btn sz="sm" onClick={handlePortal} disabled={actionLoading}>
+          {actionLoading ? "Opening..." : "Manage Subscription"}
+        </Btn>
+      ) : (
+        <Btn sz="sm" onClick={handleCheckout} disabled={actionLoading || !selectedApps.length}>
+          {actionLoading ? "Loading..." : "Subscribe"}
+        </Btn>
+      )}
+
+      {/* Billing entity */}
+      <div style={{ marginTop: 16, fontFamily: F.ui, fontSize: 11, color: C.textFaint }}>
+        Billed by Sub Con Command LLC
+      </div>
+    </div>
+  );
+}
+
+export default function Settings({ userRole }) {
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -195,6 +373,14 @@ export default function Settings() {
           <input style={inputStyle} type="number" value={form.proposals_sent_goal} onChange={e => set("proposals_sent_goal", e.target.value)} />
         </Field>
       </div>
+
+      {/* ─── Billing (Admin only) ─── */}
+      {userRole === "Admin" && (
+        <>
+          <div style={sectionStyle}>Billing</div>
+          <BillingSection />
+        </>
+      )}
 
       {/* ─── Integrations ─── */}
       <div style={sectionStyle}>Integrations</div>

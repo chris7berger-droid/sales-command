@@ -195,7 +195,7 @@ function SalesCommandApp() {
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
       case "customers": return <Customers setActive={setActive} setInitialProposal={setInitialProposal} setInitialInvoiceId={setInitialInvoiceId} initialCustomerId={initialCustomerId} onClearInitialCustomer={() => setInitialCustomerId(null)} setSubPage={setSubPage} />;
       case "team":      return <Team teamMember={teamMember} />;
-      case "settings":  return <Settings />;
+      case "settings":  return <Settings userRole={displayRole} />;
       case "wtc":       return <Placeholder label="WTC" />;
       default:          return <Placeholder label={NAV.find(n => n.id === active)?.label || active} />;
     }

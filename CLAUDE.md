@@ -93,6 +93,17 @@ proposals: ... intro (text) — introduction text shown above SOW
 customers: ... qb_customer_id (text) — QB parent customer ID
 call_log: ... qb_customer_id (text) — QB sub-customer (job) ID
 
+tenant_config: id (uuid), company_name, tagline, logo_url, license_number,
+  phone, email, website, address, city, state, zip,
+  default_burden_rate (numeric), default_ot_burden_rate (numeric),
+  default_tax_rate (numeric), default_billing_terms (int, default 30),
+  proposal_validity_days (int, default 90), default_proposal_intro (text),
+  default_invoice_description (text), monthly_billing_goal (numeric),
+  yearly_billing_goal (numeric), conversion_rate_goal (numeric),
+  proposals_sent_goal (int), apps (text[]),
+  stripe_customer_id (text), stripe_subscription_id (text),
+  subscription_status (text), subscription_started_at (timestamptz)
+
 qb_connection: id (uuid), realm_id (text), access_token (text),
   refresh_token (text), token_expires_at (timestamptz),
   created_at (timestamptz), updated_at (timestamptz)

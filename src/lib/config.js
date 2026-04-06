@@ -9,6 +9,8 @@ const DEFAULTS = {
   default_invoice_description: "Thank you for your business. Please find the details of this invoice below. Payment is due by the date listed above.",
   monthly_billing_goal: 450000, yearly_billing_goal: 5400000,
   conversion_rate_goal: 50, proposals_sent_goal: 30,
+  stripe_customer_id: null, stripe_subscription_id: null,
+  subscription_status: null, subscription_started_at: null,
 };
 
 let _cache = null;

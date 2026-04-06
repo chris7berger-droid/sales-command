@@ -1,0 +1,62 @@
+SC_Handoff_v56 — April 6, 2026
+Session: WTC sticky header fix (resolved)
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. FIX: WTC sticky header / double scrollbar / content bleed (RESOLVED)
+   - Bug: WTC page had two scrollbars, header scrolled off screen cutting off
+     buttons, and content bled out of containers
+   - Root cause: WTC used margin: "-28px -32px 0" to escape parent padding
+     and height: "calc(100vh - 50px)" which created a second scroll container
+     inside the already-scrollable data-app-content div
+   - Fix: Added useEffect that sets padding: 0 and overflow: hidden on the
+     parent data-app-content div when WTC mounts, restores on unmount.
+     Removed negative margins and changed height to 100% so WTC fills the
+     parent naturally with a single scroll container.
+   - Result: One scrollbar, fixed header/tabs, no content bleeding
+   - This bug persisted through multiple failed attempts in v55 (zIndex,
+     isolation, flex layout). The clean fix was removing the hack (negative
+     margins) and instead telling the parent to yield its padding.
+
+===============================================================================
+DATABASE CHANGES
+===============================================================================
+
+None this session.
+
+===============================================================================
+EDGE FUNCTIONS DEPLOYED
+===============================================================================
+
+None this session.
+
+===============================================================================
+FILES CHANGED
+===============================================================================
+
+src/pages/WTCCalculator.jsx:
+  - Added useEffect to zero out data-app-content padding/overflow on mount,
+    restore on unmount (~line 1564)
+  - Root div: removed margin: "-28px -32px 0", changed
+    height: "calc(100vh - 50px)" to height: "100%" (~line 1875)
+
+===============================================================================
+KNOWN ISSUES / NEXT UP
+===============================================================================
+
+- Data Import Tool sessions 2-5 (column mapper, review/validation, import
+  logs, HDSP live migration)
+- Invoices.jsx extraction (~1,100 lines -> InvoiceDetail, NewInvoiceModal,
+  InvoicePDFModal)
+- WTCCalculator.jsx extraction (~2,100 lines -> field SOW)
+- Settings page expansion (invoice numbering, company info, per-tenant config)
+
+===============================================================================
+PRODUCTION
+===============================================================================
+
+URL: https://www.scmybiz.com
+Vercel: auto-deploys on push to main
+All changes pushed and deployed (commit 42518b8).

@@ -1565,12 +1565,12 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     const content = document.querySelector("[data-app-content]");
     if (content) {
       content.style.padding = "0";
-      content.style.overflow = "hidden";
+      content.style.overflowY = "hidden";
     }
     return () => {
       if (content) {
         content.style.padding = "28px 32px";
-        content.style.overflow = "";
+        content.style.overflowY = "auto";
       }
     };
   }, []);

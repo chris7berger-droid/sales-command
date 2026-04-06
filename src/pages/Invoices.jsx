@@ -723,6 +723,12 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
   async function handleDelete() {
     if (!confirm(`Delete Invoice #${inv.id}? This cannot be undone.`)) return;
     if (!confirm(`Are you absolutely sure? This will permanently delete Invoice #${inv.id} and all its line items.`)) return;
+    // Void in QuickBooks if synced (non-blocking)
+    if (inv.qb_invoice_id) {
+      supabase.functions.invoke("qb-void-invoice", { body: { invoiceId: inv.id } })
+        .then(r => { if (r.data?.error) console.warn("QB void:", r.data.error); else console.log("QB invoice voided:", r.data); })
+        .catch(e => console.warn("QB void failed:", e.message));
+    }
     // Delete line items first (FK children)
     await supabase.from("invoice_lines").delete().eq("invoice_id", inv.id);
     const { error } = await supabase.from("invoices").delete().eq("id", inv.id);
@@ -786,12 +792,20 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
 
   async function handlePullBack() {
     if (!confirm("Pull back this invoice? It will reset to New and invalidate any payment link.")) return;
+    // Void in QuickBooks if synced (non-blocking)
+    if (inv.qb_invoice_id) {
+      supabase.functions.invoke("qb-void-invoice", { body: { invoiceId: inv.id } })
+        .then(r => { if (r.data?.error) console.warn("QB void:", r.data.error); else console.log("QB invoice voided:", r.data); })
+        .catch(e => console.warn("QB void failed:", e.message));
+    }
     const updates = {
       status: "New",
       sent_at: null,
       stripe_checkout_id: null,
+      stripe_checkout_url: null,
       stripe_payment_id: null,
       paid_at: null,
+      qb_invoice_id: null,
     };
     const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
     if (error) { alert(error.message); return; }

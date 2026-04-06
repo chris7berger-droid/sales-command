@@ -410,8 +410,11 @@ export default function Settings({ userRole }) {
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
         <QBIntegrationCard />
         <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, padding: "16px 20px", flex: 1, minWidth: 200 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textFaint, fontFamily: F.ui, marginBottom: 6 }}>Stripe</div>
-          <div style={{ fontSize: 13, fontFamily: F.ui, color: C.textMuted }}>Coming soon</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textFaint, fontFamily: F.ui }}>Stripe</div>
+            <span style={{ fontSize: 10, fontWeight: 700, color: C.green, background: C.dark, borderRadius: 4, padding: "2px 8px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Connected</span>
+          </div>
+          <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textMuted }}>Customers can pay invoices online via Stripe.</div>
         </div>
       </div>
 

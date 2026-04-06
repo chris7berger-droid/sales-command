@@ -1,107 +1,141 @@
 SC_Handoff_v55 — April 6, 2026
-Session: WTC profit margin fix, PW sync logic, sticky header (UNRESOLVED), WTC numbering
+Session: SCC billing subscription, TOS, Stripe live setup, scroll fix
 
 ===============================================================================
 WHAT WAS DONE
 ===============================================================================
 
-1. FIX: WTC profit margin / cost calculation (VERIFIED WORKING)
-   - Bug: Summary, SummaryTab, and print layout used material BILLED amount
-     (with markup) for totalCost instead of material COST (without markup)
-   - This made profit look smaller and margin lower than reality
-   - Fix: All three locations now compute matsCost (price*qty + tax + freight)
-     separately from matTotal (which includes markup), matching calcWtcBreakdown
-     in src/lib/calc.js
-   - Also added Math.ceil to SummaryTab proposalPrice (was missing, Summary had it)
-   - Numbers now match between Summary bar, SummaryTab, and calcWtcBreakdown
+1. FEAT: SCC Billing Subscription System
+   - Sub Con Command LLC can now charge tenants for Command Suite subscriptions
+   - Stripe Products: Sales Command ($699/mo), Schedule Command ($699/mo)
+   - Bundle discount: 10.7% when subscribing to 2+ apps (Stripe Coupon)
+   - create-billing-session edge function handles:
+     - checkout: creates Stripe Checkout session for new subscription
+     - portal: opens Stripe Customer Portal for managing subscription
+     - status: returns current subscription state for billing UI
+   - scc-stripe-webhook edge function handles subscription lifecycle:
+     - checkout.session.completed (subscription mode)
+     - customer.subscription.updated
+     - customer.subscription.deleted
+   - Uses Sub Con Command LLC's own Stripe account (separate from HDSP's)
 
-2. FEAT: Prevailing Wage sync across WTCs (IMPLEMENTED, NOT YET TESTED LIVE)
-   - New WTC auto-fills PW from siblings: if any sibling WTC has PW on, new WTC
-     gets prevailing_wage: true + pw_rate + pw_ot_rate from that sibling
-   - Turning PW ON: always allowed, syncs pw_rate/pw_ot_rate to all siblings on save
-   - Turning PW OFF from WTC 2+: blocked with alert banner telling user to go to WTC 1
-   - Turning PW OFF from WTC 1: confirm dialog warns it removes PW from all WTCs
-   - Save handler now syncs prevailing_wage + pw_rate + pw_ot_rate (was only syncing
-     prevailing_wage boolean before)
+2. FEAT: Billing Section in Settings (Admin-only)
+   - Shows deployed apps with $699/mo pricing
+   - App selection checkboxes (only deployed apps: sales, schedule)
+   - Pricing summary: subtotal, bundle discount (10.7% for 2+), monthly total
+   - Subscribe button -> Stripe Checkout
+   - Manage Subscription button -> Stripe Customer Portal (after subscribing)
+   - Only visible to Admin role (not Manager/Rep/etc.)
+   - userRole prop passed from App.jsx to Settings
 
-3. FEAT: WTC number in header (VERIFIED WORKING)
-   - Header now shows "Work Type Calculator — WTC 1", "WTC 2", etc.
-   - Determined by ordering sibling WTCs by created_at ascending
-   - State: wtcNumber, isFirstWtc — set in checkSiblings effect
+3. FEAT: Terms of Service
+   - Full TOS document generated from CommandSuite_TermsOfService_v3.docx
+   - Hosted at sccmybiz.com/terms (static HTML in public/terms.html)
+   - Back-to-App link in header
+   - Route: sccmybiz.com/terms redirects to /terms.html
+   - Agreement checkbox required before Subscribe button enables
+   - Checkbox text references TOS, arbitration clause, class action waiver,
+     liability disclaimers, and monthly billing commitment
+   - TOS filled with: Sub Con Command LLC, 1851 Steamboat Parkway Unit 10701,
+     Reno NV 89521, legal@sccmybiz.com, (530) 318-5222
+   - Privacy policy URL placeholder: https://www.sccmybiz.com/privacy
 
-4. BUG: WTC sticky header / content bleed (UNRESOLVED — NEEDS NEXT SESSION)
-   - Problem: When scrolling the WTC Summary tab, content scrolls OVER the
-     sticky header bar (breadcrumb + tabs). Cards and text are visible above
-     the header.
-   - Tried and FAILED:
-     a. zIndex: 100 on sticky header + zIndex: 1 on content — no effect
-     b. isolation: isolate on wrapper — made it worse
-     c. background: T.dark on sticky wrapper — no effect
-     d. Moving print-only block after content — no effect
-     e. Replacing position: sticky with flex layout (current state) — still
-        not working per user report
-   - Current state (commit 1c8475a): WTC uses flex column layout with
-     height: calc(100vh - 50px), header as flexShrink: 0, content in
-     flex: 1 + overflowY: auto wrapper. No position: sticky.
-   - Root cause theory: The parent data-app-content div has overflowY: auto
-     and padding: 28px 32px. The WTC uses margin: -28px -32px 0 to go
-     full-bleed. The parent's scroll context may be fighting with the WTC's
-     own scroll container, or the parent padding creates a gap. The negative
-     margin approach may need to be abandoned entirely.
-   - SUGGESTED FIX FOR NEXT SESSION: Instead of negative margins on the WTC,
-     modify App.jsx to conditionally remove padding from data-app-content
-     when WTC is open (pass a prop or use a CSS class). This would let the
-     WTC fill the content area naturally without hacks. Alternatively,
-     render the WTC as a full-screen overlay (position: fixed, inset: 0)
-     above the app shell entirely, which sidesteps the scroll container issue.
+4. FIX: Site-wide scroll lock after visiting WTC
+   - WTC set overflow:hidden on data-app-content for full-bleed layout
+   - Cleanup used shorthand overflow="" which didn't restore React's overflowY:auto
+   - Fix: use overflowY:"hidden" on mount, overflowY:"auto" on cleanup
+
+5. FIX: Missing tenant_config columns
+   - Added default_invoice_description and default_proposal_intro columns
+     (were in config.js DEFAULTS but not in DB)
+
+6. LIVE: First real charge processed
+   - HDSP subscribed to Sales Command at $699/mo
+   - Live Stripe account fully configured (products, prices, coupon, webhook)
+   - Stripe Customer: cus_UHuea02ncAhEuI (officeadmin@hdspnv.com)
 
 ===============================================================================
 DATABASE CHANGES
 ===============================================================================
 
-None this session.
+1. tenant_config.stripe_customer_id (text) — Stripe Customer ID
+2. tenant_config.stripe_subscription_id (text) — Stripe Subscription ID
+3. tenant_config.subscription_status (text) — active/past_due/canceled/null
+4. tenant_config.subscription_started_at (timestamptz)
+5. tenant_config.default_invoice_description (text) — was missing from DB
+6. tenant_config.default_proposal_intro (text) — was missing from DB
 
 ===============================================================================
 EDGE FUNCTIONS DEPLOYED
 ===============================================================================
 
-None this session.
+1. create-billing-session (NEW) — checkout, portal, status via SCC Stripe
+2. scc-stripe-webhook (NEW) — subscription lifecycle events from SCC Stripe
+
+===============================================================================
+SUPABASE SECRETS ADDED
+===============================================================================
+
+- SCC_STRIPE_SECRET_KEY (live)
+- SCC_STRIPE_PRICE_SALES (live: price_1TJKWQKDk70Sbgp3aTVevsLN)
+- SCC_STRIPE_PRICE_SCHEDULE (live: price_1TJKWPKDk70Sbgp36Y1Apeij)
+- SCC_STRIPE_COUPON_BUNDLE (live: 2s7jp3zy)
+- SCC_STRIPE_WEBHOOK_SECRET (live)
 
 ===============================================================================
 FILES CHANGED
 ===============================================================================
 
-src/pages/WTCCalculator.jsx:
-  - matsCost calculation added to Summary, SummaryTab, and print helpers
-  - Math.ceil added to SummaryTab proposalPrice
-  - PW toggle handler (handlePwToggle) with isFirstWtc guard
-  - checkSiblings effect: determines WTC number + auto-fills PW for new WTCs
-  - Save handler syncs pw_rate + pw_ot_rate to siblings (not just boolean)
-  - BiddingTab accepts isFirstWtc + onPwToggle props
-  - pwAlert state + dismissible banner UI
-  - wtcNumber displayed in header
-  - Print-only block moved after content area
-  - Multiple sticky header / layout attempts (see bug notes above)
-  - Current layout: flex column with own scroll container
+src/App.jsx — pass userRole to Settings, add /terms redirect for SCC_HOST
+src/pages/Settings.jsx — BillingSection component (Admin-only), TOS checkbox
+src/pages/WTCCalculator.jsx — fix scroll lock (overflowY instead of overflow)
+src/lib/config.js — add billing columns to DEFAULTS
+public/terms.html (NEW) — Terms of Service page for sccmybiz.com/terms
+supabase/functions/create-billing-session/index.ts (NEW)
+supabase/functions/scc-stripe-webhook/index.ts (NEW)
+CLAUDE.md — tenant_config schema with billing + subscription columns
+
+===============================================================================
+STRIPE CONFIGURATION (LIVE)
+===============================================================================
+
+Account: Sub Con Command LLC (acct_1TH6jUKDk70Sbgp3)
+Products: Sales Command, Schedule Command ($699/mo each)
+Coupon: Command Suite Bundle (10.7% forever)
+Webhook: SCC Subscription Webhook -> scc-stripe-webhook edge function
+  Events: checkout.session.completed, customer.subscription.updated,
+          customer.subscription.deleted
+Customer Portal: enabled (manage payment, view invoices, cancel)
+Payouts: Manual to Mercury checking (ending 7728)
 
 ===============================================================================
 KNOWN ISSUES / NEXT UP
 ===============================================================================
 
-- **PRIORITY: WTC sticky header / content bleed** — see detailed notes above.
-  Multiple approaches tried and failed. Consider full-screen overlay approach
-  or conditional padding removal on data-app-content.
-- Test PW sync logic live with multi-WTC proposal
+- Privacy policy page needed (https://www.sccmybiz.com/privacy placeholder in TOS)
 - Data migration from old system
-- Invoices.jsx extraction (~1,100 lines -> InvoiceDetail, NewInvoiceModal, InvoicePDFModal)
-- WTCCalculator.jsx extraction (~2,100 lines -> field SOW)
+- Invoices.jsx extraction (~1,100 lines)
+- WTCCalculator.jsx extraction (~2,100 lines)
 - Settings page expansion (invoice numbering, company info, per-tenant config)
+- Sub Con Command admin dashboard (when 5-10+ clients)
+- Stripe tax collection (skip for now — NV/WY don't tax SaaS)
+
+===============================================================================
+PROCESS IMPROVEMENT
+===============================================================================
+
+- New rule: Always test on localhost (npm run dev) before pushing to production
+- Flag shared-element changes (App shell, tokens, layout containers) for
+  broader testing across multiple pages
+- Avoid direct DOM manipulation (content.style.x) — prefer CSS classes or
+  React state to avoid fighting React's style management
 
 ===============================================================================
 PRODUCTION
 ===============================================================================
 
 URL: https://www.scmybiz.com
+TOS: https://www.sccmybiz.com/terms
 Vercel: auto-deploys on push to main
 All changes pushed and deployed.
-Sticky header issue persists on production — needs next session.
+Edge functions deployed: create-billing-session, scc-stripe-webhook

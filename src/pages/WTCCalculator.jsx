@@ -403,7 +403,7 @@ function TaskAutocomplete({ value, onChange, allPriorTasks, placeholder }) {
 }
 // ── Tab components ─────────────────────────────────────────────────────────
 
-function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeChange }) {
+function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeChange, isFirstWtc, onPwToggle }) {
   const set = k => v => onChange({ ...data, [k]: parseFloat(v) || 0 });
   const pw = data.prevailing_wage;
   const setBurden = v => {
@@ -499,7 +499,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: -4, marginBottom: 20, padding: "12px 16px", background: T.gray50, borderRadius: 8, border: `1px solid ${T.gray200}` }}>
         <input type="checkbox" id="pw" checked={data.prevailing_wage || false}
-          onChange={e => onChange({ ...data, prevailing_wage: e.target.checked, pw_ot_overridden: false })}
+          onChange={e => onPwToggle(e.target.checked)}
           style={{ accentColor: T.green, width: 16, height: 16, cursor: "pointer", WebkitAppearance: "checkbox", appearance: "checkbox" }} />
         <label htmlFor="pw" style={{ fontSize: 13, color: T.gray700, fontWeight: 500, cursor: "pointer" }}>
           Prevailing Wage Job — affects labor rate calculation
@@ -1030,11 +1030,19 @@ function SowTab({ data, onChange, locked, wtcMaterials }) {
 }function Summary({ labor, materials, travel, discount, size, unit }) {
   const laborTotal   = labor.total || 0;
   const matTotal     = materials.reduce((s, i) => s + calcMaterialRow(i), 0);
+  const matsCost     = materials.reduce((s, i) => {
+    const price = parseFloat(i.price_per_unit) || 0;
+    const qty = parseFloat(i.qty) || 0;
+    const base = price * qty;
+    const tax = base * ((parseFloat(i.tax) || 0) / 100);
+    const freight = parseFloat(i.freight) || 0;
+    return s + base + tax + freight;
+  }, 0);
   const travelTotal  = calcTravel(travel);
   const discountAmt  = discount.amount || 0;
   const subtotal     = laborTotal + matTotal + travelTotal;
   const proposalPrice = Math.ceil(subtotal - discountAmt);
-  const totalCost     = (labor.subtotal || 0) + matTotal + travelTotal;
+  const totalCost     = (labor.subtotal || 0) + matsCost + travelTotal;
   const profitDollars = proposalPrice - totalCost;
   const profitMargin  = proposalPrice > 0 ? (profitDollars / proposalPrice) * 100 : 0;
   const sqftPrice     = (size || 0) > 0 ? proposalPrice / size : 0;
@@ -1077,10 +1085,18 @@ function SowTab({ data, onChange, locked, wtcMaterials }) {
 function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, saved, locked, onLock, onGeneratePDF }) {
   const laborTotal    = labor.total || 0;
   const matTotal      = materials.reduce((s, i) => s + calcMaterialRow(i), 0);
+  const matsCost      = materials.reduce((s, i) => {
+    const price = parseFloat(i.price_per_unit) || 0;
+    const qty = parseFloat(i.qty) || 0;
+    const base = price * qty;
+    const tax = base * ((parseFloat(i.tax) || 0) / 100);
+    const freight = parseFloat(i.freight) || 0;
+    return s + base + tax + freight;
+  }, 0);
   const travelTotal   = calcTravel(travel);
   const discountAmt   = discount.amount || 0;
-  const proposalPrice = laborTotal + matTotal + travelTotal - discountAmt;
-  const totalCost     = (labor.subtotal || 0) + matTotal + travelTotal;
+  const proposalPrice = Math.ceil(laborTotal + matTotal + travelTotal - discountAmt);
+  const totalCost     = (labor.subtotal || 0) + matsCost + travelTotal;
   const profitDollars = proposalPrice - totalCost;
   const profitMargin  = proposalPrice > 0 ? (profitDollars / proposalPrice) * 100 : 0;
   const sqftPrice     = (sow.size || 0) > 0 ? proposalPrice / sow.size : 0;
@@ -1639,6 +1655,31 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     loadWTC();
   }, [wtcId]);
 
+  // ── Determine WTC order + auto-fill PW from siblings ─────────────────────
+  useEffect(() => {
+    if (!proposalId) return;
+    async function checkSiblings() {
+      const { data: siblings } = await supabase
+        .from("proposal_wtc")
+        .select("id, prevailing_wage, pw_rate, pw_ot_rate")
+        .eq("proposal_id", proposalId)
+        .order("created_at", { ascending: true });
+      if (!siblings || siblings.length === 0) { setIsFirstWtc(true); setWtcNumber(1); return; }
+      const first = siblings[0];
+      setIsFirstWtc(!wtcId || first.id === wtcId);
+      const idx = wtcId ? siblings.findIndex(s => s.id === wtcId) : siblings.length;
+      setWtcNumber(idx >= 0 ? idx + 1 : siblings.length + 1);
+      // Auto-fill PW for new WTCs (no wtcId yet) if a sibling has PW on
+      if (!wtcId) {
+        const pwSibling = siblings.find(s => s.prevailing_wage);
+        if (pwSibling) {
+          setBidding(b => ({ ...b, prevailing_wage: true, pw_rate: pwSibling.pw_rate || 0, pw_ot_rate: pwSibling.pw_ot_rate || 0 }));
+        }
+      }
+    }
+    checkSiblings();
+  }, [proposalId, wtcId]);
+
   // ── Load work types for dropdown ─────────────────────────────────────────
   useEffect(() => {
     async function loadWorkTypes() {
@@ -1663,6 +1704,25 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       if (data?.sales_sow_template) {
         setSow(s => ({ ...s, sales_sow: data.sales_sow_template }));
       }
+    }
+  };
+
+  // ── PW toggle handler ────────────────────────────────────────────────────
+  const handlePwToggle = (checked) => {
+    if (checked) {
+      // Turning PW on — always allowed
+      setBidding(b => ({ ...b, prevailing_wage: true, pw_ot_overridden: false }));
+      setSaved(false);
+    } else {
+      // Turning PW off
+      if (!isFirstWtc) {
+        setPwAlert("To remove Prevailing Wage, go to WTC 1 — it will be removed from all WTCs on this proposal.");
+        return;
+      }
+      // WTC 1 — confirm removal from all
+      if (!window.confirm("This will remove Prevailing Wage from ALL WTCs on this proposal. Continue?")) return;
+      setBidding(b => ({ ...b, prevailing_wage: false, pw_ot_overridden: false }));
+      setSaved(false);
     }
   };
 
@@ -1701,10 +1761,14 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       const { data: newRow } = await supabase.from("proposal_wtc").insert(payload).select().single();
       if (newRow?.id) setWtcId(newRow.id);
     }
-    // Sync prevailing_wage to all sibling WTCs on this proposal
+    // Sync prevailing_wage + rates to all sibling WTCs on this proposal
     if (proposalId) {
       await supabase.from("proposal_wtc")
-        .update({ prevailing_wage: bidding.prevailing_wage })
+        .update({
+          prevailing_wage: bidding.prevailing_wage,
+          pw_rate: bidding.pw_rate || 0,
+          pw_ot_rate: bidding.pw_ot_rate || 0,
+        })
         .eq("proposal_id", proposalId)
         .neq("id", wtcId);
     }
@@ -1738,6 +1802,9 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const [proposalNumber, setProposalNumber] = useState(null);
   const [jobInfo, setJobInfo] = useState({ customerName: "", jobsiteAddress: "", customerAddress: "", jobName: "", displayJobNumber: "" });
   const [proposalSold, setProposalSold] = useState(false);
+  const [isFirstWtc, setIsFirstWtc] = useState(true);
+  const [wtcNumber, setWtcNumber] = useState(null);
+  const [pwAlert, setPwAlert] = useState(null);
 
   useEffect(() => {
     if (!proposalId) return;
@@ -1772,17 +1839,25 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const workTypeName = workTypes.find(w => w.id === selectedWorkTypeId)?.name || "—";
   const printLaborComputed = laborComputed;
   const printMatTotal = materials.reduce((s, i) => s + calcMaterialRow(i), 0);
+  const printMatsCost = materials.reduce((s, i) => {
+    const price = parseFloat(i.price_per_unit) || 0;
+    const qty = parseFloat(i.qty) || 0;
+    const base = price * qty;
+    const tax = base * ((parseFloat(i.tax) || 0) / 100);
+    const freight = parseFloat(i.freight) || 0;
+    return s + base + tax + freight;
+  }, 0);
   const printTravelTotal = calcTravel(travel);
   const printDiscountAmt = discount.amount || 0;
   const printSubtotal = (printLaborComputed.total || 0) + printMatTotal + printTravelTotal;
   const printProposalPrice = Math.ceil(printSubtotal - printDiscountAmt);
-  const printTotalCost = (printLaborComputed.subtotal || 0) + printMatTotal + printTravelTotal;
+  const printTotalCost = (printLaborComputed.subtotal || 0) + printMatsCost + printTravelTotal;
   const printProfitDollars = printProposalPrice - printTotalCost;
   const printProfitMargin = printProposalPrice > 0 ? (printProfitDollars / printProposalPrice) * 100 : 0;
   const printSqftPrice = (sow.size || 0) > 0 ? printProposalPrice / sow.size : 0;
 
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: T.gray50, minHeight: "100%", paddingBottom: 60 }}>
+    <div style={{ fontFamily: "'Inter', sans-serif", background: T.gray50, minHeight: "100%", paddingBottom: 60, margin: "-28px -32px 0" }}>
       {/* Print stylesheet */}
       <style>{`
         @media print {
@@ -2034,7 +2109,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
               Sales Command · Proposals /
               <span style={{ color: T.green, fontWeight: 600 }}> WTC</span>
             </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>Work Type Calculator</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>Work Type Calculator{wtcNumber ? ` — WTC ${wtcNumber}` : ""}</div>
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <Btn onClick={() => window.print()} variant="secondary" small icon="🖨">Print</Btn>
@@ -2058,7 +2133,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       </div>
 
       {/* Content area */}
-      <div data-wtc-no-print style={{ maxWidth: 940, margin: "0 auto", padding: "28px 20px" }}>
+      <div data-wtc-no-print style={{ maxWidth: 940, margin: "0 auto", padding: "28px 20px", position: "relative", zIndex: 1 }}>
         {(locked || proposalSold) && tab !== "summary" && (
           <div style={{ background: "#FFF8E1", border: "1px solid #F59E0B", borderRadius: 10, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 20 }}>🔒</span>
@@ -2068,11 +2143,20 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
             </div>
           </div>
         )}
+        {pwAlert && (
+          <div style={{ background: "#FFF8E1", border: "1px solid #F59E0B", borderRadius: 10, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 18 }}>&#9888;</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#92400e" }}>{pwAlert}</span>
+            </div>
+            <button onClick={() => setPwAlert(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#92400e", fontWeight: 700, padding: "0 4px" }}>&times;</button>
+          </div>
+        )}
         <div style={{ background: "#c8bcaa", borderRadius: 14, border: `1px solid rgba(28,24,20,0.15)`, padding: "28px 32px", marginBottom: 20, position: "relative" }}>
           {(locked || proposalSold) && tab !== "summary" && (
             <div style={{ position: "absolute", inset: 0, borderRadius: 14, zIndex: 10, cursor: "not-allowed" }} onClick={() => {}} />
           )}
-          {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} />}
+          {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} />}
           {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={proposalSold ? undefined : v => { setLabor(v); setSaved(false); }} />}
           {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={proposalSold ? undefined : v => { setMaterials(v); setSaved(false); }} />}
           {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} />}

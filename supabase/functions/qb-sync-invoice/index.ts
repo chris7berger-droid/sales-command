@@ -108,7 +108,7 @@ serve(async (req) => {
       });
     }
 
-    const { invoiceId } = await req.json();
+    const { invoiceId, editReason } = await req.json();
     if (!invoiceId) {
       return new Response(JSON.stringify({ error: "invoiceId is required" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400,
@@ -235,12 +235,18 @@ serve(async (req) => {
 
     if (isUpdate) {
       // ── Update existing QB invoice ────────────────────────────────────
-      // Fetch existing QB invoice to get SyncToken (required for updates)
+      // Fetch existing QB invoice to get SyncToken and existing PrivateNote
       const existing = await qbApi("GET", `/invoice/${invoice.qb_invoice_id}`, accessToken, realmId);
       const syncToken = existing.Invoice.SyncToken;
       qbInvoice.Id = invoice.qb_invoice_id;
       qbInvoice.SyncToken = syncToken;
       qbInvoice.sparse = false; // full update replaces all fields
+
+      // Append edit reason to PrivateNote for audit trail
+      const existingNote = existing.Invoice.PrivateNote || "";
+      const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" });
+      const editNote = editReason ? `[EDITED] ${timestamp} — ${editReason}` : `[EDITED] ${timestamp}`;
+      qbInvoice.PrivateNote = existingNote ? `${existingNote}\n${editNote}` : editNote;
 
       console.log("qb-sync-invoice: updating QB invoice", invoice.qb_invoice_id, "for SC invoice", invoiceId);
       const result = await qbApi("POST", "/invoice", accessToken, realmId, qbInvoice);

@@ -655,6 +655,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
   const [showPaidPDF, setShowPaidPDF] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(null); // "delete" | "pullback" | null
   const [voidReason, setVoidReason] = useState("");
+  const [editReason, setEditReason] = useState("");
 
   // Auto-refresh: poll for payment status updates when invoice is Sent/Waiting
   useEffect(() => {
@@ -747,6 +748,11 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
   }
 
   async function handleSaveEdit() {
+    // Require reason if invoice is synced to QB
+    if (inv.qb_invoice_id && !editReason.trim()) {
+      alert("A reason for this edit is required for QuickBooks audit compliance.");
+      return;
+    }
     setSaving(true);
     // Recalculate line amounts based on new billing pcts
     const newLines = lines.map(l => {
@@ -779,12 +785,20 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
       }
     }
 
+    // Sync to QuickBooks with edit reason (non-blocking)
+    if (inv.qb_invoice_id) {
+      supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: editId, editReason: editReason.trim() } })
+        .then(r => { if (r.data?.error) console.warn("QB sync:", r.data.error); else console.log("QB invoice updated:", r.data); })
+        .catch(e => console.warn("QB sync failed:", e.message));
+    }
+
     setInv(prev => ({ ...prev, id: editId, due_date: editDueDate || null, discount: parseFloat(editDiscount) || 0, description: editDesc || null, amount: Math.round(newAmount * 100) / 100 }));
     setLines(prev => prev.map(l => {
       const nl = newLines.find(n => n.id === l.id);
       return nl ? { ...l, billing_pct: nl.billing_pct, amount: nl.amount } : l;
     }));
     setEditing(false);
+    setEditReason("");
     setSaving(false);
     onUpdated && onUpdated();
   }
@@ -876,6 +890,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
             <div style={labelStyle}>Description / PO #</div>
             <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="e.g. PO #12345 — Gym Floor Polish" style={inputStyle} />
           </div>
+          {inv.qb_invoice_id && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <div style={labelStyle}>Reason for Edit *</div>
+              <input value={editReason} onChange={e => setEditReason(e.target.value)} placeholder="e.g. Changed billing from 100% to 50% per PM request" style={inputStyle} />
+              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Required — this note will be recorded on the QuickBooks invoice for audit compliance.</div>
+            </div>
+          )}
         </div>
       )}
 

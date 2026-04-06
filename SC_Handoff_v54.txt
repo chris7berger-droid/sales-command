@@ -1,0 +1,124 @@
+SC_Handoff_v54 — April 6, 2026
+Session: Invoice workflow overhaul, QB audit trail, WTC print fix, PDF approve button
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. FEAT: Internal Approve button on Proposal PDF preview header
+   - Users no longer need to back out of PDF view to internally approve
+   - Button appears in PDF modal header next to Print and Send to Customer
+   - Only shows when status is not Sold/Sent (same guard as ProposalDetail)
+   - Reuses existing approve modal — no duplicated logic
+
+2. FIX: Invoice list shows stale amount after editing billing %
+   - Root cause: onUpdated called load() which refreshed invoices list but
+     did not update the selected invoice (sel) in the parent component
+   - Fix: onUpdated now re-fetches list AND updates sel with fresh data
+
+3. FEAT: Public invoice view page for customers
+   - New page: PublicInvoicePage.jsx at route /invoice/:token
+   - Uses viewing_token (UUID) for security, same pattern as proposal signing
+   - Shows full invoice PDF-style view with Print/Save PDF + Pay Now buttons
+   - Print styles hide action bar for clean PDF output
+   - Customer email now includes "View Full Invoice / Print PDF" link
+   - Route added to all three router sections (unauth, onboarding, auth)
+
+4. FEAT: Invoices always show cents (fmt$c)
+   - Proposals keep Math.ceil rounding to whole dollars
+   - Invoices now always use fmt$c (2 decimal places) everywhere:
+     list, detail, PDF modal, stat cards, public page
+   - 50% of $17 correctly shows $8.50 instead of $9
+   - Removed showCents prop from InvoicePDFModal (no longer conditional)
+
+5. FEAT: Remove labor breakdown cards from WTC Labor tab
+   - Removed: Regular Cost, OT Cost, Markup Amount, Profit Margin, Labor Subtotal
+   - Now shows only inputs (hours, markup %) + Labor Total (Billed)
+   - Full breakdown already visible in WTC Summary section below
+
+6. FEAT: QB void on invoice delete or pull-back
+   - New edge function: qb-void-invoice
+   - When deleting/pulling back a QB-synced invoice, it is voided in QB
+     (not deleted) to preserve the audit trail
+   - Pull-back also clears qb_invoice_id so re-sending creates fresh QB invoice
+
+7. FEAT: Void confirmation modal with required reason
+   - When deleting/pulling back a QB-synced invoice, a modal appears explaining
+     the invoice will be voided in QB for accounting compliance
+   - Required reason field — note is written as timestamped PrivateNote on QB
+     invoice before voiding (internal-only, not customer-visible)
+   - Button text: "Void in QB & Delete" or "Void in QB & Pull Back"
+   - Unsent invoices (no qb_invoice_id) still use simple confirm dialog
+
+8. FEAT: Edit audit trail for QB-synced invoices
+   - When editing a QB-synced invoice, "Reason for Edit" field appears (required)
+   - Reason is appended to QB PrivateNote as timestamped entry before update
+   - qb-sync-invoice edge function updated to accept editReason param
+   - Full QB PrivateNote history example:
+     [EDITED] 4/6/2026, 9:20 AM — Changed billing to 50% per PM request
+     [VOIDED] 4/6/2026, 10:15 AM — Customer cancelled project
+
+9. FIX: WTC print layout — hide sidebar/header, full-width content
+   - Added data attributes to App shell: data-app-sidebar, data-app-header,
+     data-app-content, data-app-shell
+   - WTC print styles now hide sidebar and header bar
+   - Content area gets full width with no padding
+   - Materials table no longer cut off
+   - Data attributes available for future print styles on other pages
+
+===============================================================================
+DATABASE CHANGES
+===============================================================================
+
+1. invoices.viewing_token (uuid, default gen_random_uuid()) — public access token
+2. invoices.stripe_checkout_url (text) — full Stripe checkout URL for public page
+3. RLS policy: anon_view_invoice_by_token on invoices (SELECT for anon)
+4. RLS policy: anon_read_invoice_lines on invoice_lines (SELECT for anon)
+
+===============================================================================
+EDGE FUNCTIONS DEPLOYED
+===============================================================================
+
+1. qb-void-invoice (NEW) — voids QB invoice with timestamped PrivateNote
+2. qb-sync-invoice (UPDATED) — accepts editReason, appends to PrivateNote on update
+3. send-invoice (UPDATED) — looks up viewing_token, stores checkout URL, adds
+   "View Full Invoice / Print PDF" link to customer email
+
+===============================================================================
+FILES CHANGED
+===============================================================================
+
+src/App.jsx — import PublicInvoicePage, add /invoice/:token route (3 sections),
+  add data-app-shell/sidebar/header/content attributes
+src/pages/PublicInvoicePage.jsx (NEW) — customer-facing invoice view + print
+src/pages/Invoices.jsx — always fmt$c, stale sel fix, void modal, edit reason,
+  QB void on delete/pullback, save stripe_checkout_url
+src/pages/WTCCalculator.jsx — removed labor breakdown cards, print styles
+src/components/ProposalDetail.jsx — onInternalApprove callback to PDF modal
+src/components/ProposalPDFModal.jsx — Internal Approve button in header
+supabase/functions/qb-void-invoice/index.ts (NEW)
+supabase/functions/qb-sync-invoice/index.ts — editReason + PrivateNote
+supabase/functions/send-invoice/index.ts — viewing_token lookup, checkout URL
+CLAUDE.md — added viewing_token, stripe_checkout_url to invoices schema
+
+===============================================================================
+KNOWN ISSUES / NEXT UP
+===============================================================================
+
+- Data migration from old system (next session)
+- Invoices.jsx (now ~1,100 lines) should be extracted next (InvoiceDetail,
+  NewInvoiceModal, InvoicePDFModal)
+- WTCCalculator.jsx (2,100 lines) — extract field SOW
+- Settings page still needed (invoice numbering, company info, per-tenant config)
+- Existing Stripe checkout sessions for deleted invoices show as "Incomplete" in
+  Stripe dashboard — this is normal Stripe behavior, harmless, filter to
+  "Succeeded" to hide
+
+===============================================================================
+PRODUCTION
+===============================================================================
+
+URL: https://www.scmybiz.com
+Vercel: auto-deploys on push to main
+All changes pushed and deployed.
+Edge functions deployed: qb-void-invoice, qb-sync-invoice, send-invoice

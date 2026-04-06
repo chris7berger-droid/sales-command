@@ -1857,7 +1857,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const printSqftPrice = (sow.size || 0) > 0 ? printProposalPrice / sow.size : 0;
 
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: T.gray50, minHeight: "100%", paddingBottom: 60, margin: "-28px -32px 0" }}>
+    <div style={{ fontFamily: "'Inter', sans-serif", background: T.gray50, margin: "-28px -32px 0", display: "flex", flexDirection: "column", height: "calc(100vh - 50px)" }}>
       {/* Print stylesheet */}
       <style>{`
         @media print {
@@ -1878,7 +1878,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       `}</style>
 
       {/* Sticky header + tab bar wrapper */}
-      <div data-wtc-no-print style={{ position: "sticky", top: 0, zIndex: 100, boxShadow: "0 1px 3px rgba(0,0,0,0.2)", background: T.dark }}>
+      <div data-wtc-no-print style={{ flexShrink: 0, boxShadow: "0 1px 3px rgba(0,0,0,0.2)", background: T.dark }}>
         {/* Header */}
         <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "12px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
@@ -1910,7 +1910,8 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       </div>
 
       {/* Content area */}
-      <div data-wtc-no-print style={{ maxWidth: 940, margin: "0 auto", padding: "28px 20px", position: "relative", zIndex: 1 }}>
+      <div data-wtc-no-print style={{ flex: 1, overflowY: "auto", paddingBottom: 60 }}>
+      <div style={{ maxWidth: 940, margin: "0 auto", padding: "28px 20px" }}>
         {(locked || proposalSold) && tab !== "summary" && (
           <div style={{ background: "#FFF8E1", border: "1px solid #F59E0B", borderRadius: 10, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 20 }}>🔒</span>
@@ -2172,6 +2173,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
             </tbody>
           </table>
         </div>
+      </div>
       </div>
     {showPDF && <PDFPreviewModal open={showPDF} onClose={() => setShowPDF(false)} proposal={proposalData} />}
       {showSigning && (

@@ -56,6 +56,11 @@ const SCC_HOST = window.location.hostname.replace(/^www\./, "") === "sccmybiz.co
 
 export default function App() {
   if (SCC_HOST) {
+    // /terms serves static HTML from public/terms.html
+    if (window.location.pathname === "/terms") {
+      window.location.href = "/terms.html";
+      return null;
+    }
     return (
       <BrowserRouter>
         <Routes>

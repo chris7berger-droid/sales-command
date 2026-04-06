@@ -78,6 +78,7 @@ function BillingSection() {
   const [loading, setLoading] = useState(true);
   const [selectedApps, setSelectedApps] = useState(["sales"]);
   const [actionLoading, setActionLoading] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -227,13 +228,35 @@ function BillingSection() {
         )}
       </div>
 
+      {/* Terms agreement (only shown before subscribing) */}
+      {!hasSubscription && (
+        <label style={{
+          display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 16, cursor: "pointer",
+          fontFamily: F.ui, fontSize: 12, color: C.textMuted, lineHeight: 1.5,
+        }}>
+          <input
+            type="checkbox"
+            checked={agreedToTerms}
+            onChange={e => setAgreedToTerms(e.target.checked)}
+            style={{ width: 16, height: 16, accentColor: C.teal, marginTop: 2, flexShrink: 0 }}
+          />
+          <span>
+            I have read and agree to the{" "}
+            <a href="https://www.sccmybiz.com/terms" target="_blank" rel="noopener noreferrer" style={{ color: C.teal, fontWeight: 600, textDecoration: "none" }}>
+              Command Suite Terms of Service
+            </a>
+            , including the binding arbitration clause, class action waiver, limitation of liability, and construction-specific disclaimers. Billing begins immediately and recurs monthly until canceled.
+          </span>
+        </label>
+      )}
+
       {/* Actions */}
       {hasSubscription ? (
         <Btn sz="sm" onClick={handlePortal} disabled={actionLoading}>
           {actionLoading ? "Opening..." : "Manage Subscription"}
         </Btn>
       ) : (
-        <Btn sz="sm" onClick={handleCheckout} disabled={actionLoading || !selectedApps.length}>
+        <Btn sz="sm" onClick={handleCheckout} disabled={actionLoading || !selectedApps.length || !agreedToTerms}>
           {actionLoading ? "Loading..." : "Subscribe"}
         </Btn>
       )}

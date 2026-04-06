@@ -1560,6 +1560,21 @@ document.head.appendChild(gvLink);
 
 // ── Main WTC Calculator ────────────────────────────────────────────────────
 export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId, onClose, onBackToList, initialTab }) {
+  // ── Full-bleed layout: remove parent padding so WTC fills content area ──
+  useEffect(() => {
+    const content = document.querySelector("[data-app-content]");
+    if (content) {
+      content.style.padding = "0";
+      content.style.overflow = "hidden";
+    }
+    return () => {
+      if (content) {
+        content.style.padding = "28px 32px";
+        content.style.overflow = "";
+      }
+    };
+  }, []);
+
   const [tab,        setTab]      = useState(initialTab || "bidding");
   const [wtcId, setWtcId] = useState(wtcIdProp);
   const [locked,     setLocked]   = useState(false);
@@ -1857,7 +1872,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const printSqftPrice = (sow.size || 0) > 0 ? printProposalPrice / sow.size : 0;
 
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: T.gray50, margin: "-28px -32px 0", display: "flex", flexDirection: "column", height: "calc(100vh - 50px)" }}>
+    <div style={{ fontFamily: "'Inter', sans-serif", background: T.gray50, display: "flex", flexDirection: "column", height: "100%" }}>
       {/* Print stylesheet */}
       <style>{`
         @media print {

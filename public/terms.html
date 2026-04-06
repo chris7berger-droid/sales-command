@@ -8,9 +8,11 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Inter', sans-serif; background: #f5f2ed; color: #1c1814; line-height: 1.7; }
-  .header { background: rgba(28,24,20,0.96); border-bottom: 2px solid #30cfac; padding: 20px 40px; text-align: center; }
+  .header { background: rgba(28,24,20,0.96); border-bottom: 2px solid #30cfac; padding: 20px 40px; display: flex; align-items: center; justify-content: space-between; }
   .header h1 { font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #fff; }
   .header h1 span { color: #30cfac; }
+  .back-link { font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; text-decoration: none; color: #30cfac; padding: 8px 20px; border: 1.5px solid rgba(48,207,172,0.3); border-radius: 8px; transition: all 0.2s; }
+  .back-link:hover { background: rgba(48,207,172,0.08); border-color: #30cfac; }
   .container { max-width: 800px; margin: 0 auto; padding: 48px 40px 80px; }
   .doc-title { font-family: 'Barlow Condensed', sans-serif; font-size: 32px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; color: #1c1814; }
   .doc-subtitle { font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; color: #887c6e; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
@@ -25,7 +27,7 @@
 </style>
 </head>
 <body>
-<div class="header"><h1>Sub Con <span>Command</span> — Terms of Service</h1></div>
+<div class="header"><h1>Sub Con <span>Command</span> — Terms of Service</h1><a href="https://www.scmybiz.com" class="back-link">Back to App</a></div>
 <div class="container">
 <div class="doc-meta">Effective Date: April 6, 2026    |    Last Updated: April 6, 2026</div>
 <p>Welcome to Command Suite (the “Service”), a cloud-based software platform for construction subcontractors that includes Sales Command, Schedule Command, Field Command, and AR Command (each, an “Application” and collectively, the “Applications”). The Service is owned and operated by Sub Con Command LLC, a Wyoming limited liability company (“Company,” “we,” “us,” or “our”).</p>

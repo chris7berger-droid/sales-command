@@ -5,7 +5,7 @@ import { fmt$, fmt$c } from "../lib/utils";
 import { calcLabor, calcMaterialRow, calcTravel } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 
-function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
+function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove }) {
   const money = proposal.call_log?.show_cents ? fmt$c : fmt$;
   const [wtcs, setWtcs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -230,6 +230,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send" }) {
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {view === "preview" && !sendDone && (
               <>
+                {onInternalApprove && <button onClick={onInternalApprove} style={{ background: "none", border: "1.5px solid #4CAF50", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4CAF50", cursor: "pointer", fontFamily: "inherit" }}>✓ Internal Approve</button>}
                 <button onClick={() => window.print()} style={{ background: "none", border: "1.5px solid #E5E7EB", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4B5563", cursor: "pointer", fontFamily: "inherit" }}>🖨 Print</button>
                 {mode === "send" && proposal.status !== "Sold" && wtcs.length > 0 && wtcs.every(w => w.locked) && <button onClick={() => setView("send")} style={{ background: "#1976D2", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "white", cursor: "pointer", fontFamily: "inherit" }}>📨 Send to Customer →</button>}
                 {mode === "send" && proposal.status !== "Sold" && (wtcs.length === 0 || !wtcs.every(w => w.locked)) && <span style={{ fontSize: 11, fontWeight: 700, color: "#e53935", fontFamily: "inherit", padding: "7px 12px" }}>Lock all WTCs to send</span>}

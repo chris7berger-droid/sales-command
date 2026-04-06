@@ -1857,7 +1857,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const printSqftPrice = (sow.size || 0) > 0 ? printProposalPrice / sow.size : 0;
 
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: T.gray50, minHeight: "100%", paddingBottom: 60, margin: "-28px -32px 0" }}>
+    <div style={{ fontFamily: "'Inter', sans-serif", background: T.gray50, minHeight: "100%", paddingBottom: 60, margin: "-28px -32px 0", isolation: "isolate" }}>
       {/* Print stylesheet */}
       <style>{`
         @media print {

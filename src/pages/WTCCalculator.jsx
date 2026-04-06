@@ -522,14 +522,7 @@ function LaborTab({ data, bidding, sow, onChange }) {
         <Field label="Overtime Hours" value={data.ot_hours} onChange={set("ot_hours")} type="number" suffix="hrs" />
         <Field label="Markup %" value={data.markup_pct} onChange={set("markup_pct")} type="number" suffix="%" />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginTop: 4 }}>
-        <StatCard label="Regular Cost" value={fmt(c.regularCost)} />
-        <StatCard label="OT Cost" value={fmt(c.otCost)} />
-        <StatCard label="Markup Amount" value={fmt(c.markupAmt)} />
-        <StatCard label="Profit Margin" value={pct(c.profitMargin)} />
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
-        <StatCard label="Labor Subtotal (cost)" value={fmt(c.subtotal)} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, marginTop: 12 }}>
         <StatCard label="Labor Total (billed)" value={fmt(c.total)} green />
       </div>
     </div>

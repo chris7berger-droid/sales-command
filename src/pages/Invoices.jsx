@@ -954,7 +954,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
           showCents={showCents}
           onClose={() => setShowPDF(false)}
           onSent={async (responseData) => {
-            const updates = { status: "Sent", sent_at: new Date().toISOString(), stripe_checkout_id: responseData?.checkoutId || null };
+            const updates = { status: "Sent", sent_at: new Date().toISOString(), stripe_checkout_id: responseData?.checkoutId || null, stripe_checkout_url: responseData?.checkoutUrl || null };
             await supabase.from("invoices").update(updates).eq("id", inv.id);
             setInv(prev => ({ ...prev, ...updates }));
             onUpdated && onUpdated();
@@ -1028,7 +1028,7 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
     if (setSubPage) setSubPage(sel ? "detail" : showModal ? "new" : null);
   }, [sel, showModal]);
 
-  if (sel) return <InvoiceDetail invoice={sel} onBack={() => { setSel(null); load(); }} onUpdated={load} onDeleted={() => { setSel(null); load(); }} />;
+  if (sel) return <InvoiceDetail invoice={sel} onBack={() => { setSel(null); load(); }} onUpdated={async () => { const data = await load(); const fresh = (data || []).find(i => i.id === sel.id); if (fresh) setSel(fresh); }} onDeleted={() => { setSel(null); load(); }} />;
 
   return (
     <>

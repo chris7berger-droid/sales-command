@@ -107,6 +107,18 @@ serve(async (req) => {
     const checkoutUrl = stripeData.url;
     const checkoutId = stripeData.id;
 
+    // Look up viewing_token and store checkout URL
+    const { data: invRow } = await supabase
+      .from("invoices")
+      .select("viewing_token")
+      .eq("id", invoiceId)
+      .single();
+    const viewingToken = invRow?.viewing_token;
+    const viewInvoiceUrl = viewingToken ? `${SITE_URL}/invoice/${viewingToken}` : null;
+
+    // Store checkout URL on invoice
+    await supabase.from("invoices").update({ stripe_checkout_url: checkoutUrl }).eq("id", invoiceId);
+
     // Send email to customer with pay link
     const dueLine = dueDate ? `Payment due by ${new Date(dueDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}` : "Payment due upon receipt";
 
@@ -139,6 +151,7 @@ serve(async (req) => {
             <div style="margin: 32px 0; text-align: center;">
               <a href="${checkoutUrl}" style="background: #30cfac; color: #1c1814; padding: 14px 36px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 15px; display: inline-block;">Pay Now</a>
             </div>
+            ${viewInvoiceUrl ? `<p style="text-align: center; margin-bottom: 16px;"><a href="${viewInvoiceUrl}" style="color: #30cfac; font-size: 13px; font-weight: 600; text-decoration: underline;">View Full Invoice / Print PDF</a></p>` : ""}
             <p style="color: #887c6e; font-size: 12px; text-align: center;">Secure payment powered by Stripe</p>
             <p style="color: #887c6e; font-size: 12px; text-align: center;">Questions? Reply to this email or call (775) 300-1900.</p>
           </div>

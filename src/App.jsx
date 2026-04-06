@@ -22,6 +22,7 @@ import Team from "./pages/Team";
 import Settings from "./pages/Settings";
 import { getPageNumber, PageBadge, TOCOverlay } from "./components/TableOfContents";
 import InvoicePaidPage from "./pages/InvoicePaidPage";
+import PublicInvoicePage from "./pages/PublicInvoicePage";
 import QBCallbackPage from "./pages/QBCallbackPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import WelcomeScreen from "./components/WelcomeScreen";
@@ -144,6 +145,7 @@ function SalesCommandApp() {
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/sign/:token" element={<PublicSigningPage />} />
           <Route path="/invoice-paid" element={<InvoicePaidPage />} />
+          <Route path="/invoice/:token" element={<PublicInvoicePage />} />
           <Route path="/qb/callback" element={<QBCallbackPage />} />
           <Route path="*" element={<LandingPage />} />
         </Routes>
@@ -167,6 +169,7 @@ function SalesCommandApp() {
         <Routes>
           <Route path="/sign/:token" element={<PublicSigningPage />} />
           <Route path="/invoice-paid" element={<InvoicePaidPage />} />
+          <Route path="/invoice/:token" element={<PublicInvoicePage />} />
           <Route path="*" element={
             <WelcomeScreen
               teamMember={teamMember}
@@ -205,6 +208,7 @@ function SalesCommandApp() {
         <Route path="/suite" element={<SubConCommandPage />} />
         <Route path="/sign/:token" element={<PublicSigningPage />} />
         <Route path="/invoice-paid" element={<InvoicePaidPage />} />
+        <Route path="/invoice/:token" element={<PublicInvoicePage />} />
         <Route path="/qb/callback" element={<QBCallbackPage />} />
         <Route path="/import" element={
           displayRole === "Admin"

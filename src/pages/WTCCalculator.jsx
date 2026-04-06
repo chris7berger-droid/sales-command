@@ -2101,7 +2101,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
         </div>
       </div>
       {/* Sticky header + tab bar wrapper */}
-      <div data-wtc-no-print style={{ position: "sticky", top: 0, zIndex: 100, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}>
+      <div data-wtc-no-print style={{ position: "sticky", top: 0, zIndex: 100, boxShadow: "0 1px 3px rgba(0,0,0,0.2)", background: T.dark }}>
         {/* Header */}
         <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "12px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>

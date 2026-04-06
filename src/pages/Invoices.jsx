@@ -332,8 +332,8 @@ function NewInvoiceModal({ onClose, onCreated }) {
 }
 
 // ── Invoice PDF Modal ─────────────────────────────────────────────────────
-function InvoicePDFModal({ invoice, lines, onClose, onSent, showCents }) {
-  const money = showCents ? fmt$c : fmt$;
+function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
+  const money = fmt$c;
   const [view, setView] = useState("preview");
   const [sending, setSending] = useState(false);
   const [sendDone, setSendDone] = useState(false);
@@ -634,8 +634,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, showCents }) {
 
 // ── Invoice Detail ────────────────────────────────────────────────────────
 function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
-  const showCents = invoice.proposals?.call_log?.show_cents;
-  const money = showCents ? fmt$c : fmt$;
+  const money = fmt$c;
   const [inv, setInv] = useState(invoice);
   const [lines, setLines] = useState([]);
   const [wtcMap, setWtcMap] = useState({});
@@ -942,7 +941,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
         <InvoicePDFModal
           invoice={inv}
           lines={lines}
-          showCents={showCents}
+
           onClose={() => setShowPaidPDF(false)}
         />
       )}
@@ -951,7 +950,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
         <InvoicePDFModal
           invoice={inv}
           lines={lines}
-          showCents={showCents}
+
           onClose={() => setShowPDF(false)}
           onSent={async (responseData) => {
             const updates = { status: "Sent", sent_at: new Date().toISOString(), stripe_checkout_id: responseData?.checkoutId || null, stripe_checkout_url: responseData?.checkoutUrl || null };
@@ -1053,9 +1052,9 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
         )}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
-          <StatCard label="Total Drafted" value={fmt$(drafted)} accent={C.teal} />
-          <StatCard label="Total Pending" value={fmt$(pending)} accent={C.amber} />
-          <StatCard label="Total Paid"    value={fmt$(paid)}    accent={C.green} />
+          <StatCard label="Total Drafted" value={fmt$c(drafted)} accent={C.teal} />
+          <StatCard label="Total Pending" value={fmt$c(pending)} accent={C.amber} />
+          <StatCard label="Total Paid"    value={fmt$c(paid)}    accent={C.green} />
         </div>
 
         <FilterBar
@@ -1073,8 +1072,8 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
               { k: "job_id",   l: "Job #",     r: v => <span style={{ fontWeight: 600, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{v}</span> },
               { k: "job_name", l: "Job Name",  r: v => <span style={{ fontWeight: 500, color: C.textMuted, fontFamily: F.display, maxWidth: 200, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span> },
               { k: "status",   l: "Status",    r: v => <Pill label={v} cm={{ ...PROP_C, ...INV_C }} /> },
-              { k: "amount",   l: "Amount",    r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$(v)}</span> },
-              { k: "discount", l: "Discount",  r: v => v > 0 ? <span style={{ color: C.red, fontWeight: 700 }}>−{fmt$(v)}</span> : <span style={{ color: C.textFaint }}>—</span> },
+              { k: "amount",   l: "Amount",    r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$c(v)}</span> },
+              { k: "discount", l: "Discount",  r: v => v > 0 ? <span style={{ color: C.red, fontWeight: 700 }}>−{fmt$c(v)}</span> : <span style={{ color: C.textFaint }}>—</span> },
               { k: "sent_at",  l: "Sent",      r: v => fmtD(v) },
               { k: "due_date", l: "Due",       r: v => fmtD(v) },
               { k: "_aging",   l: "Aging",     r: (_, row) => {

@@ -1877,6 +1877,79 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
         }
       `}</style>
 
+      {/* Sticky header + tab bar wrapper */}
+      <div data-wtc-no-print style={{ position: "sticky", top: 0, zIndex: 100, boxShadow: "0 1px 3px rgba(0,0,0,0.2)", background: T.dark }}>
+        {/* Header */}
+        <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "12px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontWeight: 500, marginBottom: 3 }}>
+              Sales Command · Proposals /
+              <span style={{ color: T.green, fontWeight: 600 }}> WTC</span>
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>Work Type Calculator{wtcNumber ? ` — WTC ${wtcNumber}` : ""}</div>
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <Btn onClick={() => window.print()} variant="secondary" small icon="🖨">Print</Btn>
+            {onBackToList && <Btn onClick={onBackToList} variant="secondary" small>← Proposals</Btn>}
+            {onClose && <Btn onClick={() => onClose()} variant="ghost">✕ Close</Btn>}
+          </div>
+        </div>
+
+        {/* Tab bar */}
+        <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "0 28px", display: "flex", gap: 0, overflowX: "auto", overflowY: "hidden" }}>
+        {TABS.map(t => {
+          const active = tab === t.key;
+          return (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: "13px 16px", fontSize: 13, fontWeight: active ? 700 : 500, color: active ? T.green : "rgba(255,255,255,0.5)", borderBottom: active ? `2px solid ${T.green}` : "2px solid transparent", marginBottom: -1, display: "flex", alignItems: "center", gap: 6, transition: "color 0.15s", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: 14 }}>{t.icon}</span>{t.label}
+            </button>
+          );
+        })}
+      </div>
+      </div>
+
+      {/* Content area */}
+      <div data-wtc-no-print style={{ maxWidth: 940, margin: "0 auto", padding: "28px 20px", position: "relative", zIndex: 1 }}>
+        {(locked || proposalSold) && tab !== "summary" && (
+          <div style={{ background: "#FFF8E1", border: "1px solid #F59E0B", borderRadius: 10, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 20 }}>🔒</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e" }}>{proposalSold ? "This proposal is Sold — WTC is read-only" : "This WTC is locked"}</div>
+              <div style={{ fontSize: 12, color: "#92400e", marginTop: 2 }}>Go to the Summary tab and click Unlock WTC to make edits.</div>
+            </div>
+          </div>
+        )}
+        {pwAlert && (
+          <div style={{ background: "#FFF8E1", border: "1px solid #F59E0B", borderRadius: 10, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 18 }}>&#9888;</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#92400e" }}>{pwAlert}</span>
+            </div>
+            <button onClick={() => setPwAlert(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#92400e", fontWeight: 700, padding: "0 4px" }}>&times;</button>
+          </div>
+        )}
+        <div style={{ background: "#c8bcaa", borderRadius: 14, border: `1px solid rgba(28,24,20,0.15)`, padding: "28px 32px", marginBottom: 20, position: "relative" }}>
+          {(locked || proposalSold) && tab !== "summary" && (
+            <div style={{ position: "absolute", inset: 0, borderRadius: 14, zIndex: 10, cursor: "not-allowed" }} onClick={() => {}} />
+          )}
+          {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} />}
+          {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={proposalSold ? undefined : v => { setLabor(v); setSaved(false); }} />}
+          {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={proposalSold ? undefined : v => { setMaterials(v); setSaved(false); }} />}
+          {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} />}
+          {tab === "travel"  && <TravelTab data={travel} onChange={proposalSold ? undefined : v => { setTravel(v); setSaved(false); }} />}
+          {tab === "discount" && <DiscountTab data={discount} onChange={proposalSold ? undefined : v => { setDiscount(v); setSaved(false); }} />}
+          {tab === "summary" && <SummaryTab labor={laborComputed} materials={materials} travel={travel} discount={discount} sow={sow} bidding={bidding} onSave={handleSave} saved={saved} locked={locked} onLock={handleLock} onGeneratePDF={() => { if (onClose) onClose(true); }} />}
+        </div>
+<Summary labor={laborComputed} materials={materials} travel={travel} discount={discount} size={sow.size} unit={sow.unit} />
+
+        {/* Prev / Next */}
+        {/* Prev / Next */}
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
+          <Btn onClick={() => idx > 0 && setTab(tabs[idx - 1])} variant="secondary" icon="←" small disabled={idx === 0}>Back</Btn>
+          <Btn onClick={() => idx < tabs.length - 1 && setTab(tabs[idx + 1])} variant="primary" icon="→" small disabled={idx === tabs.length - 1}>Next</Btn>
+        </div>
+      </div>
       {/* ── Print-only layout ──────────────────────────────────────────────── */}
       <div data-wtc-print-only style={{ padding: "24px 40px", fontFamily: "'Inter', sans-serif", color: "#1c1814", fontSize: 12 }}>
         {/* Print header */}
@@ -2098,79 +2171,6 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
               </tr>
             </tbody>
           </table>
-        </div>
-      </div>
-      {/* Sticky header + tab bar wrapper */}
-      <div data-wtc-no-print style={{ position: "sticky", top: 0, zIndex: 100, boxShadow: "0 1px 3px rgba(0,0,0,0.2)", background: T.dark }}>
-        {/* Header */}
-        <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "12px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontWeight: 500, marginBottom: 3 }}>
-              Sales Command · Proposals /
-              <span style={{ color: T.green, fontWeight: 600 }}> WTC</span>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>Work Type Calculator{wtcNumber ? ` — WTC ${wtcNumber}` : ""}</div>
-          </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <Btn onClick={() => window.print()} variant="secondary" small icon="🖨">Print</Btn>
-            {onBackToList && <Btn onClick={onBackToList} variant="secondary" small>← Proposals</Btn>}
-            {onClose && <Btn onClick={() => onClose()} variant="ghost">✕ Close</Btn>}
-          </div>
-        </div>
-
-        {/* Tab bar */}
-        <div style={{ background: T.dark, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: "0 28px", display: "flex", gap: 0, overflowX: "auto", overflowY: "hidden" }}>
-        {TABS.map(t => {
-          const active = tab === t.key;
-          return (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              style={{ background: "none", border: "none", cursor: "pointer", padding: "13px 16px", fontSize: 13, fontWeight: active ? 700 : 500, color: active ? T.green : "rgba(255,255,255,0.5)", borderBottom: active ? `2px solid ${T.green}` : "2px solid transparent", marginBottom: -1, display: "flex", alignItems: "center", gap: 6, transition: "color 0.15s", fontFamily: "inherit", whiteSpace: "nowrap" }}>
-              <span style={{ fontSize: 14 }}>{t.icon}</span>{t.label}
-            </button>
-          );
-        })}
-      </div>
-      </div>
-
-      {/* Content area */}
-      <div data-wtc-no-print style={{ maxWidth: 940, margin: "0 auto", padding: "28px 20px", position: "relative", zIndex: 1 }}>
-        {(locked || proposalSold) && tab !== "summary" && (
-          <div style={{ background: "#FFF8E1", border: "1px solid #F59E0B", borderRadius: 10, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 20 }}>🔒</span>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e" }}>{proposalSold ? "This proposal is Sold — WTC is read-only" : "This WTC is locked"}</div>
-              <div style={{ fontSize: 12, color: "#92400e", marginTop: 2 }}>Go to the Summary tab and click Unlock WTC to make edits.</div>
-            </div>
-          </div>
-        )}
-        {pwAlert && (
-          <div style={{ background: "#FFF8E1", border: "1px solid #F59E0B", borderRadius: 10, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 18 }}>&#9888;</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#92400e" }}>{pwAlert}</span>
-            </div>
-            <button onClick={() => setPwAlert(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#92400e", fontWeight: 700, padding: "0 4px" }}>&times;</button>
-          </div>
-        )}
-        <div style={{ background: "#c8bcaa", borderRadius: 14, border: `1px solid rgba(28,24,20,0.15)`, padding: "28px 32px", marginBottom: 20, position: "relative" }}>
-          {(locked || proposalSold) && tab !== "summary" && (
-            <div style={{ position: "absolute", inset: 0, borderRadius: 14, zIndex: 10, cursor: "not-allowed" }} onClick={() => {}} />
-          )}
-          {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} />}
-          {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={proposalSold ? undefined : v => { setLabor(v); setSaved(false); }} />}
-          {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={proposalSold ? undefined : v => { setMaterials(v); setSaved(false); }} />}
-          {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} />}
-          {tab === "travel"  && <TravelTab data={travel} onChange={proposalSold ? undefined : v => { setTravel(v); setSaved(false); }} />}
-          {tab === "discount" && <DiscountTab data={discount} onChange={proposalSold ? undefined : v => { setDiscount(v); setSaved(false); }} />}
-          {tab === "summary" && <SummaryTab labor={laborComputed} materials={materials} travel={travel} discount={discount} sow={sow} bidding={bidding} onSave={handleSave} saved={saved} locked={locked} onLock={handleLock} onGeneratePDF={() => { if (onClose) onClose(true); }} />}
-        </div>
-<Summary labor={laborComputed} materials={materials} travel={travel} discount={discount} size={sow.size} unit={sow.unit} />
-
-        {/* Prev / Next */}
-        {/* Prev / Next */}
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
-          <Btn onClick={() => idx > 0 && setTab(tabs[idx - 1])} variant="secondary" icon="←" small disabled={idx === 0}>Back</Btn>
-          <Btn onClick={() => idx < tabs.length - 1 && setTab(tabs[idx + 1])} variant="primary" icon="→" small disabled={idx === tabs.length - 1}>Next</Btn>
         </div>
       </div>
     {showPDF && <PDFPreviewModal open={showPDF} onClose={() => setShowPDF(false)} proposal={proposalData} />}

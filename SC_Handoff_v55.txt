@@ -1,0 +1,107 @@
+SC_Handoff_v55 — April 6, 2026
+Session: WTC profit margin fix, PW sync logic, sticky header (UNRESOLVED), WTC numbering
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. FIX: WTC profit margin / cost calculation (VERIFIED WORKING)
+   - Bug: Summary, SummaryTab, and print layout used material BILLED amount
+     (with markup) for totalCost instead of material COST (without markup)
+   - This made profit look smaller and margin lower than reality
+   - Fix: All three locations now compute matsCost (price*qty + tax + freight)
+     separately from matTotal (which includes markup), matching calcWtcBreakdown
+     in src/lib/calc.js
+   - Also added Math.ceil to SummaryTab proposalPrice (was missing, Summary had it)
+   - Numbers now match between Summary bar, SummaryTab, and calcWtcBreakdown
+
+2. FEAT: Prevailing Wage sync across WTCs (IMPLEMENTED, NOT YET TESTED LIVE)
+   - New WTC auto-fills PW from siblings: if any sibling WTC has PW on, new WTC
+     gets prevailing_wage: true + pw_rate + pw_ot_rate from that sibling
+   - Turning PW ON: always allowed, syncs pw_rate/pw_ot_rate to all siblings on save
+   - Turning PW OFF from WTC 2+: blocked with alert banner telling user to go to WTC 1
+   - Turning PW OFF from WTC 1: confirm dialog warns it removes PW from all WTCs
+   - Save handler now syncs prevailing_wage + pw_rate + pw_ot_rate (was only syncing
+     prevailing_wage boolean before)
+
+3. FEAT: WTC number in header (VERIFIED WORKING)
+   - Header now shows "Work Type Calculator — WTC 1", "WTC 2", etc.
+   - Determined by ordering sibling WTCs by created_at ascending
+   - State: wtcNumber, isFirstWtc — set in checkSiblings effect
+
+4. BUG: WTC sticky header / content bleed (UNRESOLVED — NEEDS NEXT SESSION)
+   - Problem: When scrolling the WTC Summary tab, content scrolls OVER the
+     sticky header bar (breadcrumb + tabs). Cards and text are visible above
+     the header.
+   - Tried and FAILED:
+     a. zIndex: 100 on sticky header + zIndex: 1 on content — no effect
+     b. isolation: isolate on wrapper — made it worse
+     c. background: T.dark on sticky wrapper — no effect
+     d. Moving print-only block after content — no effect
+     e. Replacing position: sticky with flex layout (current state) — still
+        not working per user report
+   - Current state (commit 1c8475a): WTC uses flex column layout with
+     height: calc(100vh - 50px), header as flexShrink: 0, content in
+     flex: 1 + overflowY: auto wrapper. No position: sticky.
+   - Root cause theory: The parent data-app-content div has overflowY: auto
+     and padding: 28px 32px. The WTC uses margin: -28px -32px 0 to go
+     full-bleed. The parent's scroll context may be fighting with the WTC's
+     own scroll container, or the parent padding creates a gap. The negative
+     margin approach may need to be abandoned entirely.
+   - SUGGESTED FIX FOR NEXT SESSION: Instead of negative margins on the WTC,
+     modify App.jsx to conditionally remove padding from data-app-content
+     when WTC is open (pass a prop or use a CSS class). This would let the
+     WTC fill the content area naturally without hacks. Alternatively,
+     render the WTC as a full-screen overlay (position: fixed, inset: 0)
+     above the app shell entirely, which sidesteps the scroll container issue.
+
+===============================================================================
+DATABASE CHANGES
+===============================================================================
+
+None this session.
+
+===============================================================================
+EDGE FUNCTIONS DEPLOYED
+===============================================================================
+
+None this session.
+
+===============================================================================
+FILES CHANGED
+===============================================================================
+
+src/pages/WTCCalculator.jsx:
+  - matsCost calculation added to Summary, SummaryTab, and print helpers
+  - Math.ceil added to SummaryTab proposalPrice
+  - PW toggle handler (handlePwToggle) with isFirstWtc guard
+  - checkSiblings effect: determines WTC number + auto-fills PW for new WTCs
+  - Save handler syncs pw_rate + pw_ot_rate to siblings (not just boolean)
+  - BiddingTab accepts isFirstWtc + onPwToggle props
+  - pwAlert state + dismissible banner UI
+  - wtcNumber displayed in header
+  - Print-only block moved after content area
+  - Multiple sticky header / layout attempts (see bug notes above)
+  - Current layout: flex column with own scroll container
+
+===============================================================================
+KNOWN ISSUES / NEXT UP
+===============================================================================
+
+- **PRIORITY: WTC sticky header / content bleed** — see detailed notes above.
+  Multiple approaches tried and failed. Consider full-screen overlay approach
+  or conditional padding removal on data-app-content.
+- Test PW sync logic live with multi-WTC proposal
+- Data migration from old system
+- Invoices.jsx extraction (~1,100 lines -> InvoiceDetail, NewInvoiceModal, InvoicePDFModal)
+- WTCCalculator.jsx extraction (~2,100 lines -> field SOW)
+- Settings page expansion (invoice numbering, company info, per-tenant config)
+
+===============================================================================
+PRODUCTION
+===============================================================================
+
+URL: https://www.scmybiz.com
+Vercel: auto-deploys on push to main
+All changes pushed and deployed.
+Sticky header issue persists on production — needs next session.

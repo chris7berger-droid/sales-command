@@ -653,6 +653,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
   const [editPcts, setEditPcts] = useState({});
   const [saving, setSaving] = useState(false);
   const [showPaidPDF, setShowPaidPDF] = useState(false);
+  const [showVoidModal, setShowVoidModal] = useState(null); // "delete" | "pullback" | null
+  const [voidReason, setVoidReason] = useState("");
 
   // Auto-refresh: poll for payment status updates when invoice is Sent/Waiting
   useEffect(() => {
@@ -721,15 +723,12 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
   const isNew = inv.status === "New";
 
   async function handleDelete() {
-    if (!confirm(`Delete Invoice #${inv.id}? This cannot be undone.`)) return;
-    if (!confirm(`Are you absolutely sure? This will permanently delete Invoice #${inv.id} and all its line items.`)) return;
-    // Void in QuickBooks if synced (non-blocking)
     if (inv.qb_invoice_id) {
-      supabase.functions.invoke("qb-void-invoice", { body: { invoiceId: inv.id } })
-        .then(r => { if (r.data?.error) console.warn("QB void:", r.data.error); else console.log("QB invoice voided:", r.data); })
-        .catch(e => console.warn("QB void failed:", e.message));
+      // Has QB record — show void modal for required reason
+      setShowVoidModal("delete");
+      return;
     }
-    // Delete line items first (FK children)
+    if (!confirm(`Delete Invoice #${inv.id}? This cannot be undone.`)) return;
     await supabase.from("invoice_lines").delete().eq("invoice_id", inv.id);
     const { error } = await supabase.from("invoices").delete().eq("id", inv.id);
     if (error) { alert(error.message); return; }
@@ -791,26 +790,44 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
   }
 
   async function handlePullBack() {
-    if (!confirm("Pull back this invoice? It will reset to New and invalidate any payment link.")) return;
-    // Void in QuickBooks if synced (non-blocking)
     if (inv.qb_invoice_id) {
-      supabase.functions.invoke("qb-void-invoice", { body: { invoiceId: inv.id } })
-        .then(r => { if (r.data?.error) console.warn("QB void:", r.data.error); else console.log("QB invoice voided:", r.data); })
-        .catch(e => console.warn("QB void failed:", e.message));
+      setShowVoidModal("pullback");
+      return;
     }
-    const updates = {
-      status: "New",
-      sent_at: null,
-      stripe_checkout_id: null,
-      stripe_checkout_url: null,
-      stripe_payment_id: null,
-      paid_at: null,
-      qb_invoice_id: null,
-    };
+    if (!confirm("Pull back this invoice? It will reset to New and invalidate any payment link.")) return;
+    const updates = { status: "New", sent_at: null, stripe_checkout_id: null, stripe_checkout_url: null, stripe_payment_id: null, paid_at: null };
     const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
     if (error) { alert(error.message); return; }
     setInv(prev => ({ ...prev, ...updates }));
     onUpdated && onUpdated();
+  }
+
+  async function handleVoidConfirm() {
+    if (!voidReason.trim()) { alert("A reason is required for audit compliance."); return; }
+    setSaving(true);
+    // Void in QuickBooks with reason
+    const { data: qbResult } = await supabase.functions.invoke("qb-void-invoice", {
+      body: { invoiceId: inv.id, reason: voidReason.trim(), action: showVoidModal },
+    });
+    if (qbResult?.error) { alert(`QuickBooks error: ${qbResult.error}`); setSaving(false); return; }
+
+    if (showVoidModal === "delete") {
+      await supabase.from("invoice_lines").delete().eq("invoice_id", inv.id);
+      await supabase.from("invoices").delete().eq("id", inv.id);
+      setSaving(false);
+      setShowVoidModal(null);
+      setVoidReason("");
+      onDeleted && onDeleted();
+    } else {
+      const updates = { status: "New", sent_at: null, stripe_checkout_id: null, stripe_checkout_url: null, stripe_payment_id: null, paid_at: null, qb_invoice_id: null };
+      const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
+      if (error) { alert(error.message); setSaving(false); return; }
+      setInv(prev => ({ ...prev, ...updates }));
+      setSaving(false);
+      setShowVoidModal(null);
+      setVoidReason("");
+      onUpdated && onUpdated();
+    }
   }
 
   return (
@@ -973,6 +990,44 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
             onUpdated && onUpdated();
           }}
         />
+      )}
+
+      {/* Void / Delete Confirmation Modal */}
+      {showVoidModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,20,35,0.7)", backdropFilter: "blur(4px)" }}
+          onClick={e => { if (e.target === e.currentTarget && !saving) { setShowVoidModal(null); setVoidReason(""); } }}>
+          <div style={{ background: C.linenCard, borderRadius: 16, width: "min(480px,90vw)", padding: "28px 32px", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: C.red, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 4 }}>
+              {showVoidModal === "delete" ? "Delete Invoice" : "Pull Back Invoice"}
+            </div>
+
+            <div style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui, marginBottom: 16, lineHeight: 1.6 }}>
+              Invoice <strong>#{inv.id}</strong> has been synced to QuickBooks.
+              {showVoidModal === "delete"
+                ? " Deleting this invoice will void it in QuickBooks to preserve the audit trail. The invoice will remain in QB as a $0.00 voided record."
+                : " Pulling back this invoice will void it in QuickBooks and reset it to draft in Sales Command. The QB record will remain as a $0.00 voided entry for compliance."}
+            </div>
+
+            <div style={{ background: C.linenDeep, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: C.textFaint, fontFamily: F.ui, lineHeight: 1.5 }}>
+              A timestamped note with your reason will be recorded on the QuickBooks invoice before it is voided. This is required for accounting compliance.
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6, fontFamily: F.display }}>Reason for {showVoidModal === "delete" ? "Deletion" : "Pull Back"} *</div>
+              <textarea value={voidReason} onChange={e => setVoidReason(e.target.value)}
+                placeholder="e.g. Duplicate invoice, billing error, customer requested cancellation..."
+                rows={3}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, fontSize: 14, color: C.textBody, fontFamily: F.ui, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <Btn sz="sm" v="ghost" onClick={() => { setShowVoidModal(null); setVoidReason(""); }} disabled={saving}>Cancel</Btn>
+              <Btn sz="sm" onClick={handleVoidConfirm} disabled={saving || !voidReason.trim()} style={{ background: C.red, borderColor: C.red }}>
+                {saving ? "Processing..." : showVoidModal === "delete" ? "Void in QB & Delete" : "Void in QB & Pull Back"}
+              </Btn>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

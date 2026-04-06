@@ -75,7 +75,7 @@ serve(async (req) => {
       });
     }
 
-    const { invoiceId } = await req.json();
+    const { invoiceId, reason, action: voidAction } = await req.json();
     if (!invoiceId) {
       return new Response(JSON.stringify({ error: "invoiceId is required" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400,
@@ -104,7 +104,36 @@ serve(async (req) => {
     const getData = await getRes.json();
     if (!getRes.ok) throw new Error(`QB fetch failed: ${JSON.stringify(getData?.Fault?.Error?.[0]?.Detail || getData)}`);
 
-    const syncToken = getData.Invoice.SyncToken;
+    let syncToken = getData.Invoice.SyncToken;
+    const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" });
+    const actionLabel = voidAction === "delete" ? "DELETED" : "VOIDED/PULLED BACK";
+    const noteText = `[${actionLabel}] ${timestamp} — ${reason || "No reason provided"}`;
+
+    // Add PrivateNote to the invoice before voiding for audit trail
+    const existingNote = getData.Invoice.PrivateNote || "";
+    const fullNote = existingNote ? `${existingNote}\n${noteText}` : noteText;
+    const updateUrl = `${QB_API_BASE}/v3/company/${realmId}/invoice`;
+    const updateRes = await fetch(updateUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({
+        Id: invoice.qb_invoice_id,
+        SyncToken: syncToken,
+        sparse: true,
+        PrivateNote: fullNote,
+      }),
+    });
+    const updateData = await updateRes.json();
+    if (!updateRes.ok) {
+      console.warn("QB note update failed, proceeding with void:", JSON.stringify(updateData?.Fault?.Error?.[0]?.Detail || updateData));
+    } else {
+      syncToken = updateData.Invoice.SyncToken;
+      console.log("qb-void-invoice: added note to QB invoice", invoice.qb_invoice_id);
+    }
 
     // Void the invoice (POST with ?operation=void)
     const voidUrl = `${QB_API_BASE}/v3/company/${realmId}/invoice?operation=void`;

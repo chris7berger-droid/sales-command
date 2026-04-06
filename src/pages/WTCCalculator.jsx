@@ -1787,9 +1787,15 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       <style>{`
         @media print {
           body, html { background: white !important; margin: 0 !important; padding: 0 !important; }
+          [data-app-shell] { display: block !important; height: auto !important; overflow: visible !important; }
+          [data-app-sidebar] { display: none !important; }
+          [data-app-header] { display: none !important; }
+          [data-app-content] { overflow: visible !important; height: auto !important; padding: 0 !important; }
+          [data-app-content] > div { display: block !important; overflow: visible !important; height: auto !important; }
           [data-wtc-no-print] { display: none !important; }
           [data-wtc-print-only] { display: block !important; }
           div { box-shadow: none !important; }
+          @page { margin: 0.5in; size: letter; }
         }
         @media screen {
           [data-wtc-print-only] { display: none !important; }

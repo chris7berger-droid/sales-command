@@ -247,9 +247,9 @@ function AppShell({ active, setActive, open, setOpen, displayName, displayRole, 
   return (
     <>
       <style>{GLOBAL_CSS}</style>
-      <div style={{ display: "flex", height: "100vh", background: C.linen, overflow: "hidden" }}>
+      <div data-app-shell style={{ display: "flex", height: "100vh", background: C.linen, overflow: "hidden" }}>
 
-        <div style={{ width: open ? 228 : 56, flexShrink: 0, background: C.dark, display: "flex", flexDirection: "column", transition: "width 0.22s cubic-bezier(0.4,0,0.2,1)", overflow: "hidden", borderRight: `1px solid ${C.darkBorder}` }}>
+        <div data-app-sidebar style={{ width: open ? 228 : 56, flexShrink: 0, background: C.dark, display: "flex", flexDirection: "column", transition: "width 0.22s cubic-bezier(0.4,0,0.2,1)", overflow: "hidden", borderRight: `1px solid ${C.darkBorder}` }}>
 
           <div style={{ padding: open ? "18px 16px 14px" : "18px 10px 14px", borderBottom: `1px solid ${C.darkBorder}`, display: "flex", alignItems: "center", gap: 11, flexShrink: 0 }}>
             <div style={{ flexShrink: 0 }}><SalesCommandMark size={34} /></div>
@@ -292,7 +292,7 @@ function AppShell({ active, setActive, open, setOpen, displayName, displayRole, 
         </div>
 
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ height: 50, background: C.linenCard, borderBottom: `1px solid ${C.borderStrong}`, display: "flex", alignItems: "center", padding: "0 28px", justifyContent: "space-between", flexShrink: 0 }}>
+          <div data-app-header style={{ height: 50, background: C.linenCard, borderBottom: `1px solid ${C.borderStrong}`, display: "flex", alignItems: "center", padding: "0 28px", justifyContent: "space-between", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textFaint, fontFamily: F.display }}>Sales Command</span>
               <span style={{ color: C.border, fontSize: 14 }}>›</span>
@@ -302,7 +302,7 @@ function AppShell({ active, setActive, open, setOpen, displayName, displayRole, 
              
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+          <div data-app-content style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
             <ErrorBoundary>{page()}</ErrorBoundary>
           </div>
         </div>

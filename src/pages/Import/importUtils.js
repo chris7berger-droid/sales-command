@@ -41,6 +41,25 @@ export const TARGET_FIELDS = {
     { key: "billing_email",    label: "Billing Email",          column: "billing_email",    type: "email", required: false },
     { key: "billing_terms",    label: "Billing Terms (days)",   column: "billing_terms",    type: "int",   required: false },
   ],
+  call_log: [
+    { key: "job_number",         label: "Job Number",          column: "job_number",         type: "int",   required: false },
+    { key: "display_job_number", label: "Display Job Number",  column: "display_job_number", type: "text",  required: false },
+    { key: "customer_name",      label: "Customer Name",       column: "customer_name",      type: "text",  required: true },
+    { key: "job_name",           label: "Project / Job Name",  column: "job_name",           type: "text",  required: false },
+    { key: "sales_name",         label: "Sales Rep",           column: "sales_name",         type: "text",  required: false },
+    { key: "stage",              label: "Stage",               column: "stage",              type: "text",  required: false },
+    { key: "jobsite_address",    label: "Jobsite Address",     column: "jobsite_address",    type: "text",  required: false },
+    { key: "jobsite_city",       label: "Jobsite City",        column: "jobsite_city",       type: "text",  required: false },
+    { key: "jobsite_state",      label: "Jobsite State",       column: "jobsite_state",      type: "state", required: false },
+    { key: "jobsite_zip",        label: "Jobsite Zip",         column: "jobsite_zip",        type: "zip",   required: false },
+    { key: "bid_due",            label: "Bid Due Date",        column: "bid_due",            type: "date",  required: false },
+    { key: "follow_up",          label: "Follow Up Date",      column: "follow_up",          type: "date",  required: false },
+    { key: "notes",              label: "Notes",               column: "notes",              type: "text",  required: false },
+    { key: "work_type",          label: "Work Type",           column: null,                 type: "text",  required: false, virtual: true },
+    { key: "created_at",         label: "Date Created",        column: "created_at",         type: "date",  required: false },
+    { key: "customer_type",      label: "Customer Type",       column: "customer_type",      type: "text",  required: false },
+    { key: "prevailing_wage",    label: "Prevailing Wage",     column: null,                 type: "text",  required: false, virtual: true },
+  ],
 };
 
 /* ── Auto-match rules ──
@@ -66,6 +85,25 @@ const AUTO_MATCH_RULES = {
     { patterns: ["billing phone", "billingphone", "billing/contactphone", "billingcontactphone"], target: "billing_phone", confidence: "high" },
     { patterns: ["billing email", "billingemail", "billing/contactemail"], target: "billing_email", confidence: "high" },
     { patterns: ["billing terms", "net", "payment terms", "terms"], target: "billing_terms", confidence: "medium" },
+  ],
+  call_log: [
+    { patterns: ["job number", "job num", "job_number", "job #"],   target: "job_number",         confidence: "high" },
+    { patterns: ["display job", "display_job_number"],               target: "display_job_number", confidence: "high" },
+    { patterns: ["customer name", "customer_name", "customername"],  target: "customer_name",      confidence: "high" },
+    { patterns: ["project name", "project_name", "job name", "job_name"], target: "job_name",     confidence: "high" },
+    { patterns: ["sales name", "sales_name", "sales rep", "sales person", "salesperson", "username"], target: "sales_name", confidence: "high" },
+    { patterns: ["stage", "sales funnel", "funnel stage"],           target: "stage",              confidence: "high" },
+    { patterns: ["jobsite address", "jobsite_address", "job site address", "address"], target: "jobsite_address", confidence: "high" },
+    { patterns: ["jobsite city", "jobsite_city", "city"],            target: "jobsite_city",       confidence: "high" },
+    { patterns: ["jobsite state", "jobsite_state", "state"],         target: "jobsite_state",      confidence: "high" },
+    { patterns: ["jobsite zip", "jobsite_zip", "zip"],               target: "jobsite_zip",        confidence: "high" },
+    { patterns: ["bid due", "bid_due", "bid due date"],              target: "bid_due",            confidence: "high" },
+    { patterns: ["follow up", "follow_up", "follow up date"],        target: "follow_up",          confidence: "high" },
+    { patterns: ["notes", "first outreach", "follow up notes"],      target: "notes",              confidence: "medium" },
+    { patterns: ["work type", "work_type", "type of work"],          target: "work_type",          confidence: "high" },
+    { patterns: ["created date", "created_date", "called date", "calleddate", "created_at", "date created"], target: "created_at", confidence: "high" },
+    { patterns: ["customer type", "customer_type"],                  target: "customer_type",      confidence: "medium" },
+    { patterns: ["prevailing wage", "prevailing_wage"],              target: "prevailing_wage",    confidence: "high" },
   ],
 };
 
@@ -168,10 +206,13 @@ function parseDate(v) {
   }
   // Already a Date object (from SheetJS cellDates)
   if (v instanceof Date) return v.toISOString().slice(0, 10);
-  // Try native parse
-  const d = new Date(v);
-  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  return v;
+  // Try native parse — but only if it looks like a date (has digits)
+  if (/\d/.test(v)) {
+    const d = new Date(v);
+    if (!isNaN(d.getTime()) && d.getFullYear() > 1990 && d.getFullYear() < 2100) return d.toISOString().slice(0, 10);
+  }
+  // Not a valid date — return null so it gets dropped from date columns
+  return null;
 }
 
 function parseIntSafe(v) {

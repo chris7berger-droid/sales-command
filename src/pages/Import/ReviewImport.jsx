@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { C, F } from "../../lib/tokens";
 import Btn from "../../components/Btn";
 import { TARGET_FIELDS } from "./importUtils";
-import { buildRows, validateRows, detectDuplicates, importRows } from "./importApi";
+import { buildRows, validateRows, detectDuplicates, importRows, enrichCallLogRows } from "./importApi";
 
 const STATUS_COLORS = {
   clean:   { bg: "rgba(67,160,71,0.10)", border: "rgba(67,160,71,0.30)", dot: C.green,  label: "Clean" },
@@ -17,6 +17,7 @@ export default function ReviewImport({ fileData, dataType, mappings }) {
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [result, setResult] = useState(null);
+  const [showAll, setShowAll] = useState(false);
 
   const fields = TARGET_FIELDS[dataType] || [];
   const mappedFields = useMemo(() => {
@@ -37,7 +38,8 @@ export default function ReviewImport({ fileData, dataType, mappings }) {
   useEffect(() => {
     async function prepare() {
       setLoading(true);
-      const built = buildRows(fileData, dataType, mappings);
+      let built = buildRows(fileData, dataType, mappings);
+      if (dataType === "call_log") built = await enrichCallLogRows(built);
       const validated = validateRows(built, dataType);
       const withDupes = await detectDuplicates(validated, dataType);
 
@@ -195,7 +197,7 @@ export default function ReviewImport({ fileData, dataType, mappings }) {
             </tr>
           </thead>
           <tbody>
-            {filtered.slice(0, 100).map((row) => {
+            {(showAll ? filtered : filtered.slice(0, 100)).map((row) => {
               const sc = STATUS_COLORS[row._status];
               return (
                 <tr key={row._idx} style={{ background: sc.bg }}>
@@ -278,8 +280,11 @@ export default function ReviewImport({ fileData, dataType, mappings }) {
       </div>
 
       {filtered.length > 100 && (
-        <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui, marginTop: 6, textAlign: "right" }}>
-          Showing 100 of {filtered.length} rows
+        <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui, marginTop: 6, textAlign: "right", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10 }}>
+          <span>{showAll ? `Showing all ${filtered.length} rows` : `Showing 100 of ${filtered.length} rows`}</span>
+          <button onClick={() => setShowAll(!showAll)} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display }}>
+            {showAll ? "Show Less" : "Show All"}
+          </button>
         </div>
       )}
 

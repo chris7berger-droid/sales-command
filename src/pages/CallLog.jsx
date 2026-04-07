@@ -25,7 +25,19 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
   const [showModal, setShowModal] = useState(false);
   const [selJob, setSelJob]       = useState(null);
 
+  const CACHE_KEY = "sc_calllog_cache";
+
   const load = async () => {
+    // Show cached data instantly if available
+    try {
+      const cached = sessionStorage.getItem(CACHE_KEY);
+      if (cached) {
+        const c = JSON.parse(cached);
+        if (c.rows?.length) { setRows(c.rows); setTeam(c.team || []); setCustomers(c.customers || []); setWorkTypes(c.workTypes || []); setLoading(false); }
+      }
+    } catch {}
+
+    // Fetch fresh data in background
     const [{ data: tm }, { data: wt }, allCx] = await Promise.all([
       supabase.from("team_members").select("*").order("name"),
       supabase.from("work_types").select("*").order("name"),
@@ -50,6 +62,9 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
     setCustomers(allCx);
     setWorkTypes(wt || []);
     setLoading(false);
+
+    // Cache for next visit
+    try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ rows: allLog, team: tm || [], customers: allCx, workTypes: wt || [] })); } catch {}
   };
 
   useEffect(() => { load(); }, []);

@@ -1,0 +1,155 @@
+SC_Handoff_v57 — April 7, 2026
+Session: Nav arrows, Call Log import, PandaDoc export, performance
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. FEATURE: Fixed-position nav arrows on Inquiry Wizard + WTC
+   - Inquiry Wizard: removed inline StepFooter from every step, centralized
+     validation into validateStep(). Arrow circles (← →) are position:fixed
+     on the viewport, completely independent of modal sizing. Modal auto-sizes
+     naturally with content. Added step counter (3/12) and error display.
+   - WTC Calculator: removed bottom Prev/Next buttons, added fixed-position
+     arrow circles flanking the content card. Hidden on print via
+     data-wtc-no-print. Arrows positioned relative to content card center.
+   - Both: arrows never move regardless of content height changes.
+
+2. FEATURE: Work type search bar in Inquiry Wizard
+   - Added search input on the work types step that filters by name or
+     cost code. Clears on advancing to next step.
+
+3. FEATURE: Call Log import in Data Import Tool
+   - Added call_log target fields (17 fields) and auto-match rules to
+     importUtils.js
+   - Added enrichCallLogRows in importApi.js: customer linking by name,
+     stage normalization, job number assignment, display_job_number building,
+     work type ID resolution, job_work_types insert after import
+   - Date parser returns null for non-date text (e.g. "end of april will
+     follow up"), rescued text appended to notes field
+   - Duplicate detection for call_log by job_number
+   - Customer name fallback: pulls from job_name when customer_name is empty
+   - Jobsite address changed to non-required to allow incomplete records
+   - "Show All" button on review table (was capped at 100 rows)
+   - Successfully imported 2,584 HDSP Call Log entries from Glide
+
+4. FIX: Call Log pagination past 1000-row PostgREST limit
+   - Inline pagination with .range() in 500-row batches for call_log
+     query with joins. Shows all 2500+ rows.
+
+5. FEATURE: sessionStorage cache for Call Log
+   - Shows cached data instantly on mount, fetches fresh data in background
+   - Eliminates loading spinner on repeat visits
+
+6. IN PROGRESS: PandaDoc bulk PDF export
+   - Script running at ~/Desktop/pandadoc_export/download.py
+   - Downloads completed, paid, waiting_pay, and draft documents as PDFs
+   - 4,855 total docs, ~3,951 matching statuses
+   - Named with job numbers extracted from doc titles
+   - Rate limited at 10 req/min (sandbox key), will take several hours
+   - PDFs saved to ~/Desktop/pandadoc_export/pdfs/
+   - Script is resumable — skips already-downloaded files
+
+7. DATA: Glide Call Log cleanup script
+   - Python script extracted 30 useful columns from 109-column Glide export
+   - Output: ~/Desktop/calllog_clean.csv (2,584 rows)
+   - Merged "Chris" and "Chris Berger" sales rep names identified
+
+===============================================================================
+DATABASE CHANGES
+===============================================================================
+
+- ~2,584 rows inserted into call_log (HDSP Glide migration)
+- job_work_types rows created for jobs with matching work types
+- No schema changes this session
+
+===============================================================================
+EDGE FUNCTIONS DEPLOYED
+===============================================================================
+
+None this session.
+
+===============================================================================
+FILES CHANGED
+===============================================================================
+
+src/components/NewInquiryWizard.jsx:
+  - Removed StepFooter component, added NavCircle component
+  - Centralized validation into validateStep() and handleNext()
+  - Added wtSearch state and search input on work types step
+  - Restructured modal: arrows position:fixed outside modal,
+    modal auto-sizes, step counter + error in footer area
+
+src/pages/WTCCalculator.jsx:
+  - Removed bottom Prev/Next buttons (lines ~1962-1967)
+  - Added fixed-position arrow circles flanking content card
+  - Arrows use data-wtc-no-print, hidden on print
+
+src/pages/CallLog.jsx:
+  - Inline pagination for call_log with 500-row batches
+  - sessionStorage cache (stale-while-revalidate pattern)
+  - Import fetchAll from supabaseHelpers
+
+src/pages/Import/importUtils.js:
+  - Added call_log TARGET_FIELDS (17 fields)
+  - Added call_log AUTO_MATCH_RULES (17 rules)
+  - parseDate() returns null for non-date strings instead of raw text
+  - Jobsite address changed to required: false
+
+src/pages/Import/importApi.js:
+  - Added enrichCallLogRows(): customer linking, stage normalization,
+    job number assignment, display_job_number, work type resolution,
+    date text rescue into notes
+  - Updated buildRows() to capture raw date field values
+  - Updated importRows() to handle call_log customer_id, job_work_types
+  - Updated detectDuplicates() for call_log by job_number
+
+src/pages/Import/ReviewImport.jsx:
+  - Added enrichCallLogRows call in prepare()
+  - Added Show All / Show Less toggle for review table
+
+===============================================================================
+KNOWN ISSUES / NEXT UP
+===============================================================================
+
+Priority order:
+1. Call Log Archiver
+   - Add `archived` boolean column to call_log (default false)
+   - Auto-archive: Sold/Lost jobs older than 1 year
+   - Bulk archive with FilterBar (date range, stage, rep, etc.)
+   - "Archived" toggle/tab to view old jobs
+   - Call Log only loads archived=false by default (performance win)
+
+2. Sales Rep Reminders (after archiver, in Settings)
+   - Has Bid: email every 30 days or on Follow Up Date
+   - Wants Bid: email weekly or until Follow Up Date
+   - Customizable intervals per tenant in Settings
+   - last_reminder_sent column on call_log
+   - Scheduled Edge Function + Resend emails
+   - Settings UI: toggle on/off, customize days
+
+3. PandaDoc PDF attachment
+   - Download script running (~3,951 docs, several hours)
+   - Next: upload PDFs to Supabase storage, link to call_log jobs
+   - Files without job numbers need manual review (NO_JOB prefix)
+
+4. Contacts import from Glide (1,612 records)
+5. Data Import Tool sessions 4-5 (import logs, polish)
+6. Invoices.jsx extraction (~1,100 lines)
+7. WTCCalculator.jsx extraction (~2,100 lines)
+8. Settings page expansion
+
+PandaDoc API key (sandbox): 63dc7b87291cc87dcc4dc48a1175fb19b33b1c2b
+Glide app ID: ImISvhw9sXEJNRPWVIwH
+
+===============================================================================
+PRODUCTION
+===============================================================================
+
+URL: https://www.scmybiz.com
+Vercel: auto-deploys on push to main
+Commits this session:
+  a88a0f9 - Add fixed-position nav arrows to Inquiry Wizard and WTC
+  4136ef2 - Add call_log import support to Data Import Tool
+  c01768e - Fix Call Log to paginate past 1000-row PostgREST limit
+  ff91167 - Add sessionStorage cache for instant Call Log page loads

@@ -1873,6 +1873,19 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: T.gray50, display: "flex", flexDirection: "column", height: "100%" }}>
+      {/* Fixed nav arrows — pinned just outside the content card */}
+      {idx > 0 && (
+        <button data-wtc-no-print onClick={() => setTab(tabs[idx - 1])}
+          style={{ position: "fixed", top: "50%", left: "calc(50% + 90px - 520px)", transform: "translateY(-50%)", zIndex: 50, width: 44, height: 44, borderRadius: "50%", border: `2px solid ${T.green}`, background: T.dark, color: T.green, fontSize: 18, fontWeight: 900, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", padding: 0, lineHeight: 1, boxShadow: "0 4px 16px rgba(0,0,0,0.3)" }}>
+          ←
+        </button>
+      )}
+      {idx < tabs.length - 1 && (
+        <button data-wtc-no-print onClick={() => setTab(tabs[idx + 1])}
+          style={{ position: "fixed", top: "50%", left: "calc(50% + 90px + 490px)", transform: "translateY(-50%)", zIndex: 50, width: 44, height: 44, borderRadius: "50%", border: `2px solid ${T.green}`, background: T.green, color: T.dark, fontSize: 18, fontWeight: 900, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit", padding: 0, lineHeight: 1, boxShadow: "0 4px 16px rgba(0,0,0,0.3)" }}>
+          →
+        </button>
+      )}
       {/* Print stylesheet */}
       <style>{`
         @media print {
@@ -1959,12 +1972,6 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
         </div>
 <Summary labor={laborComputed} materials={materials} travel={travel} discount={discount} size={sow.size} unit={sow.unit} />
 
-        {/* Prev / Next */}
-        {/* Prev / Next */}
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
-          <Btn onClick={() => idx > 0 && setTab(tabs[idx - 1])} variant="secondary" icon="←" small disabled={idx === 0}>Back</Btn>
-          <Btn onClick={() => idx < tabs.length - 1 && setTab(tabs[idx + 1])} variant="primary" icon="→" small disabled={idx === tabs.length - 1}>Next</Btn>
-        </div>
       </div>
       {/* ── Print-only layout ──────────────────────────────────────────────── */}
       <div data-wtc-print-only style={{ padding: "24px 40px", fontFamily: "'Inter', sans-serif", color: "#1c1814", fontSize: 12 }}>

@@ -51,18 +51,15 @@ const AddressBlock = ({ label, required, fields, set, sectionKey }) => (
   </div>
 );
 
-const StepFooter = ({ step, back, onNext, nextLabel = "Next →", disabled = false, error }) => (
-  <div style={{ marginTop: 16 }}>
-    {error && <div style={{ color: C.red, fontSize: 13, fontFamily: F.ui, marginBottom: 8 }}>{error}</div>}
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      {step > 0 ? (
-        <button onClick={back} style={{ background: "none", border: "none", cursor: "pointer", color: C.tealDark, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: 0 }}>
-          ← Back
-        </button>
-      ) : <div />}
-      <Btn onClick={onNext} disabled={disabled}>{nextLabel}</Btn>
-    </div>
-  </div>
+const NavCircle = ({ onClick, disabled, children, primary }) => (
+  <button onClick={onClick} disabled={disabled} style={{
+    width: 48, height: 48, borderRadius: "50%", border: `2px solid ${C.teal}`,
+    background: primary ? C.teal : C.dark, color: primary ? C.dark : C.teal,
+    fontSize: 20, fontWeight: 900, cursor: disabled ? "default" : "pointer",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    opacity: disabled ? 0.4 : 1, transition: "opacity 0.15s",
+    fontFamily: F.display, padding: 0, lineHeight: 1,
+  }}>{children}</button>
 );
 
 function buildStepList(jobType) {
@@ -85,6 +82,7 @@ function buildStepList(jobType) {
 function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workTypes }) {
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [wtSearch, setWtSearch] = useState("");
   const [error, setError] = useState(null);
   const [nextJobNum, setNextJobNum] = useState(null);
   const fileRef = useRef();
@@ -137,6 +135,44 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
   const currentKey = stepList[step];
   const next = () => { setError(null); setStep(s => s + 1); };
   const back = () => { setError(null); setStep(s => s - 1); };
+
+  const validateStep = () => {
+    setError(null);
+    switch (currentKey) {
+      case "jobType": if (!data.jobType) { setError("Select a job type"); return false; } return true;
+      case "manualNum": if (!data.manualJobNum) { setError("Job number required"); return false; } return true;
+      case "parentJob": if (!data.parentJobId) { setError("Select a parent job"); return false; } return true;
+      case "customerSelect":
+        if (!data.customerMode) { setError("Select an option"); return false; }
+        if (data.customerMode === "existing" && !data.customerId) { setError("Select a customer"); return false; }
+        if (data.customerMode === "new") {
+          if (data.customerType === "Residential" && (!data.firstName || !data.lastName)) { setError("First and last name required"); return false; }
+          if (data.customerType === "Commercial" && !data.businessName) { setError("Business name required"); return false; }
+        }
+        return true;
+      case "contactInfo":
+        if (!data.billingTerms) { setError("Billing terms are required"); return false; }
+        if (data.billingTerms === "custom" && !data.billingTermsCustom) { setError("Enter custom billing terms (days)"); return false; }
+        return true;
+      case "addresses":
+        if (!data.businessAddress || !data.businessCity || !data.businessState || !data.businessZip) {
+          setError(`${data.customerType === "Residential" ? "Customer" : "Business"} address is required (street, city, state, zip)`);
+          return false;
+        }
+        return true;
+      case "salesRep": if (!data.salesName) { setError("Select a sales rep"); return false; } return true;
+      case "workTypes": if (data.selectedWorkTypes.length === 0) { setError("Select at least one work type"); return false; } setWtSearch(""); return true;
+      case "bidDue": if (!data.bidDue) { setError("Bid due date is required"); return false; } return true;
+      default: return true;
+    }
+  };
+
+  const isLastStep = currentKey === "notes";
+  const handleNext = () => {
+    if (!validateStep()) return;
+    if (isLastStep) { save(); return; }
+    next();
+  };
 
   const custName = () => {
     if (data.customerMode === "existing") return customers.find(c => c.id === data.customerId)?.name || "";
@@ -285,7 +321,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
         <div>
           <StepLabel n={step + 1} label="Enter Job Number" />
           <input type="number" value={data.manualJobNum} onChange={e => set("manualJobNum", e.target.value)} placeholder="e.g. 7650" style={inputStyle} autoFocus />
-          <StepFooter step={step} back={back} error={error} onNext={() => { if (!data.manualJobNum) { setError("Job number required"); return; } next(); }} />
         </div>
       );
 
@@ -298,7 +333,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               <option key={j.id} value={j.id}>{j.display_job_number || j.job_name}</option>
             ))}
           </select>
-          <StepFooter step={step} back={back} error={error} onNext={() => { if (!data.parentJobId) { setError("Select a parent job"); return; } next(); }} />
         </div>
       );
 
@@ -309,7 +343,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
             <ChoiceBtn label="Wrap into Parent Job" sub="CO proposals and invoices live under the original job" selected={!data.coStandalone} onClick={() => { set("coStandalone", false); next(); }} />
             <ChoiceBtn label="Standalone Record" sub="CO becomes its own independent job record" selected={data.coStandalone} onClick={() => { set("coStandalone", true); next(); }} />
           </div>
-          <StepFooter step={step} back={back} error={error} onNext={next} />
         </div>
       );
 
@@ -320,7 +353,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
             <ChoiceBtn label="Commercial" sub="Business name" selected={data.customerType === "Commercial"} onClick={() => { set("customerType", "Commercial"); set("customerId", null); set("customerMode", "existing"); next(); }} />
             <ChoiceBtn label="Residential" sub="First & last name" selected={data.customerType === "Residential"} onClick={() => { set("customerType", "Residential"); set("customerId", null); set("customerMode", "existing"); next(); }} />
           </div>
-          <StepFooter step={step} back={back} error={error} onNext={next} />
         </div>
       );
 
@@ -392,15 +424,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               )}
             </div>
           )}
-          <StepFooter step={step} back={back} error={error} onNext={() => {
-            if (!data.customerMode) { setError("Select an option"); return; }
-            if (data.customerMode === "existing" && !data.customerId) { setError("Select a customer"); return; }
-            if (data.customerMode === "new") {
-              if (data.customerType === "Residential" && (!data.firstName || !data.lastName)) { setError("First and last name required"); return; }
-              if (data.customerType === "Commercial" && !data.businessName) { setError("Business name required"); return; }
-            }
-            next();
-          }} />
         </div>
       );
 
@@ -417,7 +440,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
             style={inputStyle}
             autoFocus
           />
-          <StepFooter step={step} back={back} error={error} onNext={next} />
         </div>
       );
 
@@ -484,11 +506,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
             </button>
           </div>
 
-          <StepFooter step={step} back={back} error={error} onNext={() => {
-            if (!data.billingTerms) { setError("Billing terms are required"); return; }
-            if (data.billingTerms === "custom" && !data.billingTermsCustom) { setError("Enter custom billing terms (days)"); return; }
-            next();
-          }} />
         </div>
       );
 
@@ -547,13 +564,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               )}
             </div>
           </div>
-          <StepFooter step={step} back={back} error={error} onNext={() => {
-            if (!data.businessAddress || !data.businessCity || !data.businessState || !data.businessZip) {
-              setError(`${data.customerType === "Residential" ? "Customer" : "Business"} address is required (street, city, state, zip)`);
-              return;
-            }
-            next();
-          }} />
         </div>
       );
 
@@ -574,15 +584,25 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               </div>
             </div>
           </div>
-          <StepFooter step={step} back={back} error={error} onNext={() => { if (!data.salesName) { setError("Select a sales rep"); return; } next(); }} />
         </div>
       );
 
-      case "workTypes": return (
+      case "workTypes": {
+        const filtered = wtSearch.trim()
+          ? workTypes.filter(wt => wt.name.toLowerCase().includes(wtSearch.trim().toLowerCase()) || (wt.cost_code || "").toLowerCase().includes(wtSearch.trim().toLowerCase()))
+          : workTypes;
+        return (
         <div>
           <StepLabel n={step + 1} label="Work Types (select all that apply)" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 280, overflowY: "auto", paddingRight: 4 }}>
-            {workTypes.map(wt => {
+          <input
+            placeholder="Search work types…"
+            value={wtSearch}
+            onChange={e => setWtSearch(e.target.value)}
+            style={{ ...inputStyle, marginBottom: 10 }}
+            autoFocus
+          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto", paddingRight: 4 }}>
+            {filtered.map(wt => {
               const sel = data.selectedWorkTypes.includes(wt.id);
               return (
                 <button key={wt.id} onClick={() => set("selectedWorkTypes", sel ? data.selectedWorkTypes.filter(x => x !== wt.id) : [...data.selectedWorkTypes, wt.id])}
@@ -596,15 +616,13 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               );
             })}
           </div>
-          <StepFooter step={step} back={back} error={error} onNext={() => { if (data.selectedWorkTypes.length === 0) { setError("Select at least one work type"); return; } next(); }} />
         </div>
-      );
+      ); }
 
       case "bidDue": return (
         <div>
           <StepLabel n={step + 1} label="Bid Due Date" />
           <input type="date" value={data.bidDue} onChange={e => set("bidDue", e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} autoFocus />
-          <StepFooter step={step} back={back} error={error} onNext={() => { if (!data.bidDue) { setError("Bid due date is required"); return; } next(); }} />
         </div>
       );
 
@@ -623,7 +641,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
           <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginTop: 12 }}>
             ℹ A 30-day reminder will be sent to the sales rep if this job's status hasn't changed.
           </div>
-          <StepFooter step={step} back={back} error={error} onNext={next} />
         </div>
       );
 
@@ -649,7 +666,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               </div>
             )}
           </div>
-          <StepFooter step={step} back={back} error={error} onNext={save} nextLabel={saving ? "Saving…" : "Save Inquiry ✓"} disabled={saving} />
         </div>
       );
 
@@ -659,7 +675,22 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(28,24,20,0.65)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: C.linenCard, borderRadius: 14, padding: 32, width: 580, maxHeight: "92vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.45)", border: `1px solid ${C.borderStrong}` }}>
+      {/* Left arrow — absolutely positioned, always same spot */}
+      <div style={{ position: "fixed", top: "50%", left: "calc(50% - 364px)", transform: "translateY(-50%)", zIndex: 101 }}>
+        {step > 0 ? (
+          <NavCircle onClick={back}>←</NavCircle>
+        ) : (
+          <div style={{ width: 48 }} />
+        )}
+      </div>
+      {/* Right arrow — absolutely positioned, always same spot */}
+      <div style={{ position: "fixed", top: "50%", right: "calc(50% - 364px)", transform: "translateY(-50%)", zIndex: 101 }}>
+        <NavCircle onClick={handleNext} disabled={saving} primary>
+          {isLastStep ? "✓" : "→"}
+        </NavCircle>
+      </div>
+      {/* Modal body — auto-height, grows/shrinks with content like original */}
+      <div style={{ background: C.linenCard, borderRadius: 14, padding: 32, width: 620, maxHeight: "92vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.45)", border: `1px solid ${C.borderStrong}` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>New Inquiry</h2>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: C.textFaint }}>✕</button>
@@ -669,6 +700,10 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
           <div style={{ fontSize: 18, fontWeight: 800, color: C.teal, fontFamily: F.display, letterSpacing: "0.04em" }}>{previewDisplay}</div>
         </div>
         {renderStep()}
+        {error && <div style={{ color: C.red, fontSize: 13, fontFamily: F.ui, marginTop: 12, textAlign: "center" }}>{error}</div>}
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, letterSpacing: "0.08em", textTransform: "uppercase", textAlign: "center", marginTop: 16 }}>
+          {step + 1} / {stepList.length}
+        </div>
       </div>
     </div>
   );

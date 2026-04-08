@@ -168,5 +168,16 @@ PRODUCTION
 URL: https://www.scmybiz.com
 Vercel: auto-deploys on push to main
 
+URL: https://salescommand.app (scmybiz.com redirects here)
+Vercel: auto-deploys on push to main
+
 Commits this session:
   9135428 - Add History Locker, Call Log archiver, and clean up imported HDSP data
+  57b990a - docs: SC_Handoff_v59
+  1f61e3c - Fix archive attachments: static folder map + 309 sweep PDFs uploaded
+  ad8c521 - Expand attachment folder map from 494 to 766 job numbers
+  1e19a6a - Fix archive detail: dark bg on job number, hide Search tab
+
+Known console issue:
+  1 benign 406 error on team_members query (multi-schema PostgREST quirk).
+  Does not affect functionality. Visible only in dev tools.

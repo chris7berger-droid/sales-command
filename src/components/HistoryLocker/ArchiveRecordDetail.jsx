@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 import { C, F } from "../../lib/tokens";
+import JOB_FOLDER_MAP from "./jobFolderMap";
 
 export default function ArchiveRecordDetail({ record, onBack }) {
   const raw = record.raw_data || {};
@@ -10,36 +11,30 @@ export default function ArchiveRecordDetail({ record, onBack }) {
 
   const fmtDate = v => v ? new Date(v + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null;
 
-  // Look up attachments by matching legacy_id (job number) to call_log entries
+  // Look up attachments using static job-number-to-folder mapping
   useEffect(() => {
     async function fetchAttachments() {
       setLoadingAtts(true);
       if (!record.legacy_id) { setLoadingAtts(false); return; }
 
-      // Extract numeric job number from legacy_id (e.g. "5620 CO1" -> 5620, "7282CO1" -> 7282)
       const numMatch = record.legacy_id.match(/^(\d{4,5})/);
       if (!numMatch) { setLoadingAtts(false); return; }
-      const jobNum = parseInt(numMatch[1], 10);
+      const jobNum = numMatch[1];
 
-      // Find all call_log entries with this job number
-      const { data: clEntries } = await supabase
-        .from("call_log")
-        .select("id")
-        .eq("job_number", jobNum);
+      // Look up storage folder IDs from static map
+      const folderIds = JOB_FOLDER_MAP[jobNum];
+      if (!folderIds || folderIds.length === 0) { setLoadingAtts(false); return; }
 
-      if (!clEntries || clEntries.length === 0) { setLoadingAtts(false); return; }
-
-      // List files from job-attachments for each matching call_log ID
       const allAtts = [];
-      for (const entry of clEntries) {
+      for (const folderId of folderIds) {
         const { data: files } = await supabase.storage
           .from("job-attachments")
-          .list(String(entry.id));
+          .list(String(folderId));
         if (files) {
           for (const file of files) {
             const { data: urlData } = supabase.storage
               .from("job-attachments")
-              .getPublicUrl(`${entry.id}/${file.name}`);
+              .getPublicUrl(`${folderId}/${file.name}`);
             const display = file.name.replace(/^\d+-/, "");
             allAtts.push({ name: display, url: urlData.publicUrl });
           }

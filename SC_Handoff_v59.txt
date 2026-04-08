@@ -1,0 +1,172 @@
+SC_Handoff_v59 — April 8, 2026
+Session: History Locker build, Call Log archiver, HDSP data migration
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. History Locker — Phases 1-6 COMPLETE
+   - Phase 1: archive schema created in Supabase (import_batches, legacy_records
+     tables, GIN/B-tree indexes, RLS policies, tsvector full-text search)
+   - Phase 2: archive-source-files storage bucket (private, signed URLs)
+   - Phase 3: React components in src/components/HistoryLocker/
+     * ArchiveSearchView — full-text search, filters (source, type, date range),
+       paginated results, click-to-detail
+     * ArchiveRecordDetail — extracted fields, raw_data key-value table,
+       attachments from job-attachments bucket, CSV download
+     * ArchiveBatchManager — admin view of import batches with delete
+     * ArchiveImportWizard — 4-step CSV/Excel upload wizard
+   - Phase 4: Import wizard reuses FileUpload from Data Import Tool
+   - Phase 5: Search view with full-text search across all archived fields
+   - Phase 6: Record detail with PandaDoc attachment linking
+   - Archive page at src/pages/Archive.jsx with Search/Import/Batches tabs
+   - Nav entry: "History Locker" visible to all users, Import/Batches admin-only
+   - Dedicated PostgREST client for archive schema (no GoTrueClient conflicts)
+
+2. HDSP Glide data imported to History Locker
+   - 2,584 call log records from ~/Desktop/Call Log (1).csv
+   - Source: glide, record_type: call_log
+   - Batch ID: 93481c2e-525c-4cfc-a7d1-3f96fe2f5316
+   - Original job numbers preserved with CO suffixes (5620 CO1, 7282CO1, etc.)
+   - All 109 Glide columns stored in raw_data jsonb
+   - Extracted searchable fields: legacy_id, customer_name, job_name,
+     job_address, record_date, status
+
+3. Call Log cleanup — removed bad Glide imports
+   - Deleted 3,407 imported call_log rows (3,363 + 44 leftovers)
+   - Deleted 2,484 associated job_work_types rows
+   - 16 native Sales Command entries remain (IDs 28-52, job numbers 7422+ / 10000+)
+   - All proposals and invoices confirmed unaffected (0 FK references to deleted rows)
+
+4. PandaDoc NO_JOB PDFs recovered and uploaded
+   - 756 NO_JOB PDFs matched to call_log entries by extracting job numbers
+     from PDF text content (Proposal #: XXXX pattern)
+   - All 756 uploaded to job-attachments bucket (0 failures)
+   - Combined with original 785, total 1,541 PDFs now in storage
+   - Attachments visible in both CallLogDetail and History Locker record detail
+
+5. Call Log Archiver
+   - Added `archived` boolean column to call_log (default false)
+   - Added `archive_after_months` (int, default 12) and `archive_stages`
+     (text[], default '{Lost}') to tenant_config
+   - Active Jobs / Old Jobs tabs with counts (simple, non-technical language)
+   - Auto-archive on page load: matches tenant config criteria
+   - One-time banner: "X old jobs moved to Old Jobs. Find them anytime..."
+   - Search always checks both Active and Old — old jobs get "Old Job" tag
+   - Archive/Restore button in CallLogDetail ("Move to Old Jobs" / "Restore to Active")
+
+6. Directory (TableOfContents) updated
+   - Active Jobs / Old Jobs tabs explained in plain language
+   - Auto-archive banner explained
+   - Search behavior documented (always finds everything)
+   - Move to Old Jobs / Restore explained
+   - Dashboard note: "includes all jobs so totals are always accurate"
+   - Full History Locker chapter (ch 8): Search, Import, attachments
+   - Settings: Old Jobs configuration documented
+   - Settings renumbered to ch 9
+
+7. PandaDoc sweep download IN PROGRESS
+   - 906 previously-undownloaded docs (809 voided, 69 viewed, 25 sent, 1 declined)
+   - Running in background, ~318/906 at time of handoff
+   - Script: /tmp/pandadoc_sweep.py
+   - Output: ~/Desktop/pandadoc_export/pdfs/
+   - NEXT: when complete, extract job numbers from new PDFs, match to call_log
+     entries, upload to job-attachments bucket (same process as NO_JOB recovery)
+
+===============================================================================
+DATABASE CHANGES
+===============================================================================
+
+1. New schema: archive
+   - archive.import_batches (batch tracking for CSV imports)
+   - archive.legacy_records (archived records with raw_data jsonb + tsvector search)
+   - RLS policies scoped by tenant via archive.get_user_tenant_id()
+   - GIN indexes on search_vector and raw_data
+   - Composite index on (tenant_id, record_type, record_date DESC)
+
+2. New columns on tenant_config:
+   - history_locker_enabled (boolean, default false)
+   - archive_after_months (integer, default 12)
+   - archive_stages (text[], default '{Lost}')
+
+3. New column on call_log:
+   - archived (boolean, default false)
+   - Index: idx_call_log_archived
+
+4. Exposed schemas updated: public, graphql_public, archive
+
+5. Storage bucket: archive-source-files (private)
+
+6. Deleted rows:
+   - 3,407 call_log rows (Glide imports, data preserved in History Locker)
+   - 2,484 job_work_types rows (FK children of deleted call_log rows)
+
+===============================================================================
+EDGE FUNCTIONS DEPLOYED
+===============================================================================
+
+None this session.
+
+===============================================================================
+FILES CHANGED
+===============================================================================
+
+New files:
+  sql/history_locker_phase1.sql
+  src/components/HistoryLocker/ArchiveSearchView.jsx
+  src/components/HistoryLocker/ArchiveRecordDetail.jsx
+  src/components/HistoryLocker/ArchiveBatchManager.jsx
+  src/components/HistoryLocker/ArchiveImportWizard.jsx
+  src/pages/Archive.jsx
+
+Modified files:
+  src/App.jsx — added Archive import, nav entry, route
+  src/lib/supabase.js — added archiveDb (PostgREST client for archive schema)
+  src/pages/CallLog.jsx — Active/Old Jobs tabs, auto-archive, search across both
+  src/components/CallLogDetail.jsx — Archive/Restore button
+  src/components/TableOfContents.jsx — History Locker chapter, archive features,
+    dashboard note, Settings archive config
+
+===============================================================================
+KNOWN ISSUES / NEXT UP
+===============================================================================
+
+Priority order for next sessions:
+
+1. PandaDoc sweep upload (WAITING on download to finish)
+   - Download running in background (~318/906 complete)
+   - Once done: extract job numbers, match to call_log, upload to storage
+   - Same script pattern as NO_JOB recovery
+
+2. Settings page — Old Jobs config UI
+   - Add UI for archive_after_months and archive_stages in Settings
+   - Currently configured via DB defaults only
+
+3. Stripe billing for History Locker
+   - Add subscription item for History Locker add-on
+   - Toggle in Operator Portal
+   - Need to charge HDSP for it
+
+4. Sales Rep Reminders (customizable in Settings)
+   - Has Bid: email every 30 days or on Follow Up Date
+   - Wants Bid: email weekly or until Follow Up Date
+   - Scheduled Edge Function + Resend
+
+5. Contacts import from Glide (1,612 records)
+6. Invoices.jsx extraction (~1,100 lines)
+7. WTCCalculator.jsx extraction (~2,100 lines)
+8. Settings page expansion
+
+API Keys (for reference):
+- PandaDoc sandbox: 63dc7b87291cc87dcc4dc48a1175fb19b33b1c2b
+- Glide app ID: ImISvhw9sXEJNRPWVIwH
+
+===============================================================================
+PRODUCTION
+===============================================================================
+
+URL: https://www.scmybiz.com
+Vercel: auto-deploys on push to main
+
+Commits this session:
+  9135428 - Add History Locker, Call Log archiver, and clean up imported HDSP data

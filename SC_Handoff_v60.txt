@@ -1,0 +1,77 @@
+SC_Handoff_v60 — April 8, 2026
+Session: Discount breakout on proposal PDF preview and summary card
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. Discount breakout on Proposal PDF Preview
+   - When any WTC has a discount, the proposal total box now shows three lines:
+     Subtotal (before discount), Discount with reason if present, Proposal Total
+   - When no discount exists, renders the same single-line total as before
+   - Discount reason pulled from proposal_wtc.discount_reason field
+   - File: src/components/ProposalPDFModal.jsx
+
+2. Discount breakout on Proposal Summary card
+   - The dark Summary card on ProposalDetail now shows Subtotal, Discount,
+     and Total rows when a discount exists
+   - Updated calcWtcBreakdown() in calc.js to return discount amount
+   - File: src/components/ProposalDetail.jsx, src/lib/calc.js
+
+3. Color adjustment
+   - Changed discount text from alarm red to black (PDF preview) and standard
+     white (summary card) per user feedback
+
+4. Invoices — already had discount breakout (Subtotal / Discount / Amount Due),
+   no changes needed
+
+===============================================================================
+DATABASE CHANGES
+===============================================================================
+
+None.
+
+===============================================================================
+EDGE FUNCTIONS DEPLOYED
+===============================================================================
+
+None.
+
+===============================================================================
+FILES CHANGED
+===============================================================================
+
+Modified files:
+  src/components/ProposalPDFModal.jsx — discount breakout in proposal total box
+  src/components/ProposalDetail.jsx — discount breakout in summary card
+  src/lib/calc.js — calcWtcBreakdown now returns discount amount
+
+===============================================================================
+KNOWN ISSUES / NEXT UP
+===============================================================================
+
+1. Supabase Auth rate-limit issue
+   - Estimator got locked out, hit password reset rate limit (47s timer)
+   - Investigate in separate session — may need to review auth lockout settings
+
+Priority queue (carried from v59):
+2. PandaDoc sweep upload (waiting on download to finish)
+3. Settings page — Old Jobs config UI
+4. Stripe billing for History Locker add-on
+5. Sales Rep Reminders (edge function + Resend)
+6. Contacts import from Glide (1,612 records)
+7. Invoices.jsx extraction (~1,100 lines)
+8. WTCCalculator.jsx extraction (~2,100 lines)
+9. Settings page expansion
+
+===============================================================================
+PRODUCTION
+===============================================================================
+
+URL: https://www.scmybiz.com
+Vercel: auto-deploys on push to main
+
+Commits this session:
+  437d99d - Show discount as separate breakout line on proposal preview
+  95a1318 - Show discount breakout in proposal summary card
+  8ca6b41 - Use black text for discount lines instead of red

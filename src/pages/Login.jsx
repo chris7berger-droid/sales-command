@@ -52,10 +52,16 @@ export default function Login() {
     setError(null)
     setLoading(true)
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: "https://www.scmybiz.com"
-      })
-      if (error) throw error
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL || "https://pbgvgjjuhnpsumnowuym.supabase.co"}/functions/v1/reset-password`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_v7XktVvkAlX7y5f6xoFjng_AaLaWKoK" },
+          body: JSON.stringify({ email: email.trim() }),
+        }
+      )
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to send reset email.")
       setMessage("Check your email for a password reset link.")
     } catch (err) {
       setError(err.message || "Failed to send reset email.")

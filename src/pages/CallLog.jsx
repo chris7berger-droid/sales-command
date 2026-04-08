@@ -24,6 +24,8 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
   const [filters, setFilters]     = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
   const [showModal, setShowModal] = useState(false);
   const [selJob, setSelJob]       = useState(null);
+  const [showOld, setShowOld]     = useState(false);
+  const [archiveBanner, setArchiveBanner] = useState(null);
 
   const CACHE_KEY = "sc_calllog_cache";
 
@@ -38,11 +40,34 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
     } catch {}
 
     // Fetch fresh data in background
-    const [{ data: tm }, { data: wt }, allCx] = await Promise.all([
+    const [{ data: tm }, { data: wt }, allCx, { data: config }] = await Promise.all([
       supabase.from("team_members").select("*").order("name"),
       supabase.from("work_types").select("*").order("name"),
       fetchAll("customers", "*", { order: "name" }),
+      supabase.from("tenant_config").select("archive_after_months, archive_stages").limit(1).single(),
     ]);
+
+    // Auto-archive: mark old jobs matching tenant criteria
+    const months = config?.archive_after_months ?? 12;
+    const stages = config?.archive_stages ?? ["Lost"];
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - months);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+    if (stages.length > 0) {
+      const { data: toArchive } = await supabase
+        .from("call_log")
+        .select("id")
+        .eq("archived", false)
+        .in("stage", stages)
+        .lt("created_at", cutoffStr);
+      if (toArchive && toArchive.length > 0) {
+        const ids = toArchive.map(r => r.id);
+        await supabase.from("call_log").update({ archived: true }).in("id", ids);
+        setArchiveBanner(toArchive.length);
+      }
+    }
+
     // Paginate call_log with joins (PostgREST caps at 1000 rows)
     const PAGE = 500;
     let allLog = [], from = 0;
@@ -101,10 +126,14 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
   }
 
   const tod = new Date().toISOString().slice(0, 10);
-  const filtered = rows.filter(r => {
+  const activeRows = rows.filter(r => !r.archived);
+  const oldRows = rows.filter(r => r.archived);
+  // When searching, search ALL rows so old jobs aren't hidden from search results
+  const visibleRows = q ? rows : (showOld ? oldRows : activeRows);
+  const filtered = visibleRows.filter(r => {
     if (bidDueFilter && r.bid_due !== tod) return false;
     if (!bidDueFilter && filter !== "All" && r.stage !== filter) return false;
-    if (q && !((r.display_job_number || r.job_name)?.toLowerCase().includes(q.toLowerCase()) || String(r.job_number || r.id).includes(q))) return false;
+    if (q && !((r.display_job_number || r.job_name)?.toLowerCase().includes(q.toLowerCase()) || String(r.job_number || r.id).includes(q) || (r.customer_name || "").toLowerCase().includes(q.toLowerCase()))) return false;
     if (filters.sales && r.sales_name !== filters.sales) return false;
     if (filters.dateFrom && (r.created_at || "").slice(0, 10) < filters.dateFrom) return false;
     if (filters.dateTo && (r.created_at || "").slice(0, 10) > filters.dateTo) return false;
@@ -128,6 +157,38 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <SectionHeader title="Call Log" action={<Btn sz="sm" onClick={() => setShowModal(true)}>+ New Inquiry</Btn>} />
+        {/* Active / Old Jobs toggle */}
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button onClick={() => setShowOld(false)} style={{
+            padding: "7px 18px", borderRadius: 20,
+            border: `1.5px solid ${!showOld ? C.teal : C.border}`,
+            background: !showOld ? C.dark : "transparent",
+            color: !showOld ? C.teal : C.textMuted,
+            fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+            fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
+          }}>
+            Active Jobs <span style={{ opacity: 0.6, marginLeft: 4 }}>({activeRows.length})</span>
+          </button>
+          <button onClick={() => setShowOld(true)} style={{
+            padding: "7px 18px", borderRadius: 20,
+            border: `1.5px solid ${showOld ? C.teal : C.border}`,
+            background: showOld ? C.dark : "transparent",
+            color: showOld ? C.teal : C.textMuted,
+            fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+            fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
+          }}>
+            Old Jobs <span style={{ opacity: 0.6, marginLeft: 4 }}>({oldRows.length})</span>
+          </button>
+        </div>
+        {/* Archive banner — shown once when auto-archive runs */}
+        {archiveBanner && !showOld && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(48,207,172,0.10)", border: `1.5px solid ${C.tealBorder}`, borderRadius: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: C.tealDeep, fontFamily: F.ui }}>
+              {archiveBanner} old job{archiveBanner !== 1 ? "s" : ""} moved to Old Jobs. You can find them anytime by tapping "Old Jobs" above.
+            </span>
+            <button onClick={() => setArchiveBanner(null)} style={{ background: "none", border: `1.5px solid ${C.tealBorder}`, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: C.tealDeep, cursor: "pointer", fontFamily: "inherit" }}>OK</button>
+          </div>
+        )}
         {bidDueFilter && (
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(249,168,37,0.12)", border: "1.5px solid rgba(249,168,37,0.4)", borderRadius: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: "#7a5000" }}>⚠ Showing bids due today only</span>
@@ -139,7 +200,7 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
             style={{ padding: "8px 14px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenLight, fontSize: 13.5, outline: "none", width: 240, color: C.textBody, fontFamily: F.ui }} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {["All", ...STAGES].map(st => {
-              const count = st === "All" ? rows.length : rows.filter(r => r.stage === st).length;
+              const count = st === "All" ? visibleRows.length : visibleRows.filter(r => r.stage === st).length;
               return (
                 <button key={st} onClick={() => setFilter(st)} style={{ padding: "7px 16px", borderRadius: 20, border: `1.5px solid ${filter === st ? C.teal : C.border}`, background: filter === st ? C.dark : "transparent", color: filter === st ? C.teal : C.textMuted, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase" }}>
                   {st} <span style={{ opacity: 0.6, marginLeft: 4 }}>({count})</span>
@@ -165,6 +226,9 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
                     <span style={{ fontFamily: F.display, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onClick={() => setSelJob(row)}>{(() => { const djn = row.display_job_number || String(v); const idx = djn.indexOf(" - "); return idx > -1 ? (<><span style={{ fontWeight: 600, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{djn.slice(0, idx)}</span><span style={{ fontWeight: 500, color: C.textMuted }}>{djn.slice(idx + 3)}</span></>) : <span style={{ fontWeight: 600, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{djn}</span>; })()}</span>
                     {row.is_change_order && (
                       <span style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "2px 7px", borderRadius: 10, fontFamily: F.ui }}>CO</span>
+                    )}
+                    {row.archived && (
+                      <span style={{ fontSize: 10, fontWeight: 700, background: C.linenDeep, color: C.textMuted, padding: "2px 7px", borderRadius: 10, fontFamily: F.ui, border: `1px solid ${C.borderStrong}` }}>Old Job</span>
                     )}
                     {!row.jobsite_address && (
                       <span title="Job site address missing — required before proposal" style={{ fontSize: 10, fontWeight: 700, background: "rgba(230,168,0,0.13)", color: "#8a6200", padding: "2px 7px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(230,168,0,0.3)", cursor: "default" }}>

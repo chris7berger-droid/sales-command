@@ -28,6 +28,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import WelcomeScreen from "./components/WelcomeScreen";
 import { TenantConfigProvider } from "./lib/TenantConfigContext";
 import Import from "./pages/Import/Import";
+import Archive from "./pages/Archive";
 
 const NAV = [
   { id: "home",      label: "Home",       icon: "⌂"  },
@@ -38,6 +39,7 @@ const NAV = [
   { id: "managers",  label: "Managers",   icon: "🏆", roles: ["Manager"] },
   { id: "customers", label: "Customers",  icon: "🏢" },
   { id: "team",      label: "Our Team",   icon: "👥" },
+  { id: "archive",   label: "History Locker", icon: "🗄" },
   { id: "settings",  label: "Settings",   icon: "⚙", roles: ["Admin", "Manager"] },
   { id: "directory", label: "The Directory", icon: "📖", action: "directory" },
 ];
@@ -200,6 +202,7 @@ function SalesCommandApp() {
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
       case "customers": return <Customers setActive={setActive} setInitialProposal={setInitialProposal} setInitialInvoiceId={setInitialInvoiceId} initialCustomerId={initialCustomerId} onClearInitialCustomer={() => setInitialCustomerId(null)} setSubPage={setSubPage} />;
       case "team":      return <Team teamMember={teamMember} />;
+      case "archive":   return <Archive userRole={displayRole} />;
       case "settings":  return <Settings userRole={displayRole} />;
       case "wtc":       return <Placeholder label="WTC" />;
       default:          return <Placeholder label={NAV.find(n => n.id === active)?.label || active} />;

@@ -289,8 +289,14 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
             <Btn sz="sm" onClick={onNewProposal}>+ New Proposal</Btn>
           )}
           {editing && canDelete && (
-            <Btn sz="sm" v="ghost" onClick={handleDelete} style={{ color: C.red, borderColor: C.red }}>🗑 Delete</Btn>
+            <Btn sz="sm" v="ghost" onClick={handleDelete} style={{ color: C.red, borderColor: C.red }}>Delete</Btn>
           )}
+          <Btn sz="sm" v="ghost" onClick={async () => {
+            await supabase.from("call_log").update({ archived: !job.archived }).eq("id", job.id);
+            onSaved && onSaved();
+          }}>
+            {job.archived ? "Restore to Active" : "Move to Old Jobs"}
+          </Btn>
         </div>
       </div>
       <div style={{ color: C.textFaint, fontSize: 13, fontFamily: F.ui, marginBottom: 28 }}>

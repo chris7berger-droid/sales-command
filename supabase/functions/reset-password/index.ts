@@ -5,7 +5,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
-const ALLOWED_ORIGINS = ["https://www.scmybiz.com", "https://scmybiz.com"];
+const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.app", "https://www.scmybiz.com", "https://scmybiz.com"];
 
 serve(async (req) => {
   const origin = req.headers.get("origin") || "";
@@ -48,7 +48,7 @@ serve(async (req) => {
     const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
       type: "recovery",
       email,
-      options: { redirectTo: "https://www.scmybiz.com" },
+      options: { redirectTo: "https://salescommand.app" },
     });
 
     if (linkErr) {
@@ -95,7 +95,7 @@ serve(async (req) => {
               <a href="${resetUrl}" style="background: #30cfac; color: #1c1814; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 15px;">Reset Password →</a>
             </div>
             <p style="color: #887c6e; font-size: 13px;">If you didn't request this, you can safely ignore this email.</p>
-            <p style="color: #887c6e; font-size: 12px;">Log in at <a href="https://www.scmybiz.com" style="color: #30cfac;">scmybiz.com</a></p>
+            <p style="color: #887c6e; font-size: 12px;">Log in at <a href="https://salescommand.app" style="color: #30cfac;">salescommand.app</a></p>
           </div>
         `,
       }),

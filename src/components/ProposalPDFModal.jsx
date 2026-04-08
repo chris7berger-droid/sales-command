@@ -44,7 +44,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
       if (primaryEmail) setSignerEmail(primaryEmail);
     }
   }, []);
-  const signingUrl = `https://www.scmybiz.com/sign/${proposal.signing_token}`;
+  const signingUrl = `https://salescommand.app/sign/${proposal.signing_token}`;
 
   async function handleSend() {
     if (!signerEmail) {

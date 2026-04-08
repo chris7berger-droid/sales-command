@@ -5,9 +5,13 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
+const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.app", "https://www.scmybiz.com", "https://scmybiz.com"];
+
 serve(async (req) => {
+  const origin = req.headers.get("origin") || "";
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   const corsHeaders = {
-    "Access-Control-Allow-Origin": "https://www.scmybiz.com",
+    "Access-Control-Allow-Origin": allowedOrigin,
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   };
 
@@ -83,7 +87,7 @@ serve(async (req) => {
     const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
       type: "magiclink",
       email,
-      options: { redirectTo: "https://www.scmybiz.com" },
+      options: { redirectTo: "https://salescommand.app" },
     });
 
     console.log("generateLink result:", { linkData, linkErr: linkErr?.message });
@@ -126,7 +130,7 @@ serve(async (req) => {
             <div style="margin: 32px 0;">
               <a href="${resetUrl}" style="background: #30cfac; color: #1c1814; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 15px;">Set Your Password →</a>
             </div>
-            <p style="color: #887c6e; font-size: 12px;">Once you've set your password, log in at <a href="https://www.scmybiz.com" style="color: #30cfac;">scmybiz.com</a></p>
+            <p style="color: #887c6e; font-size: 12px;">Once you've set your password, log in at <a href="https://salescommand.app" style="color: #30cfac;">salescommand.app</a></p>
           </div>
         `,
       }),

@@ -9,7 +9,7 @@ const PRODUCTS = [
     tagline: "Run Your Sales. Command Your Revenue.",
     desc: "Leads, proposals, invoicing, QuickBooks sync, and Stripe payments — all in one system built for subcontractors.",
     status: "live",
-    href: "https://www.scmybiz.com",
+    href: "https://salescommand.app",
   },
   {
     icon: "📅",
@@ -110,7 +110,7 @@ export default function SubConCommandPage() {
             <a href="#vision" className="scc-nav-link" style={{ fontFamily: F.ui, fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.55)", textDecoration: "none", transition: "color 0.2s" }}>Vision</a>
             <a href="#about" className="scc-nav-link" style={{ fontFamily: F.ui, fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.55)", textDecoration: "none", transition: "color 0.2s" }}>About</a>
             <a
-              href="https://www.scmybiz.com"
+              href="https://salescommand.app"
               className="scc-btn"
               style={{
                 fontFamily: F.display, fontSize: 13, fontWeight: 700, letterSpacing: "0.06em",
@@ -148,7 +148,7 @@ export default function SubConCommandPage() {
             <a href="#vision" onClick={() => setMenuOpen(false)} style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)", textDecoration: "none" }}>Vision</a>
             <a href="#about" onClick={() => setMenuOpen(false)} style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)", textDecoration: "none" }}>About</a>
             <a
-              href="https://www.scmybiz.com"
+              href="https://salescommand.app"
               style={{
                 fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.06em",
                 textTransform: "uppercase", padding: "12px 24px", borderRadius: 8,
@@ -190,7 +190,7 @@ export default function SubConCommandPage() {
               </p>
               <div className="scc-fade scc-fade-d3 scc-cta-buttons" style={{ display: "flex", gap: 16, marginTop: 8 }}>
                 <a
-                  href="https://www.scmybiz.com"
+                  href="https://salescommand.app"
                   className="scc-btn"
                   style={{
                     fontFamily: F.display, fontSize: 15, fontWeight: 700, letterSpacing: "0.06em",
@@ -367,7 +367,7 @@ export default function SubConCommandPage() {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
               {[
-                { step: "01", title: "Sell the Work", desc: <><a href="https://www.scmybiz.com" style={{ color: C.teal, fontWeight: 600, textDecoration: "none" }}>Sales Command</a> handles your pipeline from first call to signed proposal. Leads, proposals, e-signatures, and invoicing — all connected.</> },
+                { step: "01", title: "Sell the Work", desc: <><a href="https://salescommand.app" style={{ color: C.teal, fontWeight: 600, textDecoration: "none" }}>Sales Command</a> handles your pipeline from first call to signed proposal. Leads, proposals, e-signatures, and invoicing — all connected.</> },
                 { step: "02", title: "Schedule the Crews", desc: "Schedule Command will give you drag-and-drop crew scheduling, availability tracking, and job assignments — no more spreadsheets or whiteboards." },
                 { step: "03", title: "Run the Jobsite", desc: "Field Command will bring daily logs, production tracking, photos, and punch lists into one place — real-time updates from the field to the front office." },
                 { step: "04", title: "Collect the Money", desc: "AR Command will track every dollar owed, automate follow-ups, and give you aging visibility across all jobs — so nothing slips through the cracks." },
@@ -415,7 +415,7 @@ export default function SubConCommandPage() {
             Start with Sales Command today. The rest of the suite is on the way.
           </p>
           <a
-            href="https://www.scmybiz.com"
+            href="https://salescommand.app"
             className="scc-btn"
             style={{
               fontFamily: F.display, fontSize: 16, fontWeight: 700, letterSpacing: "0.06em",

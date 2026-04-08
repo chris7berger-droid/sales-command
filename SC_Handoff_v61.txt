@@ -1,0 +1,118 @@
+SC_Handoff_v61 — April 8, 2026
+Session: Password reset fix, domain migration to salescommand.app
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. Custom password reset via Resend edge function
+   - Supabase built-in SMTP was silently failing to deliver reset emails
+   - Created new reset-password edge function that uses Resend API directly
+     (same pattern as invite-user)
+   - Login.jsx now calls the edge function instead of
+     supabase.auth.resetPasswordForEmail
+   - Emails come from noreply@scmybiz.com with Sales Command branding
+   - File: supabase/functions/reset-password/index.ts, src/pages/Login.jsx
+
+2. Supabase Custom SMTP configured (but not working)
+   - Set up Resend as custom SMTP in Supabase Auth dashboard
+   - Settings: smtp.resend.com, port 587, username "resend"
+   - Supabase SMTP failed silently despite correct credentials
+   - The custom edge function above is the working solution
+
+3. Domain migration — salescommand.app is now the primary domain
+   - scmybiz.com and www.scmybiz.com redirect to salescommand.app
+   - All 12 edge functions updated with dynamic CORS origins:
+     salescommand.app, www.salescommand.app, scmybiz.com, www.scmybiz.com
+   - Signing URLs, redirectTo URLs, SITE_URLs, and SCC landing page links
+     all updated to use salescommand.app
+   - QB redirect URIs left as scmybiz.com (still works via redirect,
+     update in QB developer dashboard when convenient)
+   - Sender emails (noreply@scmybiz.com) unchanged — tied to Resend domain
+
+4. John Paul account fix
+   - Password reset directly in auth.users table
+   - Temporary password: P123456 (should be changed)
+   - Account: sales@hdspnv.com
+
+===============================================================================
+DATABASE CHANGES
+===============================================================================
+
+None. (Password updated directly in auth.users via encrypted_password.)
+
+===============================================================================
+EDGE FUNCTIONS DEPLOYED
+===============================================================================
+
+NEW:
+  reset-password — sends password reset email via Resend (deployed --no-verify-jwt)
+
+UPDATED (CORS + URL changes for salescommand.app):
+  create-billing-session, deactivate-user, delete-user, invite-user,
+  qb-auth, qb-create-job, qb-record-payment, qb-sync-invoice,
+  qb-void-invoice, send-invoice, send-proposal
+
+UNCHANGED:
+  proposal-signed, scc-stripe-webhook, stripe-webhook (already use wildcard CORS)
+
+===============================================================================
+FILES CHANGED
+===============================================================================
+
+New files:
+  supabase/functions/reset-password/index.ts — custom password reset edge function
+
+Modified files:
+  src/pages/Login.jsx — calls reset-password edge function instead of Supabase auth
+  src/components/ProposalPDFModal.jsx — signing URL updated to salescommand.app
+  src/pages/SubConCommandPage.jsx — all links updated to salescommand.app
+  supabase/functions/create-billing-session/index.ts — CORS + SITE_URL
+  supabase/functions/deactivate-user/index.ts — CORS
+  supabase/functions/delete-user/index.ts — CORS
+  supabase/functions/invite-user/index.ts — CORS + redirectTo + email links
+  supabase/functions/qb-auth/index.ts — CORS
+  supabase/functions/qb-create-job/index.ts — CORS
+  supabase/functions/qb-record-payment/index.ts — CORS
+  supabase/functions/qb-sync-invoice/index.ts — CORS
+  supabase/functions/qb-void-invoice/index.ts — CORS
+  supabase/functions/send-invoice/index.ts — CORS + SITE_URL
+  supabase/functions/send-proposal/index.ts — CORS
+
+===============================================================================
+KNOWN ISSUES / NEXT UP
+===============================================================================
+
+1. Lepori/John Toney "scam message" — need to follow up tomorrow to
+   understand what the recipient saw. Proposal send code looks normal.
+
+2. QB redirect URIs still point to scmybiz.com — works via redirect but
+   should be updated in QB developer dashboard to salescommand.app/qb/callback
+
+3. John Paul temporary password (P123456) should be changed
+
+4. Resend email deliverability — test reset email landed in junk folder.
+   Consider setting up DMARC for scmybiz.com to improve inbox placement.
+
+Priority queue (carried from v60):
+5. PandaDoc sweep upload
+6. Settings page — Old Jobs config UI
+7. Stripe billing for History Locker add-on
+8. Sales Rep Reminders (edge function + Resend)
+9. Contacts import from Glide (1,612 records)
+10. Invoices.jsx extraction (~1,100 lines)
+11. WTCCalculator.jsx extraction (~2,100 lines)
+12. Settings page expansion
+
+===============================================================================
+PRODUCTION
+===============================================================================
+
+Primary URL: https://salescommand.app
+Redirect: scmybiz.com -> salescommand.app
+Vercel: auto-deploys on push to main
+
+Commits this session:
+  5f49cd4 - Add custom password reset via Resend edge function
+  4e8917e - Fix CORS on reset-password to allow non-www origin
+  5af7e40 - Update all CORS and URLs for salescommand.app domain

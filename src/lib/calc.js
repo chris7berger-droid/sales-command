@@ -54,7 +54,7 @@ export function calcWtcBreakdown(wtc) {
   const totalCost = labor.subtotal + matsCost + trav;
   const profit = totalPrice - totalCost;
   const margin = totalPrice > 0 ? (profit / totalPrice) * 100 : 0;
-  return { price: totalPrice, cost: totalCost, profit, margin };
+  return { price: totalPrice, cost: totalCost, profit, margin, discount: wtc.discount || 0 };
 }
 
 export function calcWtcPrice(wtc) {

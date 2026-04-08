@@ -539,7 +539,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             ))}
             {wtcs.length > 0 && (() => {
               const breakdowns = wtcs.map(w => ({ ...calcWtcBreakdown(w), name: w.work_types?.name || "Unnamed" }));
-              const totals = breakdowns.reduce((a, b) => ({ price: a.price + b.price, cost: a.cost + b.cost, profit: a.profit + b.profit }), { price: 0, cost: 0, profit: 0 });
+              const totals = breakdowns.reduce((a, b) => ({ price: a.price + b.price, cost: a.cost + b.cost, profit: a.profit + b.profit, discount: a.discount + b.discount }), { price: 0, cost: 0, profit: 0, discount: 0 });
               totals.margin = totals.price > 0 ? (totals.profit / totals.price) * 100 : 0;
               const hdr = { fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "center" };
               const cell = { fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui, textAlign: "center" };
@@ -562,6 +562,24 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                       <span style={{ ...cell, color: b.profit >= 0 ? C.green : C.red }}>{money(b.profit)}</span>
                     </div>
                   ))}
+                  {totals.discount > 0 && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 62px 72px", gap: "0 10px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
+                      <span style={{ ...lbl, fontWeight: 700, color: "rgba(255,255,255,0.6)" }}>Subtotal</span>
+                      <span style={{ ...cell, fontWeight: 800 }}>{money(totals.price + totals.discount)}</span>
+                      <span style={cell} />
+                      <span style={cell} />
+                      <span style={cell} />
+                    </div>
+                  )}
+                  {totals.discount > 0 && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 62px 72px", gap: "0 10px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
+                      <span style={{ ...lbl, fontWeight: 700, color: C.red }}>Discount</span>
+                      <span style={{ ...cell, fontWeight: 800, color: C.red }}>−{money(totals.discount)}</span>
+                      <span style={cell} />
+                      <span style={cell} />
+                      <span style={cell} />
+                    </div>
+                  )}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 62px 72px", gap: "0 10px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
                     <span style={{ ...lbl, fontWeight: 700, color: "rgba(255,255,255,0.6)" }}>Total</span>
                     <span style={{ ...cell, fontWeight: 800 }}>{money(totals.price)}</span>

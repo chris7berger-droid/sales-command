@@ -76,8 +76,7 @@ export default function ArchiveRecordDetail({ record, onBack }) {
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <h2 style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.03em", margin: 0 }}>
-          {record.legacy_id && <span style={{ color: C.teal }}>{record.legacy_id}</span>}
-          {record.legacy_id && record.customer_name && " — "}
+          {record.legacy_id && <span style={{ background: C.dark, color: C.teal, padding: "2px 10px", borderRadius: 6, fontSize: 18, marginRight: 8 }}>{record.legacy_id}</span>}
           {record.customer_name || "Archived Record"}
         </h2>
         {record.job_name && (

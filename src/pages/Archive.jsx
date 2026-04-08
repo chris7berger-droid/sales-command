@@ -28,21 +28,23 @@ export default function Archive({ userRole }) {
         </h1>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 22 }}>
-        {TABS.filter(t => !t.roles || t.roles.includes(userRole)).map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            padding: "7px 18px", borderRadius: 20,
-            border: `1.5px solid ${tab === t.id ? C.teal : C.border}`,
-            background: tab === t.id ? C.dark : "transparent",
-            color: tab === t.id ? C.teal : C.textMuted,
-            fontSize: 12.5, fontWeight: 700, cursor: "pointer",
-            fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
-          }}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* Admin tabs — only show when admin has extra views available */}
+      {userRole === "Admin" && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 22 }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              padding: "7px 18px", borderRadius: 20,
+              border: `1.5px solid ${tab === t.id ? C.teal : C.border}`,
+              background: tab === t.id ? C.dark : "transparent",
+              color: tab === t.id ? C.teal : C.textMuted,
+              fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+              fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
+            }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {tab === "search" && <ArchiveSearchView tenantId={tenantId} />}
       {tab === "import" && <ArchiveImportWizard tenantId={tenantId} onDone={() => setTab("search")} />}

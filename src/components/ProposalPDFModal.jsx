@@ -357,10 +357,10 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#1c1814" }}>{money(totals.labor + totals.materials + totals.travel)}</div>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "#b91c1c", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1814", letterSpacing: "0.08em", textTransform: "uppercase" }}>
                       Discount{wtcs.some(w => w.discount_reason) ? ` — ${wtcs.map(w => w.discount_reason).filter(Boolean).join(", ")}` : ""}
                     </div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#b91c1c" }}>−{money(totals.discount)}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#1c1814" }}>−{money(totals.discount)}</div>
                   </div>
                   <div style={{ borderTop: "1.5px solid rgba(28,24,20,0.15)", paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#4a4238", letterSpacing: "0.08em", textTransform: "uppercase" }}>Proposal Total</div>

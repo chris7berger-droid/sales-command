@@ -573,8 +573,8 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                   )}
                   {totals.discount > 0 && (
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 72px 72px 62px 72px", gap: "0 10px", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
-                      <span style={{ ...lbl, fontWeight: 700, color: C.red }}>Discount</span>
-                      <span style={{ ...cell, fontWeight: 800, color: C.red }}>−{money(totals.discount)}</span>
+                      <span style={{ ...lbl, fontWeight: 700, color: "rgba(255,255,255,0.6)" }}>Discount</span>
+                      <span style={{ ...cell, fontWeight: 800 }}>−{money(totals.discount)}</span>
                       <span style={cell} />
                       <span style={cell} />
                       <span style={cell} />

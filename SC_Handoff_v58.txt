@@ -1,0 +1,108 @@
+SC_Handoff_v58 — April 8, 2026
+Session: PandaDoc PDF upload to Supabase, History Locker spec review
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. PandaDoc bulk PDF download COMPLETED
+   - 3,951 PDFs downloaded to ~/Desktop/pandadoc_export/pdfs/
+   - 2,035 with job numbers, 1,916 with NO_JOB prefix
+   - 0 failures
+   - Sandbox API key: 63dc7b87291cc87dcc4dc48a1175fb19b33b1c2b
+
+2. PandaDoc PDFs uploaded to Supabase Storage
+   - 785 PDFs matched to call_log entries by job_number
+   - Uploaded to job-attachments bucket as {call_log_id}/{timestamp}-{filename}
+   - Visible in CallLogDetail attachments section
+   - 0 failures
+
+3. History Locker build spec reviewed
+   - Spec: ~/Desktop/SCC_HistoryLocker_BuildSpec_v1.docx
+   - Architecture approved: separate 'archive' schema, raw_data jsonb with
+     extracted searchable fields, shared parsing with Data Import Tool
+   - Recommendations:
+     * Build components in src/components/HistoryLocker/ first, extract to
+       npm package later when second product needs it
+     * Skip Stripe add-on provisioning for Phase 1, use manual flag
+     * tsvector should combine: customer_name, job_address, job_name,
+       legacy_id, and cast(raw_data as text)
+   - Does NOT require removing yesterday's import work:
+     * Data Import Tool stays (becomes "Migrate" path)
+     * 2,584 HDSP Call Log entries stay (operational data)
+     * 785 PandaDoc PDFs stay (attached to active jobs)
+     * Future customers would choose "Archive to History Locker" instead
+       of direct migration
+
+===============================================================================
+DATABASE CHANGES
+===============================================================================
+
+None this session (PDF uploads were to Storage, not DB tables).
+
+===============================================================================
+EDGE FUNCTIONS DEPLOYED
+===============================================================================
+
+None this session.
+
+===============================================================================
+FILES CHANGED
+===============================================================================
+
+None this session (all work was data operations and spec review).
+
+===============================================================================
+KNOWN ISSUES / NEXT UP
+===============================================================================
+
+Priority order for next sessions:
+
+1. Call Log Archiver (NEW THREAD)
+   - Add `archived` boolean column to call_log (default false)
+   - Auto-archive: Sold/Lost jobs older than 1 year
+   - Bulk archive with FilterBar (date range, stage, rep, etc.)
+   - "Archived" toggle/tab to view old jobs
+   - Call Log only loads archived=false by default (performance win)
+
+2. History Locker — Phase 1-6 (NEW THREAD)
+   - Build spec: ~/Desktop/SCC_HistoryLocker_BuildSpec_v1.docx
+   - Phase 1: archive schema + RLS in Supabase
+   - Phase 2: archive-source-files storage bucket
+   - Phase 3: Components in src/components/HistoryLocker/
+   - Phase 4: Import wizard (branch from Data Import Tool step 2)
+   - Phase 5: Search view + filters
+   - Phase 6: Record detail view
+   - Phase 7-12: Batch manager, SC integration, Operator Portal,
+     Stripe, HDSP go-live, docs
+
+3. Sales Rep Reminders (customizable in Settings)
+   - Has Bid: email every 30 days or on Follow Up Date
+   - Wants Bid: email weekly or until Follow Up Date
+   - Customizable intervals per tenant in Settings
+   - Scheduled Edge Function + Resend
+
+4. Contacts import from Glide (1,612 records)
+5. Invoices.jsx extraction (~1,100 lines)
+6. WTCCalculator.jsx extraction (~2,100 lines)
+7. Settings page expansion
+
+API Keys (for reference):
+- PandaDoc sandbox: 63dc7b87291cc87dcc4dc48a1175fb19b33b1c2b
+- Glide app ID: ImISvhw9sXEJNRPWVIwH
+- Supabase secret key: [stored in Supabase dashboard > Settings > API Keys > Secret]
+  (DO NOT put in code — used only for one-time data migration scripts)
+
+===============================================================================
+PRODUCTION
+===============================================================================
+
+URL: https://www.scmybiz.com
+Vercel: auto-deploys on push to main
+No new commits this session.
+Previous session commits (v57):
+  a88a0f9 - Add fixed-position nav arrows to Inquiry Wizard and WTC
+  4136ef2 - Add call_log import support to Data Import Tool
+  c01768e - Fix Call Log to paginate past 1000-row PostgREST limit
+  ff91167 - Add sessionStorage cache for instant Call Log page loads
+  ae26716 - docs: SC_Handoff_v57

@@ -1,0 +1,89 @@
+SC_Handoff_v63 — April 9, 2026
+Session: New user login bug fix, password reset race condition
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. Denise Barker account — hard-signed in
+   - Email: officeadmin@hdspnv.com
+   - Password set to P123456 via Supabase admin API
+   - Marked onboarded=true so she bypasses the WelcomeScreen
+   - She can log in now at salescommand.app
+
+2. Password reset race condition — FIXED
+   - Bug: clicking a password reset link redirected to home page instead of
+     showing the "set new password" form
+   - Root cause: App.jsx cleared the #type=recovery hash from the URL before
+     Login.jsx had a chance to mount and read it. Login never saw the recovery
+     flag, so it stayed on the default sign-in form. Then Supabase auth state
+     changes bounced the user to the home page.
+   - Fix: App.jsx now stashes a sessionStorage flag (sc_recovery_mode) before
+     clearing the hash. Login.jsx checks both the hash AND the sessionStorage
+     flag on mount, so it reliably switches to the reset form.
+
+3. Invite link investigation
+   - The invite uses a Supabase magic link (type=magiclink) which auto-signs
+     the user in and shows the WelcomeScreen (password creation).
+   - Denise's invite link likely expired before she clicked it (default
+     Supabase magic link expiry is 1 hour).
+   - NOT a code bug — but needs Supabase Dashboard config check (see below).
+
+===============================================================================
+DATABASE CHANGES
+===============================================================================
+
+1. team_members row updated:
+   - Denise Barker (officeadmin@hdspnv.com): onboarded = true
+
+2. auth.users row updated:
+   - 5627b502-86c5-4b59-a131-5d6b54d220f9: password set to P123456
+
+===============================================================================
+EDGE FUNCTIONS DEPLOYED
+===============================================================================
+
+None this session.
+
+===============================================================================
+FILES CHANGED
+===============================================================================
+
+Modified files:
+  src/App.jsx — PASSWORD_RECOVERY handler now stashes sessionStorage flag
+  src/pages/Login.jsx — checks sessionStorage sc_recovery_mode on mount
+
+===============================================================================
+ACTION ITEMS (manual — Supabase Dashboard)
+===============================================================================
+
+Check these in Supabase Dashboard > Authentication > URL Configuration:
+
+1. Site URL should be: https://salescommand.app
+2. Redirect URLs should include:
+   - https://salescommand.app
+   - https://www.salescommand.app
+3. Consider increasing Magic Link expiry (default 1hr may be too short
+   for invite links that sit in someone's inbox)
+
+===============================================================================
+UNCOMMITTED CHANGES (from prior sessions, not pushed)
+===============================================================================
+
+These files have diffs from prior work that were NOT committed this session:
+  - src/components/ProposalDetail.jsx — Send to Schedule Command button, QB
+    test-job skip
+  - src/pages/Invoices.jsx — QB test-job skip on sync/void/payment
+  - src/pages/PublicSigningPage.jsx — QB test-job skip on signing
+
+Also: .env.prod was pulled locally (contains service role key). Do NOT commit.
+
+===============================================================================
+PRODUCTION
+===============================================================================
+
+URL: https://salescommand.app
+Vercel: auto-deploys on push to main
+
+Commits this session:
+  93af024 - Fix password reset race condition — recovery form never appeared

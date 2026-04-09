@@ -21,7 +21,8 @@ export default function Login() {
 
   useEffect(() => {
     const hash = window.location.hash || "";
-    if (hash.includes("type=recovery")) {
+    if (hash.includes("type=recovery") || sessionStorage.getItem("sc_recovery_mode")) {
+      sessionStorage.removeItem("sc_recovery_mode")
       setMode("reset")
       window.history.replaceState({}, "", window.location.pathname)
     }

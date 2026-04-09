@@ -101,7 +101,8 @@ function SalesCommandApp() {
       if (event === "PASSWORD_RECOVERY") {
         const hasRecoveryHash = (window.location.hash || "").includes("type=recovery");
         if (hasRecoveryHash) {
-          // Real recovery link clicked — clear hash and let Login handle it
+          // Real recovery link clicked — stash flag for Login, then clear hash
+          sessionStorage.setItem("sc_recovery_mode", "1");
           window.history.replaceState({}, "", window.location.pathname);
           setSession(null);
           return;

@@ -1,0 +1,66 @@
+SC_Handoff_v64 — April 9, 2026
+Session: Database hardening — tenant_id, updated_at, soft-delete
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. Database hardening migration (sql/db_hardening_phase1.sql) — EXECUTED
+   - Added tenant_id (uuid FK tenant_config) to: customers, call_log,
+     proposals, invoices. All existing rows backfilled. Column is NOT NULL
+     with a default that auto-populates on INSERT.
+   - Added composite indexes for faster tenant-scoped queries:
+     * idx_call_log_tenant_stage (tenant_id, stage)
+     * idx_call_log_tenant_created (tenant_id, created_at DESC)
+     * idx_proposals_tenant_status (tenant_id, status)
+     * idx_invoices_tenant_status (tenant_id, status)
+     * Plus single-column tenant_id indexes on all 4 tables
+   - Added updated_at (timestamptz, DEFAULT now()) with BEFORE UPDATE
+     auto-trigger to: customers, call_log, proposals, invoices, proposal_wtc
+   - Added deleted_at (timestamptz, DEFAULT NULL) soft-delete to: proposals,
+     invoices. Partial indexes on (tenant_id, status) WHERE deleted_at IS NULL
+     for fast active-record queries.
+   - Created shared public.get_user_tenant_id() helper function (moved from
+     archive schema to public for reuse).
+
+2. CLAUDE.md updated
+   - Column reference updated with tenant_id, updated_at, deleted_at on all
+     affected tables so future sessions don't guess.
+
+3. Supabase CLI installed and linked
+   - brew install supabase/tap/supabase (v2.84.2)
+   - Project linked to pbgvgjjuhnpsumnowuym
+   - Migration executed via: supabase db query -f ... --linked
+
+===============================================================================
+WHAT CHANGED (files)
+===============================================================================
+
+- sql/db_hardening_phase1.sql  — NEW, full migration (run and verified)
+- CLAUDE.md                    — updated column reference
+
+===============================================================================
+NO CODE CHANGES TO THE APP
+===============================================================================
+
+This was a DB-only migration. No React components, pages, or lib files were
+modified. The new columns (tenant_id, updated_at, deleted_at) exist in the
+database but are not yet referenced by app code. The app continues to work
+exactly as before.
+
+Future sessions can start leveraging:
+- tenant_id in RLS policies for simpler/faster isolation
+- updated_at for sync conflict detection (e.g., QuickBooks)
+- deleted_at for soft-delete instead of hard-delete on proposals/invoices
+
+===============================================================================
+KNOWN ISSUES / BACKLOG
+===============================================================================
+
+- Denormalized data: customer_name on call_log and proposals.customer can
+  drift from customers.name if a customer is renamed. Consider a trigger or
+  app-level sync in a future session.
+- No CHECK constraints on JSONB columns (materials, field_sow, sub_areas,
+  travel on proposal_wtc). Low priority but would improve data integrity.
+- RLS policies still use JOIN-based tenant checks on core tables. A future
+  session could simplify them to use the new tenant_id column directly.

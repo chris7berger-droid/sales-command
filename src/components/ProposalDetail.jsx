@@ -36,10 +36,16 @@ const [introLoaded, setIntroLoaded] = useState(!!pInit.intro);
 const [introSaving, setIntroSaving] = useState(false);
 const [introSaved, setIntroSaved] = useState(false);
 const [recipients, setRecipients] = useState([]);
+const [sendingToSchedule, setSendingToSchedule] = useState(false);
+const [sentToSchedule, setSentToSchedule] = useState(false);
 
 useEffect(() => {
   supabase.from("team_members").select("id, name").eq("active", true).order("name").then(({ data }) => setAllTeamMembers(data || []));
   supabase.from("proposal_recipients").select("*").eq("proposal_id", p.id).order("created_at").then(({ data }) => setRecipients(data || []));
+  // Check if already sent to Schedule Command
+  if (pInit.status === "Sold") {
+    supabase.from("jobs").select("job_id").eq("source_proposal_id", pInit.id).maybeSingle().then(({ data }) => { if (data) setSentToSchedule(true); });
+  }
 }, []);
 
 const [defaultIntro, setDefaultIntro] = useState(`Thank you for the opportunity to provide this proposal for ${p.call_log?.job_name || p.customer || "your project"}. We are pleased to present the following scope of work and pricing for your review.`);
@@ -280,6 +286,80 @@ async function deletePropAttachment(fullName) {
     setSignedPdfUrl(null);
   }
 
+  async function handleSendToSchedule() {
+    setSendingToSchedule(true);
+    try {
+      // Check if already sent
+      const { data: existing } = await supabase.from("jobs").select("job_id").eq("source_proposal_id", p.id).maybeSingle();
+      if (existing) { alert("This proposal has already been sent to Schedule Command."); setSentToSchedule(true); setSendingToSchedule(false); return; }
+
+      // Block if invoiced — don't schedule work that's already been billed
+      const { data: invoices } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).limit(1);
+      if (invoices && invoices.length > 0) { alert("This proposal has already been invoiced. Cannot send to Schedule Command."); setSendingToSchedule(false); return; }
+
+      // Gather WTC data
+      const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name, cost_code)").eq("proposal_id", p.id).order("created_at", { ascending: true });
+      const wtcList = wtcData || [];
+
+      // Build work type string (e.g. "Epoxy,Caulking")
+      const workTypeNames = wtcList.map(w => w.work_types?.name).filter(Boolean);
+      const workType = workTypeNames.join(",");
+
+      // Merge field_sow from all WTCs
+      const fieldSow = wtcList.flatMap(w => w.field_sow || []);
+
+      // Combine sales_sow text
+      const salesSow = wtcList.map((w, i) => {
+        const label = wtcList.length > 1 ? `WTC ${i + 1} — ${w.work_types?.name || ""}:\n` : "";
+        return label + (w.sales_sow || "");
+      }).filter(s => s.trim()).join("\n\n");
+
+      // Use dates from first WTC that has them
+      const wtcWithDates = wtcList.find(w => w.start_date);
+      const startDate = wtcWithDates?.start_date || null;
+      const endDate = wtcWithDates?.end_date || null;
+
+      // Prevailing wage — yes if any WTC is PW
+      const hasPW = wtcList.some(w => w.prevailing_wage);
+
+      // Size — sum across WTCs, use unit from first
+      const totalSize = wtcList.reduce((sum, w) => sum + (parseFloat(w.size) || 0), 0);
+      const sizeUnit = wtcList.find(w => w.unit)?.unit || "SF";
+
+      // Amount as plain number string (Jobs view uses parseFloat)
+      const amount = p.total ? String(Number(p.total)) : "";
+
+      const row = {
+        job_num: p.call_log?.display_job_number || "NEW",
+        job_name: p.call_log?.job_name || p.customer || "Untitled",
+        amount,
+        work_type: workType,
+        field_sow: fieldSow.length > 0 ? fieldSow : null,
+        sow: salesSow || null,
+        start_date: startDate,
+        end_date: endDate,
+        prevailing_wage: hasPW ? "Yes" : "No",
+        status: "Ongoing",
+        size: totalSize || null,
+        size_unit: sizeUnit,
+        source_proposal_id: p.id,
+        source_call_log_id: p.call_log_id || null,
+      };
+
+      const { error } = await supabase.from("jobs").insert([row]);
+      if (error) {
+        if (error.code === "23505") { alert("This proposal has already been sent to Schedule Command."); setSentToSchedule(true); }
+        else { alert("Error sending to Schedule: " + error.message); }
+        setSendingToSchedule(false);
+        return;
+      }
+      setSentToSchedule(true);
+    } catch (e) {
+      alert("Error: " + e.message);
+    }
+    setSendingToSchedule(false);
+  }
+
   async function handleInternalApprove() {
     if (!approveBy.trim()) { alert("Approved By is required."); return; }
     if (!approveReason.trim()) { alert("Reason is required."); return; }
@@ -292,8 +372,9 @@ async function deletePropAttachment(fullName) {
     }).eq("id", p.id);
     if (p.call_log_id) {
       await supabase.from("call_log").update({ stage: "Sold" }).eq("id", p.call_log_id);
-      // Sync job to QuickBooks
-      supabase.functions.invoke("qb-create-job", { body: { callLogId: p.call_log_id } })
+      // Sync job to QuickBooks (skip if test job)
+      const isTest = (p.call_log?.job_name || "").toLowerCase().includes("test");
+      !isTest && supabase.functions.invoke("qb-create-job", { body: { callLogId: p.call_log_id } })
         .then(r => { if (r.data?.error) console.warn("QB sync:", r.data.error); else console.log("QB job created:", r.data); })
         .catch(e => console.warn("QB sync failed:", e.message));
     }
@@ -338,6 +419,12 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           )}
           {(p.status === "Sent" || p.status === "Sold") && (
             <Btn sz="sm" v="ghost" onClick={handlePullBack} style={{ color: C.amber, borderColor: C.amber }}>↩ Pull Back</Btn>
+          )}
+          {p.status === "Sold" && (
+            <Btn sz="sm" v="ghost" onClick={handleSendToSchedule} disabled={sendingToSchedule || sentToSchedule}
+              style={{ color: sentToSchedule ? C.textFaint : C.teal, borderColor: sentToSchedule ? C.border : C.teal }}>
+              {sentToSchedule ? "✓ Sent to Schedule" : sendingToSchedule ? "Sending..." : "Send to Schedule"}
+            </Btn>
           )}
           {p.status !== "Sold" && p.status !== "Sent" && (
             <Btn sz="sm" v="ghost" onClick={() => setShowApproveModal(true)} style={{ color: C.green, borderColor: C.green }}>✓ Internal Approve</Btn>

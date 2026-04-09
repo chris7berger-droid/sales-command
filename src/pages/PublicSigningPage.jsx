@@ -261,8 +261,9 @@ export default function PublicSigningPage() {
         await supabase.from("proposals").update({ status: "Sold", approved_at: new Date().toISOString() }).eq("id", proposal.id);
         if (proposal.call_log_id) await supabase.from("call_log").update({ stage: "Sold" }).eq("id", proposal.call_log_id);
       }
-      // QB job sync (non-blocking)
-      if (proposal.call_log_id) {
+      // QB job sync (non-blocking, skip test jobs)
+      const isTest = (proposal.customer || "").toLowerCase().includes("test");
+      if (proposal.call_log_id && !isTest) {
         supabase.functions.invoke("qb-create-job", { body: { callLogId: proposal.call_log_id } }).catch(() => {});
       }
 

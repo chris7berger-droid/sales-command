@@ -401,10 +401,12 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
       });
       if (fnError) throw new Error(fnError.message || "Send failed.");
       if (data?.error) throw new Error(data.error);
-      // Sync to QuickBooks (non-blocking)
-      supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: invoice.id } })
-        .then(r => { if (r.data?.error) console.warn("QB invoice sync:", r.data.error); else console.log("QB invoice synced:", r.data); })
-        .catch(e => console.warn("QB invoice sync failed:", e.message));
+      // Sync to QuickBooks (non-blocking, skip test jobs)
+      if (!(invoice.job_name || "").toLowerCase().includes("test")) {
+        supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: invoice.id } })
+          .then(r => { if (r.data?.error) console.warn("QB invoice sync:", r.data.error); else console.log("QB invoice synced:", r.data); })
+          .catch(e => console.warn("QB invoice sync failed:", e.message));
+      }
       setSendDone(true);
       onSent && onSent(data);
     } catch (e) {
@@ -696,8 +698,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
     if (newStatus === "Paid" && !inv.paid_at) updates.paid_at = new Date().toISOString();
     const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
     if (error) { alert(error.message); return; }
-    // Sync payment to QuickBooks when marked as Paid
-    if (newStatus === "Paid" && inv.qb_invoice_id) {
+    // Sync payment to QuickBooks when marked as Paid (skip test jobs)
+    if (newStatus === "Paid" && inv.qb_invoice_id && !(inv.job_name || "").toLowerCase().includes("test")) {
       supabase.functions.invoke("qb-record-payment", { body: { invoiceId: inv.id } })
         .then(r => { if (r.data?.error) console.warn("QB payment sync:", r.data.error); else console.log("QB payment recorded:", r.data); })
         .catch(e => console.warn("QB payment sync failed:", e.message));
@@ -785,8 +787,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
       }
     }
 
-    // Sync to QuickBooks with edit reason (non-blocking)
-    if (inv.qb_invoice_id) {
+    // Sync to QuickBooks with edit reason (non-blocking, skip test jobs)
+    if (inv.qb_invoice_id && !(inv.job_name || "").toLowerCase().includes("test")) {
       supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: editId, editReason: editReason.trim() } })
         .then(r => { if (r.data?.error) console.warn("QB sync:", r.data.error); else console.log("QB invoice updated:", r.data); })
         .catch(e => console.warn("QB sync failed:", e.message));
@@ -819,11 +821,14 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
   async function handleVoidConfirm() {
     if (!voidReason.trim()) { alert("A reason is required for audit compliance."); return; }
     setSaving(true);
-    // Void in QuickBooks with reason
-    const { data: qbResult } = await supabase.functions.invoke("qb-void-invoice", {
-      body: { invoiceId: inv.id, reason: voidReason.trim(), action: showVoidModal },
-    });
-    if (qbResult?.error) { alert(`QuickBooks error: ${qbResult.error}`); setSaving(false); return; }
+    // Void in QuickBooks with reason (skip test jobs)
+    const isTest = (inv.job_name || "").toLowerCase().includes("test");
+    if (!isTest) {
+      const { data: qbResult } = await supabase.functions.invoke("qb-void-invoice", {
+        body: { invoiceId: inv.id, reason: voidReason.trim(), action: showVoidModal },
+      });
+      if (qbResult?.error) { alert(`QuickBooks error: ${qbResult.error}`); setSaving(false); return; }
+    }
 
     if (showVoidModal === "delete") {
       await supabase.from("invoice_lines").delete().eq("invoice_id", inv.id);

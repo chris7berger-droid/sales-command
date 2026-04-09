@@ -41,21 +41,24 @@ drifting on styling. Read them before writing any code.
 team_members: id, name (NOT full_name), email, phone, role, auth_id, active
 
 proposals: id, total (NOT total_price), approved_at (NOT accepted_at),
-  status, created_at, customer, intro_completed, attachments_added,
-  recipients_assigned, wtc_verified, call_log_id, proposal_number,
-  signing_token
+  status, created_at, updated_at (timestamptz, auto-trigger),
+  deleted_at (timestamptz, NULL = active), customer, intro_completed,
+  attachments_added, recipients_assigned, wtc_verified, call_log_id,
+  proposal_number, signing_token, tenant_id (uuid FK tenant_config)
 
 call_log: id, display_job_number, stage, bid_due, follow_up, created_at
-  (NOT date), jobsite_address, customer_name, sales_name, job_number,
+  (NOT date), updated_at (timestamptz, auto-trigger),
+  jobsite_address, customer_name, sales_name, job_number,
   job_name, is_change_order (NOT job_type), parent_job_id, co_number,
   co_standalone, jobsite_city, jobsite_state, jobsite_zip,
   billing_address, billing_city, billing_state, billing_zip,
-  billing_address_same, customer_id
+  billing_address_same, customer_id, tenant_id (uuid FK tenant_config)
 
 customers: id, name, customer_type, first_name, last_name, phone, email,
   contact_phone, contact_email, billing_same, billing_name, billing_phone,
   billing_email, billing_terms (integer, default 30), business_address,
-  business_city, business_state, business_zip
+  business_city, business_state, business_zip, updated_at (timestamptz,
+  auto-trigger), tenant_id (uuid FK tenant_config)
 
 customer_contacts: id (uuid), customer_id (uuid FK customers, ON DELETE CASCADE),
   name (text), phone (text), email (text), role (text — "Project Manager",
@@ -66,7 +69,8 @@ proposal_wtc: id, proposal_id, work_type_id (INTEGER 1-40), burden_rate,
   ot_burden_rate, tax_rate, prevailing_wage, regular_hours, ot_hours,
   markup_pct, materials (jsonb), size, unit, sales_sow, field_sow (jsonb),
   sub_areas (jsonb), travel (jsonb), discount, discount_reason, locked,
-  created_at, start_date (date), end_date (date)
+  created_at, updated_at (timestamptz, auto-trigger),
+  start_date (date), end_date (date)
 
 work_types: id, name, cost_code
 proposal_signatures: id, proposal_id, signer_name, signer_email, signed_at,
@@ -75,7 +79,10 @@ invoices: id (text), job_id, job_name, status, amount, discount, sent_at,
   due_date, proposal_id (int8 FK proposals), qb_invoice_id (text),
   qb_payment_id (text), stripe_checkout_id (text), stripe_checkout_url (text),
   stripe_payment_id (text), paid_at (timestamptz), description (text),
-  viewing_token (uuid, default gen_random_uuid())
+  viewing_token (uuid, default gen_random_uuid()),
+  updated_at (timestamptz, auto-trigger),
+  deleted_at (timestamptz, NULL = active),
+  tenant_id (uuid FK tenant_config)
 
 invoice_lines: id (int8), invoice_id (text FK invoices), proposal_wtc_id
   (uuid FK proposal_wtc), billing_pct (numeric), amount (numeric),

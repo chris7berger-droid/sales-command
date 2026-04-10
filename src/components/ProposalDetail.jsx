@@ -38,10 +38,19 @@ const [introSaved, setIntroSaved] = useState(false);
 const [recipients, setRecipients] = useState([]);
 const [sendingToSchedule, setSendingToSchedule] = useState(false);
 const [sentToSchedule, setSentToSchedule] = useState(false);
+const [customerContacts, setCustomerContacts] = useState([]);
+const [editingContact, setEditingContact] = useState(null);
+const [contactDraft, setContactDraft] = useState({});
+const [editingPrimary, setEditingPrimary] = useState(false);
+const [primaryDraft, setPrimaryDraft] = useState("");
 
 useEffect(() => {
   supabase.from("team_members").select("id, name").eq("active", true).order("name").then(({ data }) => setAllTeamMembers(data || []));
   supabase.from("proposal_recipients").select("*").eq("proposal_id", p.id).order("created_at").then(({ data }) => setRecipients(data || []));
+  const custId = pInit.call_log?.customer_id;
+  if (custId) {
+    supabase.from("customer_contacts").select("*").eq("customer_id", custId).order("is_primary", { ascending: false }).order("name").then(({ data }) => setCustomerContacts(data || []));
+  }
   // Check if already sent to Schedule Command
   if (pInit.status === "Sold") {
     supabase.from("jobs").select("job_id").eq("source_proposal_id", pInit.id).maybeSingle().then(({ data }) => { if (data) setSentToSchedule(true); });
@@ -221,6 +230,44 @@ async function deletePropAttachment(fullName) {
     setActiveWtcId(wtcId);
     setWtcInitialTab(tab);
     setShowWTC(true);
+  }
+
+  const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+  const custId = p.call_log?.customer_id;
+
+  async function savePrimaryEmail() {
+    if (primaryDraft && !isValidEmail(primaryDraft)) { alert("Invalid email address"); return; }
+    await supabase.from("customers").update({ email: primaryDraft, contact_email: primaryDraft }).eq("id", custId);
+    setP(prev => ({ ...prev, call_log: { ...prev.call_log, customers: { ...prev.call_log?.customers, email: primaryDraft, contact_email: primaryDraft } } }));
+    setEditingPrimary(false);
+  }
+
+  async function saveContact(id) {
+    const draft = contactDraft;
+    if (draft.email && !isValidEmail(draft.email)) {
+      alert("Invalid email address");
+      return;
+    }
+    await supabase.from("customer_contacts").update({ name: draft.name, email: draft.email, phone: draft.phone, role: draft.role }).eq("id", id);
+    setCustomerContacts(prev => prev.map(c => c.id === id ? { ...c, ...draft } : c));
+    setEditingContact(null);
+    setContactDraft({});
+  }
+
+  async function addContact() {
+    if (!custId) return;
+    const { data } = await supabase.from("customer_contacts").insert({ customer_id: custId, name: "", email: "", role: "Project Manager" }).select().single();
+    if (data) {
+      setCustomerContacts(prev => [...prev, data]);
+      setEditingContact(data.id);
+      setContactDraft({ name: "", email: "", phone: "", role: "Project Manager" });
+    }
+  }
+
+  async function deleteContact(id) {
+    if (!window.confirm("Remove this contact?")) return;
+    await supabase.from("customer_contacts").delete().eq("id", id);
+    setCustomerContacts(prev => prev.filter(c => c.id !== id));
   }
 
   function getWtcChecks(wtc) {
@@ -543,6 +590,89 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               );
             })}
             <Btn sz="sm" v="ghost" onClick={() => { setActiveWtcId(null); setShowWTC(true); }}>+ Add Work Type</Btn>
+          </div>
+
+          {/* Recipients */}
+          <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
+            <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Recipients</div>
+            {(() => {
+              const cust = p.call_log?.customers;
+              const custName = p.call_log?.customer_name || p.customer || "";
+              const custEmail = cust?.contact_email || cust?.email || "";
+              return (
+                <>
+                  {/* Primary customer contact */}
+                  <div style={{ padding: "10px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6 }}>
+                    {editingPrimary ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>{custName}</div>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <input value={primaryDraft} onChange={e => setPrimaryDraft(e.target.value)} placeholder="Email" style={{ flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                          <Btn sz="sm" onClick={savePrimaryEmail}>Save</Btn>
+                          <Btn sz="sm" v="ghost" onClick={() => setEditingPrimary(false)}>Cancel</Btn>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>{custName}</div>
+                          <div style={{ fontSize: 12, color: custEmail && !isValidEmail(custEmail) ? (C.red || "#e53935") : C.textMuted, fontFamily: F.ui, marginTop: 1 }}>
+                            {custEmail || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No email on file</span>}
+                            {custEmail && !isValidEmail(custEmail) && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700 }}>Invalid</span>}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>Primary</div>
+                        <button onClick={() => { setPrimaryDraft(custEmail); setEditingPrimary(true); }} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>Edit</button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Additional contacts */}
+                  {customerContacts.map(c => {
+                    const isEditing = editingContact === c.id;
+                    return (
+                      <div key={c.id} style={{ padding: "10px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6 }}>
+                        {isEditing ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <input value={contactDraft.name || ""} onChange={e => setContactDraft(d => ({ ...d, name: e.target.value }))} placeholder="Name" style={{ flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                              <select value={contactDraft.role || "Project Manager"} onChange={e => setContactDraft(d => ({ ...d, role: e.target.value }))} style={{ padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }}>
+                                <option>Project Manager</option>
+                                <option>Office Manager</option>
+                                <option>Billing Contact</option>
+                              </select>
+                            </div>
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <input value={contactDraft.email || ""} onChange={e => setContactDraft(d => ({ ...d, email: e.target.value }))} placeholder="Email" style={{ flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                              <input value={contactDraft.phone || ""} onChange={e => setContactDraft(d => ({ ...d, phone: e.target.value }))} placeholder="Phone" style={{ flex: 0.7, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                            </div>
+                            <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                              <Btn sz="sm" v="ghost" onClick={() => { setEditingContact(null); setContactDraft({}); }}>Cancel</Btn>
+                              <Btn sz="sm" onClick={() => saveContact(c.id)}>Save</Btn>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>{c.name || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No name</span>}</div>
+                              <div style={{ fontSize: 12, color: c.email && !isValidEmail(c.email) ? (C.red || "#e53935") : C.textMuted, fontFamily: F.ui, marginTop: 1 }}>
+                                {c.email || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No email</span>}
+                                {c.email && !isValidEmail(c.email) && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700 }}>Invalid</span>}
+                              </div>
+                              {c.phone && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 1 }}>{c.phone}</div>}
+                            </div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{c.role || "Contact"}</div>
+                            <button onClick={() => { setEditingContact(c.id); setContactDraft({ name: c.name || "", email: c.email || "", phone: c.phone || "", role: c.role || "Project Manager" }); }} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>Edit</button>
+                            <button onClick={() => deleteContact(c.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: "3px 4px", fontSize: 13, color: C.textFaint, lineHeight: 1 }}>×</button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <Btn sz="sm" v="ghost" onClick={addContact} style={{ marginTop: 4 }}>+ Add Contact</Btn>
+                </>
+              );
+            })()}
           </div>
 
         </div>

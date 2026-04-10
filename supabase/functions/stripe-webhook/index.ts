@@ -41,7 +41,7 @@ async function sendEmail(to: string, subject: string, html: string, from?: strin
         "Authorization": `Bearer ${RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ from: from || "noreply@scmybiz.com", to, subject, html }),
+      body: JSON.stringify({ from: from || "noreply@salescommand.app", to, subject, html }),
     });
     console.log("Email to", to, ":", res.status);
   } catch (e) {

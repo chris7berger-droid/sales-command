@@ -39,7 +39,7 @@ serve(async (req) => {
       });
     }
 
-    const { customerEmail, customerName, repEmail, repName, proposalNumber, jobName, signingUrl } = await req.json();
+    const { customerEmail, customerName, repEmail, repName, proposalNumber, jobName, signingUrl, companyName } = await req.json();
 
     console.log("send-proposal invoked", { customerEmail, repEmail, proposalNumber, jobName });
 
@@ -58,7 +58,9 @@ serve(async (req) => {
       });
     }
 
-    // Email to customer
+    // Email to customer — always send FROM a verified domain; use reply_to for the rep
+    const senderName = repName || companyName || "Sales Command";
+    const fromAddress = `${senderName} <noreply@salescommand.app>`;
     const customerRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -66,7 +68,8 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: repEmail || "noreply@scmybiz.com",
+        from: fromAddress,
+        reply_to: repEmail || undefined,
         to: customerEmail,
         subject: `Proposal Ready for Review — ${jobName}`,
         html: `
@@ -107,7 +110,7 @@ serve(async (req) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            from: repEmail || "noreply@scmybiz.com",
+            from: fromAddress,
             to: repEmail,
             subject: `Proposal Sent — ${jobName}`,
             html: `

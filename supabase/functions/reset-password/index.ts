@@ -81,7 +81,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "noreply@scmybiz.com",
+        from: "noreply@salescommand.app",
         to: email,
         subject: "Reset your Sales Command password",
         html: `

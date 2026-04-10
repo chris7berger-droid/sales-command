@@ -132,7 +132,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: senderEmail || "noreply@scmybiz.com",
+        from: senderEmail || "noreply@salescommand.app",
         to: customerEmail,
         subject: `Invoice #${invoiceId} — ${jobName || "High Desert Surface Prep"}`,
         html: `

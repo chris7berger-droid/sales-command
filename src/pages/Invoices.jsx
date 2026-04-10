@@ -396,7 +396,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
           jobName: invoice.job_name || "",
           jobId: invoice.job_id || "",
           dueDate: invoice.due_date || null,
-          senderEmail: repContact.email || "noreply@scmybiz.com",
+          senderEmail: repContact.email || "noreply@salescommand.app",
         },
       });
       if (fnError) throw new Error(fnError.message || "Send failed.");

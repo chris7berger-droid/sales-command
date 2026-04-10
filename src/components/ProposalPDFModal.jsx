@@ -46,9 +46,16 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
   }, []);
   const signingUrl = `https://salescommand.app/sign/${proposal.signing_token}`;
 
+  const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+
   async function handleSend() {
     if (!signerEmail) {
       setSendError("Please select a signer.");
+      return;
+    }
+    const badEmails = [signerEmail, ...viewerEmails].filter(e => !isValidEmail(e));
+    if (badEmails.length) {
+      setSendError(`Invalid email address: ${badEmails.join(", ")}`);
       return;
     }
     setSending(true);
@@ -68,6 +75,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
           customerName: signerContact?.name || proposal.call_log?.customer_name || "Customer",
           repEmail,
           repName: salesName,
+          companyName: COMPANY.name,
           proposalNumber: proposal.proposal_number || proposal.id,
           jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
           signingUrl,
@@ -85,6 +93,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
             customerName: vContact?.name || "Viewer",
             repEmail,
             repName: salesName,
+            companyName: COMPANY.name,
             proposalNumber: proposal.proposal_number || proposal.id,
             jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
             signingUrl,

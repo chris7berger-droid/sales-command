@@ -1,0 +1,37 @@
+SC_Handoff_v65 — April 10, 2026
+Session: Fix invoice delete bug
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. Fixed invoice delete not removing invoices from the list
+   - File: src/pages/Invoices.jsx
+   - Root cause: handleDelete() and handleVoidConfirm() used hard DELETE,
+     which RLS silently blocked. The load() query also had no deleted_at
+     filter, so even soft-deleted rows would appear.
+   - Fix: Both delete paths now set deleted_at instead of hard-deleting.
+     The load() query now filters with .is("deleted_at", null).
+   - Invoice lines are left intact (belong to the soft-deleted invoice).
+
+===============================================================================
+COMMIT
+===============================================================================
+
+f5b0e19 Fix invoice delete: use soft-delete and filter deleted_at in list query
+
+===============================================================================
+DEPLOY
+===============================================================================
+
+Pushed to main → Vercel auto-deploy.
+
+===============================================================================
+NOTES FOR NEXT SESSION
+===============================================================================
+
+- The deleted_at column was added in v64 (DB hardening) but never wired up
+  in the app code until this session.
+- proposals table also has deleted_at — may need the same soft-delete
+  treatment if proposal deletion has the same silent-fail issue.
+- .env.prod is sitting untracked in the repo root — do not commit it.

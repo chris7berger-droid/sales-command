@@ -107,7 +107,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
       const monthLog = (log || []).filter(r => r.created_at?.startsWith(month));
       setMonthRows(monthLog);
 
-      let propQuery = supabase.from("proposals").select('total, approved_at, created_at, status, call_log_id, call_log(sales_name, job_name, display_job_number, customer_name), proposal_wtc(end_date)');
+      let propQuery = supabase.from("proposals").select('total, approved_at, created_at, status, call_log_id, call_log(sales_name, job_name, display_job_number, customer_name), proposal_wtc(end_date)').is("deleted_at", null);
       const { data: props } = await propQuery;
       const filteredProps = isRep ? (props || []).filter(p => p.call_log?.sales_name === displayName) : (props || []);
 

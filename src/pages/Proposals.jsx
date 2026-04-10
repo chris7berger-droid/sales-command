@@ -45,6 +45,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
       supabase
         .from("proposals")
         .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(email, contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id)")
+        .is("deleted_at", null)
         .order("created_at", { ascending: false }),
       supabase.from("invoices").select("id, status, proposal_id"),
       supabase.from("work_types").select("*").order("name"),

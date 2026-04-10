@@ -49,7 +49,7 @@ export default function Managers() {
     async function load() {
       const [{ data: callLog }, { data: proposals }] = await Promise.all([
         supabase.from("call_log").select("created_at"),
-        supabase.from("proposals").select("total, created_at, approved_at, status"),
+        supabase.from("proposals").select("total, created_at, approved_at, status").is("deleted_at", null),
       ]);
       setRows(buildMonthRows(callLog, proposals));
       setLoading(false);

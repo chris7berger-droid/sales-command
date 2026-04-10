@@ -127,8 +127,8 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   useEffect(() => {
     async function fetchLinked() {
       const [{ data: props }, { data: invs }] = await Promise.all([
-        supabase.from("proposals").select("id, status, total, proposal_number, call_log(display_job_number)").eq("call_log_id", job.id).order("created_at"),
-        supabase.from("invoices").select("id, status, amount, job_name").eq("job_id", job.display_job_number).order("sent_at", { ascending: false }),
+        supabase.from("proposals").select("id, status, total, proposal_number, call_log(display_job_number)").is("deleted_at", null).eq("call_log_id", job.id).order("created_at"),
+        supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).eq("job_id", job.display_job_number).order("sent_at", { ascending: false }),
       ]);
       setLinkedProposals(props || []);
       setLinkedInvoices(invs || []);

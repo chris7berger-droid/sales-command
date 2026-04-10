@@ -111,7 +111,7 @@ export default function SalesDash({ displayName, displayRole }) {
       setRows(log || []);
       setMonthRows((log || []).filter(r => r.created_at?.startsWith(month)));
 
-      const { data: props } = await supabase.from("proposals").select("total, approved_at, created_at, status, call_log_id, call_log(sales_name, customer_name, job_name, customer_id, customers(billing_terms)), proposal_wtc(end_date)");
+      const { data: props } = await supabase.from("proposals").select("total, approved_at, created_at, status, call_log_id, call_log(sales_name, customer_name, job_name, customer_id, customers(billing_terms)), proposal_wtc(end_date)").is("deleted_at", null);
       const filteredProps = filterByRep ? (props || []).filter(p => p.call_log?.sales_name === filterByRep) : (props || []);
 
       const getEndDate = p => {

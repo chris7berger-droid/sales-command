@@ -732,8 +732,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
       return;
     }
     if (!confirm(`Delete Invoice #${inv.id}? This cannot be undone.`)) return;
-    await supabase.from("invoice_lines").delete().eq("invoice_id", inv.id);
-    const { error } = await supabase.from("invoices").delete().eq("id", inv.id);
+    const { error } = await supabase.from("invoices").update({ deleted_at: new Date().toISOString() }).eq("id", inv.id);
     if (error) { alert(error.message); return; }
     onDeleted && onDeleted();
   }
@@ -831,8 +830,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
     }
 
     if (showVoidModal === "delete") {
-      await supabase.from("invoice_lines").delete().eq("invoice_id", inv.id);
-      await supabase.from("invoices").delete().eq("id", inv.id);
+      const { error: delErr } = await supabase.from("invoices").update({ deleted_at: new Date().toISOString() }).eq("id", inv.id);
+      if (delErr) { alert(delErr.message); setSaving(false); return; }
       setSaving(false);
       setShowVoidModal(null);
       setVoidReason("");
@@ -1073,7 +1072,7 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
   const [filters, setFilters] = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
 
   const load = async () => {
-    const { data } = await supabase.from("invoices").select("*, proposals(call_log(sales_name, customer_name, display_job_number, show_cents))").order("sent_at", { ascending: false });
+    const { data } = await supabase.from("invoices").select("*, proposals(call_log(sales_name, customer_name, display_job_number, show_cents))").is("deleted_at", null).order("sent_at", { ascending: false });
     setInvoices(data || []);
     setLoading(false);
     return data;

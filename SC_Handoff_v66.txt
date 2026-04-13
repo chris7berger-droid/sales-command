@@ -1,0 +1,84 @@
+SC_Handoff_v66 — April 13, 2026
+Session: WTC print fixes + materials input improvements
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. Fixed WTC print — blank page (content not printing)
+   - File: src/pages/WTCCalculator.jsx
+   - Root cause: the data-wtc-print-only div was NESTED inside the
+     data-wtc-no-print div. The print CSS hides [data-wtc-no-print] with
+     display:none !important, which also hid everything inside it —
+     including the print layout.
+   - Fix: moved the closing </div> for data-wtc-no-print so it closes
+     before the print-only section. Now they are siblings, not parent/child.
+
+2. Fixed material name missing on WTC print (showed "—" for all rows)
+   - File: src/pages/WTCCalculator.jsx (print layout, ~line 2089)
+   - Root cause: print layout referenced m.name but the materials data
+     model stores the name in m.product (set at line 535 when adding
+     from DB or custom).
+   - Fix: changed to m.product || m.name || "—"
+
+3. Allow decimal quantities in materials tab
+   - File: src/pages/WTCCalculator.jsx (MaterialsTab, updateItem)
+   - Root cause: updateItem coerced all number fields with parseFloat(val)||0,
+     which collapsed "0." to 0 mid-typing, making it impossible to enter
+     values like 0.5 (half kit).
+   - Fix: updateItem now stores the raw string if the value ends with "."
+     (mid-decimal), only coercing to number when input is complete.
+     calcMaterialRow already uses parseFloat() internally so it handles
+     string values safely.
+
+4. Widened Qty and Tax % input columns in materials table
+   - Both inputs widened from 55px to 65px so "8.25" is fully visible
+     and decimal qty values have room to display.
+
+===============================================================================
+COMMITS
+===============================================================================
+
+f5f24e3 Fix WTC print: print-only layout was nested inside no-print wrapper
+251e946 Fix material name missing on WTC print — use product field
+21ac5c2 Allow decimal qty in materials; widen qty and tax % inputs
+
+===============================================================================
+DEPLOY
+===============================================================================
+
+Pushed to main → Vercel auto-deploy.
+
+===============================================================================
+NOTES FOR NEXT SESSION
+===============================================================================
+
+NEXT FEATURE: Custom Work Types + Cost Codes + Default SOWs (Settings page)
+
+This is a 3-step feature. Do schema first, then UI, then WTC integration.
+
+Step 1 — Supabase schema:
+  - work_types is currently a shared static table (ids 1–40, no tenant_id).
+  - Options: add tenant_id to work_types (nullable = system default, set =
+    tenant-custom), OR create a separate customer_work_types table.
+  - Recommend: add tenant_id (nullable) to work_types. System defaults have
+    tenant_id = NULL; tenant-custom rows have tenant_id = their UUID.
+  - New table: work_type_sow_defaults
+      id (uuid), tenant_id (uuid FK tenant_config), work_type_id (int FK
+      work_types), sales_sow (text), field_sow (jsonb), created_at, updated_at
+
+Step 2 — Settings page UI:
+  - New "Work Types" section in Settings
+  - Table showing system defaults (read-only) + tenant custom types (editable)
+  - Add/edit/delete custom work types with name + cost_code fields
+  - Per work type: button to open SOW editor (sales SOW text + field SOW tasks)
+
+Step 3 — WTC integration:
+  - Work type selector in WTC loads both system work_types (tenant_id IS NULL)
+    and tenant-custom work_types (tenant_id = current tenant)
+  - When a work type is selected, auto-populate SOW fields from
+    work_type_sow_defaults if a default exists for that tenant + work_type
+
+- Also unresolved: SC_Handoff_v65 had uncommitted edits to the doc itself
+  (the proposal soft-delete work). Those edits are still unstaged.
+- .env.prod is sitting untracked in the repo root — do not commit it.

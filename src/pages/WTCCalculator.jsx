@@ -530,7 +530,11 @@ function LaborTab({ data, bidding, sow, onChange }) {
 }
 
 function MaterialsTab({ items, taxRate, onChange }) {
-  const updateItem = (id, key, val) => onChange(items.map(i => i.id === id ? { ...i, [key]: ["product", "kit_size", "coverage_rate", "supplier"].includes(key) ? val : parseFloat(val) || 0 } : i));
+  const updateItem = (id, key, val) => {
+    const isText = ["product", "kit_size", "coverage_rate", "supplier"].includes(key);
+    const coerced = isText ? val : (typeof val === "string" && val.endsWith(".") ? val : parseFloat(val) || 0);
+    onChange(items.map(i => i.id === id ? { ...i, [key]: coerced } : i));
+  };
   const removeItem = id => onChange(items.filter(i => i.id !== id));
   const addFromDB = m => onChange([...items, { id: Date.now(), product: m.name, kit_size: m.kit, price_per_unit: m.price, coverage_rate: m.coverage, supplier: m.supplier, qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0 }]);
   const addCustom = () => onChange([...items, { id: Date.now(), product: "", kit_size: "", price_per_unit: 0, coverage_rate: "", supplier: "", qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0 }]);
@@ -584,8 +588,8 @@ function MaterialsTab({ items, taxRate, onChange }) {
                     {cellInput(item, "coverage_rate", "text", 90)}
                     {cellInput(item, "supplier", "text", 80)}
                     {cellInput(item, "price_per_unit", "number", 90)}
-                    {cellInput(item, "qty", "number", 55)}
-                    {cellInput(item, "tax", "number", 55)}
+                    {cellInput(item, "qty", "number", 65)}
+                    {cellInput(item, "tax", "number", 65)}
                     {cellInput(item, "freight", "number", 65)}
                     {cellInput(item, "markup_pct", "number", 65)}
                     <td style={{ ...td, fontWeight: 700, color: T.greenDark, width: 90, fontSize: 13 }}>{fmt(totals[idx])}</td>

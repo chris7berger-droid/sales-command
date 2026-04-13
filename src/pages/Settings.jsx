@@ -21,6 +21,162 @@ function Field({ label, children, wide, triple }) {
 
 const STD_TERMS = [5, 15, 30, 45, 60, 90, 120];
 
+function WorkTypesSection() {
+  const [workTypes, setWorkTypes]   = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [tenantId, setTenantId]     = useState(null);
+  const [editing, setEditing]       = useState(null); // row being edited (or { isNew:true })
+  const [saving, setSaving]         = useState(false);
+  const [deleteId, setDeleteId]     = useState(null);
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    setLoading(true);
+    const { data: tc } = await supabase.from("tenant_config").select("id").single();
+    if (tc) setTenantId(tc.id);
+    const { data } = await supabase
+      .from("work_types")
+      .select("id, name, cost_code, sales_sow, sort_order")
+      .not("tenant_id", "is", null)
+      .order("name");
+    if (data) setWorkTypes(data);
+    setLoading(false);
+  }
+
+  const startNew  = () => setEditing({ isNew: true, name: "", cost_code: "", sales_sow: "" });
+  const startEdit = (wt) => setEditing({ ...wt });
+  const cancel    = () => setEditing(null);
+
+  async function save() {
+    if (!editing.name.trim()) return;
+    setSaving(true);
+    if (editing.isNew) {
+      await supabase.from("work_types").insert({
+        name: editing.name.trim(),
+        cost_code: editing.cost_code.trim(),
+        sales_sow: editing.sales_sow.trim() || null,
+        tenant_id: tenantId,
+        active: true,
+      });
+    } else {
+      await supabase.from("work_types").update({
+        name: editing.name.trim(),
+        cost_code: editing.cost_code.trim(),
+        sales_sow: editing.sales_sow.trim() || null,
+      }).eq("id", editing.id);
+    }
+    setSaving(false);
+    setEditing(null);
+    load();
+  }
+
+  async function remove(id) {
+    setDeleteId(id);
+    await supabase.from("work_types").delete().eq("id", id);
+    setDeleteId(null);
+    load();
+  }
+
+  const rowStyle = { display: "grid", gridTemplateColumns: "1fr 120px auto", gap: 12, alignItems: "center", padding: "10px 14px", borderRadius: 8, background: C.linenDeep, border: `1px solid ${C.borderStrong}` };
+  const colHead  = { fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textFaint, fontFamily: F.ui };
+
+  if (loading) return <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>Loading…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {/* Column headers */}
+      {workTypes.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 120px auto", gap: 12, padding: "0 14px" }}>
+          <span style={colHead}>Work Type Name</span>
+          <span style={colHead}>Cost Code</span>
+          <span style={{ ...colHead, minWidth: 80 }} />
+        </div>
+      )}
+
+      {/* Existing rows */}
+      {workTypes.map(wt =>
+        editing && !editing.isNew && editing.id === wt.id ? (
+          <EditRow key={wt.id} editing={editing} setEditing={setEditing} onSave={save} onCancel={cancel} saving={saving} inputStyle={inputStyle} />
+        ) : (
+          <div key={wt.id} style={rowStyle}>
+            <span style={{ fontSize: 13, fontFamily: F.ui, color: C.textBody }}>{wt.name}</span>
+            <span style={{ fontSize: 13, fontFamily: F.ui, color: C.textMuted }}>{wt.cost_code || "—"}</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn sz="sm" v="ghost" onClick={() => startEdit(wt)}>Edit</Btn>
+              <Btn sz="sm" v="ghost" onClick={() => remove(wt.id)} disabled={deleteId === wt.id}>
+                {deleteId === wt.id ? "…" : "Delete"}
+              </Btn>
+            </div>
+          </div>
+        )
+      )}
+
+      {/* New row form */}
+      {editing?.isNew && (
+        <EditRow editing={editing} setEditing={setEditing} onSave={save} onCancel={cancel} saving={saving} inputStyle={inputStyle} />
+      )}
+
+      {!workTypes.length && !editing && (
+        <div style={{ fontSize: 13, fontFamily: F.ui, color: C.textFaint, padding: "10px 0" }}>
+          No work types yet. Add your first one below.
+        </div>
+      )}
+
+      {/* Add button */}
+      {!editing && (
+        <div style={{ marginTop: 4 }}>
+          <Btn sz="sm" onClick={startNew}>+ Add Work Type</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EditRow({ editing, setEditing, onSave, onCancel, saving, inputStyle }) {
+  const set = (k, v) => setEditing(e => ({ ...e, [k]: v }));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "14px 16px", borderRadius: 8, background: C.linenCard, border: `1px solid ${C.tealBorder}` }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 160px", gap: 12 }}>
+        <div>
+          <div style={labelStyle}>Work Type Name</div>
+          <input
+            style={inputStyle}
+            value={editing.name}
+            onChange={e => set("name", e.target.value)}
+            placeholder="e.g. Concrete Coating"
+            autoFocus
+          />
+        </div>
+        <div>
+          <div style={labelStyle}>Cost Code</div>
+          <input
+            style={inputStyle}
+            value={editing.cost_code}
+            onChange={e => set("cost_code", e.target.value)}
+            placeholder="e.g. 0916.1"
+          />
+        </div>
+      </div>
+      <div>
+        <div style={labelStyle}>Default Sales SOW</div>
+        <textarea
+          style={{ ...inputStyle, minHeight: 80, resize: "vertical", lineHeight: 1.5 }}
+          value={editing.sales_sow}
+          onChange={e => set("sales_sow", e.target.value)}
+          placeholder="Default scope of work text for proposals (optional)"
+        />
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn sz="sm" onClick={onSave} disabled={saving || !editing.name.trim()}>
+          {saving ? "Saving…" : "Save"}
+        </Btn>
+        <Btn sz="sm" v="ghost" onClick={onCancel} disabled={saving}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
 const QB_CLIENT_ID = "ABg3H5TIV6XdDtSWlJXDC3rM7u8zKI3k5yHlbUaIrIiYNiUmc7";
 const QB_REDIRECT_URI = "https://www.scmybiz.com/qb/callback";
 const QB_AUTH_URL = `https://appcenter.intuit.com/connect/oauth2?client_id=${QB_CLIENT_ID}&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}&response_type=code&scope=com.intuit.quickbooks.accounting&state=salescommand`;
@@ -379,6 +535,10 @@ export default function Settings({ userRole }) {
           <input style={inputStyle} type="number" value={form.proposal_validity_days} onChange={e => set("proposal_validity_days", e.target.value)} />
         </Field>
       </div>
+
+      {/* ─── Work Types ─── */}
+      <div style={sectionStyle}>Work Types</div>
+      <WorkTypesSection />
 
       {/* ─── Sales Goals ─── */}
       <div style={sectionStyle}>Sales Goals</div>

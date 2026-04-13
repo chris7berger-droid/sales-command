@@ -110,6 +110,13 @@ function SalesCommandApp() {
         // Stale recovery event — set session normally so the user stays logged in
         console.warn("Stale PASSWORD_RECOVERY event — setting session normally");
       }
+      if (event === "TOKEN_REFRESHED" && !s) {
+        // Refresh token was rejected — force clean logout
+        supabase.auth.signOut();
+        setSession(null);
+        setTeamMember(null);
+        return;
+      }
       setSession(s ?? null);
       if (s) {
         const member = await getCurrentTeamMember();

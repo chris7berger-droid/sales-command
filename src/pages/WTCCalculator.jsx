@@ -1716,7 +1716,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     setSelectedWorkTypeId(newWorkTypeId);
     if (!sow.sales_sow) {
       // Check tenant work type for sales_sow first
-      const tenantWt = workTypes.find(w => w.id === newWorkTypeId);
+      const tenantWt = workTypes.find(w => String(w.id) === String(newWorkTypeId));
       if (tenantWt?.sales_sow) {
         setSow(s => ({ ...s, sales_sow: tenantWt.sales_sow }));
         return;

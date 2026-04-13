@@ -166,6 +166,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     const { data: proposals } = await supabase
       .from("proposals")
       .select("id")
+      .is("deleted_at", null)
       .eq("call_log_id", job.id);
     if (proposals && proposals.length > 0) {
       alert("This job has a proposal attached. Delete the proposal first, then delete the job.");
@@ -175,6 +176,8 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     // Delete linked work types first (FK constraint)
     const { error: wtErr } = await supabase.from("job_work_types").delete().eq("call_log_id", job.id);
     if (wtErr) console.warn("job_work_types delete:", wtErr.message);
+    // Null out call_log_id on soft-deleted proposals (DB FK blocks delete otherwise)
+    await supabase.from("proposals").update({ call_log_id: null }).eq("call_log_id", job.id).not("deleted_at", "is", null);
     const { error: delErr, count } = await supabase.from("call_log").delete().eq("id", job.id).select();
     console.log("call_log delete result:", { delErr, count });
     if (delErr) { alert("Delete failed: " + delErr.message); return; }

@@ -1704,7 +1704,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     async function loadWorkTypes() {
       const { data } = await supabase
         .from("work_types")
-        .select("id, name")
+        .select("id, name, sales_sow")
         .order("name");
       if (data) setWorkTypes(data);
     }
@@ -1715,6 +1715,13 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const handleWorkTypeChange = async (newWorkTypeId) => {
     setSelectedWorkTypeId(newWorkTypeId);
     if (!sow.sales_sow) {
+      // Check tenant work type for sales_sow first
+      const tenantWt = workTypes.find(w => w.id === newWorkTypeId);
+      if (tenantWt?.sales_sow) {
+        setSow(s => ({ ...s, sales_sow: tenantWt.sales_sow }));
+        return;
+      }
+      // Fall back to system SOW templates
       const { data } = await supabase
         .from("work_type_sow_templates")
         .select("sales_sow_template")

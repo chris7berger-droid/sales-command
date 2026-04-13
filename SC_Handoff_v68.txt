@@ -1,0 +1,74 @@
+SC_Handoff_v68 — April 13, 2026
+Session: Call Log delete bug fix
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+Fixed Call Log entries not deleting (bug noted in v67 handoff).
+
+Root cause — two issues in CallLogDetail.jsx handleDelete():
+
+1. Proposals guard queried without deleted_at filter:
+   The check for "does this job have a proposal?" was returning soft-deleted
+   proposals too. Any job that ever had a proposal (even one already deleted)
+   was permanently blocked with "This job has a proposal attached."
+   Fix: added .is("deleted_at", null) to the guard query.
+
+2. FK constraint on proposals table:
+   Even after the guard passed, Postgres rejected the call_log delete because
+   soft-deleted proposals still existed as rows with call_log_id set
+   (proposals_call_log_id_fkey violation).
+   Fix: before deleting call_log, null out call_log_id on any soft-deleted
+   proposals for that job.
+
+Final delete sequence in handleDelete():
+  1. Block if active (non-soft-deleted) proposals exist
+  2. Delete job_work_types (FK child)
+  3. Null out call_log_id on soft-deleted proposals (clears FK)
+  4. Delete call_log row
+  5. Verify delete succeeded (RLS silent no-op check)
+
+===============================================================================
+COMMITS
+===============================================================================
+
+b09254d fix: allow call_log delete when only soft-deleted proposals remain
+
+===============================================================================
+NEXT PRIORITIES
+===============================================================================
+
+1. Work Types Phase 2: Smart Field SOW suggestion
+   - When user selects work type + enters size in WTC, query historical WTCs
+     for same work type + similar size → suggest Field SOW from closest match
+   - Not started
+
+2. Call Log Archiver
+   - archived boolean on call_log, auto-archive Sold/Lost >1yr,
+     bulk archive with filters
+
+3. Sales Rep Reminders
+   - Has Bid: 30 days, Wants Bid: weekly, customizable in Settings
+
+4. PandaDoc PDF attachment to jobs
+
+5. Contacts import from Glide (1,612 records)
+
+6. Invoices.jsx extraction (~1,100 lines)
+
+7. WTCCalculator.jsx extraction (~2,100 lines)
+
+8. Settings page expansion (reminders, invoice numbering, company info)
+
+9. RLS policies simplification (currently JOIN-based, can use tenant_id directly)
+
+===============================================================================
+NOTES
+===============================================================================
+
+- work_type_sow_templates table is empty — WTC falls back to it for system
+  types but no data. Not a bug, just unused.
+- TEST work type in DB is a test entry — HDSP should delete it and enter
+  real work types in Settings.
+- HDSP currently has apps: ["sales", "schedule"]

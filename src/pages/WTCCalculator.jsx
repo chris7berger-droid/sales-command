@@ -1973,6 +1973,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
 <Summary labor={laborComputed} materials={materials} travel={travel} discount={discount} size={sow.size} unit={sow.unit} />
 
       </div>
+      </div>
       {/* ── Print-only layout ──────────────────────────────────────────────── */}
       <div data-wtc-print-only style={{ padding: "24px 40px", fontFamily: "'Inter', sans-serif", color: "#1c1814", fontSize: 12 }}>
         {/* Print header */}
@@ -2195,7 +2196,6 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
             </tbody>
           </table>
         </div>
-      </div>
       </div>
     {showPDF && <PDFPreviewModal open={showPDF} onClose={() => setShowPDF(false)} proposal={proposalData} />}
       {showSigning && (

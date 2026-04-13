@@ -2086,7 +2086,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
               <tbody>
                 {materials.map((m, i) => (
                   <tr key={i} style={{ borderBottom: "1px solid #e5e0d8" }}>
-                    <td style={{ padding: "6px 8px" }}>{m.name || "—"}</td>
+                    <td style={{ padding: "6px 8px" }}>{m.product || m.name || "—"}</td>
                     <td style={{ padding: "6px 8px", textAlign: "right" }}>{m.qty || 0}</td>
                     <td style={{ padding: "6px 8px", textAlign: "right" }}>{fmt(m.price_per_unit)}</td>
                     <td style={{ padding: "6px 8px", textAlign: "right" }}>{pct(m.tax)}</td>

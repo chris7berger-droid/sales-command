@@ -1,0 +1,98 @@
+SC_Handoff_v67 — April 13, 2026
+Session: Work Types Settings, auth fixes, role fix
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. Deleted .env.prod (was untracked, contained secrets, not needed locally)
+   - Also added .env.prod to .gitignore to prevent recurrence
+
+2. Work Types — Phase 1: Schema + Settings UI + WTC integration
+   Schema (run manually in Supabase SQL Editor — sql/work_types_tenant_phase1.sql):
+     - Added tenant_id (uuid, nullable) to work_types
+       NULL = system default (historical), UUID = tenant-custom
+     - Added sales_sow (text) to work_types
+     - Added updated_at (timestamptz) + trigger to work_types
+     - Added RLS: tenants can read system + their own types;
+       can only insert/update/delete their own rows
+
+   Settings UI (src/pages/Settings.jsx):
+     - Added WorkTypesSection component + EditRow component
+     - Tenants can add/edit/delete their own work types
+     - Each work type has: name, cost code, default sales SOW
+     - Saves to work_types with tenant_id set
+
+   WTC integration (src/pages/WTCCalculator.jsx):
+     - Work types dropdown now includes tenant custom types (via RLS)
+     - When work type selected, auto-fills Sales SOW from work_types.sales_sow
+     - Falls back to work_type_sow_templates for system types
+     - Fixed type mismatch bug: id (int) vs dropdown value (string) — use String() compare
+
+3. Auth / role fix
+   - Chris's auth_id in team_members was stale (old Gmail account ID)
+   - Fixed via SQL: UPDATE team_members SET auth_id = '68afe04d-6eb1-411a-8cba-2afc21368512'
+     WHERE email = 'chris@hdspnv.com'
+   - Deleted orphaned auth user chris7berger@gmail.com from Supabase Auth
+   - Added TOKEN_REFRESHED guard in App.jsx to force clean logout on stale token
+   - Supabase Sessions → Refresh Token Reuse Interval already set to 10s (was correct)
+
+===============================================================================
+COMMITS
+===============================================================================
+
+848b082 chore: add .env.prod to .gitignore
+4292699 feat: Work Types section in Settings — tenant work types + sales SOW defaults
+57eaa34 fix: force clean logout on stale refresh token instead of broken half-auth state
+3477df9 fix: populate sales SOW from tenant work type when selected in WTC
+1062cf4 fix: correct type mismatch in work type SOW lookup (id int vs string)
+
+===============================================================================
+KNOWN BUG — START HERE NEXT SESSION
+===============================================================================
+
+Call Log entries are not deleting.
+
+This has come up before — likely related to:
+- FK constraint: job_work_types must be deleted before call_log (parent)
+- RLS silently no-oping the delete
+- The delete code may not be checking for errors or deleting children first
+
+Where to look:
+  - src/components/CallLogDetail.jsx — delete handler
+  - src/components/NewInquiryWizard.jsx — may also have delete
+  - CLAUDE.md rule: "When deleting parent rows, always delete FK children first
+    (e.g., job_work_types before call_log). After any delete, verify it succeeded
+    — RLS can silently no-op."
+
+Fix approach:
+  1. Grep for the delete handler in CallLogDetail.jsx
+  2. Confirm it deletes job_work_types first, then call_log
+  3. Confirm it checks for errors after delete
+  4. Check if proposals or other tables also FK to call_log that need cleanup
+
+===============================================================================
+WORK TYPES — NEXT STEPS (Phase 2+)
+===============================================================================
+
+- Phase 2: Smart Field SOW suggestion
+  When user selects work type + enters size in WTC, query historical WTCs
+  for same work type + similar size → suggest Field SOW from closest match
+  (not started)
+
+- The work types dropdown in WTC currently shows BOTH system types (tenant_id NULL)
+  and tenant types. Existing WTCs reference system type IDs so those must stay.
+  Eventually HDSP may want to hide system types from the dropdown once they've
+  set up their full custom list.
+
+- The auto-fill SOW only triggers when the SOW field is empty (won't overwrite
+  existing content). This is intentional.
+
+===============================================================================
+NOTES
+===============================================================================
+
+- work_type_sow_templates table exists and is empty — the WTC still falls back
+  to it for system types, but it has no data. Not a bug, just unused.
+- TEST work type in DB is just a test entry — HDSP should delete it and enter
+  their real work types in Settings.

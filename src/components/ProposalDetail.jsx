@@ -373,20 +373,24 @@ async function deletePropAttachment(fullName) {
       const amount = p.total ? String(Number(p.total)) : "";
 
       const row = {
-        job_num: p.call_log?.display_job_number || "NEW",
-        job_name: p.call_log?.job_name || p.customer || "Untitled",
+        call_log_id: p.call_log_id || null,
         amount,
         work_type: workType,
         field_sow: fieldSow.length > 0 ? fieldSow : null,
         sow: salesSow || null,
+        scheduled_start: startDate,
+        scheduled_end: endDate,
         start_date: startDate,
         end_date: endDate,
-        prevailing_wage: hasPW ? "Yes" : "No",
-        status: "Ongoing",
+        status: "Parked",
         size: totalSize || null,
         size_unit: sizeUnit,
         source_proposal_id: p.id,
         source_call_log_id: p.call_log_id || null,
+        // Legacy fields kept for backward compat during migration
+        job_num: p.call_log?.display_job_number || "NEW",
+        job_name: p.call_log?.job_name || p.customer || "Untitled",
+        prevailing_wage: hasPW ? "Yes" : "No",
       };
 
       const { error } = await supabase.from("jobs").insert([row]);
@@ -396,6 +400,12 @@ async function deletePropAttachment(fullName) {
         setSendingToSchedule(false);
         return;
       }
+
+      // Update call_log stage to Parked
+      if (p.call_log_id) {
+        await supabase.from("call_log").update({ stage: "Parked" }).eq("id", p.call_log_id);
+      }
+
       setSentToSchedule(true);
     } catch (e) {
       alert("Error: " + e.message);

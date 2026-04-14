@@ -393,7 +393,8 @@ async function deletePropAttachment(fullName) {
         prevailing_wage: hasPW ? "Yes" : "No",
       };
 
-      const { error } = await supabase.from("jobs").insert([row]);
+      const { data: inserted, error } = await supabase.from("jobs").insert([row]).select("job_id, status");
+      console.log("[SendToSchedule] inserted:", inserted);
       if (error) {
         if (error.code === "23505") { alert("This proposal has already been sent to Schedule Command."); setSentToSchedule(true); }
         else { alert("Error sending to Schedule: " + error.message); }

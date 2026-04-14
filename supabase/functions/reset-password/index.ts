@@ -5,7 +5,12 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
-const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.app", "https://www.scmybiz.com", "https://scmybiz.com"];
+const ALLOWED_ORIGINS = [
+  "https://salescommand.app", "https://www.salescommand.app",
+  "https://www.scmybiz.com", "https://scmybiz.com",
+  "https://schedulecommand.com", "https://www.schedulecommand.com",
+  "https://www.schmybiz.com", "https://schmybiz.com",
+];
 
 serve(async (req) => {
   const origin = req.headers.get("origin") || "";
@@ -44,11 +49,17 @@ serve(async (req) => {
       });
     }
 
+    // Determine app context from calling origin
+    const isSchedule = origin.includes("schmybiz") || origin.includes("schedulecommand");
+    const appName = isSchedule ? "Schedule Command" : "Sales Command";
+    const redirectUrl = isSchedule ? "https://schedulecommand.com" : "https://salescommand.app";
+    const fromEmail = isSchedule ? "noreply@schedulecommand.com" : "noreply@salescommand.app";
+
     // Generate recovery link via admin API
     const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
       type: "recovery",
       email,
-      options: { redirectTo: "https://salescommand.app" },
+      options: { redirectTo: redirectUrl },
     });
 
     if (linkErr) {
@@ -81,13 +92,13 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "noreply@salescommand.app",
+        from: fromEmail,
         to: email,
-        subject: "Reset your Sales Command password",
+        subject: `Reset your ${appName} password`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
             <div style="border-bottom: 4px solid #30cfac; padding-bottom: 16px; margin-bottom: 24px;">
-              <h2 style="margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.02em;">Sales Command</h2>
+              <h2 style="margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.02em;">${appName}</h2>
             </div>
             <p>We received a request to reset your password.</p>
             <p>Click the button below to set a new password:</p>
@@ -95,7 +106,7 @@ serve(async (req) => {
               <a href="${resetUrl}" style="background: #30cfac; color: #1c1814; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 15px;">Reset Password →</a>
             </div>
             <p style="color: #887c6e; font-size: 13px;">If you didn't request this, you can safely ignore this email.</p>
-            <p style="color: #887c6e; font-size: 12px;">Log in at <a href="https://salescommand.app" style="color: #30cfac;">salescommand.app</a></p>
+            <p style="color: #887c6e; font-size: 12px;">Log in at <a href="${redirectUrl}" style="color: #30cfac;">${redirectUrl.replace("https://www.", "")}</a></p>
           </div>
         `,
       }),

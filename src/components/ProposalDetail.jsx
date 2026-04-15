@@ -402,6 +402,29 @@ async function deletePropAttachment(fullName) {
         return;
       }
 
+      // Create materials rows from WTC materials
+      const newJobId = inserted?.[0]?.job_id;
+      if (newJobId) {
+        const matRows = [];
+        let ordinal = 0;
+        for (const wtc of wtcList) {
+          const mats = wtc.materials || [];
+          for (const m of mats) {
+            const name = [m.product, m.kit_size ? `(${m.kit_size})` : ""].filter(Boolean).join(" ");
+            const notes = [
+              m.qty ? `Qty: ${m.qty}` : null,
+              m.supplier ? `Supplier: ${m.supplier}` : null,
+            ].filter(Boolean).join(" | ");
+            matRows.push({ job_id: newJobId, ordinal, name, status: "Not Ordered", notes: notes || null });
+            ordinal++;
+          }
+        }
+        if (matRows.length > 0) {
+          const { error: matErr } = await supabase.from("materials").insert(matRows);
+          if (matErr) console.error("[SendToSchedule] materials insert error:", matErr);
+        }
+      }
+
       // Update call_log stage to Parked
       if (p.call_log_id) {
         await supabase.from("call_log").update({ stage: "Parked" }).eq("id", p.call_log_id);

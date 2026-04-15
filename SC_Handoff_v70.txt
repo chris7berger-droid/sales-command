@@ -1,0 +1,240 @@
+SC_Handoff_v70 — April 15, 2026
+Session: Field SOW Transfer Pipeline + Preview Deploy Workflow
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. DROPPED create_job_on_sold TRIGGER (DB CHANGE — LIVE)
+
+   The trigger on the proposals table was auto-creating job rows when a
+   proposal status changed to "Sold". It caused the status insert bug
+   (Parked arriving as Ongoing) because the trigger hardcoded
+   status: 'Ongoing'. It also created incomplete job rows missing
+   field_sow, materials, size, source_proposal_id, and other fields
+   that the manual Send to Schedule flow provides.
+
+   - Dropped trigger: trg_create_job_on_sold
+   - Dropped function: public.create_job_on_sold()
+   - Manual "Send to Schedule" in ProposalDetail.jsx is now the SOLE
+     path for creating jobs in the jobs table
+   - jobs.status column default is still 'Ongoing' (harmless — manual
+     insert always explicitly sets 'Parked')
+
+2. MATERIALS TRANSFER ON SEND TO SCHEDULE
+
+   handleSendToSchedule() now creates materials rows from WTC data
+   after inserting the job. Replaces the material-creation logic that
+   was in the now-dropped trigger.
+
+   Format:
+     name:   "Product Name (kit_size)" e.g. "Hi-Tech PE85 (10 gallon)"
+     notes:  "Qty: 3 | Supplier: Hi-Tec"
+     status: "Not Ordered"
+     ordinal: sequential across all WTCs
+
+   Materials insert failure is logged but non-blocking.
+
+3. PROPOSAL NUMBER + CHANGE ORDER FIELDS ON JOBS TABLE
+
+   Added columns to public.jobs (DB CHANGE — LIVE):
+     - proposal_number (integer) — P1, P2, P3 sequence from proposals
+     - is_change_order (boolean, default false)
+     - co_number (integer)
+
+   handleSendToSchedule() now passes:
+     - p.proposal_number
+     - p.call_log.is_change_order
+     - p.call_log.co_number
+
+   Also added is_change_order and co_number to the call_log select
+   join in ProposalDetail.jsx (3 occurrences).
+
+4. VERCEL PREVIEW DEPLOY WORKFLOW
+
+   Set up feature branch workflow for testing on live preview URLs
+   instead of localhost. Both repos now support this.
+
+   CORS changes (all 11 edge functions — DEPLOYED LIVE):
+     - Added: origin.endsWith(".vercel.app") check
+     - Affected functions: invite-user, delete-user, deactivate-user,
+       send-proposal, send-invoice, reset-password, qb-sync-invoice,
+       qb-void-invoice, qb-create-job, qb-record-payment, qb-auth
+
+   Schedule Command: linked to Vercel project (was missing .vercel/)
+
+   Stable preview URLs (per branch):
+     Sales:    {project}-git-{branch}-chris7berger-droids-projects.vercel.app
+     Schedule: {project}-git-{branch}-chris7berger-droids-projects.vercel.app
+
+5. FIELD SOW SAVE BUTTON (Sales Command)
+
+   SowTab now shows a "Save Field SOW" button at the bottom of the
+   Field SOW section. Displays "Saved" after save completes.
+   Autosave still runs in background (1.5s debounce) — the button
+   gives the user explicit closure.
+
+   Changed: SowTab function signature, added onSave + saved props.
+
+6. INTERNAL APPROVE ON ALL NON-SOLD PROPOSALS
+
+   Internal Approve button now shows on any proposal that isn't already
+   Sold. Previously restricted to status === "Sent" only (v69 change),
+   which blocked the workflow: create → lock WTCs → Internal Approve
+   (skip customer send).
+
+   Shows on: Draft, Has Bid, Wants Bid, Sent.
+   Hidden on: Sold.
+
+7. EMAIL FROM SALES REP (send-proposal edge function — DEPLOYED LIVE)
+
+   Proposal emails now send FROM the sales rep's actual email address
+   when their domain is verified in Resend. Previously hardcoded
+   noreply@salescommand.app for all proposals.
+
+   Verified domains: hdspnv.com, scmybiz.com, schmybiz.com, salescommand.app
+
+   Logic:
+     const repDomain = repEmail.split("@")[1]?.toLowerCase()
+     if VERIFIED_DOMAINS.includes(repDomain) → from: "Rep Name <rep@domain>"
+     else → from: "Rep Name <noreply@salescommand.app>"
+
+   send-invoice and invite-user already had this working — only
+   send-proposal was broken (always noreply).
+
+8. SCHEDULE COMMAND — SIMPLIFIED PARKED CARD
+
+   Parked/Incoming job cards no longer show date pickers, crew needed,
+   lead inputs, or JobCrewScheduler. Expanded view shows:
+     - Customer name, dates, SOW preview, notes (read-only summary)
+     - Confirm & Schedule button
+
+   Confirm & Schedule now navigates to /jobs/:jobId (the specific job's
+   detail page) instead of /schedule (generic view that dropped user
+   on the wrong job).
+
+9. SCHEDULE COMMAND — SIMPLIFIED EXPANDED JOB CARD
+
+   Main job list expanded view stripped down to actions only:
+     - Status dropdown
+     - % to bill + Add to Bill List
+     - View Detail button
+     - Delete button
+
+   Removed: date grid, crew scheduler, assignment history, SOW links,
+   contract edit, notes. All of that lives in Job Detail view.
+
+10. SCHEDULE COMMAND — P/CO TAGS ON JOB CARDS
+
+    Job cards now show proposal_number (P1, P2, P3) and change order
+    (CO1, CO2) tags matching Sales Command's labeling:
+      - P tag: teal (#30cfac) text on dark (#1c1814) background
+      - CO tag: purple text on light purple background
+
+    Shows on both Parked cards and main job list.
+    Only populated for jobs sent via the new handleSendToSchedule()
+    flow — old trigger-created jobs have null proposal_number.
+
+11. SCHEDULE COMMAND — REALTIME UPDATES
+
+    Jobs view now subscribes to Supabase Realtime (postgres_changes)
+    on the jobs table. When Sales Command sends a job to Schedule,
+    it appears automatically without page refresh.
+
+    DB change (LIVE): ALTER PUBLICATION supabase_realtime ADD TABLE public.jobs
+
+===============================================================================
+COMMITS — SALES COMMAND
+===============================================================================
+
+82b55a7 feat: materials transfer on Send to Schedule + CORS for Vercel previews
+88aa148 feat: Field SOW save button + Internal Approve on non-Draft proposals
+2f8ff3e fix: send proposal emails from sales rep's address, not noreply@
+a8c21f8 feat: pass proposal_number, is_change_order, co_number to Schedule
+5b2356a fix: show Internal Approve on all non-Sold proposals including Draft
+
+===============================================================================
+COMMITS — SCHEDULE COMMAND
+===============================================================================
+
+b3d3f14 chore: link Vercel project for preview deploys
+a64afc1 feat: simplify Parked card, fix Confirm navigation, add proposal tag
+5c912aa feat: Realtime subscription on jobs table — no more manual refresh
+4e6381f feat: P1/P2 and CO labels on Parked job cards
+6b17f1c fix: show P/CO tags on main job list, not just Parked cards
+bd08998 fix: use #30cfac hex for proposal tag — --teal var not defined
+1ae49c0 feat: simplify expanded job card — actions only, detail in Job Detail
+
+===============================================================================
+DB CHANGES (already executed against production — DO NOT re-run)
+===============================================================================
+
+DROP TRIGGER IF EXISTS trg_create_job_on_sold ON public.proposals;
+DROP FUNCTION IF EXISTS public.create_job_on_sold();
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS proposal_number integer;
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS is_change_order boolean DEFAULT false;
+ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS co_number integer;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.jobs;
+
+===============================================================================
+EDGE FUNCTIONS DEPLOYED (all with --no-verify-jwt)
+===============================================================================
+
+invite-user, delete-user, deactivate-user, send-proposal, send-invoice,
+reset-password, qb-sync-invoice, qb-void-invoice, qb-create-job,
+qb-record-payment, qb-auth
+
+All 11 now accept *.vercel.app CORS origins.
+send-proposal also updated to send from rep's email when domain is verified.
+
+===============================================================================
+TEST RESULTS
+===============================================================================
+
+Tested on Vercel preview deploys (first session using this workflow):
+  - Status fix: PASSED — job arrives as Parked, not Ongoing
+  - Materials transfer: PASSED — materials show in Schedule Command
+  - P/CO tags: PASSED — P3 shows teal tag on job card
+  - Realtime: PASSED — jobs appear without manual refresh
+  - Field SOW Save button: deployed (visual confirmation)
+  - Internal Approve: PASSED — shows on Draft proposals
+  - Email sender: deployed (sends from rep's verified domain)
+
+===============================================================================
+ISSUES FOUND DURING TESTING (deferred)
+===============================================================================
+
+These were noted during the test pass but not fixed in this session:
+
+1. Schedule Command needs job name to clearly distinguish P1/P2/P3
+   when job_num and job_name are identical (display_job_number carries
+   CO info but not proposal-level distinction in the name itself)
+
+2. Old trigger-created jobs (job_id <= 86) have null proposal_number,
+   null source_proposal_id — no P tag shows. Cannot retroactively fix
+   without manual data cleanup.
+
+===============================================================================
+NEXT PRIORITIES
+===============================================================================
+
+1. Work Types Phase 2: Smart Field SOW suggestion (unchanged from v69)
+2. Call Log Archiver (unchanged from v69)
+3. Settings page expansion (unchanged from v69)
+4. TasksTab fallback query fix — currently unscoped, queries all
+   proposal_wtc rows instead of filtering by job
+5. Field SOW sub_areas not transferred to jobs table
+6. Field SOW change tracking (audit log for schedule-side edits)
+
+===============================================================================
+WORKFLOW NOTE
+===============================================================================
+
+This session established the preview deploy workflow:
+  1. Work on feature branch (not main)
+  2. Push → Vercel auto-creates preview URL
+  3. Test on preview URL (real app, real DB, different URL)
+  4. Merge to main when tested → production auto-deploys
+
+CORS on all edge functions now accepts *.vercel.app origins.
+Schedule Command is linked to Vercel (was not previously).

@@ -99,7 +99,7 @@ export default function PublicSigningPage() {
       const ipRes = await fetch("https://api.ipify.org?format=json").catch(() => ({ json: async () => ({ ip: "unknown" }) }));
       const { ip } = await ipRes.json();
 
-      // Generate branded PDF
+      // Generate branded PDF — matches customer-facing header exactly
       const { jsPDF } = await import("jspdf");
       const doc = new jsPDF({ unit: "pt", format: "letter" });
       const pageW = doc.internal.pageSize.getWidth();
@@ -108,40 +108,145 @@ export default function PublicSigningPage() {
       const teal = [48, 207, 172];
       const dark = [28, 24, 20];
       const gray = [106, 99, 88];
+      const lightGray = [136, 124, 110];
       let y = 48;
 
-      // Header — company name
-      doc.setFontSize(20); doc.setFont("helvetica", "bold");
-      doc.setTextColor(...dark);
-      doc.text(config.company_name || "Company Name", margin, y); y += 24;
-      doc.setFontSize(10); doc.setFont("helvetica", "normal");
+      // --- Logo (left) + Contact info (right) ---
+      const logoUrl = config.logo_url || "/hdsp-logo.png";
+      try {
+        const logoImg = new Image();
+        logoImg.crossOrigin = "anonymous";
+        await new Promise((resolve, reject) => {
+          logoImg.onload = resolve;
+          logoImg.onerror = reject;
+          logoImg.src = logoUrl;
+        });
+        const logoH = 40;
+        const logoW = (logoImg.naturalWidth / logoImg.naturalHeight) * logoH;
+        doc.addImage(logoImg, "PNG", margin, y, logoW, logoH);
+      } catch (e) { /* skip logo if it fails to load */ }
+
+      // Contact info — right-aligned
+      const rightX = pageW - margin;
+      doc.setFontSize(9); doc.setFont("helvetica", "normal");
       doc.setTextColor(...gray);
-      doc.text(config.tagline || "", margin, y); y += 10;
+      let ry = y + 8;
+      const phone = repInfo?.phone || config.phone || "";
+      const email = repInfo?.email || config.email || "";
+      if (phone) { doc.text(phone, rightX, ry, { align: "right" }); ry += 13; }
+      if (email) { doc.text(email, rightX, ry, { align: "right" }); ry += 13; }
+      if (config.website) { doc.text(config.website, rightX, ry, { align: "right" }); ry += 13; }
+      if (config.license_number) {
+        doc.setTextColor(...lightGray);
+        doc.text(config.license_number, rightX, ry, { align: "right" });
+      }
+      y += 50;
+
+      // Company name + tagline
+      doc.setFontSize(16); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...dark);
+      doc.text((config.company_name || "Company Name").toUpperCase(), margin, y); y += 16;
+      doc.setFontSize(9); doc.setFont("helvetica", "normal");
+      doc.setTextColor(...gray);
+      doc.text(config.tagline || "", margin, y); y += 14;
 
       // Teal header underline
       doc.setDrawColor(...teal);
-      doc.setLineWidth(3);
-      doc.line(margin, y + 4, pageW - margin, y + 4); y += 22;
+      doc.setLineWidth(4);
+      doc.line(margin, y, pageW - margin, y); y += 24;
 
-      // Prepared for
+      // --- Prepared For (left) + Proposal # / Date (right) ---
+      const leftColX = margin;
+      const rightColX = pageW / 2 + 20;
+      const sectionTop = y;
+
+      // Left: Prepared For
       doc.setFontSize(8); doc.setFont("helvetica", "bold");
-      doc.setTextColor(...gray);
-      doc.text("PREPARED FOR", margin, y); y += 14;
-      doc.setFontSize(14); doc.setFont("helvetica", "bold");
       doc.setTextColor(...dark);
-      doc.text(proposal.call_log?.customer_name || proposal.customer || "", margin, y); y += 18;
-      doc.setFontSize(10); doc.setFont("helvetica", "normal");
+      doc.text("PREPARED FOR", leftColX, y); y += 14;
+      doc.setFontSize(12); doc.setFont("helvetica", "normal");
       doc.setTextColor(...gray);
-      doc.text(proposal.call_log?.job_name || proposal.call_log?.display_job_number || "", margin, y); y += 28;
+      doc.text(proposal.call_log?.customer_name || proposal.customer || "", leftColX, y); y += 14;
+
+      // Business address
+      const cust = proposal.call_log?.customers;
+      if (cust?.business_address) {
+        doc.setFontSize(9);
+        doc.setTextColor(...lightGray);
+        const addrParts = [cust.business_address, cust.business_city, cust.business_state].filter(Boolean);
+        let addrLine = addrParts.join(", ");
+        if (cust.business_zip) addrLine += " " + cust.business_zip;
+        doc.text(addrLine, leftColX, y); y += 13;
+      }
+
+      // Jobsite address
+      const cl = proposal.call_log;
+      if (cl?.jobsite_address) {
+        y += 6;
+        doc.setFontSize(8); doc.setFont("helvetica", "bold");
+        doc.setTextColor(...dark);
+        doc.text("JOBSITE ADDRESS", leftColX, y); y += 12;
+        doc.setFontSize(9); doc.setFont("helvetica", "normal");
+        doc.setTextColor(...lightGray);
+        const jsParts = [cl.jobsite_address, cl.jobsite_city, cl.jobsite_state].filter(Boolean);
+        let jsLine = jsParts.join(", ");
+        if (cl.jobsite_zip) jsLine += " " + cl.jobsite_zip;
+        doc.text(jsLine, leftColX, y); y += 13;
+      }
+
+      // Right: Proposal # and Date
+      let ry2 = sectionTop;
+      doc.setFontSize(8); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...dark);
+      doc.text("PROPOSAL #", rightColX, ry2); ry2 += 14;
+      doc.setFontSize(11); doc.setFont("helvetica", "normal");
+      doc.setTextColor(...gray);
+      const djn = proposal.call_log?.display_job_number || "—";
+      const djnBase = djn.split(" - ")[0];
+      const djnRest = djn.indexOf(" - ") > -1 ? " - " + djn.slice(djn.indexOf(" - ") + 3) : "";
+      doc.setFont("helvetica", "bold"); doc.setTextColor(...dark);
+      doc.text(djnBase, rightColX, ry2);
+      const baseW = doc.getTextWidth(djnBase);
+      doc.setFont("helvetica", "normal"); doc.setTextColor(...gray);
+      doc.text(djnRest + "-P" + (proposal.proposal_number || 1), rightColX + baseW, ry2);
+      ry2 += 18;
+
+      doc.setFontSize(8); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...dark);
+      doc.text("DATE", rightColX, ry2); ry2 += 14;
+      doc.setFontSize(11); doc.setFont("helvetica", "normal");
+      doc.setTextColor(...gray);
+      doc.text(new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }), rightColX, ry2);
+
+      y = Math.max(y, ry2) + 16;
 
       // Divider
       doc.setDrawColor(220, 215, 210);
       doc.setLineWidth(0.5);
       doc.line(margin, y, pageW - margin, y); y += 20;
 
-      // Scope of Work
+      // --- Introduction ---
+      const introText = (proposal.intro || "").trim();
+      if (introText) {
+        doc.setFontSize(8); doc.setFont("helvetica", "bold");
+        doc.setTextColor(...lightGray);
+        doc.text("INTRODUCTION", margin, y); y += 14;
+        doc.setFontSize(10); doc.setFont("helvetica", "normal");
+        doc.setTextColor(...dark);
+        const introLines = doc.splitTextToSize(introText, contentW);
+        introLines.forEach(line => {
+          if (y > 700) { doc.addPage(); y = 48; }
+          doc.text(line, margin, y); y += 14;
+        });
+        y += 12;
+        doc.setDrawColor(220, 215, 210);
+        doc.setLineWidth(0.5);
+        doc.line(margin, y, pageW - margin, y); y += 20;
+      }
+
+      // --- Scope of Work ---
       doc.setFontSize(8); doc.setFont("helvetica", "bold");
-      doc.setTextColor(...gray);
+      doc.setTextColor(...lightGray);
       doc.text("SCOPE OF WORK", margin, y); y += 14;
       doc.setFontSize(10); doc.setFont("helvetica", "normal");
       doc.setTextColor(...dark);
@@ -154,7 +259,7 @@ export default function PublicSigningPage() {
       const sowText = combinedSow || "No scope of work provided.";
       const sowLines = doc.splitTextToSize(sowText, contentW);
       sowLines.forEach(line => {
-        if (y > 680) { doc.addPage(); y = 48; }
+        if (y > 700) { doc.addPage(); y = 48; }
         doc.text(line, margin, y); y += 14;
       });
       y += 20;

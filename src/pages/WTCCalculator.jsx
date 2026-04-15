@@ -1809,6 +1809,11 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
 
   // ── Lock in Supabase ─────────────────────────────────────────────────────
   const handleLock = async () => {
+    // Require discount reason when discount amount is set
+    if (!locked && discount.amount > 0 && !discount.reason.trim()) {
+      alert("A discount reason is required before locking.");
+      return;
+    }
     // Flush any unsaved changes before toggling lock
     await handleSave();
     const newLocked = !locked;

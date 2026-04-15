@@ -1,0 +1,167 @@
+SC_Handoff_v69 — April 15, 2026
+Session: Full RLS lockdown + bug fixes
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. FULL ROW LEVEL SECURITY (RLS) — ALL PUBLIC TABLES SECURED
+
+   Supabase flagged a critical security issue: tables were publicly accessible
+   to anyone with the project URL because RLS was not enabled. This session
+   locked down every table in the public schema.
+
+   Phase 1 — Core tables (customers, call_log, proposals, invoices):
+     - Enabled RLS with tenant-scoped policies (tenant_id = get_user_tenant_id())
+     - Added anon SELECT policies for public signing page (by signing_token)
+     - Added anon SELECT policies for public invoice page (by viewing_token)
+     - Added scoped anon UPDATE on call_log + proposals for signing fallback
+
+   Phase 2 — Child tables (proposal_wtc, proposal_recipients, proposal_signatures,
+     invoice_lines, job_work_types, customer_contacts):
+     - Added tenant_id column to all 6 tables, backfilled from parent tables
+     - Enabled RLS with tenant-scoped CRUD policies
+     - Added anon policies where needed (signing page reads WTCs, inserts
+       signatures, updates recipient viewed_at; invoice page reads lines)
+
+   Phase 3 — Identity tables (team_members, tenant_config, qb_connection):
+     - Added tenant_id to team_members, backfilled
+     - Enabled RLS on all 3 tables
+     - qb_connection: RLS enabled with ZERO client policies (only edge
+       functions via service_role can access — OAuth tokens are now locked down)
+     - Updated get_user_tenant_id() to be auth-aware: looks up tenant via
+       auth.uid() → team_members.tenant_id, falls back to LIMIT 1
+
+   Phase 4 — Schedule/Field Command tables (time_punches, daily_production_reports,
+     job_crew, job_changes):
+     - Added tenant_id + RLS to all 4 tables
+
+   Cleanup — Remaining tables + legacy policies:
+     - Added tenant_id + RLS to: jobs, assignments, billing_log, crew,
+       crew_status, materials, work_type_sow_templates
+     - Dropped ~46 legacy USING(true) policies that predated tenant-scoped ones
+     - Fixed search_path on 8 functions (get_user_tenant_id, set_updated_at,
+       fn_auto_in_progress, get_my_role, sync_job_amount, create_job_on_sold,
+       update_updated_at, archive.get_user_tenant_id)
+
+   Final state:
+     - 0 errors in Supabase Security Advisor
+     - 0 tables without RLS
+     - 5 acceptable warnings (2 intentional anon policies, 2 storage bucket
+       listing, 1 auth leaked password setting)
+
+   IMPORTANT — Edge functions are UNAFFECTED by RLS. They all use service_role
+   key which bypasses RLS entirely. Email sending, Stripe webhooks, QB sync,
+   invite/password flows all continue to work.
+
+2. Dropped rls_disabled_in_public table (orphan test table flagged by Supabase)
+
+3. FIX: Signed PDF now matches customer-facing header
+   - Was: simplified header with just company name + tagline
+   - Now: full branded header with logo, phone, email, website, license #,
+     proposal #, date, business address, jobsite address, introduction text
+   - File: src/pages/PublicSigningPage.jsx (jsPDF generation, lines 102-212)
+   - NOTE: Only affects newly signed proposals. Old PDFs in storage still
+     have the simple header.
+
+4. FIX: Internal Approve button visibility
+   - Was: showed on any proposal that wasn't Sold or Sent (including Draft)
+   - Now: only shows when status === "Sent"
+   - Logic: Internal Approve = "Mark as Sold without customer signature" —
+     only makes sense after the proposal has been sent to the customer
+   - Fixed in both ProposalDetail.jsx (header button) and the
+     onInternalApprove prop passed to ProposalPDFModal
+
+5. FIX: Discount reason required before locking WTC
+   - If discount amount > 0 and reason is empty, handleLock() blocks with alert
+   - File: src/pages/WTCCalculator.jsx, handleLock()
+
+===============================================================================
+COMMITS
+===============================================================================
+
+4df250b feat: RLS on all public tables — Phase 1/2/3 migration SQL
+be5a39e fix: signed PDF header, Internal Approve visibility, discount reason required
+6e20e34 feat: RLS Phase 4 — schedule/field tables (time_punches, DPRs, job_crew, job_changes)
+d840b21 feat: RLS cleanup — drop legacy policies, secure remaining Schedule Command tables
+
+===============================================================================
+SQL MIGRATION FILES (already executed against production DB)
+===============================================================================
+
+sql/rls_core_tables.sql         — Phase 1: customers, call_log, proposals, invoices
+sql/rls_child_tables.sql        — Phase 2: proposal_wtc, recipients, signatures, etc.
+sql/rls_identity_tables.sql     — Phase 3: team_members, tenant_config, qb_connection
+sql/rls_schedule_tables.sql     — Phase 4: time_punches, DPRs, job_crew, job_changes
+sql/rls_cleanup_and_remaining.sql — Phase 5: jobs, assignments, crew, etc. + legacy cleanup
+
+These SQL files are documentation only — they have ALREADY been run against
+the live Command Suite DB (pbgvgjjuhnpsumnowuym). Do NOT re-run them.
+
+===============================================================================
+get_user_tenant_id() — HOW IT WORKS NOW
+===============================================================================
+
+Old (single-tenant assumption):
+  SELECT id FROM public.tenant_config LIMIT 1;
+
+New (auth-aware with fallback):
+  SELECT COALESCE(
+    (SELECT tenant_id FROM public.team_members WHERE auth_id = auth.uid() LIMIT 1),
+    (SELECT id FROM public.tenant_config LIMIT 1)
+  );
+
+This means every RLS policy across every table now properly resolves the
+tenant based on who is logged in. The LIMIT 1 fallback handles edge cases
+(triggers, migrations, anonymous contexts).
+
+===============================================================================
+ANON ACCESS MAP (for public-facing pages)
+===============================================================================
+
+Table                   | Anon Operation | Scoped By
+------------------------|----------------|----------------------------------
+proposals               | SELECT, UPDATE | signing_token IS NOT NULL
+call_log                | SELECT, UPDATE | EXISTS proposal with signing_token
+proposal_wtc            | SELECT         | EXISTS proposal with signing_token
+proposal_recipients     | UPDATE         | EXISTS proposal with signing_token
+proposal_signatures     | INSERT         | EXISTS proposal with signing_token
+invoices                | SELECT         | viewing_token IS NOT NULL
+invoice_lines           | SELECT         | EXISTS invoice with viewing_token
+team_members            | SELECT         | active = true (rep lookup)
+tenant_config           | SELECT         | true (branding — no secrets)
+
+===============================================================================
+NEXT PRIORITIES
+===============================================================================
+
+1. Storage bucket hardening
+   - job-attachments and signed-proposals allow public listing
+   - Fix in Dashboard > Storage > bucket settings (toggle off listing)
+
+2. Auth leaked password protection
+   - Enable in Dashboard > Auth > Settings
+
+3. Work Types Phase 2: Smart Field SOW suggestion (unchanged from v68)
+
+4. Call Log Archiver (unchanged from v68)
+
+5. Settings page expansion (unchanged from v68)
+
+===============================================================================
+NOTES
+===============================================================================
+
+- create_job_on_sold trigger: the function was recreated with SET search_path
+  to fix the security warning. Functionality is identical — verify that
+  signing a proposal still auto-creates a job in the jobs table.
+
+- The signed PDF fix only applies to NEW signings. The TEST SUITE proposal
+  signed during this session still has the old simple-header PDF in storage.
+  To get a new one: pull back → re-send → re-sign.
+
+- HDSP currently has apps: ["sales", "schedule"]
+
+- The Internal Approve button change means it no longer appears on Draft
+  or Has Bid proposals. If a user needs to mark a proposal Sold without
+  sending it, they must first send it (status → Sent), then Internal Approve.

@@ -59,9 +59,13 @@ serve(async (req) => {
       });
     }
 
-    // Email to customer — always send FROM a verified domain; use reply_to for the rep
+    // Email to customer — send FROM the rep's email if their domain is verified in Resend
+    const VERIFIED_DOMAINS = ["hdspnv.com", "scmybiz.com", "schmybiz.com", "salescommand.app"];
     const senderName = repName || companyName || "Sales Command";
-    const fromAddress = `${senderName} <noreply@salescommand.app>`;
+    const repDomain = repEmail ? repEmail.split("@")[1]?.toLowerCase() : "";
+    const fromAddress = repEmail && VERIFIED_DOMAINS.includes(repDomain)
+      ? `${senderName} <${repEmail}>`
+      : `${senderName} <noreply@salescommand.app>`;
     const customerRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {

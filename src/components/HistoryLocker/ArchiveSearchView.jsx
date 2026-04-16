@@ -17,7 +17,7 @@ const labelStyle = {
   color: C.textFaint, fontFamily: F.display, marginBottom: 3,
 };
 
-export default function ArchiveSearchView({ tenantId }) {
+export default function ArchiveSearchView({ tenantId, onNavigateProposal, canImport }) {
   const [q, setQ] = useState("");
   const [sourceSystem, setSourceSystem] = useState("");
   const [recordType, setRecordType] = useState("");
@@ -98,7 +98,7 @@ export default function ArchiveSearchView({ tenantId }) {
   ];
 
   if (selected) {
-    return <ArchiveRecordDetail record={selected} onBack={() => setSelected(null)} />;
+    return <ArchiveRecordDetail record={selected} onBack={() => setSelected(null)} onNavigateProposal={onNavigateProposal} canImport={canImport} />;
   }
 
   return (

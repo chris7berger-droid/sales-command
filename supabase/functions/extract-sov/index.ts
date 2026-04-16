@@ -120,6 +120,35 @@ serve(async (req) => {
       });
     }
 
+    // Authorization: confirm pdf_url is attached to a billing_schedule the
+    // caller's tenant owns. Uses a user-JWT-scoped client so RLS handles the
+    // tenant filter — prevents callers from spending Anthropic credits (or
+    // exfiltrating doc text) against URLs they don't own.
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: scheds, error: schedErr } = await userClient
+      .from("billing_schedule")
+      .select("contract_pdf_url, contract_pdf_urls");
+    if (schedErr) {
+      return new Response(JSON.stringify({ error: "Authorization check failed" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500,
+      });
+    }
+    const ownedUrls = new Set<string>();
+    for (const s of (scheds ?? []) as { contract_pdf_url: string | null; contract_pdf_urls: string[] | null }[]) {
+      if (s.contract_pdf_url) ownedUrls.add(s.contract_pdf_url);
+      for (const u of s.contract_pdf_urls ?? []) ownedUrls.add(u);
+    }
+    if (!ownedUrls.has(pdf_url)) {
+      return new Response(JSON.stringify({ error: "Forbidden: pdf_url not associated with an accessible billing schedule" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 403,
+      });
+    }
+
     // Fetch PDF as base64
     const pdfRes = await fetch(pdf_url);
     if (!pdfRes.ok) {

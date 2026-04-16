@@ -1,0 +1,212 @@
+SC_Handoff_v71 — April 16, 2026
+Session: Recipients Picker Overhaul + Customer Contact Card Redesign
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. CRITICAL BUG FIX — RECIPIENTS SECTION NO LONGER DELETES FROM PARENT
+
+   The RECIPIENTS section on ProposalDetail was rendering and mutating
+   customer_contacts directly. The × delete button was running
+   DELETE FROM customer_contacts, permanently removing contacts from
+   the parent customer file whenever a user "removed them from the
+   proposal". This explains empty Contacts lists on customers who have
+   contacts in older proposals.
+
+   Fix: section now renders proposal_recipients rows, with a proper
+   separation of concerns. Delete removes the recipient row only; the
+   customer_contact on the parent file stays intact.
+
+   NOTE: prior data damage cannot be retroactively recovered — those
+   customer_contacts were hard-deleted in prior sessions. The new
+   "Save to Customer" button (item 3 below) is the backfill path for
+   orphan proposal_recipients that lost their parent contact.
+
+2. DB CHANGE — proposal_recipients schema update (LIVE in prod)
+
+   First use of supabase/migrations/ folder in this repo. Pushed via
+   `supabase db push` against linked "Command Suite DB" project.
+
+   Migration: 20260416171150_proposal_recipients_phone_and_contact_fk.sql
+
+     ALTER TABLE public.proposal_recipients
+       ADD COLUMN IF NOT EXISTS phone text;
+
+     ALTER TABLE public.proposal_recipients
+       ADD COLUMN IF NOT EXISTS customer_contact_id uuid
+         REFERENCES public.customer_contacts(id) ON DELETE SET NULL;
+
+     CREATE INDEX IF NOT EXISTS idx_proposal_recipients_customer_contact_id
+       ON public.proposal_recipients(customer_contact_id);
+
+   - phone: snapshot per-recipient, also displayed on card
+   - customer_contact_id: link to parent contact so PM/Office/Billing
+     role stays in sync with the parent file
+   - ON DELETE SET NULL: deleting a customer_contact elsewhere just
+     blanks the FK on recipients; name/email/phone snapshots survive
+
+3. RECIPIENTS PICKER — Pull from parent, New Contact, Save to Customer
+
+   The "+ Add Contact" button now opens an inline picker:
+
+     - Lists parent customer_contacts not yet attached to this proposal
+     - Tap any → instantly inserts proposal_recipient with FK link
+     - "+ New Contact" at the bottom expands name/email/phone/role form
+       • Dedupes by email (case-insensitive) before creating
+       • If email already exists on a parent contact, links that one
+       • If not, inserts customer_contact THEN links recipient
+     - "Done" closes the picker
+
+   Delete button (styled pill, red text, replaced the bare × glyph):
+     - Confirms "contact stays on customer file" in dialog
+     - Deletes ONLY proposal_recipients row
+     - customer_contacts row untouched
+
+   "Save to Customer" button (dashed teal pill, only on orphan rows):
+     - Shows only when customer_contact_id is null
+     - One click: dedupes by email against existing customer_contacts,
+       then either links to match or inserts new (role=Project Manager)
+     - Backfill path for legacy proposal_recipients from before the FK
+
+4. SIGNER TOGGLE — Viewer/Signer pill, one-signer enforcement
+
+   Per-recipient pill next to the PM/Office/Billing role pill:
+
+     - Default: Viewer (outlined, muted text)
+     - Tap to toggle: becomes Signer (teal text on dark background)
+     - Only one signer allowed — setting a new one demotes previous
+       to viewer automatically in the same transaction
+     - Writes proposal_recipients.role ('signer' | 'viewer')
+
+5. CUSTOMER PROFILE CONTACT CARDS — Full redesign
+
+   Contacts section on the customer profile page (Customers.jsx):
+
+   Before: inline flex-wrap of 200px min-width cards with 13px name
+   After: responsive CSS grid (repeat(auto-fill, minmax(280px, 1fr)))
+
+     - Name: 18px / weight 800, dominant element
+     - Role pill: 10px teal-on-dark below name
+     - Email: 12.5px body text
+     - Phone: 12.5px muted text
+     - Primary badge: top-right corner, teal-on-dark pill
+     - Subtle box shadow, 12px rounded corners
+
+   + Add Contact button changed from ghost to primary variant
+   (black background + teal text) to match the brand action style.
+
+6. EDIT CUSTOMER MODAL — Dropped Contact Phone/Email fields
+
+   These two fields on customers.* were a vestige of the pre-contacts-
+   table single-contact model. With the dedicated Contacts card section
+   now on the customer profile (with PM/Office/Billing roles and a
+   primary flag), the Contact Phone/Email fields caused confusion —
+   users saw two email fields with no clear relationship to the
+   Contacts list below.
+
+   Removed: "Contact Phone" and "Contact Email" Field components from
+   CustomerModal, plus form state and payload keys.
+
+   Relabeled: "Billing Contact Same?" → "Billing Same as Company?"
+   (with body text updated to match).
+
+   DB columns preserved: customers.contact_phone and
+   customers.contact_email are still in the schema and still populated
+   by CallLogDetail + NewInquiryWizard. All downstream fallback reads
+   keep working (billing_email || contact_email || email pattern in
+   invoices, QB sync, PDF modal, public signing page).
+
+===============================================================================
+COMMITS — SALES COMMAND (main)
+===============================================================================
+
+f72bb80 feat: recipients picker — pull from parent customer, signer toggle
+303a91b fix: recipient delete button styled like Edit/Viewer/Contact pills
+4a89db0 feat: Save to Customer button on orphan recipients
+f656361 feat: redesign customer contact cards — bold name, grid layout
+ace1b81 style: + Add Contact button uses primary (black bg + teal text)
+cdfbce3 Merge feat/proposal-recipients-picker
+552486d refactor: drop Contact Phone/Email from Edit Customer modal
+
+===============================================================================
+DB CHANGES (already applied to production — DO NOT re-run)
+===============================================================================
+
+Applied via `supabase db push` from supabase/migrations/:
+
+  ALTER TABLE public.proposal_recipients ADD COLUMN IF NOT EXISTS phone text;
+  ALTER TABLE public.proposal_recipients ADD COLUMN IF NOT EXISTS customer_contact_id uuid
+    REFERENCES public.customer_contacts(id) ON DELETE SET NULL;
+  CREATE INDEX IF NOT EXISTS idx_proposal_recipients_customer_contact_id
+    ON public.proposal_recipients(customer_contact_id);
+
+Migration file: supabase/migrations/20260416171150_proposal_recipients_phone_and_contact_fk.sql
+
+===============================================================================
+EDGE FUNCTIONS
+===============================================================================
+
+None deployed this session.
+
+===============================================================================
+TEST RESULTS
+===============================================================================
+
+Tested on Vercel preview deploy
+(sales-command-git-feat-prop-7cba69-chris7berger-droids-projects.vercel.app):
+
+  - Recipients picker + new contact + dedup: verified
+  - Signer toggle single-enforcement: verified (builds clean)
+  - Delete recipient leaves parent untouched: verified by logic
+    (now renders proposal_recipients, delete SQL targets that table)
+  - Save to Customer backfill: verified on Lepori proposal 10036
+    (orphan recipient → customer_contacts row → card appeared on
+    customer profile)
+  - Customer card redesign: verified visually on Lepori profile
+  - + Add Contact primary style: verified visually
+
+===============================================================================
+WORKFLOW NOTE
+===============================================================================
+
+First use of supabase/migrations/ in this repo. Prior sessions ran all
+DB changes directly in Supabase Studio SQL editor (per v69/v70 handoffs).
+Going forward, migrations can be tracked in version control and pushed
+via `supabase db push`.
+
+Also: last commit (552486d, Contact Phone/Email removal) went straight
+to main without a preview-branch detour. User approved. Preference
+remains preview branch → merge to main for non-trivial changes.
+
+===============================================================================
+NEXT PRIORITIES
+===============================================================================
+
+1. Work Types Phase 2: Smart Field SOW suggestion (unchanged from v70)
+2. Call Log Archiver (unchanged from v70)
+3. Settings page expansion (unchanged from v70)
+4. TasksTab fallback query fix (unchanged from v70)
+5. Field SOW sub_areas not transferred to jobs table (from v70)
+6. Field SOW change tracking (audit log for schedule-side edits)
+7. Schedule Command: job name distinction for P1/P2/P3 (from v70)
+
+===============================================================================
+KNOWN DATA CAVEATS
+===============================================================================
+
+- Legacy proposal_recipients rows (before this session) have
+  customer_contact_id = null. The "Save to Customer" button on each
+  such row will backfill one at a time. No bulk backfill script was
+  written — scope was per-proposal touch-up.
+
+- Customers whose customer_contacts got hard-deleted by the old
+  RECIPIENTS × button in prior sessions are permanently gone. They
+  will show "No contacts on file" on the customer profile until
+  re-added (via + Add Contact on profile, or via Save to Customer
+  on an old proposal recipient).
+
+- customers.contact_phone / customers.contact_email columns remain
+  in the schema with whatever values they had. New writes come from
+  CallLogDetail and NewInquiryWizard only. Reads still use the
+  billing_email || contact_email || email fallback chain.

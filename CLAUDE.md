@@ -76,7 +76,7 @@ work_types: id, name, cost_code
 proposal_signatures: id, proposal_id, signer_name, signer_email, signed_at,
   ip_address, pdf_url
 invoices: id (text), job_id, job_name, status, amount, discount, sent_at,
-  due_date, proposal_id (int8 FK proposals), qb_invoice_id (text),
+  due_date, proposal_id (text FK proposals), qb_invoice_id (text),
   qb_payment_id (text), stripe_checkout_id (text), stripe_checkout_url (text),
   stripe_payment_id (text), paid_at (timestamptz), description (text),
   viewing_token (uuid, default gen_random_uuid()),

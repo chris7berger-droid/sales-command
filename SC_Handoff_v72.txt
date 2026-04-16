@@ -1,0 +1,254 @@
+SC_Handoff_v72 — April 16, 2026
+Session: Customer Billing Schedule (SOV / G702-G703) Phases 1-2 + Role Gating
+
+===============================================================================
+CONTEXT / PROBLEM STATEMENT
+===============================================================================
+
+Two billing pains the existing WTC-based invoicing doesn't handle:
+
+1. Archive (History Locker) jobs can't be invoiced — they have no structured
+   proposal_wtc rows, so NewInvoiceModal's bill-% workflow has nothing to
+   bill against. First test case: legacy_id 6359 (DA Builders Muscle Motors,
+   $73,298.97, archive_record_id bc9bb80d-e8d2-4d0d-a09e-651945f90af6).
+
+2. Live jobs: customer contracts clump/rename WTCs into their own SOV
+   line items with their own identifiers. Invoices built from WTC rows
+   don't match the customer's contract framework, which causes billing
+   disputes.
+
+Decision: build a Customer Billing Schedule layer (G702/G703 framework)
+that sits on top of WTCs. WTCs remain internal cost tracking; SOV is what
+we bill on. Customer contract PDF is uploaded as evidence; SOV lines are
+entered manually from that doc.
+
+Full 5-phase plan saved in memory: project_customer_billing_schedule.md
+
+===============================================================================
+WHAT WAS DONE THIS SESSION
+===============================================================================
+
+1. PHASE 1 — DATA MODEL (DB CHANGES LIVE IN PROD)
+
+   Migration: supabase/migrations/20260416175646_billing_schedule_and_archive_links.sql
+   Applied via `supabase db push`.
+
+   New tables (RLS-enabled, tenant-scoped, standard pattern):
+     - public.billing_schedule
+       • id uuid PK, proposal_id text NOT NULL UNIQUE FK proposals ON DELETE CASCADE
+       • contract_sum numeric DEFAULT 0
+       • retainage_pct numeric DEFAULT 5
+       • status text DEFAULT 'draft' ('draft' | 'active' | 'locked')
+       • contract_pdf_url text
+       • tenant_id uuid DEFAULT get_user_tenant_id() FK tenant_config
+       • timestamps + updated_at trigger
+     - public.billing_schedule_lines
+       • id uuid PK
+       • billing_schedule_id uuid FK billing_schedule ON DELETE CASCADE
+       • line_code text (customer's identifier, e.g. "A.1")
+       • description text NOT NULL
+       • scheduled_value numeric DEFAULT 0
+       • is_change_order boolean DEFAULT false
+       • co_number integer
+       • ordinal integer DEFAULT 0
+       • tenant_id + timestamps + updated_at trigger
+
+   New columns on existing tables:
+     - call_log.archive_record_id (uuid, nullable, FK archive.legacy_records)
+     - proposals.archive_record_id (uuid, nullable, FK archive.legacy_records)
+     - invoice_lines.billing_schedule_line_id (uuid, nullable, FK new table)
+     - invoice_lines.description (text, nullable) — for per-period notes
+     - invoices.retainage_pct, retainage_amount, retainage_released
+
+   Altered: invoice_lines.proposal_wtc_id → now nullable (was NOT NULL).
+   Historical rows unaffected.
+
+   RLS: 4 standard policies per new table (select/insert/update/delete)
+   gating on tenant_id = get_user_tenant_id(), role=authenticated.
+   Matches the v69 lockdown pattern.
+
+   Gotcha discovered during apply: CLAUDE.md claimed
+   invoices.proposal_id was int8 FK proposals, but proposals.id is
+   actually text. FK constraint failed on first push; fixed migration
+   to use text. ALSO patched CLAUDE.md in same commit.
+
+2. PHASE 2 — BILLING SCHEDULE UI SECTION (ProposalDetail)
+
+   New component: src/components/BillingScheduleSection.jsx (~440 lines).
+   Rendered as a full-width section below the 2-column grid on
+   ProposalDetail, between the grid and the Internal Approve modal.
+
+   States:
+     - Loading spinner
+     - Empty (no schedule): + Create Billing Schedule button
+     - Active: three-tile header (Contract PDF · Contract Sum · Retainage %)
+       + SOV line items table with inline add + inline edit rows
+     - Locked: read-only banner, all edit controls hidden, CO add still
+       allowed
+
+   Behaviors:
+     - Contract PDF upload → job-attachments bucket, path scoped to
+       proposal.id; filename sanitized per CLAUDE.md storage rules
+     - Contract Sum is auto-computed from sum of line scheduled_values
+       and persisted on every mutation (no DB trigger; app updates)
+     - Retainage % editable inline, blur-to-save
+     - Lines table columns: #, Code, Description, Scheduled Value, CO tag,
+       Edit/× actions
+     - CO lines render with a purple "CO{n}" tag (matches v70 CO tag style)
+     - Lock auto-detected by querying invoices where proposal_id = p.id
+       AND deleted_at IS NULL; any existing invoice locks the schedule
+     - Also locked if schedule.status = 'locked'
+
+3. ROLE GATING — Sales upload only, Admin/Manager full access
+
+   Per user: the Billing Schedule is an Admin/Manager task. Sales reps
+   only upload the signed customer contract PDF; they must not edit
+   amounts, retainage, lines, or create/delete the schedule.
+
+   Implementation:
+     - BillingScheduleSection accepts teamMember prop
+     - canManage = ["Admin","Manager"].includes(teamMember.role)
+     - When !canManage: entire section collapses to a "Contract Upload"
+       card with upload/replace/view controls only; no other controls
+     - When schedule doesn't exist yet AND user is Sales: shows
+       "An Admin or Manager will create one after the customer's
+       contract comes back."
+
+   Gating is UI-only. RLS still permits any authenticated tenant user
+   to read/write (needed for Sales to upload the PDF).
+
+   Saved as a feedback memory: feedback_role_gating.md — applies to any
+   future feature that touches money structures.
+
+===============================================================================
+COMMITS — SALES COMMAND (branch: feat/billing-schedule-phase1)
+===============================================================================
+
+308057f feat: billing schedule (SOV) data model + archive record links
+60247c5 feat: billing schedule UI section on ProposalDetail
+0cae519 feat: role-gate Billing Schedule — Sales can upload PDF only
+
+Branch NOT yet merged to main. Preview deploy URL:
+  https://sales-command-git-feat-bill-72cb78-chris7berger-droids-projects.vercel.app
+
+===============================================================================
+DB CHANGES (already applied to production — DO NOT re-run)
+===============================================================================
+
+Applied via `supabase db push` from
+supabase/migrations/20260416175646_billing_schedule_and_archive_links.sql
+
+See migration file for exact SQL. Summary:
+  - CREATE TABLE billing_schedule (+ 4 RLS policies + updated_at trigger)
+  - CREATE TABLE billing_schedule_lines (+ 4 RLS policies + updated_at trigger)
+  - ALTER TABLE call_log ADD archive_record_id
+  - ALTER TABLE proposals ADD archive_record_id
+  - ALTER TABLE invoice_lines ADD billing_schedule_line_id, description
+  - ALTER TABLE invoice_lines ALTER COLUMN proposal_wtc_id DROP NOT NULL
+  - ALTER TABLE invoices ADD retainage_pct, retainage_amount, retainage_released
+
+All cross-schema FKs (call_log.archive_record_id →
+archive.legacy_records.id) use ON DELETE SET NULL.
+
+===============================================================================
+EDGE FUNCTIONS
+===============================================================================
+
+None deployed this session.
+
+===============================================================================
+TEST RESULTS
+===============================================================================
+
+Phase 1 verified via direct pooler query (pg_class, pg_attribute,
+pg_policies, pg_trigger): all tables, columns, policies, triggers
+landed correctly.
+
+Phase 2 + role gating: build verified clean (vite build passed),
+not yet manually tested on preview URL. User was about to test when
+the session was wrapped; outstanding item.
+
+===============================================================================
+OPEN ITEMS / NEXT PRIORITIES
+===============================================================================
+
+Next up — Phase 4 (archive import wizard). First test case: job 6359.
+
+Phase 4 scope (from memory: project_customer_billing_schedule.md):
+  - New "Import to Live" button on ArchiveRecordDetail.jsx
+  - Wizard modeled after NewInquiryWizard shape (multi-step, editable
+    prefilled fields from raw_data)
+  - Prefilled from archive raw_data, all fields editable
+  - Required: customer_type, billing_contact, billing_email
+  - Conditional: first/last name for Residential only
+  - Customer dedup: match by name (case-insensitive exact). If match,
+    use existing customer; do not overwrite
+  - Sales rep auto-match on team_members.email; fallback picker
+  - Work type fuzzy match against work_types.name; fallback picker
+  - Stage on create = "Sold"
+  - Jobsite address prefilled from raw_data; business_address blank,
+    user prompts to fill
+  - billing_terms default 30 (from tenant_config); user can override
+  - Attachments NOT copied — new call_log gets archive_record_id
+    pointer only. UI should render a "View attachments from archive"
+    link that uses JOB_FOLDER_MAP to deep-link to the original folder
+  - On save: create customer (if new) + call_log + job_work_types
+    + skeleton proposals row (status=Sold, total from archive
+    proposalAmount/soldAmount, archive_record_id set)
+  - Redirect user to the new proposal's detail page so they can
+    enter the SOV on the Billing Schedule section
+
+After Phase 4 → Phase 3 (SOV invoicing): NewInvoiceModal branches on
+whether the proposal has a billing_schedule; if yes, bill % per line
+with retainage withheld. G702/G703 invoice PDF output.
+
+Phase 5 deferred: SOV↔WTC mapping table, retainage release flow.
+
+===============================================================================
+MEMORY UPDATES
+===============================================================================
+
+New memory files:
+  - project_customer_billing_schedule.md — the 5-phase plan
+  - project_rls_pattern.md — tenant_id default pattern + 4 standard
+    RLS policies + updated_at trigger naming (codifies v69 lockdown
+    conventions so future sessions don't re-discover them)
+  - feedback_role_gating.md — Sales can't configure money; applies
+    broadly beyond just Billing Schedule
+
+Updated memory files:
+  - MEMORY.md — added 3 new index entries
+
+Also noted (pre-existing memory added by user this session):
+  - project_supabase_migrations.md — use supabase/migrations/
+    folder + `supabase db push`, not Studio ad-hoc
+
+===============================================================================
+KNOWN DATA CAVEATS
+===============================================================================
+
+- CLAUDE.md had `invoices.proposal_id (int8 FK proposals)` — fixed to
+  text this session. Other stale columns may exist; verify against
+  pg_catalog (not CLAUDE.md) when schema details matter for FKs.
+- Archive schema has ONLY `call_log` record_type (2,584 rows). No
+  separate proposal or wtc records. The "WTC breakdown" fields in
+  raw_data (wtc/operationsJSON, proposal/totalApprovedSold) are
+  empty for all records — the Glide export didn't bring structured
+  WTC data. Billing Schedule is entered manually from the PDF in
+  folder-based storage (JOB_FOLDER_MAP).
+- Job 6359 is mapped to storage folder 757 in jobFolderMap.js.
+
+===============================================================================
+WORKFLOW NOTES
+===============================================================================
+
+- First session to ship a feature across a migration + new component +
+  role gating, all via the new supabase/migrations/ workflow (v71
+  established).
+- Billing Schedule UI was built as a separate component
+  (BillingScheduleSection.jsx) rather than inlining into
+  ProposalDetail.jsx — matches v52 refactor pattern
+  (detail/modals/wizards extracted to components/).
+- Context got heavy toward the end; Phase 4 deferred to a fresh
+  session. Existing memory files should be sufficient for a fresh
+  session to pick up without re-deriving the plan.

@@ -1,0 +1,256 @@
+SC_Handoff_v77 — April 16, 2026 (post-merge audit + fix sprint)
+Session: 3-tier audit of today's 4-branch merge day, then 7 fixes shipped
+to prod (DB + frontend + edge function). Closes the "build got away from
+me" feeling Chris flagged at session start.
+
+===============================================================================
+STATE OF THE WORLD
+===============================================================================
+
+EVERYTHING IS LIVE on scmybiz.com. No branches in limbo, no local
+uncommitted changes (except auto-generated supabase/.temp/* noise).
+
+Commits added this session (all on main, all pushed):
+  2f056b9  fix(rls): role-aware policies on billing_schedule + lines + materials_catalog
+  a155a0b  feat(wtc): "+ Add as custom" row inside MaterialPicker dropdown
+  3bc952c  chore(audit): hide Settings money sections from Sales + sanitize extract-sov error
+  87aa685  fix(archive): send user JWT on archiveDb queries instead of anon key
+  a1adc40  fix(rls): archive schema — fix get_user_tenant_id() and tighten grants
+  dfd6fd8  fix(import-wizard): paginate customer fetch (was hitting 1000-row cap)
+  e50a438  fix(pagination): paginate all high-cardinality fetches via fetchAll()
+
+Migrations applied to prod DB:
+  20260416210000_role_aware_money_rls.sql
+  20260416230000_archive_rls_fix.sql
+
+Edge functions redeployed (with --no-verify-jwt per house rule):
+  extract-sov (sanitized error response)
+
+===============================================================================
+WHAT THIS SESSION DID — THE THREE AUDITS
+===============================================================================
+
+Chris reported the day's 4-branch merge "got away from him." Ran three
+sequential audits, one critical/orange item per audit, then fixed in order.
+
+AUDIT #1 — ARCHITECTURE DRIFT
+  Verdict: significant drift. Findings:
+    - ProposalDetail.jsx is 1,121 lines, hit by 5 commits across 2 branches
+      today; recipients picker logic was inlined here instead of extracted
+    - 166 inline supabase.from() calls across the codebase; CLAUDE.md
+      claims a queries.js data layer that doesn't exist
+    - 6 pages over the V52 thinness limit (WTCCalculator 2,112 lines,
+      Invoices 1,188, Settings 737, SalesDash 656, Customers 545, Team 475)
+    - Save-to-Catalog button never visually verified before today's prod push
+    - Good news: no TODO/HACK debt added today, no *Old*/*V2* artifacts,
+      v75 revert was doc-only with no code leftover, all 4 branches merged
+      cleanly without conflicts
+  Status: NOT FIXED in this session — these are multi-session refactors.
+  Saved for fresh-eyes work.
+
+AUDIT #2 — DATA LAYER / RLS / EDGE FUNCTIONS
+  Verdict: largely clean for today's merges. Findings:
+    - billing_schedule, billing_schedule_lines, materials_catalog all
+      follow the tenant_id + RLS standard correctly
+    - Migrations properly timestamped + sequenced; materials seed is idempotent
+    - extract-sov auth is solid: validates JWT, then uses user JWT + anon key
+      for the ownership check (RLS does the filtering)
+    - INCORRECTLY cleared pagination as ✓ — see Audit-After-The-Fact below
+    - Real concerns: archive schema tenant isolation unverified, storage
+      upload doesn't double-check tenant before writing, extract-sov returns
+      raw Anthropic response on tool-call failure (info leak)
+  Status: archive issue + extract-sov leak FIXED this session.
+          Storage upload defense-in-depth deferred.
+
+AUDIT #3 — ROLE / MONEY GATING
+  Verdict: UI gating mostly held, server-side enforcement DID NOT.
+    - billing_schedule, billing_schedule_lines, materials_catalog all had
+      tenant-only RLS — no role check. A Sales user could call
+      supabase.from("billing_schedule_lines").insert(...) directly from
+      the browser console and bypass every UI gate.
+    - Settings.jsx WorkTypes + MaterialsCatalog sections had zero UI
+      role check (Sales sees Edit/Delete buttons that don't actually work)
+    - WTCCalculator Save-to-Catalog button — no UI role gate
+    - Archive → Live import wizard: properly gated to Admin/Manager only,
+      doesn't re-create billing schedules during import — clean
+    - BillingScheduleSection.jsx had the canonical pattern at line 16
+      (canManage = role in ["Admin","Manager"]) — set this as the template
+  Status: ALL FIXED this session.
+
+===============================================================================
+FIXES SHIPPED — IN COMMIT ORDER
+===============================================================================
+
+1. RLS ROLE GAP ON MONEY TABLES (commit 2f056b9 + migration ...210000)
+   - New helper public.is_admin_or_manager() — SECURITY DEFINER, locked
+     search_path, looks up team_members.role for auth.uid()
+   - billing_schedule: INSERT/DELETE require admin/manager; UPDATE stays
+     tenant-open (Sales needs PDF upload), but a BEFORE UPDATE trigger
+     raises 42501 if a non-admin changes contract_sum, retainage_pct, or
+     status (column-level enforcement)
+   - billing_schedule_lines: all writes require admin/manager
+   - materials_catalog: all writes require admin/manager + tenant match
+   - SELECT policies untouched — no read regressions
+
+2. MATERIALPICKER "+ ADD AS CUSTOM" UX (commit a155a0b)
+   - Save-to-Catalog button confirmed working in prod
+   - But +Custom UX was broken: clicking it created a blank row, requiring
+     re-typing the product name (which the user often had already typed
+     in the search bar)
+   - Fix: when user types in search and gets no exact match, dropdown now
+     shows a "+ Add '<text>' as custom material" row (Notion/Linear pattern)
+   - Click it → row prefilled with the typed name → SAVE button appears
+     immediately
+   - Standalone + Custom button kept as fallback
+
+3. SETTINGS UI ROLE GATING + EXTRACT-SOV SANITIZE (commit 3bc952c)
+   - Settings.jsx: WorkTypesSection and MaterialsCatalogSection now hidden
+     from Sales (canManage check at top of Settings function)
+   - extract-sov: removed `raw: resp` from 502 response; stop_reason +
+     model name now logged server-side via console.error for debugging
+   - Edge function redeployed with --no-verify-jwt
+
+4. ARCHIVE SCHEMA — THE BIG FIND (commits 87aa685 + a1adc40 + migration ...230000)
+   THE BUG (latent multi-tenant breaker):
+     archive.get_user_tenant_id() returned `SELECT id FROM tenant_config
+     LIMIT 1` regardless of caller. Every authenticated user got the SAME
+     tenant_id from the helper — whichever tenant_config row Postgres
+     happened to return first. RLS on archive.{legacy_records,
+     import_batches} silently broken under multi-tenancy.
+
+   COMPOUND BUG:
+     src/lib/supabase.js exported archiveDb that used SUPABASE_KEY as the
+     Bearer token (anon role, no auth.uid()). Even with a correct helper,
+     archive RLS would never resolve the right tenant.
+
+   THE FIX (sequence mattered):
+     a) FRONTEND FIRST (87aa685): archiveDb now caches the current
+        session.access_token via auth state subscription, rebuilds the
+        PostgrestClient per query so the latest user JWT is sent. Falls
+        back to anon key if no session.
+     b) MIGRATION SECOND: replaced archive.get_user_tenant_id() with
+        the auth.uid()→team_members lookup pattern from public.get_user_tenant_id
+        (per SC_Handoff_v69), but DROPPED the tenant_config fallback —
+        archive must never serve anon (per v69 anon access map), so
+        NULL-on-no-match is safer (RLS denies the query).
+     c) Tightened grants: REVOKE ALL FROM anon entirely; narrowed
+        authenticated from ALL to USAGE on schema + SELECT/INSERT/DELETE
+        on each table.
+     d) Documented the schema via CREATE TABLE IF NOT EXISTS so future
+        audits see it in supabase/migrations/ instead of /sql/.
+
+   WHY THIS WAS THE MOST IMPORTANT FIND:
+     Pushing the migration alone would have killed every HistoryLocker
+     call (because archiveDb was anon-keying past the broken policies).
+     The frontend fix had to land first; coordinated deploy.
+     Status: fully live, single-tenant behavior unchanged. Multi-tenant
+     correctness now in place for when scmybiz.com onboards tenant #2.
+
+5. PAGINATION BUG — IMPORT WIZARD (commit dfd6fd8)
+   Chris hit this live: tried to import an archived job for "Forrest A
+   Dodge Construction" — customer clearly exists (1 of 2060), but the
+   wizard's customer dropdown said "not found."
+   Cause: ImportToLiveWizard.jsx loaded customers without pagination,
+   hitting the 1000-row PostgREST cap. Forrest is past row 1000
+   alphabetically → invisible to dropdown AND auto-match → wizard forced
+   "Create New" → duplicate customer.
+   Fix: replaced supabase.from("customers").select(...) with fetchAll(...).
+
+6. PAGINATION SWEEP — 12 MORE BUGS ACROSS 6 FILES (commit e50a438)
+   Audit #2 had INCORRECTLY cleared pagination as ✓. Re-swept after the
+   wizard bug exposed the pattern. Found 12 more silent data-loss bugs:
+     - Home.jsx: call_log + proposals
+     - SalesDash.jsx: call_log + proposals + proposal_wtc + invoices
+     - Proposals.jsx: proposals + invoices
+     - Invoices.jsx: invoices list
+     - Customers.jsx: invoices on customer detail
+     - Managers.jsx: call_log + proposals (KPI math)
+   All replaced with fetchAll() including correct filter syntax for
+   .is("deleted_at", null) and conditional sales_name filters.
+
+   PERFORMANCE NOTE: fetchAll on proposals/proposal_wtc with deeply
+   nested joins will be slower on first load for Chris (thousands of
+   rows). If it feels sluggish, the right next step is server-side
+   aggregation (RPC for KPI numbers) — but measure first, don't optimize
+   speculatively.
+
+===============================================================================
+KNOWN LEFTOVERS — DELIBERATELY DEFERRED
+===============================================================================
+
+LOW-RISK PAGINATION:
+1. Customers.jsx:235 — proposals fetch tightly scoped to one customer.id;
+   only fails if a single customer has 1000+ proposals (unlikely).
+2. ArchiveSearchView.jsx:39-40 — extracts unique source_system /
+   record_type values for filter dropdowns. Pagination is wrong fix
+   (would still load 1000 rows just to find ~5 unique values). Right
+   fix is a DISTINCT query or RPC. Flagged for follow-up.
+
+DEFENSE-IN-DEPTH (audit #2 medium-tier):
+3. BillingScheduleSection storage upload doesn't double-check tenant
+   before writing. RLS protects the DB; bucket paths use proposal.id
+   directly. Add `eq("tenant_id", userTenant)` guard before .upload()
+   for belt-and-suspenders.
+
+ARCHITECTURE BACKLOG (audit #1 — multi-session refactors):
+4. ProposalDetail.jsx extraction — 1,121 lines, mixes recipients picker,
+   billing schedule section, and WTC management. Recipients should be
+   pulled into src/components/RecipientsSection.jsx.
+5. queries.js data layer — 166 inline supabase.from() calls. CLAUDE.md
+   claims this layer exists but it doesn't. Either build it or remove
+   the rule from CLAUDE.md.
+6. V52 page-thinness violations: WTCCalculator (2,112 lines, inline
+   PDFPreviewModal duplicating ProposalPDFModal), Invoices (1,188 lines,
+   4 inline modals), Settings (737 lines, 4 inline sections), SalesDash
+   (656), Customers (545), Team (475). Extract to src/components/.
+
+STRONG RECOMMENDATION: do NOT start the architecture backlog at the tail
+end of a fix sprint. These are fresh-eyes work.
+
+===============================================================================
+MEMORY UPDATES THIS SESSION
+===============================================================================
+
+No new memories saved this session. Existing relevant memories applied:
+  - feedback_pace_check.md (saved last session) — used at start of session
+    to trigger the 3-tier audit instead of jumping into more feature work
+  - project_supabase_row_limit.md — used as authority for the pagination
+    rule that Audit #2 missed
+  - feedback_role_gating.md — used as authority for Audit #3 role rule
+  - feedback_edge_functions.md — applied --no-verify-jwt to extract-sov
+    redeploy
+  - project_rls_pattern.md — used as template for the role-aware policies
+
+Worth saving as a NEW memory next session if the pattern repeats:
+  - "Audits can miss: re-verify pagination after every audit because the
+    long-select-string + Promise.all wrapper hides unpaginated calls"
+
+===============================================================================
+NEXT SESSION
+===============================================================================
+
+Pick ONE of these (in order of recommended priority):
+
+A) ARCHITECTURE BACKLOG START — extract ProposalDetail.jsx
+   Smallest of the big refactors. Pull RecipientsSection out of
+   ProposalDetail.jsx into src/components/RecipientsSection.jsx.
+   ~1,121 → ~700 lines. Sets the pattern for the rest of the backlog.
+
+B) BUILD queries.js DATA LAYER (or remove the rule)
+   166 inline supabase.from() calls. Either:
+     - Build a real lib/queries.js with named functions for the most
+       common reads (getProposalsByTenant, getCustomerById, etc.) and
+       migrate over time
+     - Delete the data-layer rule from CLAUDE.md and accept the inline
+       pattern
+   Honest call from this session: the inline pattern is fine for a
+   solo-dev codebase; the rule may not be worth enforcing.
+
+C) PAY APP GENERATION (Phase 3 from v76)
+   Original next-session plan from v76. Now that Billing Schedule data
+   model is live AND role-gated AND extraction works AND Save-to-Catalog
+   works AND archive helper is fixed — the full data foundation is solid.
+   Pay App generation can start fresh.
+
+If picking C, the architecture refactors stay deferred. That's OK —
+revenue features over hygiene when the hygiene isn't actively bleeding.

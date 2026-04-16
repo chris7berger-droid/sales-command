@@ -12,7 +12,9 @@ const inputStyle = {
 
 const EMPTY_DRAFT = { line_code: "", description: "", scheduled_value: "", is_change_order: false, co_number: "" };
 
-export default function BillingScheduleSection({ proposal }) {
+export default function BillingScheduleSection({ proposal, teamMember }) {
+  const canManage = !!teamMember && ["Admin", "Manager"].includes(teamMember.role);
+
   const [schedule, setSchedule] = useState(null);
   const [lines, setLines] = useState([]);
   const [locked, setLocked] = useState(false);
@@ -187,13 +189,46 @@ export default function BillingScheduleSection({ proposal }) {
       <div style={card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <div style={h}>Customer Billing Schedule</div>
-          <Btn sz="sm" onClick={createSchedule} disabled={creating}>
-            {creating ? "Creating…" : "+ Create Billing Schedule"}
-          </Btn>
+          {canManage && (
+            <Btn sz="sm" onClick={createSchedule} disabled={creating}>
+              {creating ? "Creating…" : "+ Create Billing Schedule"}
+            </Btn>
+          )}
         </div>
         <div style={{ fontSize: 12.5, color: C.textMuted, fontFamily: F.ui, lineHeight: 1.5 }}>
-          Create a Schedule of Values (G702/G703 framework) when the customer's contract defines its own pay items. Invoices will bill % per SOV line instead of % per WTC.
+          {canManage
+            ? "Create a Schedule of Values (G702/G703 framework) when the customer's contract defines its own pay items. Invoices will bill % per SOV line instead of % per WTC."
+            : "No billing schedule yet. An Admin or Manager will create one after the customer's contract comes back."}
         </div>
+      </div>
+    );
+  }
+
+  // Sales (non-manage) view: upload / replace / view the contract PDF only.
+  if (!canManage) {
+    return (
+      <div style={card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={h}>Customer Billing Schedule</div>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Contract Upload</span>
+        </div>
+        {schedule.contract_pdf_url ? (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <a href={schedule.contract_pdf_url} target="_blank" rel="noopener noreferrer" style={{ background: C.dark, color: C.teal, fontWeight: 800, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", padding: "5px 12px", borderRadius: 6, textDecoration: "none", textTransform: "uppercase" }}>View Contract PDF</a>
+            <label style={{ background: "none", border: `1px solid ${C.borderStrong}`, color: C.textMuted, fontWeight: 700, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", padding: "4px 10px", borderRadius: 6, cursor: "pointer", textTransform: "uppercase" }}>
+              {uploading ? "Uploading…" : "Replace"}
+              <input type="file" accept="application/pdf,image/*" onChange={e => uploadContract(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
+            </label>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <label style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", padding: "6px 14px", borderRadius: 6, cursor: "pointer", textTransform: "uppercase" }}>
+              {uploading ? "Uploading…" : "+ Upload Contract PDF"}
+              <input type="file" accept="application/pdf,image/*" onChange={e => uploadContract(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
+            </label>
+            <span style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>Upload the signed customer contract.</span>
+          </div>
+        )}
       </div>
     );
   }

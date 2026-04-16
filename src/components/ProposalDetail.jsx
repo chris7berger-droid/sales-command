@@ -1077,7 +1077,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
 
       {/* Customer Billing Schedule (SOV / G702-G703) */}
       <div style={{ marginTop: 18 }}>
-        <BillingScheduleSection proposal={p} />
+        <BillingScheduleSection proposal={p} teamMember={teamMember} />
       </div>
 
       {/* Internal Approve Modal */}

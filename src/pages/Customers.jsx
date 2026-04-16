@@ -292,25 +292,32 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
       <div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui }}>Contacts</div>
-          <Btn sz="sm" v="ghost" onClick={() => setContactModal("new")}>+ Add Contact</Btn>
+          <Btn sz="sm" onClick={() => setContactModal("new")}>+ Add Contact</Btn>
         </div>
         {contacts.length === 0 ? (
           <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>No contacts on file</div>
         ) : (
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
             {contacts.map(c => (
               <div key={c.id} onClick={() => setContactModal(c)} style={{
-                background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: "12px 16px",
-                minWidth: 200, cursor: "pointer", position: "relative",
+                background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 12, padding: "16px 20px",
+                cursor: "pointer", position: "relative", display: "flex", flexDirection: "column", gap: 8,
+                boxShadow: "0 1px 3px rgba(28,24,20,0.06)",
               }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, marginBottom: 2 }}>{c.name || "—"}</div>
-                {c.role && (
-                  <div style={{ display: "inline-block", fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
-                    background: C.dark, color: C.teal, borderRadius: 4, padding: "2px 7px", fontFamily: F.display, marginBottom: 4 }}>{c.role}</div>
+                {c.is_primary && (
+                  <div style={{ position: "absolute", top: 12, right: 14, fontSize: 9.5, fontWeight: 800, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 9px", fontFamily: F.display, textTransform: "uppercase", letterSpacing: "0.08em" }}>Primary</div>
                 )}
-                {c.phone && <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{c.phone}</div>}
-                {c.email && <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{c.email}</div>}
-                {c.is_primary && <div style={{ position: "absolute", top: 8, right: 10, fontSize: 9, fontWeight: 700, color: C.teal, fontFamily: F.display, textTransform: "uppercase", letterSpacing: "0.08em" }}>Primary</div>}
+                <div style={{ fontSize: 18, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.01em", lineHeight: 1.15, paddingRight: c.is_primary ? 60 : 0 }}>{c.name || "—"}</div>
+                {c.role && (
+                  <div style={{ alignSelf: "flex-start", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
+                    background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontFamily: F.display }}>{c.role}</div>
+                )}
+                {(c.phone || c.email) && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 2 }}>
+                    {c.email && <div style={{ fontSize: 12.5, color: C.textBody, fontFamily: F.ui }}>{c.email}</div>}
+                    {c.phone && <div style={{ fontSize: 12.5, color: C.textMuted, fontFamily: F.ui }}>{c.phone}</div>}
+                  </div>
+                )}
               </div>
             ))}
           </div>

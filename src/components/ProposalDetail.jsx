@@ -39,14 +39,16 @@ const [recipients, setRecipients] = useState([]);
 const [sendingToSchedule, setSendingToSchedule] = useState(false);
 const [sentToSchedule, setSentToSchedule] = useState(false);
 const [customerContacts, setCustomerContacts] = useState([]);
-const [editingContact, setEditingContact] = useState(null);
+const [editingRecipient, setEditingRecipient] = useState(null);
 const [contactDraft, setContactDraft] = useState({});
+const [showAddPicker, setShowAddPicker] = useState(false);
+const [newContactOpen, setNewContactOpen] = useState(false);
 const [editingPrimary, setEditingPrimary] = useState(false);
 const [primaryDraft, setPrimaryDraft] = useState("");
 
 useEffect(() => {
   supabase.from("team_members").select("id, name").eq("active", true).order("name").then(({ data }) => setAllTeamMembers(data || []));
-  supabase.from("proposal_recipients").select("*").eq("proposal_id", p.id).order("created_at").then(({ data }) => setRecipients(data || []));
+  supabase.from("proposal_recipients").select("*, customer_contacts(id, role, is_primary)").eq("proposal_id", p.id).order("created_at").then(({ data }) => setRecipients(data || []));
   const custId = pInit.call_log?.customer_id;
   if (custId) {
     supabase.from("customer_contacts").select("*").eq("customer_id", custId).order("is_primary", { ascending: false }).order("name").then(({ data }) => setCustomerContacts(data || []));
@@ -242,32 +244,130 @@ async function deletePropAttachment(fullName) {
     setEditingPrimary(false);
   }
 
-  async function saveContact(id) {
+  async function reloadRecipients() {
+    const { data } = await supabase.from("proposal_recipients").select("*, customer_contacts(id, role, is_primary)").eq("proposal_id", p.id).order("created_at");
+    setRecipients(data || []);
+  }
+
+  async function reloadCustomerContacts() {
+    if (!custId) return;
+    const { data } = await supabase.from("customer_contacts").select("*").eq("customer_id", custId).order("is_primary", { ascending: false }).order("name");
+    setCustomerContacts(data || []);
+  }
+
+  async function saveRecipient(id) {
     const draft = contactDraft;
     if (draft.email && !isValidEmail(draft.email)) {
       alert("Invalid email address");
       return;
     }
-    await supabase.from("customer_contacts").update({ name: draft.name, email: draft.email, phone: draft.phone, role: draft.role }).eq("id", id);
-    setCustomerContacts(prev => prev.map(c => c.id === id ? { ...c, ...draft } : c));
-    setEditingContact(null);
-    setContactDraft({});
-  }
-
-  async function addContact() {
-    if (!custId) return;
-    const { data } = await supabase.from("customer_contacts").insert({ customer_id: custId, name: "", email: "", role: "Project Manager" }).select().single();
-    if (data) {
-      setCustomerContacts(prev => [...prev, data]);
-      setEditingContact(data.id);
-      setContactDraft({ name: "", email: "", phone: "", role: "Project Manager" });
+    const r = recipients.find(x => x.id === id);
+    await supabase.from("proposal_recipients").update({ contact_name: draft.name, contact_email: draft.email, phone: draft.phone }).eq("id", id);
+    if (r?.customer_contact_id) {
+      await supabase.from("customer_contacts").update({ name: draft.name, email: draft.email, phone: draft.phone, role: draft.role }).eq("id", r.customer_contact_id);
     }
+    setEditingRecipient(null);
+    setContactDraft({});
+    await Promise.all([reloadRecipients(), reloadCustomerContacts()]);
   }
 
-  async function deleteContact(id) {
-    if (!window.confirm("Remove this contact?")) return;
-    await supabase.from("customer_contacts").delete().eq("id", id);
-    setCustomerContacts(prev => prev.filter(c => c.id !== id));
+  async function pickExistingContact(c) {
+    if (recipients.some(r => r.customer_contact_id === c.id)) return;
+    await supabase.from("proposal_recipients").insert({
+      proposal_id: p.id,
+      contact_name: c.name || "",
+      contact_email: c.email || "",
+      phone: c.phone || "",
+      role: "viewer",
+      customer_contact_id: c.id,
+    });
+    await reloadRecipients();
+  }
+
+  async function createNewRecipient() {
+    if (!custId) return;
+    const draft = contactDraft;
+    if (draft.email && !isValidEmail(draft.email)) {
+      alert("Invalid email address");
+      return;
+    }
+    const emailLc = (draft.email || "").trim().toLowerCase();
+    let contactId = null;
+    if (emailLc) {
+      const existing = customerContacts.find(c => (c.email || "").trim().toLowerCase() === emailLc);
+      if (existing) contactId = existing.id;
+    }
+    if (!contactId) {
+      const { data: newC } = await supabase.from("customer_contacts").insert({
+        customer_id: custId,
+        name: draft.name || "",
+        email: draft.email || "",
+        phone: draft.phone || "",
+        role: draft.role || "Project Manager",
+      }).select().single();
+      if (newC) contactId = newC.id;
+    }
+    if (recipients.some(r => r.customer_contact_id === contactId)) {
+      setNewContactOpen(false);
+      setContactDraft({});
+      await reloadCustomerContacts();
+      return;
+    }
+    await supabase.from("proposal_recipients").insert({
+      proposal_id: p.id,
+      contact_name: draft.name || "",
+      contact_email: draft.email || "",
+      phone: draft.phone || "",
+      role: "viewer",
+      customer_contact_id: contactId,
+    });
+    setNewContactOpen(false);
+    setContactDraft({});
+    await Promise.all([reloadRecipients(), reloadCustomerContacts()]);
+  }
+
+  async function deleteRecipient(id) {
+    if (!window.confirm("Remove this recipient from the proposal? (The contact stays on the customer file.)")) return;
+    await supabase.from("proposal_recipients").delete().eq("id", id);
+    await reloadRecipients();
+  }
+
+  async function saveToCustomerFile(id) {
+    if (!custId) return;
+    const r = recipients.find(x => x.id === id);
+    if (!r) return;
+    const emailLc = (r.contact_email || "").trim().toLowerCase();
+    let contactId = null;
+    if (emailLc) {
+      const existing = customerContacts.find(c => (c.email || "").trim().toLowerCase() === emailLc);
+      if (existing) contactId = existing.id;
+    }
+    if (!contactId) {
+      const { data: newC } = await supabase.from("customer_contacts").insert({
+        customer_id: custId,
+        name: r.contact_name || "",
+        email: r.contact_email || "",
+        phone: r.phone || "",
+        role: "Project Manager",
+      }).select().single();
+      if (newC) contactId = newC.id;
+    }
+    if (contactId) {
+      await supabase.from("proposal_recipients").update({ customer_contact_id: contactId }).eq("id", id);
+    }
+    await Promise.all([reloadRecipients(), reloadCustomerContacts()]);
+  }
+
+  async function toggleSigner(id) {
+    const r = recipients.find(x => x.id === id);
+    if (!r) return;
+    if (r.role === "signer") {
+      await supabase.from("proposal_recipients").update({ role: "viewer" }).eq("id", id);
+    } else {
+      await supabase.from("proposal_recipients").update({ role: "viewer" }).eq("proposal_id", p.id).eq("role", "signer");
+      await supabase.from("proposal_recipients").update({ role: "signer" }).eq("id", id);
+    }
+    await reloadRecipients();
   }
 
   function getWtcChecks(wtc) {
@@ -660,11 +760,16 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                     )}
                   </div>
 
-                  {/* Additional contacts */}
-                  {customerContacts.map(c => {
-                    const isEditing = editingContact === c.id;
+                  {/* Additional recipients */}
+                  {recipients.map(r => {
+                    const isEditing = editingRecipient === r.id;
+                    const isSigner = r.role === "signer";
+                    const custRole = r.customer_contacts?.role || "Contact";
+                    const name = r.contact_name || "";
+                    const email = r.contact_email || "";
+                    const phone = r.phone || "";
                     return (
-                      <div key={c.id} style={{ padding: "10px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6 }}>
+                      <div key={r.id} style={{ padding: "10px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6 }}>
                         {isEditing ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                             <div style={{ display: "flex", gap: 6 }}>
@@ -680,29 +785,78 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                               <input value={contactDraft.phone || ""} onChange={e => setContactDraft(d => ({ ...d, phone: e.target.value }))} placeholder="Phone" style={{ flex: 0.7, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
                             </div>
                             <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                              <Btn sz="sm" v="ghost" onClick={() => { setEditingContact(null); setContactDraft({}); }}>Cancel</Btn>
-                              <Btn sz="sm" onClick={() => saveContact(c.id)}>Save</Btn>
+                              <Btn sz="sm" v="ghost" onClick={() => { setEditingRecipient(null); setContactDraft({}); }}>Cancel</Btn>
+                              <Btn sz="sm" onClick={() => saveRecipient(r.id)}>Save</Btn>
                             </div>
                           </div>
                         ) : (
-                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>{c.name || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No name</span>}</div>
-                              <div style={{ fontSize: 12, color: c.email && !isValidEmail(c.email) ? (C.red || "#e53935") : C.textMuted, fontFamily: F.ui, marginTop: 1 }}>
-                                {c.email || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No email</span>}
-                                {c.email && !isValidEmail(c.email) && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700 }}>Invalid</span>}
+                              <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>{name || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No name</span>}</div>
+                              <div style={{ fontSize: 12, color: email && !isValidEmail(email) ? (C.red || "#e53935") : C.textMuted, fontFamily: F.ui, marginTop: 1 }}>
+                                {email || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No email</span>}
+                                {email && !isValidEmail(email) && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700 }}>Invalid</span>}
                               </div>
-                              {c.phone && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 1 }}>{c.phone}</div>}
+                              {phone && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 1 }}>{phone}</div>}
                             </div>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{c.role || "Contact"}</div>
-                            <button onClick={() => { setEditingContact(c.id); setContactDraft({ name: c.name || "", email: c.email || "", phone: c.phone || "", role: c.role || "Project Manager" }); }} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>Edit</button>
-                            <button onClick={() => deleteContact(c.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: "3px 4px", fontSize: 13, color: C.textFaint, lineHeight: 1 }}>×</button>
+                            <button onClick={() => toggleSigner(r.id)} title={isSigner ? "Unset as signer" : "Set as signer"} style={{ fontSize: 10, fontWeight: 700, color: isSigner ? C.teal : C.textMuted, background: isSigner ? C.dark : "none", border: isSigner ? `1px solid ${C.dark}` : `1px solid ${C.borderStrong}`, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}>{isSigner ? "Signer" : "Viewer"}</button>
+                            {!r.customer_contact_id && (
+                              <button onClick={() => saveToCustomerFile(r.id)} title="Add this recipient to the parent customer's contact list" style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: "none", border: `1px dashed ${C.tealBorder || C.teal}`, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}>Save to Customer</button>
+                            )}
+                            <div style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{custRole}</div>
+                            <button onClick={() => { setEditingRecipient(r.id); setContactDraft({ name, email, phone, role: custRole !== "Contact" ? custRole : "Project Manager" }); }} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>Edit</button>
+                            <button onClick={() => deleteRecipient(r.id)} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.red || "#e53935", cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }} title="Remove from this proposal (customer contact stays)">Delete</button>
                           </div>
                         )}
                       </div>
                     );
                   })}
-                  <Btn sz="sm" v="ghost" onClick={addContact} style={{ marginTop: 4 }}>+ Add Contact</Btn>
+
+                  {showAddPicker ? (
+                    <div style={{ padding: "10px 12px", background: C.linenDeep, border: `1px solid ${C.borderStrong}`, borderRadius: 8, marginTop: 4, display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>Add from customer contacts</div>
+                      {(() => {
+                        const available = customerContacts.filter(c => !recipients.some(r => r.customer_contact_id === c.id));
+                        if (available.length === 0) return <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>No other contacts on file for this customer.</div>;
+                        return available.map(c => (
+                          <button key={c.id} onClick={() => pickExistingContact(c)} style={{ textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 6, cursor: "pointer", fontFamily: F.ui }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, color: C.textHead }}>{c.name || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No name</span>}</div>
+                              <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 1 }}>{c.email || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No email</span>}</div>
+                            </div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{c.role || "Contact"}</div>
+                          </button>
+                        ));
+                      })()}
+                      {newContactOpen ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 6 }}>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <input value={contactDraft.name || ""} onChange={e => setContactDraft(d => ({ ...d, name: e.target.value }))} placeholder="Name" style={{ flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                            <select value={contactDraft.role || "Project Manager"} onChange={e => setContactDraft(d => ({ ...d, role: e.target.value }))} style={{ padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }}>
+                              <option>Project Manager</option>
+                              <option>Office Manager</option>
+                              <option>Billing Contact</option>
+                            </select>
+                          </div>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <input value={contactDraft.email || ""} onChange={e => setContactDraft(d => ({ ...d, email: e.target.value }))} placeholder="Email" style={{ flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                            <input value={contactDraft.phone || ""} onChange={e => setContactDraft(d => ({ ...d, phone: e.target.value }))} placeholder="Phone" style={{ flex: 0.7, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                          </div>
+                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                            <Btn sz="sm" v="ghost" onClick={() => { setNewContactOpen(false); setContactDraft({}); }}>Cancel</Btn>
+                            <Btn sz="sm" onClick={createNewRecipient}>Save</Btn>
+                          </div>
+                        </div>
+                      ) : (
+                        <Btn sz="sm" v="ghost" onClick={() => { setNewContactOpen(true); setContactDraft({ name: "", email: "", phone: "", role: "Project Manager" }); }}>+ New Contact</Btn>
+                      )}
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <Btn sz="sm" v="ghost" onClick={() => { setShowAddPicker(false); setNewContactOpen(false); setContactDraft({}); }}>Done</Btn>
+                      </div>
+                    </div>
+                  ) : (
+                    <Btn sz="sm" v="ghost" onClick={() => setShowAddPicker(true)} style={{ marginTop: 4 }}>+ Add Contact</Btn>
+                  )}
                 </>
               );
             })()}

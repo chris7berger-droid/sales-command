@@ -139,7 +139,7 @@ function SectionHeader({ label, hint, color }) {
   );
 }
 
-function MaterialPicker({ onSelect }) {
+function MaterialPicker({ onSelect, onAddCustom }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [catalog, setCatalog] = useState([]);
@@ -172,16 +172,25 @@ function MaterialPicker({ onSelect }) {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  function handleAddCustom() {
+    if (!q.trim() || !onAddCustom) return;
+    onAddCustom(q.trim());
+    setQ("");
+    setOpen(false);
+  }
+
+  const showDropdown = open && q.length > 0;
+
   return (
     <div ref={ref} style={{ position: "relative", flex: 1 }}>
       <input
         value={q}
         onChange={e => { setQ(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        placeholder="Start typing material name…"
+        placeholder="Search or add new material…"
         style={{ width: "100%", border: `1.5px solid ${T.green}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none", fontFamily: "inherit", color: T.gray900, background: "#bfb3a1" }}
       />
-      {open && results.length > 0 && (
+      {showDropdown && (
         <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: T.white, border: `1.5px solid ${T.gray200}`, borderRadius: 8, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", zIndex: 999, maxHeight: 280, overflowY: "auto", marginTop: 2 }}>
           {results.map((m) => (
             <div key={m.id} onClick={() => { onSelect(m); setQ(""); setOpen(false); }}
@@ -193,6 +202,16 @@ function MaterialPicker({ onSelect }) {
               <span style={{ fontSize: 11, color: T.gray400, whiteSpace: "nowrap" }}>{m.kit_size || ""} · {fmt(m.price)} · {m.supplier || ""}</span>
             </div>
           ))}
+          {onAddCustom && (
+            <div onClick={handleAddCustom}
+              style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.greenDark, fontWeight: 600, background: results.length > 0 ? T.gray50 : T.white, borderTop: results.length > 0 ? `1px solid ${T.gray200}` : "none" }}
+              onMouseEnter={e => e.currentTarget.style.background = T.green + "22"}
+              onMouseLeave={e => e.currentTarget.style.background = results.length > 0 ? T.gray50 : T.white}
+            >
+              <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+              <span>Add <strong>"{q}"</strong> as custom material</span>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -392,7 +411,7 @@ function MaterialsTab({ items, taxRate, onChange }) {
   };
   const removeItem = id => onChange(items.filter(i => i.id !== id));
   const addFromDB = m => onChange([...items, { id: Date.now(), product: m.name, kit_size: m.kit_size || "", price_per_unit: m.price, coverage_rate: m.coverage || "", supplier: m.supplier || "", qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0, from_catalog: true }]);
-  const addCustom = () => onChange([...items, { id: Date.now(), product: "", kit_size: "", price_per_unit: 0, coverage_rate: "", supplier: "", qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0 }]);
+  const addCustom = (initialName = "") => onChange([...items, { id: Date.now(), product: initialName, kit_size: "", price_per_unit: 0, coverage_rate: "", supplier: "", qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0 }]);
 
   async function saveCustomToCatalog(item) {
     if (!item.product?.trim()) return;
@@ -444,8 +463,8 @@ function MaterialsTab({ items, taxRate, onChange }) {
         </span>
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: items.length > 0 ? 4 : 16 }}>
-        <MaterialPicker onSelect={addFromDB} />
-        <Btn onClick={addCustom} variant="secondary" small>+ Custom</Btn>
+        <MaterialPicker onSelect={addFromDB} onAddCustom={addCustom} />
+        <Btn onClick={() => addCustom()} variant="secondary" small>+ Custom</Btn>
       </div>
       {items.length > 0 && (
         <>

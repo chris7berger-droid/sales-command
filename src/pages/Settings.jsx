@@ -575,6 +575,8 @@ function BillingSection() {
 }
 
 export default function Settings({ userRole }) {
+  const canManage = userRole === "Admin" || userRole === "Manager";
+
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -685,13 +687,21 @@ export default function Settings({ userRole }) {
         </Field>
       </div>
 
-      {/* ─── Work Types ─── */}
-      <div style={sectionStyle}>Work Types</div>
-      <WorkTypesSection />
+      {/* ─── Work Types (Admin/Manager only — RLS blocks Sales writes) ─── */}
+      {canManage && (
+        <>
+          <div style={sectionStyle}>Work Types</div>
+          <WorkTypesSection />
+        </>
+      )}
 
-      {/* ─── Materials Catalog ─── */}
-      <div style={sectionStyle}>Materials Catalog</div>
-      <MaterialsCatalogSection />
+      {/* ─── Materials Catalog (Admin/Manager only — RLS blocks Sales writes) ─── */}
+      {canManage && (
+        <>
+          <div style={sectionStyle}>Materials Catalog</div>
+          <MaterialsCatalogSection />
+        </>
+      )}
 
       {/* ─── Sales Goals ─── */}
       <div style={sectionStyle}>Sales Goals</div>

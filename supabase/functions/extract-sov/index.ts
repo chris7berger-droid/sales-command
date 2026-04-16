@@ -189,7 +189,8 @@ serve(async (req) => {
     const toolUse = resp.content.find((b: { type: string }) => b.type === "tool_use") as
       | { type: "tool_use"; name: string; input: unknown } | undefined;
     if (!toolUse) {
-      return new Response(JSON.stringify({ error: "Model did not call the extraction tool", raw: resp }), {
+      console.error("extract-sov: model did not call tool", { stop_reason: resp.stop_reason, model: resp.model });
+      return new Response(JSON.stringify({ error: "Model did not call the extraction tool" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 502,
       });

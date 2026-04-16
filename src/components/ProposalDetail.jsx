@@ -332,6 +332,32 @@ async function deletePropAttachment(fullName) {
     await reloadRecipients();
   }
 
+  async function saveToCustomerFile(id) {
+    if (!custId) return;
+    const r = recipients.find(x => x.id === id);
+    if (!r) return;
+    const emailLc = (r.contact_email || "").trim().toLowerCase();
+    let contactId = null;
+    if (emailLc) {
+      const existing = customerContacts.find(c => (c.email || "").trim().toLowerCase() === emailLc);
+      if (existing) contactId = existing.id;
+    }
+    if (!contactId) {
+      const { data: newC } = await supabase.from("customer_contacts").insert({
+        customer_id: custId,
+        name: r.contact_name || "",
+        email: r.contact_email || "",
+        phone: r.phone || "",
+        role: "Project Manager",
+      }).select().single();
+      if (newC) contactId = newC.id;
+    }
+    if (contactId) {
+      await supabase.from("proposal_recipients").update({ customer_contact_id: contactId }).eq("id", id);
+    }
+    await Promise.all([reloadRecipients(), reloadCustomerContacts()]);
+  }
+
   async function toggleSigner(id) {
     const r = recipients.find(x => x.id === id);
     if (!r) return;
@@ -774,6 +800,9 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                               {phone && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 1 }}>{phone}</div>}
                             </div>
                             <button onClick={() => toggleSigner(r.id)} title={isSigner ? "Unset as signer" : "Set as signer"} style={{ fontSize: 10, fontWeight: 700, color: isSigner ? C.teal : C.textMuted, background: isSigner ? C.dark : "none", border: isSigner ? `1px solid ${C.dark}` : `1px solid ${C.borderStrong}`, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}>{isSigner ? "Signer" : "Viewer"}</button>
+                            {!r.customer_contact_id && (
+                              <button onClick={() => saveToCustomerFile(r.id)} title="Add this recipient to the parent customer's contact list" style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: "none", border: `1px dashed ${C.tealBorder || C.teal}`, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}>Save to Customer</button>
+                            )}
                             <div style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{custRole}</div>
                             <button onClick={() => { setEditingRecipient(r.id); setContactDraft({ name, email, phone, role: custRole !== "Contact" ? custRole : "Project Manager" }); }} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>Edit</button>
                             <button onClick={() => deleteRecipient(r.id)} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.red || "#e53935", cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }} title="Remove from this proposal (customer contact stays)">Delete</button>

@@ -384,14 +384,39 @@ function LaborTab({ data, bidding, sow, onChange }) {
 }
 
 function MaterialsTab({ items, taxRate, onChange }) {
+  const [savingCatalogId, setSavingCatalogId] = useState(null);
   const updateItem = (id, key, val) => {
     const isText = ["product", "kit_size", "coverage_rate", "supplier"].includes(key);
     const coerced = isText ? val : (typeof val === "string" && val.endsWith(".") ? val : parseFloat(val) || 0);
     onChange(items.map(i => i.id === id ? { ...i, [key]: coerced } : i));
   };
   const removeItem = id => onChange(items.filter(i => i.id !== id));
-  const addFromDB = m => onChange([...items, { id: Date.now(), product: m.name, kit_size: m.kit_size || "", price_per_unit: m.price, coverage_rate: m.coverage || "", supplier: m.supplier || "", qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0 }]);
+  const addFromDB = m => onChange([...items, { id: Date.now(), product: m.name, kit_size: m.kit_size || "", price_per_unit: m.price, coverage_rate: m.coverage || "", supplier: m.supplier || "", qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0, from_catalog: true }]);
   const addCustom = () => onChange([...items, { id: Date.now(), product: "", kit_size: "", price_per_unit: 0, coverage_rate: "", supplier: "", qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0 }]);
+
+  async function saveCustomToCatalog(item) {
+    if (!item.product?.trim()) return;
+    setSavingCatalogId(item.id);
+    try {
+      const { data: tc } = await supabase.from("tenant_config").select("id").single();
+      if (!tc?.id) throw new Error("Could not resolve tenant");
+      const { error } = await supabase.from("materials_catalog").insert({
+        tenant_id: tc.id,
+        name: item.product.trim(),
+        kit_size: item.kit_size?.trim() || null,
+        price: parseFloat(item.price_per_unit) || 0,
+        coverage: item.coverage_rate?.trim() || null,
+        supplier: item.supplier?.trim() || null,
+        active: true,
+      });
+      if (error) throw error;
+      onChange(items.map(i => i.id === item.id ? { ...i, from_catalog: true } : i));
+    } catch (e) {
+      alert("Could not save to catalog: " + (e?.message || e));
+    } finally {
+      setSavingCatalogId(null);
+    }
+  }
 
   const totals = items.map(i => calcMaterialRow(i));
   const grandTotal = totals.reduce((s, t) => s + t, 0);
@@ -413,10 +438,9 @@ function MaterialsTab({ items, taxRate, onChange }) {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
-        <SectionHeader label="Materials" hint="Search the 159-product price list — selecting auto-fills kit size, price, and coverage rate" />
-        <span style={{ fontSize: 12, color: T.gray300, fontWeight: 500, marginBottom: 10, whiteSpace: "nowrap", cursor: "default" }}
-          title="Coming soon">
-          ⚙ Manage price list (coming soon)
+        <SectionHeader label="Materials" hint="Search the price list — selecting auto-fills kit size, price, and coverage rate" />
+        <span style={{ fontSize: 12, color: T.gray300, fontWeight: 500, marginBottom: 10, whiteSpace: "nowrap", cursor: "default" }}>
+          ⚙ Manage price list in Settings → Materials Catalog
         </span>
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: items.length > 0 ? 4 : 16 }}>
@@ -447,7 +471,17 @@ function MaterialsTab({ items, taxRate, onChange }) {
                     {cellInput(item, "freight", "number", 65)}
                     {cellInput(item, "markup_pct", "number", 65)}
                     <td style={{ ...td, fontWeight: 700, color: T.greenDark, width: 90, fontSize: 13 }}>{fmt(totals[idx])}</td>
-                    <td style={{ ...td, width: 32 }}>
+                    <td style={{ ...td, width: 32, whiteSpace: "nowrap" }}>
+                      {!item.from_catalog && item.product?.trim() && (
+                        <button
+                          onClick={() => saveCustomToCatalog(item)}
+                          disabled={savingCatalogId === item.id}
+                          title="Save this material to your tenant catalog so it's reusable on future WTCs"
+                          style={{ background: "none", border: `1px solid ${T.green}`, color: T.greenDark, cursor: savingCatalogId === item.id ? "default" : "pointer", fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 4, marginRight: 4, letterSpacing: "0.04em", textTransform: "uppercase", opacity: savingCatalogId === item.id ? 0.5 : 1 }}
+                        >
+                          {savingCatalogId === item.id ? "…" : "Save"}
+                        </button>
+                      )}
                       <button onClick={() => removeItem(item.id)} style={{ background: "none", border: "none", color: T.gray400, cursor: "pointer", fontSize: 16, padding: "2px 4px", lineHeight: 1 }}>×</button>
                     </td>
                   </tr>

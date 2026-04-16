@@ -91,9 +91,15 @@ invoice_lines: id (int8), invoice_id (text FK invoices), proposal_wtc_id
 job_work_types: id, call_log_id, work_type_id
 
 proposal_recipients: id (uuid), proposal_id (text FK proposals ON DELETE CASCADE),
-  contact_name (text), contact_email (text),
+  contact_name (text), contact_email (text), phone (text),
   role (text — 'signer' | 'viewer'), sent_at (timestamptz),
-  viewed_at (timestamptz), created_at (timestamptz)
+  viewed_at (timestamptz), created_at (timestamptz),
+  customer_contact_id (uuid FK customer_contacts ON DELETE SET NULL)
+  — Recipients section on ProposalDetail renders this table, NOT
+  customer_contacts. Delete here removes recipient only. "Save to
+  Customer" button on orphan rows (null customer_contact_id) backfills
+  into customer_contacts. Only one row per proposal can have
+  role='signer' (enforced in UI, not DB).
 
 proposals: ... intro (text) — introduction text shown above SOW
 

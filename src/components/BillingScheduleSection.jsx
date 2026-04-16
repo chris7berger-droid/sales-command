@@ -496,9 +496,35 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
 
       {/* Extraction spinner overlay */}
       {extracting && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(28,24,20,0.55)", zIndex: 99, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: C.linenCard, borderRadius: 10, padding: "18px 28px", border: `1px solid ${C.borderStrong}`, fontFamily: F.display, fontSize: 13, fontWeight: 700, color: C.textHead, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            Extracting SOV from document…
+        <div style={{ position: "fixed", inset: 0, background: "rgba(28,24,20,0.6)", zIndex: 99, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <style>{`
+            @keyframes sc-spin { to { transform: rotate(360deg); } }
+            @keyframes sc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+            @keyframes sc-dot1 { 0%, 20% { opacity: 0.2; } 40% { opacity: 1; } 100% { opacity: 0.2; } }
+            @keyframes sc-dot2 { 0%, 40% { opacity: 0.2; } 60% { opacity: 1; } 100% { opacity: 0.2; } }
+            @keyframes sc-dot3 { 0%, 60% { opacity: 0.2; } 80% { opacity: 1; } 100% { opacity: 0.2; } }
+          `}</style>
+          <div style={{ background: C.linenCard, borderRadius: 10, padding: "26px 38px", border: `1px solid ${C.borderStrong}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 16, minWidth: 280 }}>
+            <div style={{
+              width: 42, height: 42, borderRadius: "50%",
+              border: `3px solid ${C.borderStrong}`,
+              borderTopColor: C.teal,
+              animation: "sc-spin 0.8s linear infinite",
+            }} />
+            <div style={{
+              fontFamily: F.display, fontSize: 13, fontWeight: 800,
+              color: C.teal, letterSpacing: "0.1em", textTransform: "uppercase",
+              animation: "sc-pulse 1.4s ease-in-out infinite",
+              display: "flex", alignItems: "baseline", gap: 2,
+            }}>
+              <span>Reading contract</span>
+              <span style={{ animation: "sc-dot1 1.4s infinite" }}>.</span>
+              <span style={{ animation: "sc-dot2 1.4s infinite" }}>.</span>
+              <span style={{ animation: "sc-dot3 1.4s infinite" }}>.</span>
+            </div>
+            <div style={{ fontFamily: F.ui, fontSize: 11.5, color: C.textMuted, textAlign: "center", maxWidth: 260, lineHeight: 1.4 }}>
+              Extracting SOV line items with Claude — this usually takes 20–60 seconds depending on document length.
+            </div>
           </div>
         </div>
       )}

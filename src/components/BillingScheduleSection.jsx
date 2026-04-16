@@ -132,6 +132,22 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
     setSchedule(prev => prev ? { ...prev, retainage_pct: pct } : prev);
   }
 
+  // Unified doc list: prefer contract_pdf_urls (array), fall back to legacy
+  // single contract_pdf_url so pre-backfill rows still render.
+  function getDocs(sch = schedule) {
+    if (!sch) return [];
+    if (Array.isArray(sch.contract_pdf_urls) && sch.contract_pdf_urls.length) return sch.contract_pdf_urls;
+    return sch.contract_pdf_url ? [sch.contract_pdf_url] : [];
+  }
+
+  function fileNameFromUrl(url) {
+    try {
+      const last = url.split("/").pop() || url;
+      // path pattern: contract-<timestamp>-<original>.pdf → strip prefix
+      return decodeURIComponent(last.replace(/^contract-\d+-/, ""));
+    } catch { return url; }
+  }
+
   async function uploadContract(file) {
     if (!file) return;
     setUploading(true);
@@ -140,15 +156,20 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
     const { error: upErr } = await supabase.storage.from("job-attachments").upload(path, file);
     if (upErr) { setUploading(false); alert("Upload failed: " + upErr.message); return; }
     const { data: urlData } = supabase.storage.from("job-attachments").getPublicUrl(path);
-    await supabase.from("billing_schedule").update({ contract_pdf_url: urlData.publicUrl }).eq("id", schedule.id);
-    setSchedule(prev => prev ? { ...prev, contract_pdf_url: urlData.publicUrl } : prev);
+    const nextUrls = [...getDocs(), urlData.publicUrl];
+    await supabase.from("billing_schedule").update({ contract_pdf_urls: nextUrls }).eq("id", schedule.id);
+    setSchedule(prev => prev ? { ...prev, contract_pdf_urls: nextUrls } : prev);
     setUploading(false);
   }
 
-  async function removeContract() {
-    if (!confirm("Remove the uploaded contract?")) return;
-    await supabase.from("billing_schedule").update({ contract_pdf_url: null }).eq("id", schedule.id);
-    setSchedule(prev => prev ? { ...prev, contract_pdf_url: null } : prev);
+  async function removeContractDoc(url) {
+    if (!confirm("Remove this document?")) return;
+    const nextUrls = getDocs().filter(u => u !== url);
+    // Also clear legacy single column if it's the one being removed
+    const update = { contract_pdf_urls: nextUrls };
+    if (schedule.contract_pdf_url === url) update.contract_pdf_url = null;
+    await supabase.from("billing_schedule").update(update).eq("id", schedule.id);
+    setSchedule(prev => prev ? { ...prev, ...update } : prev);
   }
 
   function startEdit(line) {
@@ -204,31 +225,33 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
     );
   }
 
-  // Sales (non-manage) view: upload / replace / view the contract PDF only.
+  // Sales (non-manage) view: upload + view contract docs only. No delete.
   if (!canManage) {
+    const docs = getDocs();
     return (
       <div style={card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <div style={h}>Customer Billing Schedule</div>
-          <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Contract Upload</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Contract Documents</span>
         </div>
-        {schedule.contract_pdf_url ? (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <a href={schedule.contract_pdf_url} target="_blank" rel="noopener noreferrer" style={{ background: C.dark, color: C.teal, fontWeight: 800, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", padding: "5px 12px", borderRadius: 6, textDecoration: "none", textTransform: "uppercase" }}>View Contract PDF</a>
-            <label style={{ background: "none", border: `1px solid ${C.borderStrong}`, color: C.textMuted, fontWeight: 700, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", padding: "4px 10px", borderRadius: 6, cursor: "pointer", textTransform: "uppercase" }}>
-              {uploading ? "Uploading…" : "Replace"}
-              <input type="file" accept="application/pdf,image/*" onChange={e => uploadContract(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
-            </label>
-          </div>
-        ) : (
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <label style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", padding: "6px 14px", borderRadius: 6, cursor: "pointer", textTransform: "uppercase" }}>
-              {uploading ? "Uploading…" : "+ Upload Contract PDF"}
-              <input type="file" accept="application/pdf,image/*" onChange={e => uploadContract(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
-            </label>
-            <span style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>Upload the signed customer contract.</span>
+        {docs.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+            {docs.map(url => (
+              <a key={url} href={url} target="_blank" rel="noopener noreferrer" style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 11, fontFamily: F.display, letterSpacing: "0.04em", padding: "5px 12px", borderRadius: 6, textDecoration: "none" }}>
+                {fileNameFromUrl(url)}
+              </a>
+            ))}
           </div>
         )}
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <label style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", padding: "6px 14px", borderRadius: 6, cursor: "pointer", textTransform: "uppercase" }}>
+            {uploading ? "Uploading…" : docs.length ? "+ Add Another Document" : "+ Upload Contract"}
+            <input type="file" accept="application/pdf,image/*" onChange={e => uploadContract(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
+          </label>
+          {docs.length === 0 && (
+            <span style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>Upload the signed customer contract and any addenda.</span>
+          )}
+        </div>
       </div>
     );
   }
@@ -253,11 +276,6 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
           <div style={h}>Customer Billing Schedule</div>
           <span style={{ background: statusBadge.bg, color: statusBadge.color, fontSize: 10.5, fontWeight: 700, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", padding: "3px 10px", borderRadius: 6 }}>{statusBadge.label}</span>
         </div>
-        {!locked && schedule.contract_pdf_url && (
-          <a href={schedule.contract_pdf_url} target="_blank" rel="noopener noreferrer" style={{ background: C.dark, color: C.teal, fontWeight: 800, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", padding: "5px 12px", borderRadius: 6, textDecoration: "none", textTransform: "uppercase" }}>
-            View Contract PDF
-          </a>
-        )}
       </div>
 
       {locked && (
@@ -271,24 +289,35 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
 
       {/* Contract + Retainage controls */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
-        {/* Contract PDF */}
+        {/* Contract Documents */}
         <div style={{ background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Contract PDF</div>
-          {schedule.contract_pdf_url ? (
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <a href={schedule.contract_pdf_url} target="_blank" rel="noopener noreferrer" style={{ background: C.dark, color: C.teal, fontWeight: 800, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", padding: "4px 10px", borderRadius: 5, textDecoration: "none" }}>View</a>
-              {!locked && (
-                <button onClick={removeContract} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "4px 10px", fontSize: 10, fontWeight: 700, color: C.red || "#e53935", cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>Remove</button>
-              )}
-            </div>
-          ) : !locked ? (
-            <label style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", padding: "5px 12px", borderRadius: 6, cursor: "pointer", textTransform: "uppercase", display: "inline-block" }}>
-              {uploading ? "Uploading…" : "+ Upload PDF"}
-              <input type="file" accept="application/pdf,image/*" onChange={e => uploadContract(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
-            </label>
-          ) : (
-            <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>No file</div>
-          )}
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Contract Documents</div>
+          {(() => {
+            const docs = getDocs();
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {docs.map(url => (
+                  <div key={url} style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                    <a href={url} target="_blank" rel="noopener noreferrer" style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 10.5, fontFamily: F.display, letterSpacing: "0.03em", padding: "3px 9px", borderRadius: 5, textDecoration: "none", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 160 }} title={fileNameFromUrl(url)}>
+                      {fileNameFromUrl(url)}
+                    </a>
+                    {!locked && (
+                      <button onClick={() => removeContractDoc(url)} title="Remove" style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 4, padding: "2px 7px", fontSize: 11, fontWeight: 700, color: C.red || "#e53935", cursor: "pointer", fontFamily: F.display, lineHeight: 1 }}>×</button>
+                    )}
+                  </div>
+                ))}
+                {!locked && (
+                  <label style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 10.5, fontFamily: F.display, letterSpacing: "0.05em", padding: "4px 10px", borderRadius: 5, cursor: "pointer", textTransform: "uppercase", display: "inline-block", textAlign: "center", marginTop: docs.length ? 3 : 0 }}>
+                    {uploading ? "Uploading…" : docs.length ? "+ Add Another" : "+ Upload PDF"}
+                    <input type="file" accept="application/pdf,image/*" onChange={e => uploadContract(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
+                  </label>
+                )}
+                {locked && docs.length === 0 && (
+                  <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>No file</div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Contract Sum (derived) */}

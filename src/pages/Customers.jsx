@@ -30,8 +30,6 @@ function CustomerModal({ customer, onClose, onSaved }) {
     last_name:        customer?.last_name          || "",
     phone:            customer?.phone              || "",
     email:            customer?.email              || "",
-    contact_phone:    customer?.contact_phone      || "",
-    contact_email:    customer?.contact_email      || "",
     billing_same:     customer?.billing_same       ?? true,
     billing_name:     customer?.billing_name       || "",
     billing_phone:    customer?.billing_phone      || "",
@@ -54,7 +52,7 @@ function CustomerModal({ customer, onClose, onSaved }) {
     const billingTerms = STD_TERMS.includes(Number(form.billing_terms)) ? Number(form.billing_terms) : (parseInt(form.billing_terms) || 30);
     const payload = {
       name, customer_type: form.customer_type, first_name: form.first_name || null, last_name: form.last_name || null,
-      phone: form.phone || null, email: form.email || null, contact_phone: form.contact_phone || null, contact_email: form.contact_email || null,
+      phone: form.phone || null, email: form.email || null,
       billing_same: form.billing_same, billing_name: form.billing_same ? null : (form.billing_name || null),
       billing_phone: form.billing_same ? null : (form.billing_phone || null), billing_email: form.billing_same ? null : (form.billing_email || null),
       billing_terms: billingTerms, business_address: form.business_address || null,
@@ -91,14 +89,12 @@ function CustomerModal({ customer, onClose, onSaved }) {
           )}
           <Field label="Company Phone"><input value={form.phone} onChange={e => set("phone", e.target.value)} style={inputStyle} /></Field>
           <Field label="Company Email"><input type="email" value={form.email} onChange={e => set("email", e.target.value)} style={inputStyle} /></Field>
-          <Field label="Contact Phone"><input value={form.contact_phone} onChange={e => set("contact_phone", e.target.value)} style={inputStyle} /></Field>
-          <Field label="Contact Email"><input type="email" value={form.contact_email} onChange={e => set("contact_email", e.target.value)} style={inputStyle} /></Field>
-          <Field label="Billing Contact Same?" wide>
+          <Field label="Billing Same as Company?" wide>
             <button onClick={() => set("billing_same", !form.billing_same)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}>
               <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${form.billing_same ? C.teal : C.borderStrong}`, background: form.billing_same ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {form.billing_same && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
               </div>
-              <span style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>Billing contact is the same</span>
+              <span style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>Billing info is the same as company</span>
             </button>
           </Field>
           {!form.billing_same && (

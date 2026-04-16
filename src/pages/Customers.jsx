@@ -292,7 +292,7 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
       <div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui }}>Contacts</div>
-          <Btn sz="sm" v="ghost" onClick={() => setContactModal("new")}>+ Add Contact</Btn>
+          <Btn sz="sm" onClick={() => setContactModal("new")}>+ Add Contact</Btn>
         </div>
         {contacts.length === 0 ? (
           <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>No contacts on file</div>

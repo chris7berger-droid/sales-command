@@ -1,0 +1,268 @@
+SC_Handoff_v74 — April 16, 2026
+Session: Phase 2.5 — Multi-Doc Upload + SOV Extraction (Claude API)
+
+===============================================================================
+CONTEXT
+===============================================================================
+
+Started v73 session targeting Phase 4 archive→live import wizard. Shipped
+Phase 4 and merged. User then pushed into a Phase 2.5 scope: turn the
+Billing Schedule from a data-entry form into an actual tool that READS
+uploaded contract PDFs and auto-populates the SOV line items. That work
+is on branch feat/billing-schedule-multi-doc, tested on preview, NOT YET
+merged to main.
+
+Separately, feat/materials-catalog shipped (per-tenant materials catalog
+in Settings, commit a979f7e) — that lives on its own branch, also not
+merged. See "OPEN BRANCHES" below.
+
+===============================================================================
+WHAT WAS DONE THIS SESSION
+===============================================================================
+
+1. MERGED PHASE 2 (BILLING SCHEDULE UI) TO MAIN (from v72 branch)
+   Commit on main: 5396491. No preview test — user time-constrained,
+   no good test job.
+
+2. BUILT + MERGED PHASE 4: ImportToLiveWizard
+   Branch feat/archive-import-wizard → main (merge 3900972).
+   Tested on preview with job 6359 (DA Builders Muscle Motors) — worked
+   end-to-end, created proposal 10039 P1 at $73,299. See v73 for details.
+
+3. PHASE 2.5 — MULTI-DOC UPLOAD + SOV EXTRACTION
+   Branch: feat/billing-schedule-multi-doc (2 feature commits + 1 polish)
+
+   a. DB migration: 20260416132135_billing_schedule_multi_docs.sql
+      (applied to prod)
+        alter table public.billing_schedule
+          add column if not exists contract_pdf_urls text[]
+          not null default '{}';
+        update billing_schedule
+           set contract_pdf_urls = array[contract_pdf_url]
+         where contract_pdf_url is not null
+           and (contract_pdf_urls is null
+                or array_length(contract_pdf_urls, 1) is null);
+      Legacy contract_pdf_url column left in place for back-compat reads.
+
+   b. BillingScheduleSection.jsx — multi-doc UI
+        - uploadContract() appends to contract_pdf_urls (not replace)
+        - removeContractDoc(url) removes from array
+        - Per-doc pill with filename + teal "Extract" button + small ×
+        - getDocs() helper prefers array, falls back to single URL
+        - fileNameFromUrl() strips "contract-<ts>-" prefix for display
+
+   c. Edge function: supabase/functions/extract-sov/index.ts (deployed)
+        Deno runtime, npm:@anthropic-ai/sdk@0.88.0
+        Auth: mirrors send-proposal (Bearer token → getUser)
+        Flow:
+          1. fetch(pdf_url) → base64 (chunked 0x8000 to avoid stack OF)
+          2. anthropic.messages.create({
+               model: "claude-opus-4-7",
+               max_tokens: 16000,
+               system: SOV_SYSTEM_PROMPT,
+               tools: [SOV_TOOL],
+               tool_choice: { type: "tool", name: "submit_sov" },
+               messages: [{ role: "user", content: [
+                 { type: "document", source: { type: "base64",
+                   media_type: "application/pdf", data: b64 } },
+                 { type: "text", text: "Extract the SOV..." }
+               ]}],
+             })
+          3. pull tool_use block, return { extraction, usage }
+
+        SOV_TOOL schema (strict: true):
+          - contract_sum: number | null
+          - retainage_pct: number | null
+          - lines: [{ line_code, description, scheduled_value,
+                      is_change_order, co_number }]
+          - notes: string
+
+   d. SOV extraction UI in BillingScheduleSection.jsx
+        - runExtraction(url) calls supabase.functions.invoke("extract-sov")
+        - ExtractReviewModal — editable line grid, + Add Line,
+          Cancel / Append to Existing / Replace Existing buttons
+        - saveExtractedLines(mode="append"|"replace") — batch insert
+          into billing_schedule_lines, updates contract_sum + retainage_pct
+        - NEW loading UX (this session's final polish):
+            teal spinning ring + pulsing "READING CONTRACT…" with
+            animated dots + helper text "20–60 seconds depending on
+            document length"
+
+   e. Required Supabase secret: ANTHROPIC_API_KEY
+      (user set manually via `supabase secrets set ANTHROPIC_API_KEY=sk-ant-...`
+      after creating an Organization account at console.anthropic.com +
+      funding $20 credits + creating key)
+
+===============================================================================
+TESTED ON PREVIEW
+===============================================================================
+
+- Multi-doc upload: uploaded 3 PDFs (contract, subcontract, Pay App
+  template) on a test proposal — all 3 rendered as pills with Extract
+  buttons. Remove × works.
+- SOV extraction: clicked Extract on SCO-001_Grinding_Prep contract —
+  extraction ran ~30s, review modal populated with line items,
+  contract_sum, retainage_pct. User confirmed "all populated".
+- Loading UX polish: committed e091696 but NOT YET PUSHED — next
+  session should push branch and visually verify the spinner on a
+  fresh extraction.
+
+===============================================================================
+OPEN BRANCHES (NOT YET MERGED)
+===============================================================================
+
+feat/billing-schedule-multi-doc  (3 commits ahead of main)
+    b86a46b  feat: multi-document upload on Billing Schedule
+    9461253  feat: extract SOV line items from contract PDFs via Claude API
+    e091696  polish: pulsing spinner on SOV extraction + drop thinking:adaptive
+  NOTE: e091696 is LOCAL ONLY — git push needed before merge.
+
+feat/materials-catalog  (1 commit ahead of main, separate feature)
+    a979f7e  feat: per-tenant materials catalog in Settings
+  This was built in parallel during the session. Already pushed to
+  origin. Not tested on preview yet — needs its own QA pass.
+
+Both branches diverged from the same point (3b9eb64). No conflicts
+expected at merge — they touch different files. Merge order doesn't
+matter.
+
+===============================================================================
+EDGE FUNCTION / SECRET STATE (PROD)
+===============================================================================
+
+- extract-sov edge function: DEPLOYED to prod Supabase
+  (deployed with --no-verify-jwt per feedback_edge_functions.md)
+- ANTHROPIC_API_KEY: SET as Supabase secret (prod)
+- Model used: claude-opus-4-7 (per default, user has NOT asked for
+  a different model)
+
+===============================================================================
+DB / MIGRATIONS CHANGES
+===============================================================================
+
+Applied to prod this session:
+  20260416132135_billing_schedule_multi_docs.sql
+    - adds contract_pdf_urls text[] to billing_schedule
+    - backfills from legacy contract_pdf_url
+
+Applied in v72 (for reference, still current):
+  - billing_schedule + billing_schedule_lines tables
+  - archive_record_id FK on call_log/proposals/invoices
+
+===============================================================================
+OPEN ITEMS / NEXT PRIORITIES
+===============================================================================
+
+A. PUSH + MERGE feat/billing-schedule-multi-doc
+   - git push origin feat/billing-schedule-multi-doc (e091696 is local)
+   - Visually verify new spinner polish on preview
+   - Merge to main
+   - User can then run extraction against the 2 remaining archive
+     imports' contracts.
+
+B. MERGE feat/materials-catalog (independent — when user is ready)
+   - Needs preview QA
+
+C. PHASE 3 — PAY APP GENERATION (next big feature)
+   Goal: given a signed Billing Schedule + current billing % per line,
+   generate a G702/G703 pay app PDF that matches the customer's
+   template.
+   Pieces:
+     1. NewInvoiceModal: branch on proposal has billing_schedule.
+          yes → bill % per SOV line, retainage withheld
+          no  → existing WTC-based flow (unchanged)
+     2. Per-customer pay app template storage (reference: DA Builders
+        template already uploaded during this session as a sample)
+     3. G702/G703 PDF output (jspdf or server-side render)
+     4. Running totals: previous app, this app, balance to finish,
+        retainage accrued, retainage released
+
+D. PHASE 5 (deferred): SOV↔WTC mapping table, retainage release flow.
+
+===============================================================================
+GOTCHAS / LESSONS
+===============================================================================
+
+1. DO NOT SET `thinking: { type: "adaptive" }` WHEN `tool_choice`
+   FORCES A SPECIFIC TOOL.
+   API returns 400: "Thinking may not be enabled when tool_choice
+   forces tool use". The extract-sov fn had this bug initially;
+   fixed in e091696. If you add extended thinking to another forced-
+   tool call, you'll hit the same thing.
+
+2. PDF base64 encoding in Deno — chunk at 0x8000 bytes when using
+   `String.fromCharCode(...new Uint8Array(...))` or you'll stack-
+   overflow on large contracts. See extract-sov/index.ts.
+
+3. USE STRICT TOOL_USE FOR STRUCTURED EXTRACTION — we tried
+   output_config.format initially, switched to strict tool schema +
+   forced tool_choice. More reliable, and gives usage tokens back
+   cleanly.
+
+4. CUSTOMER DEDUP on archive import is case-insensitive EXACT, not
+   fuzzy. Intentional — fuzzy would risk false merges.
+
+5. MULTI-DOC ARRAY APPROACH WORKED — user pushed back hard on the
+   initial "new billing_schedule_documents table" proposal ("massive
+   over kill for the ability to have multiple pdf"). Text[] column
+   + backfill was correct call. Lesson saved:
+   feedback_build_right.md still applies, but simple > clean when
+   the domain is "just a list of file URLs".
+
+6. CLAUDE.md STILL SHOWS invoices.proposal_id AS int8 (was text
+   in v72). Didn't touch. Verify against pg_catalog if Phase 3
+   invoice code needs that FK type.
+
+7. WIZARD'S CUSTOMER DEDUP fetches all customers without pagination.
+   Will break at >1000 rows (project_supabase_row_limit.md). Fine
+   for now — will need fetchAll() from supabaseHelpers.js eventually.
+
+===============================================================================
+USER CONTEXT (paraphrased)
+===============================================================================
+
+- User was visibly frustrated mid-session that the Billing Schedule
+  as shipped in v72 was "just a data-entry form" and didn't DO
+  anything with uploaded contracts. Pushed to build the extraction
+  feature same session. Owned the gap, laid out 3-piece vision:
+    piece #1: extract SOV from PDF     ← DONE this session
+    piece #2: per-customer template storage
+    piece #3: auto-generate pay app PDF
+- User created Anthropic Organization account + $20 credits + API
+  key during the session. Secret is live.
+- User has not yet run extraction against real archive jobs in prod
+  (only preview testing).
+- Session was long. User wanted fresh terminal after loading-UX
+  polish — hence this handoff.
+
+===============================================================================
+MEMORY UPDATES
+===============================================================================
+
+No new memory files created. Existing ones all still apply:
+  - feedback_edge_functions.md: deploy with --no-verify-jwt ✓
+  - feedback_preview_deploys.md: tested on branch before considering merge ✓
+  - feedback_testing.md: build verified clean on every commit ✓
+  - project_rls_pattern.md: migration follows pattern ✓
+  - project_supabase_migrations.md: used supabase/migrations/ + db push ✓
+
+Consider saving (optional):
+  - Claude API: tool_choice forced ⇒ no thinking (gotcha above)
+  - Anthropic SDK in Deno edge fns: use npm:@anthropic-ai/sdk@0.88.0,
+    chunk base64 encoding for PDFs
+
+===============================================================================
+WORKFLOW NOTES
+===============================================================================
+
+- Grep-before-edit held throughout ✓
+- One step at a time held ✓
+- Every feature committed before moving on ✓
+- Preview deploy tested before considering merge ✓
+- Build verified clean on final commit ✓
+
+Next session should:
+  1. `git push origin feat/billing-schedule-multi-doc`
+  2. Visually verify pulsing spinner on preview
+  3. Merge branch to main
+  4. Start Phase 3 (pay app generation) or address other priorities

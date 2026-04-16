@@ -11,7 +11,7 @@ const TABS = [
   { id: "batches", label: "Import Batches", roles: ["Admin"] },
 ];
 
-export default function Archive({ userRole }) {
+export default function Archive({ userRole, onNavigateProposal }) {
   const [tab, setTab] = useState("search");
   const [tenantId, setTenantId] = useState(null);
 
@@ -46,7 +46,7 @@ export default function Archive({ userRole }) {
         </div>
       )}
 
-      {tab === "search" && <ArchiveSearchView tenantId={tenantId} />}
+      {tab === "search" && <ArchiveSearchView tenantId={tenantId} onNavigateProposal={onNavigateProposal} canImport={userRole === "Admin" || userRole === "Manager"} />}
       {tab === "import" && <ArchiveImportWizard tenantId={tenantId} onDone={() => setTab("search")} />}
       {tab === "batches" && <ArchiveBatchManager tenantId={tenantId} />}
     </div>

@@ -2,12 +2,14 @@ import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 import { C, F } from "../../lib/tokens";
 import JOB_FOLDER_MAP from "./jobFolderMap";
+import ImportToLiveWizard from "./ImportToLiveWizard";
 
-export default function ArchiveRecordDetail({ record, onBack }) {
+export default function ArchiveRecordDetail({ record, onBack, onNavigateProposal, canImport }) {
   const raw = record.raw_data || {};
   const keys = Object.keys(raw).sort();
   const [attachments, setAttachments] = useState([]);
   const [loadingAtts, setLoadingAtts] = useState(true);
+  const [showImport, setShowImport] = useState(false);
 
   const fmtDate = v => v ? new Date(v + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null;
 
@@ -64,14 +66,35 @@ export default function ArchiveRecordDetail({ record, onBack }) {
 
   return (
     <div>
-      {/* Back button */}
-      <button onClick={onBack} style={{
-        padding: "7px 18px", borderRadius: 20, border: `1.5px solid ${C.tealBorder}`,
-        background: C.dark, color: C.teal, fontSize: 12, fontWeight: 700,
-        cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 20,
-      }}>
-        &larr; Back to Search
-      </button>
+      {/* Top bar: Back + Import */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <button onClick={onBack} style={{
+          padding: "7px 18px", borderRadius: 20, border: `1.5px solid ${C.tealBorder}`,
+          background: C.dark, color: C.teal, fontSize: 12, fontWeight: 700,
+          cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
+        }}>
+          &larr; Back to Search
+        </button>
+        {canImport && record.record_type === "call_log" && (
+          <button onClick={() => setShowImport(true)} style={{
+            padding: "8px 22px", borderRadius: 7, border: "none",
+            background: C.teal, color: C.dark, fontSize: 12.5, fontWeight: 800,
+            cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
+          }}>
+            Import to Live →
+          </button>
+        )}
+      </div>
+      {showImport && (
+        <ImportToLiveWizard
+          record={record}
+          onClose={() => setShowImport(false)}
+          onSaved={({ proposalId }) => {
+            setShowImport(false);
+            if (onNavigateProposal) onNavigateProposal(proposalId);
+          }}
+        />
+      )}
 
       {/* Header */}
       <div style={{ marginBottom: 24 }}>

@@ -1,0 +1,180 @@
+SC_Handoff_v73 — April 16, 2026
+Session: Phase 4 — Archive → Live Import Wizard
+
+===============================================================================
+CONTEXT
+===============================================================================
+
+Phase 4 of the Customer Billing Schedule plan (project_customer_billing_schedule.md).
+User had 3 archive jobs waiting to be imported into the live system so they could
+have Billing Schedules built and be invoiced against customer contracts.
+
+v72 shipped Phase 1 (DB) + Phase 2 (UI section) + role gating, all merged to main
+at the start of this session. This session implemented Phase 4 so the 3 waiting
+archive jobs can be pulled into live.
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. MERGED v72 BRANCH TO MAIN
+   feat/billing-schedule-phase1 → main. Billing Schedule now live in prod.
+   Commit: 5396491 (Merge …) on main.
+   Note: user opted to skip manual preview test on v72 — no right test job
+   available and time-constrained.
+
+2. BUILT ImportToLiveWizard
+   New file: src/components/HistoryLocker/ImportToLiveWizard.jsx (~615 lines)
+
+   7-step wizard (modeled on NewInquiryWizard):
+     1. Customer Type (Commercial / Residential)
+     2. Match or Create — case-insensitive name match against customers;
+        auto-selects match or prefills new-customer form with archive name
+     3. Contact & Billing — billing name + email REQUIRED; billing_terms
+        defaults from tenant_config.default_billing_terms (30 fallback)
+     4. Addresses — jobsite prefilled from raw_data address/*; business
+        address blank (Glide export never has it; user types from contract)
+     5. Sales Rep — auto-match team_members.email ←→ raw_data
+        "job/salesPerson_email"; picker fallback
+     6. Work Types — fuzzy match against raw_data "job/Type of Work"
+        (exact → includes → token-overlap); picker allows override
+     7. Review — grid summary + Import button
+
+   raw_data keys used for prefill (all "/" paths — Glide export shape):
+     - customer/customerName, customer/ifCustomerName, customer/Customer Name
+     - customer/Phone number
+     - job/Project Name
+     - job/Type of Work
+     - job/Bid Due Date (parsed via new Date())
+     - job/salesPerson_email
+     - job/soldAmount, job/proposalAmount (fallback)
+     - address/Address, address/City, address/State, address/Zip
+
+   On Import (transactional-ish, no explicit tx):
+     a. customers insert (only if customerMode = "new")
+     b. call_log insert: stage="Sold", archive_record_id set,
+        job_number auto-incremented (max+1)
+     c. job_work_types insert (selected work type ids)
+     d. proposals insert: status="Sold", total=parseMoney(soldAmount),
+        proposal_number=1, archive_record_id set, signing_token = random UUID
+
+   After save: onSaved({ proposalId, jobId }) — parent navigates to
+   proposals page with the new proposal opened.
+
+3. WIRED "IMPORT TO LIVE" BUTTON ON ArchiveRecordDetail
+   Top-right teal button, shown only when:
+     - canImport (Admin or Manager), AND
+     - record.record_type === "call_log"
+   Opens the wizard as a modal overlay.
+
+   Prop thread:
+     App.jsx
+       → Archive (userRole, onNavigateProposal)
+         → ArchiveSearchView (canImport, onNavigateProposal)
+           → ArchiveRecordDetail (canImport, onNavigateProposal)
+             → ImportToLiveWizard (onSaved)
+
+   App.jsx onNavigateProposal sets initialProposal={openId:id} and
+   setActive("proposals"), matching the existing cross-nav pattern.
+
+4. NO SEPARATE "View attachments from archive" LINK
+   ArchiveRecordDetail already renders attachments inline via
+   JOB_FOLDER_MAP. v72 spec mentioned a link but the existing inline
+   rendering serves the same purpose — user sees the attachments on
+   the detail page before deciding to import.
+
+===============================================================================
+TESTED
+===============================================================================
+
+Preview deploy tested manually with job 6359 (DA Builders Muscle Motors,
+archive_record_id bc9bb80d-e8d2-4d0d-a09e-651945f90af6):
+  - Customer dedup / create: worked
+  - Auto-matched sales rep (sales2@hdspnv.com → Joe Votaw): worked
+  - Fuzzy-matched "Flake Epoxy" work type: worked
+  - Wizard saved → navigated to new proposal 10039 P1
+  - Proposal: status=Sold, total=$73,299, customer="DA Builders",
+    display_job_number "10039 - DA Builders Muscle Motors - Polish/Flake floor"
+
+Build verified clean on both the phase 4 branch and post-merge main.
+
+===============================================================================
+COMMITS / BRANCHES
+===============================================================================
+
+Branch: feat/archive-import-wizard (merged + still on origin)
+  b9e0501 feat: archive → live import wizard (Phase 4)
+
+main after merges this session:
+  3900972 Merge feat/archive-import-wizard — Phase 4 archive → live import
+  5396491 Merge feat/billing-schedule-phase1 — Billing Schedule (SOV) data model + UI + role gating
+
+===============================================================================
+DB / EDGE FUNCTION CHANGES
+===============================================================================
+
+None this session. Phase 4 is a pure UI + data-entry feature on top of
+the Phase 1 schema from v72.
+
+===============================================================================
+OPEN ITEMS / NEXT PRIORITIES
+===============================================================================
+
+A. User will import the remaining 2 archive jobs into live using the
+   wizard. Monitor for edge cases:
+   - Customers whose name in archive doesn't exactly match an existing
+     customer (dedup is case-insensitive EXACT, not fuzzy — intentional
+     to avoid false merges).
+   - Residential records where customer/customerName is a full name —
+     wizard requires first+last, user will need to split manually in
+     the "Create New" path.
+
+B. Phase 3 — SOV invoicing (NEXT after imports)
+   NewInvoiceModal branches on whether proposal has billing_schedule:
+     - Yes → bill % per SOV line with retainage withheld
+   - No  → existing WTC-based flow (unchanged)
+   G702/G703 invoice PDF output.
+
+C. Phase 5 (deferred): SOV↔WTC mapping table, retainage release flow.
+
+===============================================================================
+MEMORY UPDATES
+===============================================================================
+
+No new memory files needed — Phase 4 is a direct read of the plan already
+stored in project_customer_billing_schedule.md. All rules followed:
+  - project_rls_pattern.md: tables use tenant_id default from v72
+  - feedback_role_gating.md: Admin/Manager only sees the Import button
+  - project_supabase_migrations.md: no DDL, no need
+  - feedback_preview_deploys.md: tested on preview before merging
+
+===============================================================================
+KNOWN GOTCHAS
+===============================================================================
+
+- Glide export raw_data NEVER contains a business/customer address.
+  Wizard explicitly calls this out in the UI and requires user entry.
+
+- Attachments are NOT copied on import. New call_log carries
+  archive_record_id only; to view originals the user goes back to the
+  archive record detail page (existing attachments rendering via
+  JOB_FOLDER_MAP).
+
+- CLAUDE.md shows invoices.proposal_id as int8 again (was text in v72).
+  Did not touch. Verify against pg_catalog if any code needs the FK type.
+
+- Wizard's customer dedup runs a full customers table fetch on mount
+  without pagination. If customers exceed 1000 rows we'll hit the
+  PostgREST cap (project_supabase_row_limit.md). Fine for now, would
+  need fetchAll() helper from src/lib/supabaseHelpers.js eventually.
+
+===============================================================================
+WORKFLOW NOTES
+===============================================================================
+
+- Session ran clean: one-step-at-a-time, grep-before-edits, preview
+  deploy test before merge (per feedback_preview_deploys.md +
+  feedback_testing.md).
+- The fuzzy work-type match is a plain token-overlap search — if we
+  get false matches in the remaining 2 imports, consider elevating to
+  a small lookup table (archive type-of-work → work_types.id).

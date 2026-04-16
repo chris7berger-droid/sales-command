@@ -1,0 +1,187 @@
+SC_Handoff_v75 — April 16, 2026
+Session: Per-tenant Materials Catalog (Settings-driven)
+
+===============================================================================
+STATUS: NOT YET MERGED
+===============================================================================
+
+Branch feat/materials-catalog is pushed to origin with all code + migration.
+Vercel preview URL builds on push. User could not preview-test this session,
+so merge-to-main is DEFERRED until manual testing confirms the preview works.
+
+Before merging, run the checklist in "NEXT STEPS FOR TESTING" below.
+
+===============================================================================
+CONTEXT
+===============================================================================
+
+Bug-report-that-became-a-feature. User said: "when adding materials in WTC they
+need to save so we don't have to enter them again and again."
+
+Not a persistence bug — WTC material rows already save per-proposal. The real
+pain was that custom materials typed into one WTC were not reusable from the
+picker on the next WTC. The 159-product list was a hardcoded const in
+WTCCalculator.jsx (MATERIALS_DB), so tenant additions had nowhere to live.
+
+User asked for this to work like the Work Types section in Settings — tenant-
+scoped, manageable in a settings page, available everywhere.
+
+===============================================================================
+WHAT WAS DONE
+===============================================================================
+
+1. NEW TABLE: public.materials_catalog
+   File: supabase/migrations/20260416200000_materials_catalog.sql
+   APPLIED to remote Supabase via `supabase db push`.
+
+   Columns: id (uuid), tenant_id (uuid, nullable FK tenant_config),
+     name (text NOT NULL), kit_size (text), price (numeric, default 0),
+     coverage (text), supplier (text), active (bool default true),
+     created_at, updated_at (timestamptz, auto-trigger).
+
+   RLS (per project_rls_pattern.md, with NULL-visibility tweak):
+     - SELECT: tenant_id IS NULL OR tenant_id = get_user_tenant_id()
+       (NULL rows = system defaults visible to all tenants)
+     - INSERT/UPDATE/DELETE: tenant_id = get_user_tenant_id()
+       (tenants can only touch their own rows)
+
+   Seed: 161 system-default rows (tenant_id NULL) — the full former
+   MATERIALS_DB const. Seed is wrapped in a DO block guarded by
+   IF NOT EXISTS so re-runs are a no-op.
+
+2. SETTINGS UI: MaterialsCatalogSection
+   File: src/pages/Settings.jsx
+
+   New section added directly after Work Types. Mirrors WorkTypesSection
+   pattern — inline add/edit/delete rows, separate MaterialEditRow component
+   for the form, load → save → reload cycle.
+
+   Lists ONLY tenant rows (`.not("tenant_id", "is", null)`) — the 159 system
+   defaults are intentionally hidden here to keep the list usable. A tenant
+   can override a system default's price by re-adding with the same name +
+   kit size (dedupe in picker picks tenant row).
+
+   Fields: Name (required), Kit Size, Price, Coverage, Supplier.
+
+3. WTC PICKER: live Supabase query
+   File: src/pages/WTCCalculator.jsx
+
+   - Removed hardcoded MATERIALS_DB const (-165 lines; -15 kB bundle)
+   - Added import { fetchAll } from "../lib/supabaseHelpers"
+   - MaterialPicker loads on mount via fetchAll("materials_catalog", ...)
+     filtered to active=true, ordered by name. Pagination-safe per
+     project_supabase_row_limit.md.
+   - Dedupe: Map keyed by lowercase(name)|lowercase(kit_size). If both a
+     system default and a tenant row exist for same key, tenant row wins
+     (tenant_id != null). This is the override mechanism.
+   - Field rename: former m.kit → m.kit_size (DB column). Updated addFromDB
+     mapping and the picker dropdown label accordingly.
+
+   Build verified clean. Bundle 1,475 → 1,460 kB.
+
+===============================================================================
+NEXT STEPS FOR TESTING (do before merging)
+===============================================================================
+
+Open Vercel preview URL for feat/materials-catalog, then:
+
+Settings page → Materials Catalog section:
+  [ ] Section renders below Work Types
+  [ ] Empty state shows: "No custom materials yet. Add one to reuse it on
+      every future WTC."
+  [ ] + Add Material opens inline form; name + price + Save inserts a new
+      row that appears in the list
+  [ ] Edit works — change price, Save, value updates
+  [ ] Delete removes the row
+  [ ] Built-in 159 products do NOT appear here (correct — they are hidden
+      from tenant editing)
+
+WTC Calculator → Materials tab:
+  [ ] Picker search box still works (e.g. typing "Ardex" shows Ardex matches
+      from the 159 built-ins)
+  [ ] A custom material added in Settings appears when you search its name
+  [ ] Selecting a picker result adds a WTC row with product/kit/price filled
+  [ ] If you add a custom material with the SAME name AND kit size as a
+      built-in (e.g. "Ardex CP" / "40lbs"), the picker should only show ONE
+      entry (the tenant one) at the tenant price
+
+===============================================================================
+COMMITS / BRANCHES
+===============================================================================
+
+Branch: feat/materials-catalog (pushed to origin)
+  commit: feat: per-tenant materials catalog in Settings
+  (3 files changed, 403 insertions, 170 deletions)
+
+Main: unchanged — NOT YET MERGED, awaiting user preview test.
+
+User had unrelated WIP on feat/billing-schedule-multi-doc stashed before
+branching:
+  stash@{0}: On feat/billing-schedule-multi-doc: WIP: billing schedule
+  functions (extract-sov edge fn + BillingScheduleSection edits)
+To resume: `git checkout feat/billing-schedule-multi-doc && git stash pop`
+
+===============================================================================
+DB / EDGE FUNCTION CHANGES
+===============================================================================
+
+DB: 20260416200000_materials_catalog.sql APPLIED to remote Supabase.
+    Idempotent — safe to re-run.
+
+No edge function changes.
+
+===============================================================================
+OPEN ITEMS / NEXT PRIORITIES
+===============================================================================
+
+A. Preview-test checklist above, then merge feat/materials-catalog → main.
+
+B. Resume billing schedule work:
+   `git checkout feat/billing-schedule-multi-doc && git stash pop`
+   (extract-sov edge function + BillingScheduleSection edits come back)
+
+C. Phase 3 of Billing Schedule — SOV invoicing (NewInvoiceModal branches on
+   whether proposal has a billing_schedule). Still pending from v73.
+
+===============================================================================
+MEMORY UPDATES
+===============================================================================
+
+None written this session. User added feedback_pace_check.md to MEMORY.md
+during the session (unrelated to this work). The pattern used here (tenant
+catalog table + Settings mirror-of-WorkTypes) is already covered by
+project_rls_pattern.md.
+
+===============================================================================
+KNOWN GOTCHAS
+===============================================================================
+
+- RLS NULL-visibility is ON in SELECT policy. If we ever want to HIDE system
+  defaults from a specific tenant, that needs a new mechanism (e.g. a
+  hidden_materials join table). Not needed now.
+
+- Picker dedupe is case-insensitive name+kit_size match. If tenants save
+  with trailing whitespace the dedupe would miss — Settings save calls
+  .trim() so this is unlikely to bite.
+
+- fetchAll runs on every MaterialPicker mount (per MaterialsTab render).
+  Fine for 161 + tenant adds. If a tenant ever has tens of thousands of
+  catalog rows, cache it at a higher level.
+
+- Seed migration is idempotent. It will NOT update prices if a system
+  default price changes upstream. To adjust system defaults, either edit
+  seed and run a targeted UPDATE migration, or rely on tenant override.
+
+===============================================================================
+WORKFLOW NOTES
+===============================================================================
+
+- User could not preview-test this session — handoff-only, not merged.
+  Per feedback_pace_check.md: stopped and wrote this doc rather than
+  merging blind.
+
+- Stash flow preserved billing-schedule WIP safely. `git stash pop` on the
+  billing branch restores it when user resumes.
+
+- Followed grep-before-edits (mapped WorkTypesSection before mirroring) and
+  one-step-at-a-time (migration → Settings UI → picker → commit).

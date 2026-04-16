@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "../lib/supabase";
+import { fetchAll } from "../lib/supabaseHelpers";
 import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice as calcWtcTotal } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 
@@ -13,171 +14,6 @@ const T = {
   white: "#c8bcaa", red: "#e53935", amber: "#F59E0B",
   dark: "#1c1814", darkRaised: "#28231d", darkCard: "#322c25",
 };
-
-// ── 159 Materials ──────────────────────────────────────────────────────────
-const MATERIALS_DB = [
-  { name:"Aerosil (cabosil)", kit:"22lbs", price:448.90, supplier:"CSS", coverage:"" },
-  { name:"Aerosil (cabosil) Key resins", kit:"20lbs", price:221.18, supplier:"Key Resins", coverage:"" },
-  { name:"Ameripolish dye", kit:"1 gallon", price:69.00, supplier:"Runyon", coverage:"" },
-  { name:"Ardex Ardifix", kit:"Cartridge", price:51.68, supplier:"Tom Duffy", coverage:"" },
-  { name:"Ardex CD Fine", kit:"20lbs", price:46.93, supplier:"Tom Duffy", coverage:"50 Sqft/bag" },
-  { name:"Ardex Concrete Guard", kit:"1 gallon", price:94.65, supplier:"Tom Duffy", coverage:"200 Sqft/gal" },
-  { name:"Ardex CP", kit:"40lbs", price:48.43, supplier:"Tom Duffy", coverage:"" },
-  { name:"Ardex EP2000", kit:"10 lbs", price:178.27, supplier:"Tom Duffy", coverage:"150-200 Sqft/unit" },
-  { name:"Ardex feather finish", kit:"25lbs", price:21.00, supplier:"Tom Duffy", coverage:"" },
-  { name:"Ardex K525", kit:"50lbs", price:44.75, supplier:"Tom Duffy", coverage:"" },
-  { name:"Ardex MRF", kit:"10 lbs", price:17.06, supplier:"Tom Duffy", coverage:"" },
-  { name:"Ardex PCT", kit:"50 Lbs", price:52.31, supplier:"Tom Duffy", coverage:"" },
-  { name:"Ardex SDM Gray", kit:"10lbs", price:35.65, supplier:"Tom Duffy", coverage:"" },
-  { name:"Ardex SDM White", kit:"10lbs", price:37.90, supplier:"Tom Duffy", coverage:"" },
-  { name:"Armorhard (epoxy sand patch)", kit:"5 gallon", price:150.00, supplier:"CSS", coverage:"" },
-  { name:"Armorseal 8100", kit:"1 gallon", price:125.82, supplier:"Sherwin Williams", coverage:"" },
-  { name:"Armorseal 8100", kit:"5 gallon", price:486.00, supplier:"Sherwin Williams", coverage:"" },
-  { name:"Ashford (densifier/sealer)", kit:"55 gallons", price:563.75, supplier:"CureCrete", coverage:"" },
-  { name:"Backer Rod 1/4\"", kit:"6400 LF", price:137.25, supplier:"CSS", coverage:"" },
-  { name:"Backer Rod 3/8\"", kit:"3600 LF", price:156.55, supplier:"CSS", coverage:"" },
-  { name:"Backer Rod 7/8", kit:"850 LF", price:45.00, supplier:"CSS", coverage:"" },
-  { name:"Ballistix", kit:"1 gallon", price:329.00, supplier:"", coverage:"800-1100 Sqft/gal" },
-  { name:"Basf 400", kit:"5 gallon", price:185.00, supplier:"CSS", coverage:"" },
-  { name:"Cohill Metallics", kit:"1.5 gallon", price:40.00, supplier:"CSS", coverage:"" },
-  { name:"Colored chips (flake)", kit:"55lbs", price:125.00, supplier:"CSS/Westcoat/RPM", coverage:".15 lbs/Sqft" },
-  { name:"Colored Quartz", kit:"55lbs", price:42.00, supplier:"CSS/Sika/Key Resins", coverage:"500 lbs/1000 Sqft" },
-  { name:"Crown 320 (100 solids)", kit:"3 gallon", price:172.50, supplier:"", coverage:"" },
-  { name:"Crown 7072sc (polyaspartic)", kit:"2 gallon", price:228.50, supplier:"CSS", coverage:"" },
-  { name:"Crown 7072sc (polyaspartic)", kit:"10 gallon", price:1135.00, supplier:"CSS", coverage:"" },
-  { name:"Crown 8175 (Polyaspartic) One day garage", kit:"2 gallon", price:195.00, supplier:"CSS", coverage:"" },
-  { name:"Crown 8202 Water Base Epoxy", kit:"1.25 gallon", price:71.55, supplier:"CSS", coverage:"" },
-  { name:"Crown 8202 Water Base Epoxy", kit:"5 gallon", price:275.35, supplier:"CSS", coverage:"" },
-  { name:"Crown 8240 (Polyurea Coating)", kit:"3 gallon", price:162.00, supplier:"CSS", coverage:"" },
-  { name:"Crown 8303 MVB", kit:"3 gallon", price:314.35, supplier:"CSS", coverage:"100 Sqft/gal" },
-  { name:"Crown 8312 (cove gel)", kit:"3 gallon", price:276.10, supplier:"CSS", coverage:"" },
-  { name:"Crown 8340 (Polyaspartic long working)", kit:"3 gallon", price:315.00, supplier:"", coverage:"" },
-  { name:"Crown color pack", kit:"1 quart", price:48.00, supplier:"CSS", coverage:"" },
-  { name:"Dal Coating (Line Striping Paint)", kit:"5 gallon", price:245.00, supplier:"Home Depot", coverage:"320LF/gal" },
-  { name:"Dex-o-tex 1p primer", kit:"2.9 gallon", price:330.60, supplier:"Dex-o-tex", coverage:"" },
-  { name:"Dex-o-tex AeroFlor", kit:"2 gallon", price:260.00, supplier:"Dex-o-tex", coverage:"" },
-  { name:"Dex-O-Tex AJ44", kit:"5 gallon", price:300.00, supplier:"Dex-o-Tex", coverage:"" },
-  { name:"Dex-o-tex Decoflor (100 solids epoxy)", kit:"3 gallon", price:183.00, supplier:"Dex-o-tex", coverage:"" },
-  { name:"Dex-o-tex Dexothane CRU (MATTE)", kit:"2.5 gallon", price:508.00, supplier:"Dex-o-tex", coverage:"" },
-  { name:"Dex-o-tex Positred (100 solids Epoxy)", kit:"3 gallon", price:225.00, supplier:"Dex-o-tex", coverage:"" },
-  { name:"Dex-o-tex Quikglaze (Polyaspartic)", kit:"3 gallon", price:435.00, supplier:"Dex-o-tex", coverage:"" },
-  { name:"Dex-o-tex W/B dex o cote (Water base)", kit:"2 gallon", price:143.00, supplier:"Dex-o-tex", coverage:"" },
-  { name:"Dex-o-tex weather seal xl (Acrylic)", kit:"5 gallon", price:220.00, supplier:"Dex-o-tex", coverage:"" },
-  { name:"EP-90", kit:"10 gallon", price:500.00, supplier:"High Tec", coverage:"45 LF/unit" },
-  { name:"Euclid Diamond Hard", kit:"5 gallon", price:110.00, supplier:"CSS", coverage:"" },
-  { name:"Euclid Eucosil", kit:"5 gallon", price:50.00, supplier:"CSS", coverage:"" },
-  { name:"Euclid stain (UV stable)", kit:"1 gallon", price:44.10, supplier:"CSS", coverage:"" },
-  { name:"Fine Mesh Fabric", kit:"300 LF", price:18.00, supplier:"", coverage:"" },
-  { name:"Flex set (warehouse patch)", kit:"5 gallon", price:117.00, supplier:"CSS", coverage:"" },
-  { name:"Flowfresh SL", kit:"double pack", price:126.40, supplier:"Key Resins Direct", coverage:"63 Sqft/kit" },
-  { name:"Flowfresh SR sealer", kit:"1.5 gallon", price:80.51, supplier:"Key Resins Direct", coverage:"120 Sqft/kit" },
-  { name:"Galaxy foam (panel joint backer rod)", kit:"600 LF", price:225.00, supplier:"CSS", coverage:"" },
-  { name:"GE Elemax 2600 (Weather proofing)", kit:"5 gallon", price:490.00, supplier:"CSS", coverage:"" },
-  { name:"GE Elemax 5000 (Liquid Flashing)", kit:"20oz Sausage", price:12.53, supplier:"CSS", coverage:"" },
-  { name:"GE Silpruf SCS2000 (Caulking)", kit:"20oz Sausage", price:14.50, supplier:"CSS", coverage:"" },
-  { name:"H&C Infusion dye", kit:"1 gallon", price:70.00, supplier:"", coverage:"" },
-  { name:"Hi-Tech PE85 (polyurea joint filler)", kit:"10 gallon", price:500.00, supplier:"Hi-Tec", coverage:"" },
-  { name:"Hi-Tech PE90 (polyurea joint filler)", kit:"10 gallon", price:500.00, supplier:"High Tec", coverage:"" },
-  { name:"High tech TX3", kit:"2 gallon", price:150.00, supplier:"Hi-Tec", coverage:"" },
-  { name:"Key 520 Pigmented", kit:"3 Gallon", price:194.70, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resin Flowfresh PA", kit:"15 gallon", price:1516.67, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 445 W/B Matte urethane", kit:"1.25 gallon", price:122.63, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 450 (Aliphatic Urethane)", kit:"3 gallon", price:298.00, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 467 (HS Urethane Low Odor)", kit:"1.25 gallon", price:216.14, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 467 (HS Urethane Low Odor)", kit:"5 gallon", price:778.74, supplier:"Key Resins Direct", coverage:"500 Sqft/gal" },
-  { name:"Key Resins 471 (polyaspartic)", kit:"3 gallon", price:329.94, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 471 (polyaspartic)", kit:"15 gallon", price:1748.55, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 502 (100 solids epoxy)", kit:"3 gallon", price:190.38, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 502 (100 solids epoxy)", kit:"15 gallon", price:906.15, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 510 CV (cove material)", kit:"5 gallon", price:312.75, supplier:"Key Resins Direct", coverage:"1.7 lbs/LF 6\" cove" },
-  { name:"Key Resins 511 (100 solids epoxy)", kit:"3 gallon", price:178.99, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 511 (100 solids epoxy)", kit:"15 gallon", price:823.44, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 515", kit:"5 gallon", price:290.66, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 520 (100 solids epoxy) Pigmented", kit:"3 gallon", price:194.69, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 520 (100 solids epoxy) Pigmented", kit:"15 gallon", price:922.71, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 532 W/B epoxy", kit:"3 gallon", price:212.01, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 60/100 NSA (aluminum oxide)", kit:"1 gallon", price:60.06, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 615 (Chemical resistant epoxy)", kit:"15 gallon", price:965.40, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 615 Chemical resistant Epoxy", kit:"3 gallon", price:210.02, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 630 (pigmented novolac)", kit:"3 gallon", price:353.70, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 630 (pigmented novolac)", kit:"15 gallon", price:1701.60, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 633 (Novolac) Pigmented", kit:"3 Gallon", price:378.14, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 633 (Novolac) Pigmented", kit:"15 gallon", price:1836.80, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 635 (MVB Moisture block)", kit:"3.4 gallon", price:416.50, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins 803 W/B Acrylic sealer", kit:"5 Gallon", price:110.98, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins BMA-50 (trowel cove sand)", kit:"50 lbs", price:19.99, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins Cove Powder", kit:"50lbs", price:77.67, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins Epocoat", kit:"1.25 gallons", price:68.75, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins Epoglaze", kit:"1.5 gallon", price:135.00, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Resins Pigment pack", kit:"1qt", price:33.18, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key TS100 (Matting Agent)", kit:"1 gallon", price:13.00, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Key Urecon SLT (3/16 urethane)", kit:"1 kit", price:92.20, supplier:"Key Resins Direct", coverage:"" },
-  { name:"Masterkure 300WB (Lapidolith)", kit:"55 gallons", price:945.00, supplier:"CSS", coverage:"35 gal/16000 Sqft" },
-  { name:"MasterKure CC1315WB", kit:"5 gallon", price:205.00, supplier:"CSS +Freight", coverage:"200 Sqft/gal" },
-  { name:"MasterSeal 658 (Tennis court)", kit:"5 gallon", price:210.00, supplier:"CSS +Freight", coverage:"90-125 Sqft/gal" },
-  { name:"MasterSeal 658 Primer (Tennis court)", kit:"5 gallon", price:355.00, supplier:"CSS +Freight", coverage:"200-300 Sqft/gal" },
-  { name:"MM80 Epoxy joint filler", kit:"10 gallon", price:506.00, supplier:"Runyon", coverage:"" },
-  { name:"Neogard 70410", kit:"5 gallon", price:220.00, supplier:"CSS", coverage:"" },
-  { name:"Neogard 70700/01", kit:"3 gallon", price:227.00, supplier:"CSS", coverage:"" },
-  { name:"Neogard 70700/01", kit:"15 gallon", price:1005.00, supplier:"CSS", coverage:"" },
-  { name:"Neogard 70704/05 Novolac Gray", kit:"5 gallon", price:641.25, supplier:"CSS", coverage:"" },
-  { name:"Neogard 70714/15 (100 solids epoxy)", kit:"3 gallon", price:207.50, supplier:"CSS", coverage:"" },
-  { name:"Neogard 70714/15 (100 solids epoxy)", kit:"15 gallon", price:963.50, supplier:"CSS", coverage:"" },
-  { name:"Neogard 70734/35", kit:"3 gallon", price:232.80, supplier:"CSS", coverage:"" },
-  { name:"Neogard 70817/70818 CRU", kit:"2 gallon", price:241.00, supplier:"CSS", coverage:"" },
-  { name:"Neogard 7430", kit:"5 gallon", price:295.00, supplier:"CSS", coverage:"" },
-  { name:"Neogard 7797/98", kit:"3 gallon", price:148.50, supplier:"CSS", coverage:"" },
-  { name:"Neogard 7992 (16/30 sand)", kit:"100lbs", price:20.00, supplier:"CSS", coverage:"" },
-  { name:"Neogard FC 7500/FC7960", kit:"5 gallon", price:260.00, supplier:"CSS", coverage:"" },
-  { name:"Neogard FC 7540/FC7964", kit:"3 gallon", price:189.00, supplier:"CSS", coverage:"" },
-  { name:"Neogard FC 7540/FC7964", kit:"6 gallon", price:359.00, supplier:"CSS", coverage:"" },
-  { name:"Neogard FC 7545/FC7964", kit:"6 gallon", price:405.00, supplier:"CSS", coverage:"" },
-  { name:"Neogard FC7548", kit:"3 gallon", price:215.00, supplier:"CSS", coverage:"" },
-  { name:"New Look Quicketch", kit:"1 gallon", price:86.66, supplier:"CSS", coverage:"100 Sqft/gal" },
-  { name:"New Look Quicketch", kit:"5 gallon", price:289.00, supplier:"CSS", coverage:"" },
-  { name:"New Look Smart seal AU25", kit:"1 gallon", price:76.00, supplier:"CSS", coverage:"200 Sqft/gal" },
-  { name:"New Look Smart seal AU25", kit:"5 gallon", price:252.00, supplier:"CSS", coverage:"" },
-  { name:"Newlook Original Solid Stain", kit:"4 oz", price:48.00, supplier:"CSS", coverage:"35-45 Sqft/kit" },
-  { name:"Newlook Original Solid Stain", kit:"32 oz", price:169.00, supplier:"CSS", coverage:"350-400 Sqft/kit" },
-  { name:"Prosoco Siloxane PD", kit:"5 gallon", price:179.00, supplier:"CSS", coverage:"" },
-  { name:"Prosoco LS guard", kit:"5 gallon", price:351.33, supplier:"Runyon", coverage:"" },
-  { name:"Rapid Refloor", kit:"Cartridge", price:51.81, supplier:"CSS", coverage:"" },
-  { name:"Retro Guard", kit:"5 gallon", price:325.00, supplier:"RetroPlate Direct", coverage:"" },
-  { name:"Retro Plate 99", kit:"5 gallon", price:125.00, supplier:"RetroPlate Direct", coverage:"" },
-  { name:"Retro Plate Retro Pel", kit:"5 gallons", price:345.00, supplier:"Retro plate", coverage:"600-1200 Sqft/gal" },
-  { name:"RetroPlate", kit:"55 gallon", price:1375.00, supplier:"RetroPlate Direct", coverage:"200 Sqft/gal" },
-  { name:"Rubber Crumb", kit:"50 lbs", price:105.00, supplier:"CSS", coverage:"300 Sqft/bag" },
-  { name:"Scofield Formula One Guard", kit:"5 gallon", price:457.62, supplier:"Runyon", coverage:"" },
-  { name:"Scofield Formula One Finish coat", kit:"1 gallon", price:121.00, supplier:"Runyon", coverage:"" },
-  { name:"Scofield Formula One Lithium Densifier", kit:"5 gallon", price:441.48, supplier:"Runyon", coverage:"" },
-  { name:"Seam tape (plywood deck joint tape)", kit:"100'", price:19.75, supplier:"CSS", coverage:"" },
-  { name:"Sherwin Williams Armorseal 8100", kit:"1.25 gallon", price:122.50, supplier:"Sherwin Williams", coverage:"" },
-  { name:"Sherwin Williams Armorseal 8100", kit:"5 gallon", price:475.00, supplier:"Sherwin Williams", coverage:"" },
-  { name:"Sika 1000", kit:"50 lbs", price:29.25, supplier:"CSS", coverage:"" },
-  { name:"Sika 1A", kit:"20 oz", price:7.95, supplier:"CSS", coverage:"" },
-  { name:"Sika 2500", kit:"50 lbs", price:30.95, supplier:"CSS", coverage:"" },
-  { name:"Sika 2c ns", kit:"1.5 gallon", price:65.00, supplier:"CSS", coverage:"" },
-  { name:"Sika Armatec 110 epocem", kit:"1.65 gallon", price:263.80, supplier:"", coverage:"" },
-  { name:"Sika color pack", kit:"1 bag", price:10.45, supplier:"CSS", coverage:"" },
-  { name:"Sika Pro 100-350", kit:"5 gallon", price:275.00, supplier:"Whitecap", coverage:"" },
-  { name:"Sika Skim Coat", kit:"10lbs", price:19.79, supplier:"CSS", coverage:"" },
-  { name:"Sika VOH", kit:"44lbs", price:32.40, supplier:"CSS", coverage:"" },
-  { name:"SIkacolor Elements", kit:"4 pack", price:364.00, supplier:"Whitecap", coverage:"" },
-  { name:"TK 290 (Tri siloxane)", kit:"5 gallon", price:195.00, supplier:"CSS", coverage:"200 Sqft/gal" },
-  { name:"TK Bright Kure", kit:"5 gallon", price:187.65, supplier:"CSS", coverage:"" },
-  { name:"TK Bright Kure", kit:"55 gallon", price:2150.00, supplier:"CSS", coverage:"" },
-  { name:"Tremco Dymeric 240FC (warehouse caulk)", kit:"1.5 gallon", price:75.00, supplier:"CSS", coverage:"" },
-  { name:"TRU PC NATURAL", kit:"60 lbs", price:45.00, supplier:"Runyon", coverage:"" },
-  { name:"Tufflex 6000AL", kit:"5 gallon", price:365.40, supplier:"CSS", coverage:"80-100 Sqft/gal" },
-  { name:"Tufflex Primer #2", kit:"2 gallon", price:162.20, supplier:"CSS", coverage:"300-350 Sqft/gal" },
-  { name:"Tufflex primer #3", kit:"1.5 gallon", price:143.85, supplier:"CSS", coverage:"300-400 Sqft/gal" },
-  { name:"Tufflex RBC", kit:"5 gallon", price:281.00, supplier:"CSS", coverage:"250 Sqft/kit @30 mils" },
-  { name:"TX3", kit:"2 gallon", price:150.00, supplier:"High Tec", coverage:"" },
-  { name:"TX3 Cartridge", kit:"Cartridge", price:45.00, supplier:"Hi-Tec", coverage:"" },
-  { name:"Vocomp 25 (water base acrylic sealer)", kit:"5 gallon", price:180.00, supplier:"Online", coverage:"" },
-  { name:"Vocomp30", kit:"5 gallon", price:245.00, supplier:"CSS", coverage:"400 Sqft/gal" },
-  { name:"XYPEX", kit:"60lbs", price:210.00, supplier:"CSS", coverage:"" },
-];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
@@ -306,10 +142,28 @@ function SectionHeader({ label, hint, color }) {
 function MaterialPicker({ onSelect }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+  const [catalog, setCatalog] = useState([]);
   const ref = useRef();
 
+  useEffect(() => {
+    (async () => {
+      const rows = await fetchAll("materials_catalog", "id, tenant_id, name, kit_size, price, coverage, supplier", {
+        filters: [["eq", "active", true]],
+        order: { column: "name" },
+      });
+      // Dedupe by (name+kit_size), tenant rows winning over system defaults.
+      const byKey = new Map();
+      for (const r of rows) {
+        const key = `${(r.name || "").toLowerCase()}|${(r.kit_size || "").toLowerCase()}`;
+        const prev = byKey.get(key);
+        if (!prev || (prev.tenant_id == null && r.tenant_id != null)) byKey.set(key, r);
+      }
+      setCatalog([...byKey.values()]);
+    })();
+  }, []);
+
   const results = q.length > 0
-    ? MATERIALS_DB.filter(m => (m.name + " " + m.kit).toLowerCase().includes(q.toLowerCase())).slice(0, 12)
+    ? catalog.filter(m => (m.name + " " + (m.kit_size || "")).toLowerCase().includes(q.toLowerCase())).slice(0, 12)
     : [];
 
   useEffect(() => {
@@ -329,14 +183,14 @@ function MaterialPicker({ onSelect }) {
       />
       {open && results.length > 0 && (
         <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: T.white, border: `1.5px solid ${T.gray200}`, borderRadius: 8, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", zIndex: 999, maxHeight: 280, overflowY: "auto", marginTop: 2 }}>
-          {results.map((m, i) => (
-            <div key={i} onClick={() => { onSelect(m); setQ(""); setOpen(false); }}
+          {results.map((m) => (
+            <div key={m.id} onClick={() => { onSelect(m); setQ(""); setOpen(false); }}
               style={{ padding: "10px 14px", cursor: "pointer", borderBottom: `1px solid ${T.gray100}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, fontSize: 13, color: T.gray900 }}
               onMouseEnter={e => e.currentTarget.style.background = T.gray50}
               onMouseLeave={e => e.currentTarget.style.background = T.white}
             >
               <span style={{ fontWeight: 500 }}>{m.name}</span>
-              <span style={{ fontSize: 11, color: T.gray400, whiteSpace: "nowrap" }}>{m.kit} · {fmt(m.price)} · {m.supplier}</span>
+              <span style={{ fontSize: 11, color: T.gray400, whiteSpace: "nowrap" }}>{m.kit_size || ""} · {fmt(m.price)} · {m.supplier || ""}</span>
             </div>
           ))}
         </div>
@@ -536,7 +390,7 @@ function MaterialsTab({ items, taxRate, onChange }) {
     onChange(items.map(i => i.id === id ? { ...i, [key]: coerced } : i));
   };
   const removeItem = id => onChange(items.filter(i => i.id !== id));
-  const addFromDB = m => onChange([...items, { id: Date.now(), product: m.name, kit_size: m.kit, price_per_unit: m.price, coverage_rate: m.coverage, supplier: m.supplier, qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0 }]);
+  const addFromDB = m => onChange([...items, { id: Date.now(), product: m.name, kit_size: m.kit_size || "", price_per_unit: m.price, coverage_rate: m.coverage || "", supplier: m.supplier || "", qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0 }]);
   const addCustom = () => onChange([...items, { id: Date.now(), product: "", kit_size: "", price_per_unit: 0, coverage_rate: "", supplier: "", qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0 }]);
 
   const totals = items.map(i => calcMaterialRow(i));

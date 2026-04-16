@@ -177,6 +177,155 @@ function EditRow({ editing, setEditing, onSave, onCancel, saving, inputStyle }) 
   );
 }
 
+function MaterialsCatalogSection() {
+  const [rows, setRows]         = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [tenantId, setTenantId] = useState(null);
+  const [editing, setEditing]   = useState(null);
+  const [saving, setSaving]     = useState(false);
+  const [deleteId, setDeleteId] = useState(null);
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    setLoading(true);
+    const { data: tc } = await supabase.from("tenant_config").select("id").single();
+    if (tc) setTenantId(tc.id);
+    const { data } = await supabase
+      .from("materials_catalog")
+      .select("id, name, kit_size, price, coverage, supplier")
+      .not("tenant_id", "is", null)
+      .order("name");
+    if (data) setRows(data);
+    setLoading(false);
+  }
+
+  const startNew  = () => setEditing({ isNew: true, name: "", kit_size: "", price: "", coverage: "", supplier: "" });
+  const startEdit = (r) => setEditing({ ...r, price: r.price == null ? "" : String(r.price) });
+  const cancel    = () => setEditing(null);
+
+  async function save() {
+    if (!editing.name.trim()) return;
+    setSaving(true);
+    const payload = {
+      name:      editing.name.trim(),
+      kit_size:  editing.kit_size.trim() || null,
+      price:     parseFloat(editing.price) || 0,
+      coverage:  editing.coverage.trim() || null,
+      supplier:  editing.supplier.trim() || null,
+    };
+    if (editing.isNew) {
+      await supabase.from("materials_catalog").insert({ ...payload, tenant_id: tenantId, active: true });
+    } else {
+      await supabase.from("materials_catalog").update(payload).eq("id", editing.id);
+    }
+    setSaving(false);
+    setEditing(null);
+    load();
+  }
+
+  async function remove(id) {
+    setDeleteId(id);
+    await supabase.from("materials_catalog").delete().eq("id", id);
+    setDeleteId(null);
+    load();
+  }
+
+  const rowStyle = { display: "grid", gridTemplateColumns: "1.6fr 1fr 100px auto", gap: 12, alignItems: "center", padding: "10px 14px", borderRadius: 8, background: C.linenDeep, border: `1px solid ${C.borderStrong}` };
+  const colHead  = { fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textFaint, fontFamily: F.ui };
+
+  if (loading) return <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>Loading…</div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textMuted, marginBottom: 4 }}>
+        Your tenant’s custom materials. The 159 built-in products stay available in the WTC picker — this list adds to (and can override) them.
+      </div>
+
+      {rows.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 100px auto", gap: 12, padding: "0 14px" }}>
+          <span style={colHead}>Material</span>
+          <span style={colHead}>Kit Size</span>
+          <span style={colHead}>Price</span>
+          <span style={{ ...colHead, minWidth: 80 }} />
+        </div>
+      )}
+
+      {rows.map(r =>
+        editing && !editing.isNew && editing.id === r.id ? (
+          <MaterialEditRow key={r.id} editing={editing} setEditing={setEditing} onSave={save} onCancel={cancel} saving={saving} />
+        ) : (
+          <div key={r.id} style={rowStyle}>
+            <span style={{ fontSize: 13, fontFamily: F.ui, color: C.textBody }}>{r.name}</span>
+            <span style={{ fontSize: 13, fontFamily: F.ui, color: C.textMuted }}>{r.kit_size || "—"}</span>
+            <span style={{ fontSize: 13, fontFamily: F.ui, color: C.textBody }}>{fmt$(r.price || 0)}</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn sz="sm" v="ghost" onClick={() => startEdit(r)}>Edit</Btn>
+              <Btn sz="sm" v="ghost" onClick={() => remove(r.id)} disabled={deleteId === r.id}>
+                {deleteId === r.id ? "…" : "Delete"}
+              </Btn>
+            </div>
+          </div>
+        )
+      )}
+
+      {editing?.isNew && (
+        <MaterialEditRow editing={editing} setEditing={setEditing} onSave={save} onCancel={cancel} saving={saving} />
+      )}
+
+      {!rows.length && !editing && (
+        <div style={{ fontSize: 13, fontFamily: F.ui, color: C.textFaint, padding: "10px 0" }}>
+          No custom materials yet. Add one to reuse it on every future WTC.
+        </div>
+      )}
+
+      {!editing && (
+        <div style={{ marginTop: 4 }}>
+          <Btn sz="sm" onClick={startNew}>+ Add Material</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MaterialEditRow({ editing, setEditing, onSave, onCancel, saving }) {
+  const set = (k, v) => setEditing(e => ({ ...e, [k]: v }));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "14px 16px", borderRadius: 8, background: C.linenCard, border: `1px solid ${C.tealBorder}` }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 12 }}>
+        <div>
+          <div style={labelStyle}>Material Name</div>
+          <input style={inputStyle} value={editing.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Key Resins 502" autoFocus />
+        </div>
+        <div>
+          <div style={labelStyle}>Kit Size</div>
+          <input style={inputStyle} value={editing.kit_size} onChange={e => set("kit_size", e.target.value)} placeholder="e.g. 3 gallon" />
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "160px 1fr 1fr", gap: 12 }}>
+        <div>
+          <div style={labelStyle}>Price</div>
+          <input style={inputStyle} type="number" step="0.01" value={editing.price} onChange={e => set("price", e.target.value)} placeholder="0.00" />
+        </div>
+        <div>
+          <div style={labelStyle}>Coverage (optional)</div>
+          <input style={inputStyle} value={editing.coverage} onChange={e => set("coverage", e.target.value)} placeholder="e.g. 200 Sqft/gal" />
+        </div>
+        <div>
+          <div style={labelStyle}>Supplier (optional)</div>
+          <input style={inputStyle} value={editing.supplier} onChange={e => set("supplier", e.target.value)} placeholder="e.g. CSS" />
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn sz="sm" onClick={onSave} disabled={saving || !editing.name.trim()}>
+          {saving ? "Saving…" : "Save"}
+        </Btn>
+        <Btn sz="sm" v="ghost" onClick={onCancel} disabled={saving}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
 const QB_CLIENT_ID = "ABg3H5TIV6XdDtSWlJXDC3rM7u8zKI3k5yHlbUaIrIiYNiUmc7";
 const QB_REDIRECT_URI = "https://www.scmybiz.com/qb/callback";
 const QB_AUTH_URL = `https://appcenter.intuit.com/connect/oauth2?client_id=${QB_CLIENT_ID}&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}&response_type=code&scope=com.intuit.quickbooks.accounting&state=salescommand`;
@@ -539,6 +688,10 @@ export default function Settings({ userRole }) {
       {/* ─── Work Types ─── */}
       <div style={sectionStyle}>Work Types</div>
       <WorkTypesSection />
+
+      {/* ─── Materials Catalog ─── */}
+      <div style={sectionStyle}>Materials Catalog</div>
+      <MaterialsCatalogSection />
 
       {/* ─── Sales Goals ─── */}
       <div style={sectionStyle}>Sales Goals</div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { C, F } from "../../lib/tokens";
 import { supabase } from "../../lib/supabase";
+import { fetchAll } from "../../lib/supabaseHelpers";
 
 const inputStyle = {
   padding: "10px 14px", borderRadius: 8,
@@ -139,13 +140,13 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
   // Load lookups
   useEffect(() => {
     (async () => {
-      const [cRes, tRes, wRes, tcRes] = await Promise.all([
-        supabase.from("customers").select("id, name, customer_type, first_name, last_name, phone, email, contact_phone, contact_email, business_address, business_city, business_state, business_zip, billing_terms, billing_name, billing_email, billing_phone"),
+      const [cAll, tRes, wRes, tcRes] = await Promise.all([
+        fetchAll("customers", "id, name, customer_type, first_name, last_name, phone, email, contact_phone, contact_email, business_address, business_city, business_state, business_zip, billing_terms, billing_name, billing_email, billing_phone", { order: "name" }),
         supabase.from("team_members").select("id, name, email, role").eq("active", true),
         supabase.from("work_types").select("id, name, cost_code").order("name"),
         supabase.from("tenant_config").select("default_billing_terms").limit(1).maybeSingle(),
       ]);
-      setCustomers(cRes.data || []);
+      setCustomers(cAll || []);
       setTeam(tRes.data || []);
       setWorkTypes(wRes.data || []);
       if (tcRes.data?.default_billing_terms) setDefaultTerms(tcRes.data.default_billing_terms);

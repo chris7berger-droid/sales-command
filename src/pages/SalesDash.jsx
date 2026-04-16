@@ -3,6 +3,7 @@ import { C, F } from "../lib/tokens";
 import { fmt$, tod } from "../lib/utils";
 import { STAGES } from "../lib/mockData";
 import { supabase } from "../lib/supabase";
+import { fetchAll } from "../lib/supabaseHelpers";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 import StatCard from "../components/StatCard";
 import SectionHeader from "../components/SectionHeader";
@@ -105,14 +106,19 @@ export default function SalesDash({ displayName, displayRole }) {
 
       const filterByRep = selectedRep !== "__all__" ? selectedRep : null;
 
-      let logQuery = supabase.from("call_log").select("*").order("created_at", { ascending: false });
-      if (filterByRep) logQuery = logQuery.eq("sales_name", filterByRep);
-      const { data: log } = await logQuery;
-      setRows(log || []);
-      setMonthRows((log || []).filter(r => r.created_at?.startsWith(month)));
+      const log = await fetchAll("call_log", "*", {
+        order: { column: "created_at", ascending: false },
+        filters: filterByRep ? [["eq", "sales_name", filterByRep]] : [],
+      });
+      setRows(log);
+      setMonthRows(log.filter(r => r.created_at?.startsWith(month)));
 
-      const { data: props } = await supabase.from("proposals").select("total, approved_at, created_at, status, call_log_id, call_log(sales_name, customer_name, job_name, customer_id, customers(billing_terms)), proposal_wtc(end_date)").is("deleted_at", null);
-      const filteredProps = filterByRep ? (props || []).filter(p => p.call_log?.sales_name === filterByRep) : (props || []);
+      const props = await fetchAll(
+        "proposals",
+        "total, approved_at, created_at, status, call_log_id, call_log(sales_name, customer_name, job_name, customer_id, customers(billing_terms)), proposal_wtc(end_date)",
+        { filters: [["is", "deleted_at", null]] }
+      );
+      const filteredProps = filterByRep ? props.filter(p => p.call_log?.sales_name === filterByRep) : props;
 
       const getEndDate = p => {
         const wtcs = p.proposal_wtc || [];
@@ -404,16 +410,16 @@ function AnalyticsModal({ onClose, selectedRep }) {
 
   useEffect(() => {
     async function load() {
-      const [{ data: wt }, { data: tm }, { data: pwData }, { data: invData }] = await Promise.all([
+      const [{ data: wt }, { data: tm }, pwData, invData] = await Promise.all([
         supabase.from("work_types").select("id, name").order("name"),
         supabase.from("team_members").select("name, role").eq("active", true),
-        supabase.from("proposal_wtc").select("id, proposal_id, work_type_id, regular_hours, ot_hours, burden_rate, ot_burden_rate, markup_pct, materials, travel, discount, size, start_date, end_date, work_types(name), proposals(id, total, status, created_at, call_log_id, call_log(sales_name, customer_name, job_name))"),
-        supabase.from("invoices").select("id, job_id, amount, status, sent_at, paid_at, job_name, invoice_lines(amount, proposal_wtc_id, proposal_wtc(work_type_id, work_types(name)))"),
+        fetchAll("proposal_wtc", "id, proposal_id, work_type_id, regular_hours, ot_hours, burden_rate, ot_burden_rate, markup_pct, materials, travel, discount, size, start_date, end_date, work_types(name), proposals(id, total, status, created_at, call_log_id, call_log(sales_name, customer_name, job_name))"),
+        fetchAll("invoices", "id, job_id, amount, status, sent_at, paid_at, job_name, invoice_lines(amount, proposal_wtc_id, proposal_wtc(work_type_id, work_types(name)))"),
       ]);
       setWorkTypes(wt || []);
       setSalesReps((tm || []).filter(t => ["Sales Rep","Admin","Manager"].includes(t.role)).map(t => t.name).sort());
-      setWtcData(pwData || []);
-      setInvoiceData(invData || []);
+      setWtcData(pwData);
+      setInvoiceData(invData);
       setLoading(false);
     }
     load();

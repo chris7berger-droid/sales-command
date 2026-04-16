@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
+import { fetchAll } from "../lib/supabaseHelpers";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
 import { calcWtcPrice } from "../lib/calc";
 import { INV_C, PROP_C } from "../lib/mockData";
@@ -1072,8 +1073,12 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
   const [filters, setFilters] = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
 
   const load = async () => {
-    const { data } = await supabase.from("invoices").select("*, proposals(call_log(sales_name, customer_name, display_job_number, show_cents))").is("deleted_at", null).order("sent_at", { ascending: false });
-    setInvoices(data || []);
+    const data = await fetchAll(
+      "invoices",
+      "*, proposals(call_log(sales_name, customer_name, display_job_number, show_cents))",
+      { filters: [["is", "deleted_at", null]], order: { column: "sent_at", ascending: false } }
+    );
+    setInvoices(data);
     setLoading(false);
     return data;
   };

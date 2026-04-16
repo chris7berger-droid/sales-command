@@ -3,6 +3,7 @@ import { C, F } from "../lib/tokens";
 import { fmt$, tod } from "../lib/utils";
 import { STAGES } from "../lib/mockData";
 import { supabase } from "../lib/supabase";
+import { fetchAll } from "../lib/supabaseHelpers";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 import StatCard from "../components/StatCard";
 import SectionHeader from "../components/SectionHeader";
@@ -100,16 +101,20 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
       const year  = now.getFullYear().toString();
 
       const isRep = !["Admin","Manager"].includes(displayRole);
-      let logQuery = supabase.from("call_log").select("*").order("created_at", { ascending: false });
-      if (isRep) logQuery = logQuery.eq("sales_name", displayName);
-      const { data: log } = await logQuery;
-      setRows(log || []);
-      const monthLog = (log || []).filter(r => r.created_at?.startsWith(month));
+      const log = await fetchAll("call_log", "*", {
+        order: { column: "created_at", ascending: false },
+        filters: isRep ? [["eq", "sales_name", displayName]] : [],
+      });
+      setRows(log);
+      const monthLog = log.filter(r => r.created_at?.startsWith(month));
       setMonthRows(monthLog);
 
-      let propQuery = supabase.from("proposals").select('total, approved_at, created_at, status, call_log_id, call_log(sales_name, job_name, display_job_number, customer_name), proposal_wtc(end_date)').is("deleted_at", null);
-      const { data: props } = await propQuery;
-      const filteredProps = isRep ? (props || []).filter(p => p.call_log?.sales_name === displayName) : (props || []);
+      const props = await fetchAll(
+        "proposals",
+        'total, approved_at, created_at, status, call_log_id, call_log(sales_name, job_name, display_job_number, customer_name), proposal_wtc(end_date)',
+        { filters: [["is", "deleted_at", null]] }
+      );
+      const filteredProps = isRep ? props.filter(p => p.call_log?.sales_name === displayName) : props;
 
       const getEndDate = p => {
         const wtcs = p.proposal_wtc || [];

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { C, F } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
 import { supabase } from "../lib/supabase";
+import { fetchAll } from "../lib/supabaseHelpers";
 import SectionHeader from "../components/SectionHeader";
 import StatCard from "../components/StatCard";
 
@@ -47,9 +48,11 @@ export default function Managers() {
 
   useEffect(() => {
     async function load() {
-      const [{ data: callLog }, { data: proposals }] = await Promise.all([
-        supabase.from("call_log").select("created_at"),
-        supabase.from("proposals").select("total, created_at, approved_at, status").is("deleted_at", null),
+      const [callLog, proposals] = await Promise.all([
+        fetchAll("call_log", "created_at"),
+        fetchAll("proposals", "total, created_at, approved_at, status", {
+          filters: [["is", "deleted_at", null]],
+        }),
       ]);
       setRows(buildMonthRows(callLog, proposals));
       setLoading(false);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
+import { fetchAll } from "../lib/supabaseHelpers";
 import { fmt$, fmtD } from "../lib/utils";
 import { PROP_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
@@ -41,18 +42,18 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
   }, [initialProposal]);
 
   const load = async () => {
-    const [{ data }, { data: invData }, { data: wtData }] = await Promise.all([
-      supabase
-        .from("proposals")
-        .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(email, contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id)")
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false }),
-      supabase.from("invoices").select("id, status, proposal_id"),
+    const [data, invData, { data: wtData }] = await Promise.all([
+      fetchAll(
+        "proposals",
+        "*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(email, contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id)",
+        { filters: [["is", "deleted_at", null]], order: { column: "created_at", ascending: false } }
+      ),
+      fetchAll("invoices", "id, status, proposal_id"),
       supabase.from("work_types").select("*").order("name"),
     ]);
     setWorkTypes(wtData || []);
     const invByProposal = {};
-    (invData || []).forEach(inv => {
+    invData.forEach(inv => {
       if (inv.proposal_id) {
         if (!invByProposal[inv.proposal_id]) invByProposal[inv.proposal_id] = [];
         invByProposal[inv.proposal_id].push(inv);

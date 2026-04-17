@@ -1507,14 +1507,30 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
 
   // ── Autosave ─────────────────────────────────────────────────────────────
   const isLoading = useRef(true);
+  const pendingSave = useRef(false);
+  const handleSaveRef = useRef(null);
   useEffect(() => { isLoading.current = false; }, []);
   useEffect(() => {
     if (isLoading.current) return;
     if (proposalSold) return;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = setTimeout(() => { handleSave(); }, 1500);
+    pendingSave.current = true;
+    autosaveTimer.current = setTimeout(() => {
+      pendingSave.current = false;
+      handleSave();
+    }, 1500);
     return () => clearTimeout(autosaveTimer.current);
   }, [bidding, labor, materials, sow, travel, discount, selectedWorkTypeId]);
+
+  // Flush any pending autosave on unmount so edits aren't lost if the
+  // user closes the modal before the 1.5s debounce fires.
+  useEffect(() => {
+    return () => {
+      if (pendingSave.current && handleSaveRef.current) {
+        handleSaveRef.current();
+      }
+    };
+  }, []);
 
   // ── Load tenant defaults for new WTCs ───────────────────────────────────
   useEffect(() => {
@@ -1725,6 +1741,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     }
     setSaved(true);
   };
+  handleSaveRef.current = handleSave;
 
   // ── Lock in Supabase ─────────────────────────────────────────────────────
   const handleLock = async () => {

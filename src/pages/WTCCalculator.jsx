@@ -1612,9 +1612,19 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     async function loadWorkTypes() {
       const { data } = await supabase
         .from("work_types")
-        .select("id, name, sales_sow")
+        .select("id, name, sales_sow, tenant_id")
         .order("name");
-      if (data) setWorkTypes(data);
+      if (data) {
+        // Dedupe by name — tenant override hides matching system default
+        const byName = new Map();
+        for (const wt of data) {
+          const existing = byName.get(wt.name);
+          if (!existing || (wt.tenant_id && !existing.tenant_id)) {
+            byName.set(wt.name, wt);
+          }
+        }
+        setWorkTypes(Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name)));
+      }
     }
     loadWorkTypes();
   }, []);

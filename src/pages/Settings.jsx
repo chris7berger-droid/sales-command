@@ -37,21 +37,42 @@ function WorkTypesSection() {
     if (tc) setTenantId(tc.id);
     const { data } = await supabase
       .from("work_types")
-      .select("id, name, cost_code, sales_sow, sort_order")
-      .not("tenant_id", "is", null)
+      .select("id, name, cost_code, sales_sow, sort_order, tenant_id")
       .order("name");
-    if (data) setWorkTypes(data);
+    if (data) {
+      // Dedupe by name — prefer tenant override over system default
+      const byName = new Map();
+      for (const wt of data) {
+        const existing = byName.get(wt.name);
+        if (!existing || (wt.tenant_id && !existing.tenant_id)) {
+          byName.set(wt.name, wt);
+        }
+      }
+      setWorkTypes(Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name)));
+    }
     setLoading(false);
   }
 
   const startNew  = () => setEditing({ isNew: true, name: "", cost_code: "", sales_sow: "" });
-  const startEdit = (wt) => setEditing({ ...wt });
+  const startEdit = (wt) => {
+    if (wt.tenant_id) {
+      setEditing({ ...wt });
+    } else {
+      // System row — open form prefilled; save as tenant override
+      setEditing({
+        isOverride: true,
+        name: wt.name,
+        cost_code: wt.cost_code || "",
+        sales_sow: "",
+      });
+    }
+  };
   const cancel    = () => setEditing(null);
 
   async function save() {
     if (!editing.name.trim()) return;
     setSaving(true);
-    if (editing.isNew) {
+    if (editing.isNew || editing.isOverride) {
       await supabase.from("work_types").insert({
         name: editing.name.trim(),
         cost_code: editing.cost_code.trim(),
@@ -100,13 +121,22 @@ function WorkTypesSection() {
           <EditRow key={wt.id} editing={editing} setEditing={setEditing} onSave={save} onCancel={cancel} saving={saving} inputStyle={inputStyle} />
         ) : (
           <div key={wt.id} style={rowStyle}>
-            <span style={{ fontSize: 13, fontFamily: F.ui, color: C.textBody }}>{wt.name}</span>
+            <span style={{ fontSize: 13, fontFamily: F.ui, color: C.textBody, display: "flex", alignItems: "center", gap: 10 }}>
+              {wt.name}
+              {wt.tenant_id ? (
+                <span style={{ fontSize: 9, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 4, padding: "2px 6px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Custom</span>
+              ) : (
+                <span style={{ fontSize: 9, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Default</span>
+              )}
+            </span>
             <span style={{ fontSize: 13, fontFamily: F.ui, color: C.textMuted }}>{wt.cost_code || "—"}</span>
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn sz="sm" v="ghost" onClick={() => startEdit(wt)}>Edit</Btn>
-              <Btn sz="sm" v="ghost" onClick={() => remove(wt.id)} disabled={deleteId === wt.id}>
-                {deleteId === wt.id ? "…" : "Delete"}
-              </Btn>
+              <Btn sz="sm" v="ghost" onClick={() => startEdit(wt)}>{wt.tenant_id ? "Edit" : "Add SOW"}</Btn>
+              {wt.tenant_id && (
+                <Btn sz="sm" v="ghost" onClick={() => remove(wt.id)} disabled={deleteId === wt.id}>
+                  {deleteId === wt.id ? "…" : "Delete"}
+                </Btn>
+              )}
             </div>
           </div>
         )
@@ -120,6 +150,12 @@ function WorkTypesSection() {
       {!workTypes.length && !editing && (
         <div style={{ fontSize: 13, fontFamily: F.ui, color: C.textFaint, padding: "10px 0" }}>
           No work types yet. Add your first one below.
+        </div>
+      )}
+
+      {workTypes.length > 0 && (
+        <div style={{ fontSize: 11, fontFamily: F.ui, color: C.textFaint, marginTop: 4, lineHeight: 1.5 }}>
+          System defaults are read-only. Click <strong>Add SOW</strong> to create a tenant-specific override with your own default scope of work.
         </div>
       )}
 

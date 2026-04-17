@@ -716,7 +716,7 @@ function DiscountTab({ data, onChange }) {
   );
 }
 
-function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved }) {
+function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDefaultSow, defaultSowAvailable }) {
   const set  = k => v => onChange({ ...data, [k]: v });
   const setN = k => v => onChange({ ...data, [k]: parseFloat(v) || 0 });
 
@@ -814,6 +814,21 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved }) {
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
           <div style={{ background: T.green, color: T.dark, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>🟢 SALES SCOPE</div>
           <span style={{ fontSize: 11, color: T.gray500, fontWeight: 600, letterSpacing: "0.04em" }}>CUSTOMER FACING · GOES ON THE PROPOSAL · LOCKS ON APPROVAL</span>
+          {!locked && defaultSowAvailable && (
+            <button
+              onClick={() => {
+                if (data.sales_sow && data.sales_sow.trim()) {
+                  if (!window.confirm("Replace current Scope of Work with the default for this work type?")) return;
+                }
+                onLoadDefaultSow();
+              }}
+              style={{ marginLeft: "auto", background: "none", border: `1px solid ${T.gray300}`, borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 600, color: T.gray700, cursor: "pointer", fontFamily: "inherit" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.green; e.currentTarget.style.color = T.green; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.gray300; e.currentTarget.style.color = T.gray700; }}
+            >
+              Use default SOW
+            </button>
+          )}
         </div>
         <Textarea label="Customer-Facing Scope of Work" value={data.sales_sow} onChange={set("sales_sow")} rows={7}
           placeholder={"SCOPE OF WORK:\n- Step 1\n- Step 2\n\nQUALIFICATIONS:\n- ...\n\nEXCLUSIONS:\n- ..."} locked={locked} />
@@ -1507,14 +1522,30 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
 
   // ── Autosave ─────────────────────────────────────────────────────────────
   const isLoading = useRef(true);
+  const pendingSave = useRef(false);
+  const handleSaveRef = useRef(null);
   useEffect(() => { isLoading.current = false; }, []);
   useEffect(() => {
     if (isLoading.current) return;
     if (proposalSold) return;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = setTimeout(() => { handleSave(); }, 1500);
+    pendingSave.current = true;
+    autosaveTimer.current = setTimeout(() => {
+      pendingSave.current = false;
+      handleSave();
+    }, 1500);
     return () => clearTimeout(autosaveTimer.current);
-  }, [bidding, labor, materials, sow, travel, discount]);
+  }, [bidding, labor, materials, sow, travel, discount, selectedWorkTypeId]);
+
+  // Flush any pending autosave on unmount so edits aren't lost if the
+  // user closes the modal before the 1.5s debounce fires.
+  useEffect(() => {
+    return () => {
+      if (pendingSave.current && handleSaveRef.current) {
+        handleSaveRef.current();
+      }
+    };
+  }, []);
 
   // ── Load tenant defaults for new WTCs ───────────────────────────────────
   useEffect(() => {
@@ -1612,9 +1643,19 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     async function loadWorkTypes() {
       const { data } = await supabase
         .from("work_types")
-        .select("id, name, sales_sow")
+        .select("id, name, sales_sow, tenant_id")
         .order("name");
-      if (data) setWorkTypes(data);
+      if (data) {
+        // Dedupe by name — tenant override hides matching system default
+        const byName = new Map();
+        for (const wt of data) {
+          const existing = byName.get(wt.name);
+          if (!existing || (wt.tenant_id && !existing.tenant_id)) {
+            byName.set(wt.name, wt);
+          }
+        }
+        setWorkTypes(Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name)));
+      }
     }
     loadWorkTypes();
   }, []);
@@ -1622,6 +1663,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   // ── Auto-load SOW template when work type selected ───────────────────────
   const handleWorkTypeChange = async (newWorkTypeId) => {
     setSelectedWorkTypeId(newWorkTypeId);
+    setSaved(false);
     if (!sow.sales_sow) {
       // Check tenant work type for sales_sow first
       const tenantWt = workTypes.find(w => String(w.id) === String(newWorkTypeId));
@@ -1638,6 +1680,25 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       if (data?.sales_sow_template) {
         setSow(s => ({ ...s, sales_sow: data.sales_sow_template }));
       }
+    }
+  };
+
+  const handleLoadDefaultSow = async () => {
+    if (!selectedWorkTypeId) return;
+    const tenantWt = workTypes.find(w => String(w.id) === String(selectedWorkTypeId));
+    if (tenantWt?.sales_sow) {
+      setSow(s => ({ ...s, sales_sow: tenantWt.sales_sow }));
+      setSaved(false);
+      return;
+    }
+    const { data } = await supabase
+      .from("work_type_sow_templates")
+      .select("sales_sow_template")
+      .eq("work_type_id", selectedWorkTypeId)
+      .single();
+    if (data?.sales_sow_template) {
+      setSow(s => ({ ...s, sales_sow: data.sales_sow_template }));
+      setSaved(false);
     }
   };
 
@@ -1714,6 +1775,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     }
     setSaved(true);
   };
+  handleSaveRef.current = handleSave;
 
   // ── Lock in Supabase ─────────────────────────────────────────────────────
   const handleLock = async () => {
@@ -1889,7 +1951,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
           {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} />}
           {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={proposalSold ? undefined : v => { setLabor(v); setSaved(false); }} />}
           {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={proposalSold ? undefined : v => { setMaterials(v); setSaved(false); }} />}
-          {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} onSave={handleSave} saved={saved} />}
+          {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} onSave={handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} />}
           {tab === "travel"  && <TravelTab data={travel} onChange={proposalSold ? undefined : v => { setTravel(v); setSaved(false); }} />}
           {tab === "discount" && <DiscountTab data={discount} onChange={proposalSold ? undefined : v => { setDiscount(v); setSaved(false); }} />}
           {tab === "summary" && <SummaryTab labor={laborComputed} materials={materials} travel={travel} discount={discount} sow={sow} bidding={bidding} onSave={handleSave} saved={saved} locked={locked} onLock={handleLock} onGeneratePDF={() => { if (onClose) onClose(true); }} />}

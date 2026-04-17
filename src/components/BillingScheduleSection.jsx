@@ -152,6 +152,19 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
 
   async function uploadContract(file) {
     if (!file) return;
+    // Defense-in-depth: storage bucket paths are keyed on proposal.id, so
+    // a tampered prop could land a file under another tenant's folder even
+    // though the DB write would be blocked by RLS. Verify the caller's
+    // tenant owns this proposal before touching storage.
+    const { data: tc } = await supabase.from("tenant_config").select("id").single();
+    const userTenant = tc?.id;
+    const { data: owned } = await supabase
+      .from("proposals")
+      .select("id")
+      .eq("id", proposal.id)
+      .eq("tenant_id", userTenant)
+      .maybeSingle();
+    if (!userTenant || !owned) { alert("Upload blocked: proposal tenant mismatch."); return; }
     setUploading(true);
     const clean = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const path = `${proposal.id}/contract-${Date.now()}-${clean}`;

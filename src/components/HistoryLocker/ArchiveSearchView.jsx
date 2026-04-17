@@ -31,16 +31,14 @@ export default function ArchiveSearchView({ tenantId, onNavigateProposal, canImp
   const [sources, setSources] = useState([]);
   const [types, setTypes] = useState([]);
 
-  // Load filter options on mount
+  // Load filter options on mount (tenant-scoped DISTINCT via RPC)
   useEffect(() => {
     (async () => {
-      const sb = archiveDb;
-      const [srcRes, typeRes] = await Promise.all([
-        sb.from("legacy_records").select("source_system").limit(1000),
-        sb.from("legacy_records").select("record_type").limit(1000),
-      ]);
-      if (srcRes.data) setSources([...new Set(srcRes.data.map(r => r.source_system).filter(Boolean))].sort());
-      if (typeRes.data) setTypes([...new Set(typeRes.data.map(r => r.record_type).filter(Boolean))].sort());
+      const { data } = await archiveDb.rpc("get_filter_options");
+      if (data) {
+        setSources(data.sources || []);
+        setTypes(data.types || []);
+      }
     })();
   }, []);
 

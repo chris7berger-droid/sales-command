@@ -15,12 +15,17 @@ let _accessToken = null;
 supabase.auth.getSession().then(({ data }) => { _accessToken = data.session?.access_token || null; });
 supabase.auth.onAuthStateChange((_evt, session) => { _accessToken = session?.access_token || null; });
 
-export const archiveDb = {
-  from: (table) => new PostgrestClient(`${SUPABASE_URL}/rest/v1`, {
+function makeArchiveClient() {
+  return new PostgrestClient(`${SUPABASE_URL}/rest/v1`, {
     headers: {
       apikey: SUPABASE_KEY,
       Authorization: `Bearer ${_accessToken || SUPABASE_KEY}`,
     },
     schema: "archive",
-  }).from(table),
+  });
+}
+
+export const archiveDb = {
+  from: (table) => makeArchiveClient().from(table),
+  rpc: (fn, args) => makeArchiveClient().rpc(fn, args),
 };

@@ -1514,7 +1514,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => { handleSave(); }, 1500);
     return () => clearTimeout(autosaveTimer.current);
-  }, [bidding, labor, materials, sow, travel, discount]);
+  }, [bidding, labor, materials, sow, travel, discount, selectedWorkTypeId]);
 
   // ── Load tenant defaults for new WTCs ───────────────────────────────────
   useEffect(() => {
@@ -1632,6 +1632,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   // ── Auto-load SOW template when work type selected ───────────────────────
   const handleWorkTypeChange = async (newWorkTypeId) => {
     setSelectedWorkTypeId(newWorkTypeId);
+    setSaved(false);
     if (!sow.sales_sow) {
       // Check tenant work type for sales_sow first
       const tenantWt = workTypes.find(w => String(w.id) === String(newWorkTypeId));

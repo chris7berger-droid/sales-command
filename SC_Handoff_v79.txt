@@ -1,0 +1,199 @@
+SC_Handoff_v79 — April 17, 2026 (Pay App Phase 3 shipped)
+Session: built Pay App generation end-to-end for DA Builders' G702/G703
+template, sent a real email from localhost with both PDFs attached, and
+validated the full Send flow before pushing. 3 feature commits + 1 handoff.
+
+===============================================================================
+STATE OF THE WORLD
+===============================================================================
+
+EVERYTHING IS LIVE on scmybiz.com.
+
+Commits added this session (all on main, all pushed):
+  (migrations)  feat(billing): pay app data model migrations
+  (feature)     feat(billing): pay app generation flow end-to-end
+  (edge fn)     feat(billing): send-pay-app edge function
+  (this doc)    docs: SC_Handoff_v79
+
+Migrations applied to prod DB (in order):
+  20260417140000_pay_apps.sql
+  20260417150000_default_pay_app_intro.sql
+  20260417160000_invoices_pdf_url.sql
+  20260417170000_call_log_subcontractor_job_no.sql
+
+Edge functions deployed:
+  send-pay-app (v2, --no-verify-jwt, CORS whitelist includes localhost)
+
+Dependency added: pdf-lib ^1.17.1
+
+===============================================================================
+WHAT SHIPPED — PAY APP PHASE 3
+===============================================================================
+
+WORKFLOW:
+  1. Admin locks a billing schedule → Lock Schedule button in
+     BillingScheduleSection (was already built but newly wired).
+  2. "+ New Pay App" opens NewPayAppModal: per-SOV-line % to date input,
+     5% retention math (DA form convention, not AIA cumulative), creates
+     a linked SC invoice automatically.
+  3. Click pay app row → PayAppDetailModal (canonical view). Shows
+     line breakdown, retention math, linked invoice, filled template PDF.
+  4. "Send Pay App" → step 2 editor (recipient, subject, body with
+     variable-substituted intro from tenant_config.default_pay_app_intro).
+  5. Send → one email with 2 PDF attachments (Pay App + SC Invoice) via
+     Resend. On success: pay app → submitted, invoice → Sent, fires
+     qb-sync-invoice fire-and-forget to push invoice to QuickBooks.
+
+DATA MODEL:
+  billing_schedule_pay_apps
+    - id (uuid), billing_schedule_id (uuid), app_number (int, unique per schedule),
+      period_from/period_to, this_app_amount, retainage_withheld,
+      current_payment_due, status (draft/submitted/paid), submitted_at,
+      pdf_url, invoice_id (text FK invoices), tenant_id, type_of_work
+  billing_schedule_pay_app_lines
+    - snapshot per SOV line at time of generation: billing_schedule_line_id,
+      billed_amount_this_app, pct_this_app
+  customer_pay_app_templates
+    - scope: 'customer' (default for all jobs) or 'job' (specific proposal)
+    - pdf_url + field_mapping jsonb (overrides for custom templates)
+    - scope='job' requires proposal_id, 'customer' forbids it (check constraint)
+
+  All tables RLS-gated by is_admin_or_manager() for writes. Sales role can
+  view but not create — matches the "sales role can't config billing" rule.
+
+  invoices.pdf_url added — cached after first generation so resends don't
+  regenerate. Cache cleared on failure or status reset.
+
+  call_log.subcontractor_job_no added — customer's internal job number
+  (e.g. DA Builders' 6359 for the 10039 job). Separate from job_number
+  (legacy/archive) and display_job_number (Sales Command's ID). Pay app
+  PDF + invoice PDF fall back to call_log.job_number when
+  subcontractor_job_no is empty — covers archive-imported jobs where the
+  customer's number is already in the legacy job_number field.
+
+PDF GENERATION:
+  src/lib/payAppPdf.js — pdf-lib overlay on flat customer template PDFs.
+  Times Roman embedded font. Multi-line support via \n split + lineHeight.
+  DEFAULT_DA_BUILDERS_JOB_FIELD_MAP coordinates (PDF points, bottom-left
+  origin, 612x792 letter) calibrated to the actual template via
+  iterative cm-measured feedback:
+    from_info: x=72, y=684, size=10, lineHeight=12
+    subcontractor_job_no: x=161, y=642, size=10
+    invoice_number: x=375, y=588, size=10
+    invoice_date: x=385, y=561, size=10
+    invoice_attached_yes: x=506, y=588, size=11 (an X stamp)
+    original_subcontract: x=345, y=523, size=10
+    co_1..5: x=161, y=495/482/469/456/443, size=10
+    total_revised_subcontract: x=345, y=442, size=10
+    type_of_work: x=150, y=395, size=10
+    period_from/to: x=333/462, y=369, size=10
+    gross_completed_to_date: x=360, y=343
+    previous_billings_to_date: x=360, y=323
+    gross_this_billing: x=360, y=305
+    retention_this_period: x=360, y=285
+    current_payment_due: x=360, y=265
+    unapproved_extras_total: x=500, y=248
+
+  Field map is per-template — stored on customer_pay_app_templates.field_mapping
+  jsonb. Falls back to DEFAULT_DA_BUILDERS_JOB_FIELD_MAP when template
+  has none.
+
+  src/lib/invoicePdf.js — jsPDF branded Sales Command invoice. Matches
+  the Invoices preview HTML. Uses callLog.subcontractor_job_no (fallback
+  job_number, then invoice.job_id) for the JOB # block. Description
+  column wraps at (colAmtX - colDescX - 90) to avoid overlap with
+  right-aligned amount text.
+
+EMAIL:
+  supabase/functions/send-pay-app/index.ts
+  - Auth-required (same pattern as send-invoice/send-proposal)
+  - CORS: scmybiz.com + salescommand.app + *.vercel.app + http://localhost*
+  - Uses Resend, verified domains: hdspnv.com, scmybiz.com, salescommand.app
+  - From address = logged-in user's email if domain verified, else noreply@salescommand.app
+  - Attaches both PDFs as base64
+  - On success: pay app.status=submitted, invoice.status=Sent,
+    fire-and-forget qb-sync-invoice
+
+  Body template variables (seeded in migration):
+    {{app_number}}, {{period}}, {{job_name}}, {{amount}}, {{invoice_number}}
+
+===============================================================================
+FIELD CALIBRATION NOTES — FOR FUTURE CUSTOMER TEMPLATES
+===============================================================================
+
+DA Builders template coords took several rounds. Workflow that worked:
+  1. First pass: eyeball from 150 DPI render, ship coarse values.
+  2. User views regenerated PDF, reports offsets in cm (e.g. "move 0.5cm
+     down and 2cm left").
+  3. Convert: 1 cm = 28.35 pts. PDF y-axis is bottom-up (down = y-).
+
+Each new customer template needs its own field_mapping row on
+customer_pay_app_templates. Upload template via PayAppTemplatesSection
+in Customers page (per-customer default) or per-proposal in the pay app
+flow (job-scoped override).
+
+Retention convention: DA form Line 7 = 5% of THIS-period billing (not
+cumulative AIA-style). Other customers may want AIA — add a retention_style
+column on customer_pay_app_templates when that comes up.
+
+===============================================================================
+KNOWN GAPS / DEFERRED
+===============================================================================
+
+  - Resend on submitted pay apps: button says "Already Sent" and is
+    disabled. To resend during development we reset status via
+    `supabase db query --linked "UPDATE billing_schedule_pay_apps
+     SET status='draft', submitted_at=NULL WHERE ..."`. Future: add
+    explicit "Resend" button that regenerates + re-sends without
+    re-creating the invoice.
+  - Retention release: no mechanism yet for billing out held retention
+    on final pay app. Next customer-facing feature.
+  - AIA-style retention variant (cumulative on Gross Completed): not
+    implemented. Add when a non-DA customer needs it.
+  - Contact dedup UI: Chris asked mid-session, agreed to defer.
+  - Customer can have multiple per-job templates — today we pick the
+    first match by proposal_id. If a customer swaps templates mid-job,
+    manual cleanup needed.
+
+===============================================================================
+MEMORY UPDATES THIS SESSION
+===============================================================================
+
+No new memories saved this session.
+
+Applied existing memories:
+  - feedback_workflow.md — grep before edits, one step at a time
+  - feedback_build_right.md — full data model before UI wiring
+  - feedback_testing.md — smoke-tested every layer before commit
+  - feedback_parallel_agents.md — used parallel subagents for modal
+    scaffolding + invoice PDF + edge function
+  - project_supabase_migrations.md — supabase db push, migration files
+  - project_rls_pattern.md — copied standard tenant_id + 4-policy
+    pattern to all 3 new tables
+  - feedback_role_gating.md — admin/manager only for pay app creation
+  - feedback_terminology.md — "push" = live on scmybiz.com
+  - feedback_teal_on_dark.md — invoice # badge, template warning box
+  - feedback_edge_functions.md — deployed with --no-verify-jwt
+
+===============================================================================
+NEXT SESSION
+===============================================================================
+
+Immediate opportunities:
+  - Retention release flow (final pay app bills out withheld retention)
+  - Resend button on submitted pay apps
+  - Additional customer templates beyond DA Builders (each needs its
+    own field_mapping — calibration pattern documented above)
+  - AIA-style cumulative retention for customers that want it
+
+Architecture backlog (unchanged from v78):
+  - ProposalDetail.jsx extraction (1,121 lines)
+  - queries.js data layer build-out or CLAUDE.md rule removal
+  - V52 page-thinness violations on WTCCalculator, Invoices, Settings
+
+None of the above blocks revenue. Pay App flow is live and working for
+proposal 10039 / DA Builders.
+
+Dev server was left running on :5173 at session end.
+
+===============================================================================

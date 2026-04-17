@@ -142,8 +142,8 @@ function WorkTypesSection() {
         )
       )}
 
-      {/* New row form */}
-      {editing?.isNew && (
+      {/* New / override row form */}
+      {(editing?.isNew || editing?.isOverride) && (
         <EditRow editing={editing} setEditing={setEditing} onSave={save} onCancel={cancel} saving={saving} inputStyle={inputStyle} />
       )}
 

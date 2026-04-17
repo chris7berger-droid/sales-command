@@ -231,18 +231,26 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
 
   useEffect(() => {
     async function load() {
-      const [{ data: j }, { data: p }, i] = await Promise.all([
-        supabase.from("call_log").select("id, display_job_number, job_name, stage, sales_name, created_at").eq("customer_id", customer.id).order("id", { ascending: false }),
-        supabase.from("proposals").select("id, total, status, created_at, proposal_number, call_log_id, call_log!inner(customer_id), proposal_wtc(work_types(name))").is("deleted_at", null).eq("call_log.customer_id", customer.id).order("created_at", { ascending: false }),
+      const [j, p, i] = await Promise.all([
+        fetchAll(
+          "call_log",
+          "id, display_job_number, job_name, stage, sales_name, created_at",
+          { filters: [["eq", "customer_id", customer.id]], order: { column: "id", ascending: false } }
+        ),
+        fetchAll(
+          "proposals",
+          "id, total, status, created_at, proposal_number, call_log_id, call_log!inner(customer_id), proposal_wtc(work_types(name))",
+          { filters: [["is", "deleted_at", null], ["eq", "call_log.customer_id", customer.id]], order: { column: "created_at", ascending: false } }
+        ),
         fetchAll(
           "invoices",
           "id, amount, status, sent_at, paid_at, job_id, job_name, invoice_lines(proposal_wtc(work_types(name)))",
           { filters: [["is", "deleted_at", null]], order: { column: "sent_at", ascending: false } }
         ),
       ]);
-      const jobIds = new Set((j || []).map(x => x.id));
-      setJobs(j || []);
-      setProposals(p || []);
+      const jobIds = new Set(j.map(x => x.id));
+      setJobs(j);
+      setProposals(p);
       setInvoices(i.filter(inv => jobIds.has(inv.job_id)));
       setLoading(false);
     }

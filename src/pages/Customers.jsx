@@ -3,6 +3,7 @@ import { C, F } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
+import { getCurrentTeamMember } from "../lib/auth";
 import SectionHeader from "../components/SectionHeader";
 import DataTable from "../components/DataTable";
 import Btn from "../components/Btn";
@@ -214,6 +215,211 @@ function ContactModal({ contact, customerId, onClose, onSaved }) {
   );
 }
 
+/* ─── Pay App Template Modal ─── */
+function PayAppTemplateModal({ customerId, onClose, onSaved }) {
+  const [label, setLabel]             = useState("");
+  const [scope, setScope]             = useState("customer"); // "customer" | "job"
+  const [proposalId, setProposalId]   = useState("");
+  const [proposals, setProposals]     = useState([]);
+  const [file, setFile]               = useState(null);
+  const [isDefault, setIsDefault]     = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("proposals")
+        .select("id, proposal_number, call_log!inner(customer_id, job_name)")
+        .eq("call_log.customer_id", customerId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false });
+      setProposals(data || []);
+    })();
+  }, [customerId]);
+
+  const handleSave = async () => {
+    if (!label.trim()) { setError("Label is required"); return; }
+    if (!file)         { setError("PDF file is required"); return; }
+    if (scope === "job" && !proposalId) { setError("Select a proposal for job-specific templates"); return; }
+
+    setSaving(true); setError("");
+
+    const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `pay-app-templates/${customerId}/${Date.now()}-${cleanName}`;
+    const { error: upErr } = await supabase.storage.from("job-attachments").upload(path, file, { contentType: "application/pdf" });
+    if (upErr) { setSaving(false); setError(upErr.message); return; }
+
+    const { data: pub } = supabase.storage.from("job-attachments").getPublicUrl(path);
+    const pdf_url = pub?.publicUrl;
+
+    // If setting as default (customer scope only), clear others first
+    if (scope === "customer" && isDefault) {
+      await supabase.from("customer_pay_app_templates")
+        .update({ is_default: false })
+        .eq("customer_id", customerId)
+        .eq("scope", "customer");
+    }
+
+    const payload = {
+      customer_id: customerId,
+      proposal_id: scope === "job" ? proposalId : null,
+      scope,
+      label: label.trim(),
+      pdf_url,
+      is_fillable: false,
+      field_mapping: null,
+      is_default: scope === "customer" ? isDefault : false,
+    };
+    const { error: insErr } = await supabase.from("customer_pay_app_templates").insert([payload]);
+    setSaving(false);
+    if (insErr) { setError(insErr.message); return; }
+    onSaved();
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }} onClick={onClose}>
+      <div style={{ background: C.linenCard, borderRadius: 14, padding: 28, width: 460, maxHeight: "85vh", overflowY: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.25)" }} onClick={e => e.stopPropagation()}>
+        <h2 style={{ margin: "0 0 20px", fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.03em", textTransform: "uppercase" }}>
+          Upload Pay App Template
+        </h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Field label="Label">
+            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. HDSP G702/G703 Blank" style={inputStyle} />
+          </Field>
+          <Field label="Scope">
+            <div style={{ display: "flex", gap: 14 }}>
+              <button onClick={() => setScope("customer")} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}>
+                <div style={{ width: 16, height: 16, borderRadius: 8, border: `2px solid ${scope === "customer" ? C.teal : C.borderStrong}`, background: scope === "customer" ? C.teal : "transparent" }} />
+                <span style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>Customer-wide</span>
+              </button>
+              <button onClick={() => setScope("job")} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}>
+                <div style={{ width: 16, height: 16, borderRadius: 8, border: `2px solid ${scope === "job" ? C.teal : C.borderStrong}`, background: scope === "job" ? C.teal : "transparent" }} />
+                <span style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>Job-specific</span>
+              </button>
+            </div>
+          </Field>
+          {scope === "job" && (
+            <Field label="Proposal">
+              <select value={proposalId} onChange={e => setProposalId(e.target.value)} style={inputStyle}>
+                <option value="">— Select Proposal —</option>
+                {proposals.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {(p.proposal_number || p.id) + " - " + (p.call_log?.job_name || "")}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          <Field label="PDF File">
+            <input type="file" accept="application/pdf" onChange={e => setFile(e.target.files?.[0] || null)} style={{ ...inputStyle, padding: "8px 10px" }} />
+          </Field>
+          {scope === "customer" && (
+            <Field label="Default?">
+              <button onClick={() => setIsDefault(!isDefault)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}>
+                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isDefault ? C.teal : C.borderStrong}`, background: isDefault ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {isDefault && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
+                </div>
+                <span style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>Set as default for this customer</span>
+              </button>
+            </Field>
+          )}
+        </div>
+        {error && <div style={{ marginTop: 14, color: C.red, fontSize: 13, fontFamily: F.ui }}>{error}</div>}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
+          <Btn v="ghost" sz="sm" onClick={onClose}>Cancel</Btn>
+          <Btn sz="sm" onClick={handleSave} disabled={saving}>{saving ? "Uploading..." : "Save"}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Pay App Templates Section ─── */
+function PayAppTemplatesSection({ customerId, canManage }) {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [showModal, setShowModal] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from("customer_pay_app_templates")
+      .select("id, label, scope, pdf_url, is_default, created_at, proposal_id, proposals(proposal_number)")
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: false });
+    setTemplates(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, [customerId]);
+
+  const handleDelete = async (t) => {
+    if (!window.confirm(`Delete template "${t.label}"?`)) return;
+    const { error: delErr } = await supabase.from("customer_pay_app_templates").delete().eq("id", t.id);
+    if (delErr) { alert(delErr.message); return; }
+    // Best-effort: strip the storage path from the public URL and remove
+    try {
+      const marker = "/job-attachments/";
+      const idx = t.pdf_url?.indexOf(marker);
+      if (idx >= 0) {
+        const path = t.pdf_url.slice(idx + marker.length);
+        await supabase.storage.from("job-attachments").remove([path]);
+      }
+    } catch (_) { /* ignore */ }
+    load();
+  };
+
+  const card = { background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 12, padding: 18 };
+  const headerStyle = { fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui };
+  const pill = { display: "inline-block", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontFamily: F.display };
+
+  return (
+    <div style={card}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <div style={headerStyle}>Pay App Templates</div>
+        {canManage && <Btn sz="sm" onClick={() => setShowModal(true)}>+ Upload Template</Btn>}
+      </div>
+      {loading ? (
+        <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>Loading...</div>
+      ) : templates.length === 0 ? (
+        <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>No templates uploaded</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {templates.map(t => (
+            <div key={t.id} style={{
+              display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+              background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px",
+            }}>
+              <div style={{ flex: 1, minWidth: 180, fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>
+                {t.label || "(untitled)"}
+              </div>
+              <span style={pill}>{t.scope === "job" ? "Job" : "Customer"}</span>
+              {t.scope === "job" && t.proposals?.proposal_number && (
+                <span style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{t.proposals.proposal_number}</span>
+              )}
+              {t.is_default && <span style={pill}>Default</span>}
+              {t.pdf_url && (
+                <a href={t.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11.5, fontWeight: 700, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", textDecoration: "none" }}>View</a>
+              )}
+              {canManage && (
+                <button onClick={() => handleDelete(t)} style={{ background: "none", border: "none", color: C.textFaint, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 4px" }} title="Delete">×</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {showModal && (
+        <PayAppTemplateModal
+          customerId={customerId}
+          onClose={() => setShowModal(false)}
+          onSaved={() => { setShowModal(false); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
 /* ─── Customer Detail View ─── */
 function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigateProposal, onNavigateInvoice }) {
   const [jobs, setJobs]           = useState([]);
@@ -223,6 +429,10 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
   const [loading, setLoading]     = useState(true);
   const [tab, setTab]             = useState("jobs");
   const [contactModal, setContactModal] = useState(null); // null | "new" | contact obj
+  const [teamMember, setTeamMember] = useState(null);
+  const canManage = !!teamMember && ["Admin", "Manager"].includes(teamMember.role);
+
+  useEffect(() => { getCurrentTeamMember().then(setTeamMember); }, []);
 
   const loadContacts = async () => {
     const { data } = await supabase.from("customer_contacts").select("*").eq("customer_id", customer.id).order("is_primary", { ascending: false }).order("name");
@@ -335,6 +545,9 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
 
       {/* Contact Modal */}
       {contactModal && <ContactModal contact={contactModal === "new" ? null : contactModal} customerId={customer.id} onClose={() => setContactModal(null)} onSaved={() => { setContactModal(null); loadContacts(); }} />}
+
+      {/* Pay App Templates */}
+      <PayAppTemplatesSection customerId={customer.id} canManage={canManage} />
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 6 }}>

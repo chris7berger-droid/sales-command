@@ -3,6 +3,8 @@ import { supabase } from "../lib/supabase";
 import { C, F } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
 import Btn from "./Btn";
+import NewPayAppModal from "./NewPayAppModal";
+import PayAppDetailModal from "./PayAppDetailModal";
 
 const inputStyle = {
   padding: "7px 10px", borderRadius: 6, border: `1.5px solid ${C.borderStrong}`,
@@ -26,6 +28,9 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
   const [addingCo, setAddingCo] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [review, setReview] = useState(null); // { sourceUrl, lines: [...], contract_sum, retainage_pct, notes }
+  const [payApps, setPayApps] = useState([]);
+  const [showPayAppModal, setShowPayAppModal] = useState(false);
+  const [detailPayAppId, setDetailPayAppId] = useState(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -37,22 +42,27 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
     setSchedule(sch);
 
     if (sch) {
-      const { data: lns } = await supabase
-        .from("billing_schedule_lines")
-        .select("*")
-        .eq("billing_schedule_id", sch.id)
-        .order("ordinal", { ascending: true })
-        .order("created_at", { ascending: true });
+      const [{ data: lns }, { data: apps }, { count }] = await Promise.all([
+        supabase.from("billing_schedule_lines")
+          .select("*")
+          .eq("billing_schedule_id", sch.id)
+          .order("ordinal", { ascending: true })
+          .order("created_at", { ascending: true }),
+        supabase.from("billing_schedule_pay_apps")
+          .select("id, app_number, period_from, period_to, this_app_amount, retainage_withheld, current_payment_due, status, pdf_url, invoice_id, created_at")
+          .eq("billing_schedule_id", sch.id)
+          .order("app_number", { ascending: true }),
+        supabase.from("invoices")
+          .select("id", { count: "exact", head: true })
+          .eq("proposal_id", proposal.id)
+          .is("deleted_at", null),
+      ]);
       setLines(lns || []);
-
-      const { count } = await supabase
-        .from("invoices")
-        .select("id", { count: "exact", head: true })
-        .eq("proposal_id", proposal.id)
-        .is("deleted_at", null);
+      setPayApps(apps || []);
       setLocked((count || 0) > 0 || sch.status === "locked");
     } else {
       setLines([]);
+      setPayApps([]);
       setLocked(false);
     }
     setLoading(false);
@@ -132,6 +142,15 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
     if (isNaN(pct) || pct < 0 || pct > 100) return;
     await supabase.from("billing_schedule").update({ retainage_pct: pct }).eq("id", schedule.id);
     setSchedule(prev => prev ? { ...prev, retainage_pct: pct } : prev);
+  }
+
+  async function lockSchedule() {
+    if (lines.length === 0) { alert("Add at least one SOV line before locking."); return; }
+    if (!confirm("Lock this schedule? Line items become read-only and pay apps can be created. Change orders can still be appended.")) return;
+    const { error } = await supabase.from("billing_schedule").update({ status: "locked" }).eq("id", schedule.id);
+    if (error) { alert("Failed to lock: " + error.message); return; }
+    setSchedule(prev => prev ? { ...prev, status: "locked" } : prev);
+    setLocked(true);
   }
 
   // Unified doc list: prefer contract_pdf_urls (array), fall back to legacy
@@ -352,13 +371,21 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
           <div style={h}>Customer Billing Schedule</div>
           <span style={{ background: statusBadge.bg, color: statusBadge.color, fontSize: 10.5, fontWeight: 700, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", padding: "3px 10px", borderRadius: 6 }}>{statusBadge.label}</span>
         </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {schedule.status === "draft" && (
+            <Btn sz="sm" v="secondary" onClick={lockSchedule} disabled={lines.length === 0}>Lock Schedule</Btn>
+          )}
+          {(schedule.status === "locked" || locked) && (
+            <Btn sz="sm" onClick={() => setShowPayAppModal(true)}>+ New Pay App</Btn>
+          )}
+        </div>
       </div>
 
       {locked && (
         <div style={{ background: C.dark, border: `1px solid ${C.tealBorder}`, borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: C.teal, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 3 }}>Schedule Locked</div>
           <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", fontFamily: F.ui }}>
-            An invoice has been issued against this proposal. The schedule is read-only. Change orders can still be appended.
+            Schedule is finalized and ready for pay apps. Line items are read-only. Change orders can still be appended.
           </div>
         </div>
       )}
@@ -542,8 +569,59 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
         </div>
       )}
 
+      {/* Pay Apps history */}
+      {payApps.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Pay Apps</div>
+          <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "60px 1fr 120px 120px 120px 120px 80px", background: C.dark, padding: "8px 12px", gap: 10 }}>
+              {["#", "Period", "This App", "Retention", "Payment Due", "Invoice", "PDF"].map((hh, i) => (
+                <div key={i} style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", textAlign: i === 0 || i === 1 ? "left" : i === 6 ? "center" : "right" }}>{hh}</div>
+              ))}
+            </div>
+            {payApps.map(pa => (
+              <div key={pa.id} onClick={() => setDetailPayAppId(pa.id)} style={{ display: "grid", gridTemplateColumns: "60px 1fr 120px 120px 120px 120px 80px", padding: "8px 12px", gap: 10, borderTop: `1px solid ${C.border}`, alignItems: "center", background: C.linenLight, cursor: "pointer" }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>#{pa.app_number}</div>
+                <div style={{ fontSize: 12, color: C.textBody, fontFamily: F.ui }}>{pa.period_from || "—"} to {pa.period_to || "—"}</div>
+                <div style={{ fontSize: 12.5, color: C.textBody, fontFamily: F.ui, textAlign: "right" }}>{fmt$(pa.this_app_amount || 0)}</div>
+                <div style={{ fontSize: 12.5, color: C.textFaint, fontFamily: F.ui, textAlign: "right" }}>{fmt$(pa.retainage_withheld || 0)}</div>
+                <div style={{ fontSize: 12.5, color: C.textHead, fontFamily: F.ui, fontWeight: 700, textAlign: "right" }}>{fmt$(pa.current_payment_due || 0)}</div>
+                <div style={{ fontSize: 12, fontFamily: F.ui, textAlign: "right" }}>{pa.invoice_id ? <span style={{ background: C.dark, color: C.teal, fontWeight: 700, fontFamily: F.display, letterSpacing: "0.04em", padding: "3px 10px", borderRadius: 6, fontSize: 11 }}>#{pa.invoice_id}</span> : <span style={{ color: C.textFaint }}>—</span>}</div>
+                <div style={{ textAlign: "center" }} onClick={e => e.stopPropagation()}>
+                  {pa.pdf_url ? (
+                    <a href={pa.pdf_url} target="_blank" rel="noopener noreferrer" style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 10, fontFamily: F.display, letterSpacing: "0.05em", padding: "3px 9px", borderRadius: 4, textDecoration: "none", textTransform: "uppercase" }}>View</a>
+                  ) : <span style={{ fontSize: 11, color: C.textFaint }}>—</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Review modal */}
       {review && <ExtractReviewModal review={review} setReview={setReview} onSave={saveExtractedLines} hasExistingLines={lines.length > 0} fileNameFromUrl={fileNameFromUrl} />}
+
+      {/* New Pay App modal */}
+      {showPayAppModal && (
+        <NewPayAppModal
+          schedule={schedule}
+          lines={lines}
+          proposal={proposal}
+          onClose={() => setShowPayAppModal(false)}
+          onCreated={() => { setShowPayAppModal(false); loadAll(); }}
+        />
+      )}
+
+      {/* Pay App Detail modal */}
+      {detailPayAppId && (
+        <PayAppDetailModal
+          payAppId={detailPayAppId}
+          schedule={schedule}
+          proposal={proposal}
+          onClose={() => setDetailPayAppId(null)}
+          onChanged={() => loadAll()}
+        />
+      )}
     </div>
   );
 }

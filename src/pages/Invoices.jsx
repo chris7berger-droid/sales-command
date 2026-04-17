@@ -333,7 +333,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
 }
 
 // ── Invoice PDF Modal ─────────────────────────────────────────────────────
-function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
+function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) {
   const money = fmt$c;
   const [view, setView] = useState("preview");
   const [sending, setSending] = useState(false);
@@ -451,10 +451,10 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
             {view === "preview" && !sendDone && (
               <>
                 <button onClick={() => window.print()} style={{ background: "none", border: "1.5px solid #E5E7EB", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4B5563", cursor: "pointer", fontFamily: "inherit" }}>Print</button>
-                {invoice.status === "New" && <button onClick={() => setView("send")} style={{ background: "#1976D2", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "white", cursor: "pointer", fontFamily: "inherit" }}>Send Invoice</button>}
+                {invoice.status === "New" && !hideSend && <button onClick={() => setView("send")} style={{ background: "#1976D2", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "white", cursor: "pointer", fontFamily: "inherit" }}>Send Invoice</button>}
               </>
             )}
-            {view === "send" && !sendDone && (
+            {view === "send" && !sendDone && !hideSend && (
               <button onClick={() => setView("preview")} style={{ background: "none", border: "1.5px solid #E5E7EB", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4B5563", cursor: "pointer", fontFamily: "inherit" }}>Back to Preview</button>
             )}
             <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, color: "#9CA3AF", cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>x</button>
@@ -534,11 +534,16 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
                   <tbody>
                     {lines.map((l, i) => {
                       const wtc = l.proposal_wtc;
-                      const wtcTotal = wtc ? calcWtcPrice(wtc) : 0;
+                      const sov = l.billing_schedule_line;
+                      const isSov = !wtc && sov;
+                      const lineLabel = isSov
+                        ? (sov.line_code ? `${sov.line_code} — ${sov.description}` : sov.description)
+                        : (wtc?.work_types?.name || l.description || "—");
+                      const rowTotal = isSov ? (parseFloat(sov.scheduled_value) || 0) : (wtc ? calcWtcPrice(wtc) : 0);
                       return (
                         <tr key={l.id} style={{ borderBottom: "1px solid rgba(28,24,20,0.1)" }}>
-                          <td style={{ padding: "10px 12px", fontWeight: 600 }}>{wtc?.work_types?.name || "—"}</td>
-                          <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(wtcTotal)}</td>
+                          <td style={{ padding: "10px 12px", fontWeight: 600 }}>{lineLabel}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(rowTotal)}</td>
                           <td style={{ padding: "10px 12px", textAlign: "right" }}>{l.billing_pct}%</td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{money(l.amount)}</td>
                         </tr>
@@ -594,7 +599,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent }) {
             </div>
           )}
 
-          {view === "send" && !sendDone && (
+          {view === "send" && !sendDone && !hideSend && (
             <div style={{ maxWidth: 520, margin: "0 auto" }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 6 }}>Send Invoice</div>
               <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 24 }}>This will email the customer an invoice with a secure payment link.</div>
@@ -641,6 +646,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
   const [inv, setInv] = useState(invoice);
   const [lines, setLines] = useState([]);
   const [wtcMap, setWtcMap] = useState({});
+  const [linkedPayApp, setLinkedPayApp] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showPDF, setShowPDF] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -678,7 +684,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
       // Fetch invoice lines with WTC info
       const { data: lineData } = await supabase
         .from("invoice_lines")
-        .select("*, proposal_wtc:proposal_wtc_id(*, work_types(name))")
+        .select("*, proposal_wtc:proposal_wtc_id(*, work_types(name)), billing_schedule_line:billing_schedule_line_id(line_code, description, scheduled_value)")
         .eq("invoice_id", inv.id);
       setLines(lineData || []);
 
@@ -688,6 +694,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
         if (l.proposal_wtc) map[l.proposal_wtc_id] = l.proposal_wtc;
       });
       setWtcMap(map);
+
+      // Check if this invoice is linked from a Pay App (canonical send path lives there)
+      const { data: payApp } = await supabase
+        .from("billing_schedule_pay_apps")
+        .select("id, app_number, billing_schedule_id, billing_schedule:billing_schedule_id(proposal_id)")
+        .eq("invoice_id", inv.id)
+        .maybeSingle();
+      setLinkedPayApp(payApp || null);
+
       setLoading(false);
     }
     loadDetail();
@@ -933,7 +948,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: F.ui }}>
               <thead>
                 <tr style={{ background: C.dark }}>
-                  {["Work Type", "WTC Total", "Billing %", "Line Amount"].map(h => (
+                  {["Line Item", "Line Value", "Billing %", "Line Amount"].map(h => (
                     <th key={h} style={{ padding: "11px 15px", textAlign: "left", fontWeight: 700, fontSize: 10.5, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: `1px solid ${C.darkBorder}` }}>{h}</th>
                   ))}
                 </tr>
@@ -941,13 +956,18 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
               <tbody>
                 {lines.map((l, i) => {
                   const wtc = l.proposal_wtc;
-                  const wtcTotal = wtc ? calcWtcPrice(wtc) : 0;
+                  const sov = l.billing_schedule_line;
+                  const isSov = !wtc && sov;
+                  const lineLabel = isSov
+                    ? (sov.line_code ? `${sov.line_code} — ${sov.description}` : sov.description)
+                    : (wtc?.work_types?.name || l.description || "—");
+                  const rowTotal = isSov ? (parseFloat(sov.scheduled_value) || 0) : (wtc ? calcWtcPrice(wtc) : 0);
                   const editPct = parseFloat(editPcts[l.id]) || 0;
-                  const editAmt = wtcTotal * (editPct / 100);
+                  const editAmt = rowTotal * (editPct / 100);
                   return (
                     <tr key={l.id} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? C.linenLight : C.linen }}>
-                      <td style={{ padding: "12px 15px", fontWeight: 700, color: C.textHead }}>{wtc?.work_types?.name || "—"}</td>
-                      <td style={{ padding: "12px 15px", fontVariantNumeric: "tabular-nums" }}>{money(wtcTotal)}</td>
+                      <td style={{ padding: "12px 15px", fontWeight: 700, color: C.textHead }}>{lineLabel}</td>
+                      <td style={{ padding: "12px 15px", fontVariantNumeric: "tabular-nums" }}>{money(rowTotal)}</td>
                       <td style={{ padding: "12px 15px" }}>
                         {editing ? (
                           <input type="number" min="0" max="100" step="1" value={editPcts[l.id] || ""} onChange={e => setEditPcts(prev => ({ ...prev, [l.id]: e.target.value }))} style={{ ...inputStyle, width: 70, padding: "4px 8px", fontSize: 12, textAlign: "right" }} />
@@ -965,6 +985,17 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
         )}
       </div>
 
+      {/* Pay App linkage banner — gates standalone send flow */}
+      {linkedPayApp && !editing && (
+        <div style={{ background: C.dark, border: `1px solid ${C.borderStrong}`, borderRadius: 8, padding: "12px 16px", marginBottom: 14, color: C.teal, fontFamily: F.ui, fontSize: 13 }}>
+          <div style={{ fontWeight: 700, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 11, marginBottom: 4 }}>Part of Pay App #{linkedPayApp.app_number}</div>
+          <div>This invoice is tied to a pay app. Send + manage from the pay app view — opening the proposal will take you to the schedule.</div>
+          {linkedPayApp.billing_schedule?.proposal_id && (
+            <a href={`/proposals?open=${linkedPayApp.billing_schedule.proposal_id}`} style={{ color: C.teal, fontWeight: 700, marginTop: 6, display: "inline-block" }}>Open Proposal →</a>
+          )}
+        </div>
+      )}
+
       {/* Action buttons */}
       <div style={{ display: "flex", gap: 10 }}>
         {editing ? (
@@ -974,7 +1005,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
           </>
         ) : (
           <>
-            <Btn sz="sm" onClick={() => setShowPDF(true)}>Preview / Send</Btn>
+            <Btn sz="sm" onClick={() => setShowPDF(true)}>{linkedPayApp ? "Preview" : "Preview / Send"}</Btn>
             {isNew && <Btn sz="sm" v="secondary" onClick={startEditing}>Edit Invoice</Btn>}
             {actions.map(a => (
               <Btn key={a.status} sz="sm" v="ghost" onClick={() => updateStatus(a.status)}>{a.label}</Btn>
@@ -1007,7 +1038,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
         <InvoicePDFModal
           invoice={inv}
           lines={lines}
-
+          hideSend={!!linkedPayApp}
           onClose={() => setShowPDF(false)}
           onSent={async (responseData) => {
             const updates = { status: "Sent", sent_at: new Date().toISOString(), stripe_checkout_id: responseData?.checkoutId || null, stripe_checkout_url: responseData?.checkoutUrl || null };

@@ -64,6 +64,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     stage:            job.stage            || "",
     customer_name:    job.customer_name    || "",
     job_number:       job.job_number != null ? String(job.job_number) : "",
+    subcontractor_job_no: job.subcontractor_job_no || "",
     job_name:         job.job_name         || "",
     bid_due:          job.bid_due          || "",
     follow_up:        job.follow_up        || "",
@@ -209,6 +210,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         customer_name:      form.customer_name  || null,
         job_name:           form.job_name       || null,
         job_number:         form.job_number ? parseInt(form.job_number) : job.job_number,
+        subcontractor_job_no: form.subcontractor_job_no || null,
         display_job_number: newDisplay,
         bid_due:            form.bid_due        || null,
         follow_up:          form.follow_up      || null,
@@ -329,6 +331,9 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           </Field>
           <Field label="Job Number">
             <input type="text" value={form.job_number} onChange={e => set("job_number", e.target.value)} placeholder="e.g. 10001" style={iStyle} />
+          </Field>
+          <Field label="Subcontractor Job No.">
+            <input type="text" value={form.subcontractor_job_no} onChange={e => set("subcontractor_job_no", e.target.value)} placeholder="Customer's internal job # (e.g. 6359)" style={iStyle} />
           </Field>
           <Field label="Customer Name">
             <input type="text" value={form.customer_name} onChange={e => set("customer_name", e.target.value)} placeholder="Customer name" style={iStyle} />

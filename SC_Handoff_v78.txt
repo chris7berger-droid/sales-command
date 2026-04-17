@@ -1,0 +1,196 @@
+SC_Handoff_v78 — April 17, 2026 (v77 audit-leftovers closeout)
+Session: knocked out all 3 deferred audit items from SC_Handoff_v77 so the
+next audit starts from a clean slate. Three commits + one migration shipped
+to prod, all smoke-tested on localhost before push.
+
+===============================================================================
+STATE OF THE WORLD
+===============================================================================
+
+EVERYTHING IS LIVE on scmybiz.com. No branches, no uncommitted changes
+(except auto-generated supabase/.temp/* noise).
+
+Commits added this session (all on main, all pushed):
+  72db832  fix(archive): tenant-scoped DISTINCT via RPC for filter dropdowns
+  9f5272c  fix(pagination): paginate customer-detail call_log + proposals
+  938b280  fix(billing): tenant guard before contract storage upload
+
+Migration applied to prod DB:
+  20260417120000_archive_filter_options_rpc.sql
+
+No edge function redeploys this session.
+
+===============================================================================
+WHY THIS SESSION — REFERENCE FOR FUTURE AUDITS
+===============================================================================
+
+SC_Handoff_v77 (2026-04-16) ran three audits on the 4-branch merge day and
+shipped 7 fixes. It explicitly deferred three items as "low-risk" or
+"defense-in-depth, doesn't block revenue work":
+
+  v77 leftover #1 — Customers.jsx:235 pagination (low-risk, scoped to one customer)
+  v77 leftover #2 — ArchiveSearchView.jsx:39-40 distinct filter values (needed RPC, not pagination)
+  v77 leftover #3 — BillingScheduleSection storage upload tenant guard (defense-in-depth)
+
+Chris asked to clean the slate before starting Pay App work on proposal
+10039. Strategic order chosen: biggest/migration-required first while
+fresh, smallest warm-up last (billing file = where Pay App work starts).
+
+Verified before push by re-reading current code — nothing in the leftover
+list had silently been done already.
+
+===============================================================================
+FIXES SHIPPED — IN COMMIT ORDER
+===============================================================================
+
+1. ARCHIVE FILTER DROPDOWNS — DISTINCT VIA RPC (commit 72db832 + migration)
+   THE PROBLEM:
+     ArchiveSearchView loaded up to 1000 rows from archive.legacy_records
+     twice on mount (one call per filter field), then reduced client-side
+     to get ~5 unique values per dropdown. Wrong shape of query, hit the
+     PostgREST row cap, and wasted bandwidth on a feature that populates
+     a dropdown.
+
+   THE FIX:
+     New archive.get_filter_options() RPC returns both filter-option sets
+     (sources + types) in a single round-trip, tenant-scoped via
+     archive.get_user_tenant_id() (the helper that was repaired in
+     v77's 20260416230000_archive_rls_fix.sql). SECURITY DEFINER + locked
+     search_path, EXECUTE granted only to authenticated.
+
+   SHAPE:
+     RETURNS jsonb — { sources: [...], types: [...] }.
+     Uses DISTINCT subqueries with ORDER BY wrapped in jsonb_agg to keep
+     sort deterministic.
+
+   WIRING:
+     archiveDb in src/lib/supabase.js gained a .rpc() method alongside
+     .from(). Same PostgrestClient factory, same auth-token closure
+     pattern, same archive-schema routing.
+
+   RESULT:
+     Mount-time archive search: 2 list fetches → 1 aggregated RPC.
+     Single tenant still, but correct-by-construction for multi-tenant.
+
+2. CUSTOMERS DETAIL PAGINATION (commit 9f5272c)
+   THE PROBLEM:
+     CustomerDetail load() in Customers.jsx:232 used direct
+     supabase.from() for call_log and proposals (both scoped by
+     customer_id). A customer with 1000+ jobs or 1000+ proposals would
+     silently lose rows. Very unlikely today but completes the e50a438
+     pagination sweep from v77.
+
+   THE FIX:
+     Both calls swapped to fetchAll() from src/lib/supabaseHelpers.
+     The tricky bit was the proposals query — it uses a nested inner-join
+     filter (call_log!inner + eq("call_log.customer_id", customer.id)).
+     fetchAll forwards filter args verbatim, so:
+       filters: [["is", "deleted_at", null], ["eq", "call_log.customer_id", customer.id]]
+     works identically to the direct-call chain.
+
+   VERIFIED:
+     Loaded Lepori Construction on localhost — 4 jobs tab, 4 proposals
+     tab both populate correctly. The nested-join-via-fetchAll was the
+     one thing I was unsure about; confirmed before push.
+
+3. BILLING CONTRACT UPLOAD TENANT GUARD (commit 938b280)
+   THE PROBLEM:
+     BillingScheduleSection.uploadContract() wrote to bucket path
+     `${proposal.id}/contract-...` in job-attachments. The DB
+     update that follows is RLS-protected, but the STORAGE upload
+     itself is not tenant-scoped at the client. A tampered proposal
+     prop could land a file under another tenant's folder — the DB
+     row update would fail, but an orphaned file would remain in a
+     tenant folder it doesn't belong to.
+
+   THE FIX:
+     Before touching storage, uploadContract() now:
+       a) Fetches caller's tenant_id from tenant_config (RLS-scoped,
+          returns only the caller's own row).
+       b) Confirms the proposal row resolves under that tenant_id with
+          an explicit .eq("tenant_id", userTenant).
+       c) Aborts with alert("Upload blocked: proposal tenant mismatch.")
+          if either lookup comes back empty.
+
+   WHY EXPLICIT eq() NOT JUST RLS:
+     v77 specifically called this pattern belt-and-suspenders. RLS could
+     be misconfigured; the explicit filter is a second line of defense
+     that makes the tenant check obvious at the call site.
+
+   VERIFIED:
+     Uploaded a contract PDF on localhost — instant success, existing
+     flow unchanged. The new guard adds 2 round-trips before upload,
+     acceptable cost on a file-upload path.
+
+===============================================================================
+WHAT'S NOW CLEAN
+===============================================================================
+
+v77's deferred list is DONE:
+  ✓ Customers.jsx pagination
+  ✓ ArchiveSearchView distinct values (via RPC)
+  ✓ BillingScheduleSection storage tenant guard
+
+Nothing from v77 audits #2 (Data Layer / RLS / Edge Functions) or #3
+(Role / Money Gating) remains open.
+
+===============================================================================
+STILL DEFERRED — ARCHITECTURE BACKLOG (v77 audit #1)
+===============================================================================
+
+These are multi-session refactors. v77's advice stands: do NOT start these
+at the tail end of a fix/feature sprint. Fresh-eyes work.
+
+  1. ProposalDetail.jsx extraction — 1,121 lines. Recipients section
+     should pull out to src/components/RecipientsSection.jsx.
+  2. queries.js data layer — 166 inline supabase.from() calls.
+     CLAUDE.md claims this layer exists; it does not. Either build it
+     or remove the rule. Honest call from v77: the inline pattern is
+     fine for a solo-dev codebase.
+  3. V52 page-thinness violations — WTCCalculator (2,112 lines, inline
+     PDFPreviewModal duplicating ProposalPDFModal), Invoices (1,188),
+     Settings (737), SalesDash (656), Customers (545), Team (475).
+     Extract inline modals/sections to src/components/.
+
+These do not block revenue features. Chris's stated priority is Pay App
+generation for proposal 10039.
+
+===============================================================================
+MEMORY UPDATES THIS SESSION
+===============================================================================
+
+No new memories saved this session.
+
+Applied existing memories:
+  - feedback_workflow.md — grep before edits, one step at a time, handoff at end
+  - feedback_build_right.md — did the migration + frontend properly vs bridging
+  - feedback_testing.md — smoke-tested all 3 on localhost before push
+  - project_supabase_migrations.md — supabase db push, not Studio
+  - project_rls_pattern.md — is_admin_or_manager pattern referenced when
+    thinking about the archive RPC's SECURITY DEFINER
+  - project_supabase_row_limit.md — authority for #1 and #3 fix scope
+
+===============================================================================
+NEXT SESSION — PAY APP FOR PROPOSAL 10039
+===============================================================================
+
+Chris's directive for this session was: "finish billing features so I can
+get some invoices out for Sales Command. These invoices require the
+customer's payment app. We have a job in Sales Command, proposal number
+10039, ready to go that is partially built."
+
+Prereqs (all green):
+  - Billing Schedule data model live + role-gated (v77)
+  - SOV extraction via Claude API working (pre-v77)
+  - Save-to-Catalog working, +Custom UX shipped (v77)
+  - Archive helper correct for multi-tenant (v77)
+  - Customer-detail pagination + archive RPC + billing upload guard (v78)
+
+Starting point:
+  - v76 outlines Phase 3 (Pay App Generation). Revisit before writing code.
+  - Proposal 10039 is the first real Pay App target. Confirm its billing
+    schedule is populated before generating.
+
+Dev server was left running on :5173 at session end.
+
+===============================================================================

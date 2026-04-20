@@ -10,6 +10,7 @@ import Btn from "./Btn";
 import Pill from "./Pill";
 import ProposalPDFModal from "./ProposalPDFModal";
 import BillingScheduleSection from "./BillingScheduleSection";
+import { NewInvoiceModal } from "../pages/Invoices";
 
 function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember, onNavigateJob, onNavigateInvoice }) {
   const [p, setP] = useState(pInit);
@@ -47,6 +48,7 @@ const [newContactOpen, setNewContactOpen] = useState(false);
 const [editingPrimary, setEditingPrimary] = useState(false);
 const [primaryDraft, setPrimaryDraft] = useState("");
 const [linkedInvoices, setLinkedInvoices] = useState([]);
+const [showInvoiceModal, setShowInvoiceModal] = useState(false);
 
 useEffect(() => {
   (async () => {
@@ -579,6 +581,17 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
 
+      {showInvoiceModal && (
+        <NewInvoiceModal
+          preselectedProposal={p}
+          onClose={() => setShowInvoiceModal(false)}
+          onCreated={(inv) => {
+            setShowInvoiceModal(false);
+            if (onNavigateInvoice) onNavigateInvoice(inv.id);
+          }}
+        />
+      )}
+
       {missingJobsite && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", background: "rgba(230,168,0,0.1)", border: "1.5px solid rgba(230,168,0,0.35)", borderRadius: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -632,6 +645,9 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               style={{ color: sentToSchedule ? C.textFaint : C.teal, borderColor: sentToSchedule ? C.border : C.teal }}>
               {sentToSchedule ? "✓ Sent to Schedule" : sendingToSchedule ? "Sending..." : "Send to Schedule"}
             </Btn>
+          )}
+          {p.status === "Sold" && (
+            <Btn sz="sm" onClick={() => setShowInvoiceModal(true)}>+ Create Invoice</Btn>
           )}
           {p.status !== "Sold" && (
             <Btn sz="sm" v="ghost" onClick={() => setShowApproveModal(true)} style={{ color: C.green, borderColor: C.green }}>✓ Internal Approve</Btn>

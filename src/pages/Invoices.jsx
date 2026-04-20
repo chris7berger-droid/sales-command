@@ -31,8 +31,8 @@ const labelStyle = {
 };
 
 // ── New Invoice Modal ─────────────────────────────────────────────────────
-function NewInvoiceModal({ onClose, onCreated }) {
-  const [step, setStep] = useState(1); // 1=select proposal, 2=billing %
+export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
+  const [step, setStep] = useState(preselectedProposal ? 2 : 1); // 1=select proposal, 2=billing %
   const [proposals, setProposals] = useState([]);
   const [search, setSearch] = useState("");
   const [selProposal, setSelProposal] = useState(null);
@@ -68,6 +68,13 @@ function NewInvoiceModal({ onClose, onCreated }) {
     }
     loadProposals();
   }, []);
+
+  // Auto-select if a proposal was preselected (e.g. invoice modal opened from ProposalDetail)
+  useEffect(() => {
+    if (preselectedProposal && !selProposal) {
+      selectProposal(preselectedProposal);
+    }
+  }, [preselectedProposal]);
 
   // Step 2: load WTCs + existing invoice lines for selected proposal
   async function selectProposal(p) {
@@ -269,7 +276,9 @@ function NewInvoiceModal({ onClose, onCreated }) {
             <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui, marginBottom: 16 }}>
               <span style={{ fontWeight: 800, color: C.textHead }}>{selProposal.call_log?.display_job_number || `Proposal #${selProposal.id}`}</span>
               {" · "}{selProposal.call_log?.customer_name || selProposal.customer}
-              <button onClick={() => setStep(1)} style={{ marginLeft: 12, background: "none", border: "none", color: C.teal, cursor: "pointer", fontWeight: 700, fontSize: 12, fontFamily: F.display }}>← Change</button>
+              {!preselectedProposal && (
+                <button onClick={() => setStep(1)} style={{ marginLeft: 12, background: "none", border: "none", color: C.teal, cursor: "pointer", fontWeight: 700, fontSize: 12, fontFamily: F.display }}>← Change</button>
+              )}
             </div>
 
             {selProposal.is_archive_proposal && (() => {

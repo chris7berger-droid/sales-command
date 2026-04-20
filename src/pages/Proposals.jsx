@@ -143,7 +143,14 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
             cols={[
               { k: "id",         l: "Proposal #", r: (v, row) => { const djn = row.call_log?.display_job_number || String(v); const idx = djn.indexOf(" - "); const num = idx > -1 ? djn.slice(0, idx) : djn; const name = idx > -1 ? djn.slice(idx + 3) : ""; return <span style={{ fontFamily: F.display, display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontWeight: 600, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{num} P{row.proposal_number || 1}</span>{name && <span style={{ fontWeight: 500, color: C.textMuted }}>{name}</span>}</span>; } },
               { k: "customer",   l: "Customer" },
-              { k: "status",     l: "Status",     r: v => <Pill label={v} cm={PROP_C} /> },
+              { k: "status",     l: "Status",     r: (v, row) => (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Pill label={v} cm={PROP_C} />
+                  {row.is_archive_proposal && (
+                    <span title="Archive Job Proposal — no WTC. Invoice with a flat amount." style={{ fontSize: 10, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "2px 7px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)", cursor: "help" }}>ARCHIVE</span>
+                  )}
+                </span>
+              ) },
               { k: "total",      l: "Total",      r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$(v)}</span> },
               { k: "created_at", l: "Created",    r: v => fmtD(v?.slice(0,10)) },
               { k: "approved_at",l: "Approved",   r: v => v ? fmtD(v?.slice(0,10)) : <span style={{ color: C.textFaint }}>—</span> },

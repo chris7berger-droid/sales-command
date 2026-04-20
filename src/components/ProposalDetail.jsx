@@ -617,6 +617,9 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
 
         </h2>
         <Pill label={p.status} cm={PROP_C} />
+        {p.is_archive_proposal && (
+          <span title="Archive Job Proposal — no WTC. Invoice with a flat amount." style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)", cursor: "help" }}>ARCHIVE</span>
+        )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           {canDelete && (
             <Btn sz="sm" v="ghost" onClick={handleDelete} style={{ color: C.red, borderColor: C.red }}>🗑 Delete</Btn>
@@ -640,6 +643,9 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {p.is_archive_proposal ? (
+            <ArchiveProposalPanel p={p} setP={setP} money={money} />
+          ) : (
           <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
             <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>Work Type Calculators</div>
             {wtcs.length === 0 && (
@@ -748,6 +754,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             })}
             <Btn sz="sm" v="ghost" onClick={() => { setActiveWtcId(null); setShowWTC(true); }}>+ Add Work Type</Btn>
           </div>
+          )}
 
           {/* Recipients */}
           <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
@@ -1134,6 +1141,78 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               <Btn sz="sm" v="ghost" onClick={() => setShowApproveModal(false)}>Cancel</Btn>
               <Btn sz="sm" onClick={handleInternalApprove}>Approve as Sold</Btn>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ArchiveProposalPanel({ p, setP, money }) {
+  const [editing, setEditing] = useState(false);
+  const [amount, setAmount] = useState(String(p.total || ""));
+  const [saving, setSaving] = useState(false);
+  const [tagged, setTagged] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      if (!p.call_log_id) return;
+      const { data } = await supabase
+        .from("job_work_types")
+        .select("work_type_id, work_types(name)")
+        .eq("call_log_id", p.call_log_id);
+      setTagged((data || []).map(r => r.work_types?.name).filter(Boolean));
+    })();
+  }, [p.call_log_id]);
+
+  async function handleSave() {
+    const n = parseFloat(String(amount).replace(/[^0-9.\-]/g, ""));
+    if (isNaN(n) || n <= 0) { alert("Enter a valid amount."); return; }
+    setSaving(true);
+    const { error } = await supabase.from("proposals").update({ total: n }).eq("id", p.id);
+    setSaving(false);
+    if (error) { alert(error.message); return; }
+    setP({ ...p, total: n });
+    setEditing(false);
+  }
+
+  return (
+    <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Archive Proposal</div>
+        <span title="Lightweight proposal — no WTC. Edit on Call Log to change tagged work types." style={{ fontSize: 10, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)", cursor: "help" }}>ARCHIVE</span>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Sold Amount</div>
+        {editing ? (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ position: "relative", flex: 1 }}>
+              <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.textFaint, fontFamily: F.ui }}>$</span>
+              <input
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                style={{ padding: "10px 14px 10px 24px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, fontSize: 16, fontWeight: 700, color: C.textBody, fontFamily: F.ui, outline: "none", width: "100%", boxSizing: "border-box", WebkitAppearance: "none" }}
+              />
+            </div>
+            <Btn sz="sm" onClick={handleSave} disabled={saving}>{saving ? "…" : "Save"}</Btn>
+            <Btn sz="sm" v="ghost" onClick={() => { setAmount(String(p.total || "")); setEditing(false); }}>Cancel</Btn>
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(p.total || 0)}</span>
+            <Btn sz="sm" v="ghost" onClick={() => setEditing(true)}>Edit</Btn>
+          </div>
+        )}
+      </div>
+
+      {tagged.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Work Types Tagged</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {tagged.map((name, i) => (
+              <span key={i} style={{ background: C.dark, color: C.teal, border: `1px solid ${C.tealBorder}`, borderRadius: 14, padding: "3px 10px", fontSize: 11, fontWeight: 700, fontFamily: F.ui }}>{name}</span>
+            ))}
           </div>
         </div>
       )}

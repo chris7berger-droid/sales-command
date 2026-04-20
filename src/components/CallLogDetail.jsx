@@ -4,6 +4,7 @@ import { C, F } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
 import Btn from "./Btn";
 import { supabase } from "../lib/supabase";
+import ArchiveProposalModal from "./ArchiveProposalModal";
 
 const STAGES = ["New Inquiry", "Wants Bid", "Has Bid", "Sold", "Lost"];
 
@@ -96,6 +97,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   );
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [wtDropOpen, setWtDropOpen] = useState(false);
   const wtDropRef = useRef(null);
 
@@ -274,6 +276,17 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
 
+      {showArchiveModal && (
+        <ArchiveProposalModal
+          preselectedJob={job}
+          onClose={() => setShowArchiveModal(false)}
+          onCreated={(newProp) => {
+            setShowArchiveModal(false);
+            if (onNavigateProposal) onNavigateProposal(newProp.id);
+          }}
+        />
+      )}
+
       {/* Back + cross-nav */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 20 }}>
         <button onClick={onBack} style={{ background: C.dark, border: "none", cursor: "pointer", color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 14px", borderRadius: 6 }}>
@@ -324,6 +337,11 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           {editing && <Btn sz="sm" v="ghost" onClick={() => setEditing(false)}>Cancel</Btn>}
           {onNewProposal && (
             <Btn sz="sm" onClick={onNewProposal}>+ New Proposal</Btn>
+          )}
+          {job.archive_record_id && (
+            <Btn sz="sm" v="secondary" onClick={() => setShowArchiveModal(true)} title="Use this tool for building simple proposals without WTC to create invoice or easily recreate a history">
+              + Archive Job Proposal
+            </Btn>
           )}
           {editing && canDelete && (
             <Btn sz="sm" v="ghost" onClick={handleDelete} style={{ color: C.red, borderColor: C.red }}>Delete</Btn>

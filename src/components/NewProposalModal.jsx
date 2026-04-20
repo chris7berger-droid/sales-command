@@ -3,6 +3,7 @@ import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import Btn from "./Btn";
 import SearchSelect from "./SearchSelect";
+import ArchiveProposalModal from "./ArchiveProposalModal";
 
 function NewProposalModal({ onClose, onCreated, preselectedJob }) {
   const [jobs, setJobs]       = useState([]);
@@ -10,12 +11,13 @@ function NewProposalModal({ onClose, onCreated, preselectedJob }) {
   const [selJob, setSelJob]   = useState(preselectedJob || null);
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState(null);
+  const [showArchive, setShowArchive] = useState(false);
 
   useEffect(() => {
     async function load() {
       const { data } = await supabase
         .from("call_log")
-        .select("id, display_job_number, job_name, customer_name, jobsite_address")
+        .select("id, display_job_number, job_name, customer_name, jobsite_address, archive_record_id")
         .order("id", { ascending: false });
       setJobs(data || []);
     }
@@ -95,12 +97,26 @@ function NewProposalModal({ onClose, onCreated, preselectedJob }) {
 
         {error && <div style={{ color: C.red, fontSize: 13, fontFamily: F.ui, marginTop: 10 }}>{error}</div>}
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, gap: 10, flexWrap: "wrap" }}>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.tealDark, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: 0 }}>Cancel</button>
-          <Btn onClick={handleCreate} disabled={saving || !selJob}>{saving ? "Creating…" : "Create Proposal →"}</Btn>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginLeft: "auto" }}>
+            {selJob?.archive_record_id && (
+              <Btn v="secondary" onClick={() => setShowArchive(true)} disabled={saving} title="Use this tool for building simple proposals without WTC to create invoice or easily recreate a history">
+                Archive Job Proposal →
+              </Btn>
+            )}
+            <Btn onClick={handleCreate} disabled={saving || !selJob}>{saving ? "Creating…" : "Create Proposal →"}</Btn>
+          </div>
         </div>
 
       </div>
+      {showArchive && selJob && (
+        <ArchiveProposalModal
+          preselectedJob={selJob}
+          onClose={() => setShowArchive(false)}
+          onCreated={(newProp) => { setShowArchive(false); onCreated(newProp); }}
+        />
+      )}
     </div>
   );
 }

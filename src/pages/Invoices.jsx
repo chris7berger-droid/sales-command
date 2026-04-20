@@ -43,6 +43,8 @@ function NewInvoiceModal({ onClose, onCreated }) {
   const [error, setError] = useState(null);
   const [dueDate, setDueDate] = useState("");
   const [description, setDescription] = useState("");
+  const [archiveAmount, setArchiveAmount] = useState("");
+  const [archiveBilled, setArchiveBilled] = useState(0);
   const money = selProposal?.call_log?.show_cents ? fmt$c : fmt$;
 
   // Load default invoice description
@@ -59,7 +61,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
     async function loadProposals() {
       const { data } = await supabase
         .from("proposals")
-        .select("id, customer, total, proposal_number, call_log_id, call_log(display_job_number, customer_name, job_name, show_cents)")
+        .select("id, customer, total, proposal_number, call_log_id, is_archive_proposal, call_log(display_job_number, customer_name, job_name, show_cents)")
         .eq("status", "Sold")
         .order("created_at", { ascending: false });
       setProposals(data || []);
@@ -71,6 +73,19 @@ function NewInvoiceModal({ onClose, onCreated }) {
   async function selectProposal(p) {
     setSelProposal(p);
     setError(null);
+
+    if (p.is_archive_proposal) {
+      const { data: priorInv } = await supabase
+        .from("invoices")
+        .select("amount")
+        .eq("proposal_id", p.id)
+        .is("deleted_at", null);
+      const billed = (priorInv || []).reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+      setArchiveBilled(billed);
+      setArchiveAmount("");
+      setStep(2);
+      return;
+    }
 
     const [{ data: wtcData }, { data: linesData }] = await Promise.all([
       supabase.from("proposal_wtc")
@@ -123,8 +138,17 @@ function NewInvoiceModal({ onClose, onCreated }) {
 
   async function handleCreate() {
     if (!dueDate) { setError("Due date is required."); return; }
-    const valErr = validatePcts();
-    if (valErr) { setError(valErr); return; }
+    const isArchive = !!selProposal.is_archive_proposal;
+    let archiveAmt = 0;
+    if (isArchive) {
+      archiveAmt = parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, ""));
+      const remaining = (parseFloat(selProposal.total) || 0) - archiveBilled;
+      if (!archiveAmt || archiveAmt <= 0) { setError("Enter an invoice amount."); return; }
+      if (archiveAmt > remaining + 0.01) { setError(`Amount exceeds remaining (${(money)(remaining)} left).`); return; }
+    } else {
+      const valErr = validatePcts();
+      if (valErr) { setError(valErr); return; }
+    }
     setSaving(true);
     setError(null);
 
@@ -139,6 +163,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
 
     const jobNum = selProposal.call_log?.display_job_number || selProposal.call_log?.job_name || "";
     const jobName = selProposal.call_log?.job_name || selProposal.customer || "";
+    const finalAmount = isArchive ? archiveAmt : invoiceTotal;
 
     // Create invoice
     const { data: inv, error: invErr } = await supabase
@@ -148,7 +173,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
         job_id: jobNum,
         job_name: jobName,
         status: "New",
-        amount: Math.round(invoiceTotal * 100) / 100,
+        amount: Math.round(finalAmount * 100) / 100,
         discount: 0,
         proposal_id: selProposal.id,
         due_date: dueDate || null,
@@ -159,19 +184,27 @@ function NewInvoiceModal({ onClose, onCreated }) {
 
     if (invErr) { setError(invErr.message); setSaving(false); return; }
 
-    // Create invoice lines
-    const lines = wtcs
-      .filter(w => parseFloat(billingPcts[w.id]) > 0)
-      .map(w => ({
+    if (isArchive) {
+      const { error: lineErr } = await supabase.from("invoice_lines").insert([{
         invoice_id: inv.id,
-        proposal_wtc_id: w.id,
-        billing_pct: parseFloat(billingPcts[w.id]),
-        amount: Math.round(getLineAmount(w) * 100) / 100,
-      }));
-
-    if (lines.length > 0) {
-      const { error: lineErr } = await supabase.from("invoice_lines").insert(lines);
+        proposal_wtc_id: null,
+        billing_pct: null,
+        amount: Math.round(archiveAmt * 100) / 100,
+      }]);
       if (lineErr) { setError(lineErr.message); setSaving(false); return; }
+    } else {
+      const lines = wtcs
+        .filter(w => parseFloat(billingPcts[w.id]) > 0)
+        .map(w => ({
+          invoice_id: inv.id,
+          proposal_wtc_id: w.id,
+          billing_pct: parseFloat(billingPcts[w.id]),
+          amount: Math.round(getLineAmount(w) * 100) / 100,
+        }));
+      if (lines.length > 0) {
+        const { error: lineErr } = await supabase.from("invoice_lines").insert(lines);
+        if (lineErr) { setError(lineErr.message); setSaving(false); return; }
+      }
     }
 
     setSaving(false);
@@ -239,7 +272,51 @@ function NewInvoiceModal({ onClose, onCreated }) {
               <button onClick={() => setStep(1)} style={{ marginLeft: 12, background: "none", border: "none", color: C.teal, cursor: "pointer", fontWeight: 700, fontSize: 12, fontFamily: F.display }}>← Change</button>
             </div>
 
-            <div style={{ flex: 1, overflowY: "auto", maxHeight: 380 }}>
+            {selProposal.is_archive_proposal && (() => {
+              const total = parseFloat(selProposal.total) || 0;
+              const remaining = total - archiveBilled;
+              const amt = parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) || 0;
+              return (
+                <div style={{ background: C.linenDeep, borderRadius: 10, padding: 16, marginBottom: 10, border: `1px solid ${C.border}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontWeight: 800, fontSize: 14, color: C.textHead, fontFamily: F.display }}>Archive Job Proposal</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "2px 8px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)" }}>ARCHIVE</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Sold: {money(total)} · Already billed: {money(archiveBilled)} · Remaining: <span style={{ color: C.green, fontWeight: 700 }}>{money(remaining)}</span></div>
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center" }}>
+                    <div>
+                      <div style={{ ...labelStyle, marginBottom: 4 }}>Invoice Amount</div>
+                      <div style={{ position: "relative" }}>
+                        <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.textFaint, fontFamily: F.ui }}>$</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={archiveAmount}
+                          onChange={e => setArchiveAmount(e.target.value)}
+                          placeholder="0"
+                          style={{ ...inputStyle, paddingLeft: 24 }}
+                        />
+                      </div>
+                    </div>
+                    <button onClick={() => setArchiveAmount(String(remaining.toFixed(2)))}
+                      style={{ background: C.dark, border: `1px solid ${C.darkBorder}`, borderRadius: 6, padding: "10px 14px", color: C.teal, fontSize: 11, fontWeight: 700, fontFamily: F.display, cursor: "pointer", whiteSpace: "nowrap" }}>
+                      Bill Remaining
+                    </button>
+                  </div>
+                  {amt > 0 && (
+                    <div style={{ marginTop: 10, fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>
+                      This invoice: <span style={{ color: C.textHead, fontWeight: 800 }}>{money(amt)}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {!selProposal.is_archive_proposal && <div style={{ flex: 1, overflowY: "auto", maxHeight: 380 }}>
               {wtcs.map(w => {
                 const total = calcWtcPrice(w);
                 const billed = getBilledPct(w.id);
@@ -292,7 +369,7 @@ function NewInvoiceModal({ onClose, onCreated }) {
                   </div>
                 );
               })}
-            </div>
+            </div>}
 
             {/* Due date */}
             <div style={{ marginTop: 12 }}>
@@ -316,11 +393,11 @@ function NewInvoiceModal({ onClose, onCreated }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
               <div>
                 <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.display, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Invoice Total</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(invoiceTotal)}</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(selProposal.is_archive_proposal ? (parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : invoiceTotal)}</div>
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 {error && <div style={{ color: C.red, fontSize: 12, fontFamily: F.ui, maxWidth: 200 }}>{error}</div>}
-                <Btn onClick={handleCreate} disabled={saving || !hasAnyPct}>
+                <Btn onClick={handleCreate} disabled={saving || (selProposal.is_archive_proposal ? !(parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) > 0) : !hasAnyPct)}>
                   {saving ? "Creating…" : "Create Invoice"}
                 </Btn>
               </div>

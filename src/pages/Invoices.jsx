@@ -461,6 +461,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
   const [sending, setSending] = useState(false);
   const [sendDone, setSendDone] = useState(false);
   const [sendError, setSendError] = useState(null);
+  const [approving, setApproving] = useState(false);
   const [billingEmail, setBillingEmail] = useState("");
   const [billingName, setBillingName] = useState("");
   const [jobsiteAddress, setJobsiteAddress] = useState("");
@@ -538,6 +539,21 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
     setSending(false);
   }
 
+  async function handleApprove() {
+    setApproving(true);
+    setSendError(null);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: invoice.id } });
+      if (fnError) throw new Error(fnError.message || "QB sync failed.");
+      if (data?.error) throw new Error(data.error);
+      onSent && onSent({});
+      onClose && onClose();
+    } catch (e) {
+      setSendError(e.message || "Approve failed. Please try again.");
+      setApproving(false);
+    }
+  }
+
   return (
     <div
       data-pdf-overlay data-pdf-printable
@@ -573,6 +589,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
             {view === "preview" && !sendDone && (
               <>
                 <button onClick={() => window.print()} style={{ background: "none", border: "1.5px solid #E5E7EB", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, color: "#4B5563", cursor: "pointer", fontFamily: "inherit" }}>Print</button>
+                {invoice.status === "New" && !hideSend && <button onClick={handleApprove} disabled={approving} style={{ background: "white", border: "1.5px solid #1976D2", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 700, color: "#1976D2", cursor: approving ? "wait" : "pointer", fontFamily: "inherit", opacity: approving ? 0.6 : 1 }} title="Post to QuickBooks and mark as Sent (no email to customer)">{approving ? "Approving…" : "Approve → QB"}</button>}
                 {invoice.status === "New" && !hideSend && <button onClick={() => setView("send")} style={{ background: "#1976D2", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12, fontWeight: 700, color: "white", cursor: "pointer", fontFamily: "inherit" }}>Send Invoice</button>}
               </>
             )}
@@ -585,6 +602,10 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
 
         {/* Modal body */}
         <div data-inv-body style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+
+          {view === "preview" && sendError && (
+            <div style={{ fontSize: 12, color: "#e53935", marginBottom: 16, background: "rgba(229,57,53,0.06)", border: "1px solid rgba(229,57,53,0.2)", borderRadius: 8, padding: "10px 14px", fontFamily: "Arial, sans-serif" }}>{sendError}</div>
+          )}
 
           {view === "preview" && (
             <div style={{ fontFamily: "Arial, sans-serif", color: "#1c1814", background: "white" }}>

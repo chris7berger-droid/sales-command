@@ -16,6 +16,7 @@ export default function ArchiveProposalModal({ onClose, onCreated, preselectedJo
   const [selJob, setSelJob] = useState(preselectedJob || null);
 
   const [soldAmount, setSoldAmount] = useState("");
+  const [historicalBilled, setHistoricalBilled] = useState("");
   const [description, setDescription] = useState("");
   const [allWorkTypes, setAllWorkTypes] = useState([]);
   const [selectedWtIds, setSelectedWtIds] = useState([]);
@@ -70,6 +71,8 @@ export default function ArchiveProposalModal({ onClose, onCreated, preselectedJo
     if (!selJob.archive_record_id) { setError("This job is not from the archive."); return; }
     const amount = parseMoney(soldAmount);
     if (amount <= 0) { setError("Enter a sold amount."); return; }
+    const histBilled = parseMoney(historicalBilled);
+    if (histBilled < 0 || histBilled > amount) { setError("Already-billed amount must be between $0 and the sold amount."); return; }
 
     setSaving(true);
     setError(null);
@@ -90,6 +93,7 @@ export default function ArchiveProposalModal({ onClose, onCreated, preselectedJo
         proposal_number: proposalNumber,
         signing_token: crypto.randomUUID(),
         is_archive_proposal: true,
+        historical_billed_amount: histBilled,
         intro: description || null,
         approved_at: new Date().toISOString(),
       }])
@@ -186,19 +190,35 @@ export default function ArchiveProposalModal({ onClose, onCreated, preselectedJo
               )}
             </div>
 
-            <div style={{ marginBottom: 14 }}>
-              <div style={labelStyle}>Sold Amount *</div>
-              <div style={{ position: "relative" }}>
-                <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.textFaint, fontFamily: F.ui, fontSize: 14 }}>$</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={soldAmount}
-                  onChange={e => setSoldAmount(e.target.value)}
-                  placeholder="0"
-                  style={{ ...inputStyle, paddingLeft: 24 }}
-                  autoFocus
-                />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+              <div>
+                <div style={labelStyle}>Sold Amount *</div>
+                <div style={{ position: "relative" }}>
+                  <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.textFaint, fontFamily: F.ui, fontSize: 14 }}>$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={soldAmount}
+                    onChange={e => setSoldAmount(e.target.value)}
+                    placeholder="0"
+                    style={{ ...inputStyle, paddingLeft: 24 }}
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div>
+                <div style={labelStyle} title="Amount already billed before this job came into Sales Command. Counts against the Remaining total when invoicing.">Already Billed (Historical)</div>
+                <div style={{ position: "relative" }}>
+                  <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.textFaint, fontFamily: F.ui, fontSize: 14 }}>$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={historicalBilled}
+                    onChange={e => setHistoricalBilled(e.target.value)}
+                    placeholder="0"
+                    style={{ ...inputStyle, paddingLeft: 24 }}
+                  />
+                </div>
               </div>
             </div>
 

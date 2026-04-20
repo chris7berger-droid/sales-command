@@ -62,7 +62,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
     async function loadProposals() {
       const { data } = await supabase
         .from("proposals")
-        .select("id, customer, total, proposal_number, call_log_id, is_archive_proposal, call_log(display_job_number, customer_name, job_name, show_cents)")
+        .select("id, customer, total, proposal_number, call_log_id, is_archive_proposal, historical_billed_amount, call_log(display_job_number, customer_name, job_name, show_cents)")
         .eq("status", "Sold")
         .order("created_at", { ascending: false });
       setProposals(data || []);
@@ -88,8 +88,9 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
         .select("amount")
         .eq("proposal_id", p.id)
         .is("deleted_at", null);
-      const billed = (priorInv || []).reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
-      setArchiveBilled(billed);
+      const inSystem = (priorInv || []).reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+      const historical = parseFloat(p.historical_billed_amount) || 0;
+      setArchiveBilled(inSystem + historical);
       setArchiveAmount("");
       setStep(2);
       return;

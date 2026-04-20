@@ -70,7 +70,9 @@ export default function PublicInvoicePage() {
 
   const effectiveShowCents = invoice.show_cents ?? invoice.proposals?.call_log?.show_cents;
   const money = effectiveShowCents ? fmt$c : fmt$;
-  const netTotal = (invoice.amount || 0) - (invoice.discount || 0);
+  const retentionAmt = parseFloat(invoice.retention_amount) || 0;
+  const retentionPct = parseFloat(invoice.retention_pct) || 0;
+  const netTotal = (invoice.amount || 0) - (invoice.discount || 0) - retentionAmt;
   const cl = invoice.proposals?.call_log;
   const cust = cl?.customers;
   const billingName = cust?.billing_name || [cust?.first_name, cust?.last_name].filter(Boolean).join(" ") || cust?.name || "";
@@ -190,7 +192,7 @@ export default function PublicInvoicePage() {
           </div>
 
           {/* Totals */}
-          {invoice.discount > 0 && (
+          {(invoice.discount > 0 || retentionAmt > 0) && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
               <div style={{ display: "flex", gap: 40, fontSize: 13 }}>
                 <span style={{ color: "#887c6e", fontWeight: 600 }}>Subtotal</span>
@@ -199,10 +201,18 @@ export default function PublicInvoicePage() {
             </div>
           )}
           {invoice.discount > 0 && (
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
               <div style={{ display: "flex", gap: 40, fontSize: 13 }}>
                 <span style={{ color: "#e53935", fontWeight: 600 }}>Discount</span>
                 <span style={{ fontWeight: 700, color: "#e53935", fontVariantNumeric: "tabular-nums" }}>-{money(invoice.discount)}</span>
+              </div>
+            </div>
+          )}
+          {retentionAmt > 0 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+              <div style={{ display: "flex", gap: 40, fontSize: 13 }}>
+                <span style={{ color: "#887c6e", fontWeight: 600 }}>Less Retention{retentionPct > 0 ? ` (${retentionPct}%)` : ""}</span>
+                <span style={{ fontWeight: 700, color: "#887c6e", fontVariantNumeric: "tabular-nums" }}>-{money(retentionAmt)}</span>
               </div>
             </div>
           )}

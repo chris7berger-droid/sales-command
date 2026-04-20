@@ -48,6 +48,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
   const [archiveAmount, setArchiveAmount] = useState("");
   const [archiveBilled, setArchiveBilled] = useState(0);
   const [roundInvoice, setRoundInvoice] = useState(true);
+  const [retentionPct, setRetentionPct] = useState("");
   const money = roundInvoice ? fmt$ : fmt$c;
 
   // Load default invoice description
@@ -165,6 +166,10 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
     setSaving(true);
     setError(null);
 
+    const retPct = parseFloat(retentionPct) || 0;
+    const grossForRetention = isArchive ? archiveAmt : invoiceTotal;
+    const retAmt = Math.round(grossForRetention * (retPct / 100) * 100) / 100;
+
     // Generate next invoice ID (zero-padded 5-digit)
     const { data: latest } = await supabase
       .from("invoices")
@@ -192,6 +197,8 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
         due_date: dueDate || null,
         description: description.trim() || null,
         show_cents: !roundInvoice,
+        retention_pct: retPct,
+        retention_amount: retAmt,
       }])
       .select()
       .single();
@@ -416,10 +423,21 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
               })}
             </div>}
 
-            {/* Due date */}
-            <div style={{ marginTop: 12 }}>
-              <div style={labelStyle}>Due Date *</div>
-              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, width: 200, cursor: "pointer" }} />
+            {/* Due date + Retention */}
+            <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <div style={labelStyle}>Due Date *</div>
+                <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
+              </div>
+              <div>
+                <div style={labelStyle}>Retention (%)</div>
+                <input type="number" min="0" max="100" step="0.5" value={retentionPct} onChange={e => setRetentionPct(e.target.value)} placeholder="0" style={inputStyle} />
+                {parseFloat(retentionPct) > 0 && (() => {
+                  const gross = selProposal.is_archive_proposal ? (parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : invoiceTotal;
+                  const held = gross * (parseFloat(retentionPct) / 100);
+                  return <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Held back: {fmt$c(held)} · Net due: {fmt$c(gross - held)}</div>;
+                })()}
+              </div>
             </div>
 
             {/* Description / Introduction */}
@@ -480,7 +498,9 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
     }
   }, []);
 
-  const netTotal = (invoice.amount || 0) - (invoice.discount || 0);
+  const retentionAmt = parseFloat(invoice.retention_amount) || 0;
+  const retentionPct = parseFloat(invoice.retention_pct) || 0;
+  const netTotal = (invoice.amount || 0) - (invoice.discount || 0) - retentionAmt;
 
   // Load billing contact from proposal -> call_log -> customer
   useEffect(() => {
@@ -697,7 +717,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
               </div>
 
               {/* Totals */}
-              {invoice.discount > 0 && (
+              {(invoice.discount > 0 || retentionAmt > 0) && (
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
                   <div style={{ display: "flex", gap: 40, fontSize: 13 }}>
                     <span style={{ color: "#887c6e", fontWeight: 600 }}>Subtotal</span>
@@ -706,10 +726,18 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
                 </div>
               )}
               {invoice.discount > 0 && (
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
                   <div style={{ display: "flex", gap: 40, fontSize: 13 }}>
                     <span style={{ color: "#e53935", fontWeight: 600 }}>Discount</span>
                     <span style={{ fontWeight: 700, color: "#e53935", fontVariantNumeric: "tabular-nums" }}>-{money(invoice.discount)}</span>
+                  </div>
+                </div>
+              )}
+              {retentionAmt > 0 && (
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                  <div style={{ display: "flex", gap: 40, fontSize: 13 }}>
+                    <span style={{ color: "#887c6e", fontWeight: 600 }}>Less Retention{retentionPct > 0 ? ` (${retentionPct}%)` : ""}</span>
+                    <span style={{ fontWeight: 700, color: "#887c6e", fontVariantNumeric: "tabular-nums" }}>-{money(retentionAmt)}</span>
                   </div>
                 </div>
               )}
@@ -796,6 +824,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [editId, setEditId] = useState(invoice.id);
   const [editDueDate, setEditDueDate] = useState(invoice.due_date || "");
   const [editDiscount, setEditDiscount] = useState(String(invoice.discount || 0));
+  const [editRetentionPct, setEditRetentionPct] = useState(String(invoice.retention_pct || 0));
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
 
   useEffect(() => {
@@ -900,6 +929,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     setEditId(inv.id);
     setEditDueDate(inv.due_date || "");
     setEditDiscount(String(inv.discount || 0));
+    setEditRetentionPct(String(inv.retention_pct || 0));
     setEditDesc(inv.description || "");
     const pcts = {};
     lines.forEach(l => { pcts[l.id] = String(l.billing_pct || 0); });
@@ -922,12 +952,16 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       return { id: l.id, billing_pct: pct, amount: Math.round(wtcTotal * (pct / 100) * 100) / 100 };
     });
     const newAmount = newLines.reduce((sum, l) => sum + l.amount, 0);
+    const retPct = parseFloat(editRetentionPct) || 0;
+    const retAmt = Math.round(newAmount * (retPct / 100) * 100) / 100;
 
     // Update invoice
     const { error: invErr } = await supabase.from("invoices").update({
       id: editId,
       due_date: editDueDate || null,
       discount: parseFloat(editDiscount) || 0,
+      retention_pct: retPct,
+      retention_amount: retAmt,
       description: editDesc || null,
       amount: Math.round(newAmount * 100) / 100,
     }).eq("id", inv.id);
@@ -952,7 +986,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         .catch(e => console.warn("QB sync failed:", e.message));
     }
 
-    setInv(prev => ({ ...prev, id: editId, due_date: editDueDate || null, discount: parseFloat(editDiscount) || 0, description: editDesc || null, amount: Math.round(newAmount * 100) / 100 }));
+    setInv(prev => ({ ...prev, id: editId, due_date: editDueDate || null, discount: parseFloat(editDiscount) || 0, retention_pct: retPct, retention_amount: retAmt, description: editDesc || null, amount: Math.round(newAmount * 100) / 100 }));
     setLines(prev => prev.map(l => {
       const nl = newLines.find(n => n.id === l.id);
       return nl ? { ...l, billing_pct: nl.billing_pct, amount: nl.amount } : l;
@@ -1061,6 +1095,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             <div style={labelStyle}>Discount ($)</div>
             <input type="number" min="0" step="1" value={editDiscount} onChange={e => setEditDiscount(e.target.value)} style={inputStyle} />
           </div>
+          <div>
+            <div style={labelStyle}>Retention (%)</div>
+            <input type="number" min="0" max="100" step="0.5" value={editRetentionPct} onChange={e => setEditRetentionPct(e.target.value)} style={inputStyle} />
+            {parseFloat(editRetentionPct) > 0 && (
+              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
+                Held back: {fmt$c((parseFloat(inv.amount) || 0) * (parseFloat(editRetentionPct) / 100))}
+              </div>
+            )}
+          </div>
           <div style={{ gridColumn: "1 / -1" }}>
             <div style={labelStyle}>Description / PO #</div>
             <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="e.g. PO #12345 — Gym Floor Polish" style={inputStyle} />
@@ -1083,10 +1126,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
               {inv.description}
             </div>
           )}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: inv.retention_amount > 0 ? "repeat(4,1fr)" : "repeat(3,1fr)", gap: 12, marginBottom: 24 }}>
             <StatCard label="Invoice Amount" value={money(inv.amount)} accent={C.teal} />
             <StatCard label="Discount" value={inv.discount > 0 ? money(inv.discount) : "—"} accent={C.amber} />
-            <StatCard label="Net Total" value={money((inv.amount || 0) - (inv.discount || 0))} accent={C.green} />
+            {inv.retention_amount > 0 && (
+              <StatCard label={`Retention${inv.retention_pct > 0 ? ` (${inv.retention_pct}%)` : ""}`} value={money(inv.retention_amount)} accent={C.amber} />
+            )}
+            <StatCard label="Net Total" value={money((inv.amount || 0) - (inv.discount || 0) - (inv.retention_amount || 0))} accent={C.green} />
           </div>
         </>
       )}

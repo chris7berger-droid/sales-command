@@ -204,6 +204,22 @@ serve(async (req) => {
       });
     }
 
+    // Add retention as a held-back discount line so QB net matches what's billed now.
+    // QB doesn't natively track retainage without QBO Plus, so we represent it as a
+    // descriptive discount line. Release happens via a separate invoice later.
+    const retentionAmt = parseFloat(invoice.retention_amount) || 0;
+    const retentionPct = parseFloat(invoice.retention_pct) || 0;
+    if (retentionAmt > 0) {
+      qbLines.push({
+        DetailType: "DiscountLineDetail",
+        Amount: retentionAmt,
+        Description: `Retention${retentionPct > 0 ? ` (${retentionPct}%)` : ""} — held back`,
+        DiscountLineDetail: {
+          PercentBased: false,
+        },
+      });
+    }
+
     // ── Determine location from jobsite state ──────────────────────────
     // QB uses "Department" for Location tracking
     let departmentRef = null;

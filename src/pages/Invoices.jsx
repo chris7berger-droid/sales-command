@@ -65,6 +65,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
         .from("proposals")
         .select("id, customer, total, proposal_number, call_log_id, is_archive_proposal, historical_billed_amount, call_log(display_job_number, customer_name, job_name, show_cents)")
         .eq("status", "Sold")
+        .is("deleted_at", null)
         .order("created_at", { ascending: false });
       setProposals(data || []);
     }

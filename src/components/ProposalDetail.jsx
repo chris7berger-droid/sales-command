@@ -1228,12 +1228,14 @@ function ArchiveProposalPanel({ p, setP, money }) {
           </div>
         </div>
       ) : (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 16, alignItems: "center", marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Sold Amount</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(p.total || 0)}</div>
-            <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>
-              Sold Amount{(parseFloat(p.historical_billed_amount) || 0) > 0 ? ` · Historical billed: ${money(parseFloat(p.historical_billed_amount) || 0)}` : ""}
-            </div>
+          </div>
+          <div>
+            <div title="Amount already billed before this job came into Sales Command. Counts against Remaining when invoicing." style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Already Billed (Historical)</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(parseFloat(p.historical_billed_amount) || 0)}</div>
           </div>
           <Btn sz="sm" v="ghost" onClick={() => setEditing(true)}>Edit</Btn>
         </div>

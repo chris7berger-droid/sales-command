@@ -1,0 +1,155 @@
+SC_Handoff_v80 — April 17, 2026 (Pay App → QB sync bugfix)
+Session: post-v79 cleanup. First real pay-app send (DA Builders, invoice
+10004) revealed that QB sync was silently 401-ing. Diagnosed, fixed, and
+cleaned up the DA Builders customer record. No customer-visible impact
+— the pay-app email + PDFs sent fine; only the QB push was failing.
+
+===============================================================================
+STATE OF THE WORLD
+===============================================================================
+
+EVERYTHING IS LIVE on scmybiz.com.
+
+Edge functions redeployed this session:
+  send-pay-app (--no-verify-jwt) — one-line auth fix
+
+No migrations. No new dependencies. No schema changes.
+
+===============================================================================
+THE BUG
+===============================================================================
+
+SYMPTOM:
+  DA Builders pay app #1 (invoice 10004, $31,232.81) was sent from the UI.
+  Pay app flipped to "submitted", customer received email with both PDFs,
+  but invoice never appeared in QuickBooks. A stale "10004 - John Doe"
+  customer (leftover from an earlier test) sat there with 0 transactions.
+
+ROOT CAUSE:
+  send-pay-app fires qb-sync-invoice fire-and-forget at the end of the send
+  flow. The call was made with:
+    Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}
+  but qb-sync-invoice validates the caller via:
+    supabase.auth.getUser(token)
+  which ONLY accepts user JWTs, not service-role keys. So every call
+  returned 401 → QB never got the invoice.
+
+  Logs confirming (from function_logs via Management API):
+    1776461341676  Pay-app email response: 200
+    1776461342096  qb-sync-invoice response: 401 {"error":"Unauthorized"}
+
+  verify_jwt was already false on qb-sync-invoice — this was NOT the
+  gateway bouncing the call, it was the function's own auth check.
+
+THE FIX (one line):
+  supabase/functions/send-pay-app/index.ts:256
+  - "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+  + "Authorization": authHeader,
+
+  authHeader is already captured at line 64 and validated before we reach
+  the QB sync. Deployed with --no-verify-jwt (Docker not running was a
+  warning, not a blocker — deploy succeeded).
+
+NOT YET COMMITTED:
+  The edit is on disk in send-pay-app/index.ts but not committed or pushed.
+  Deploy went direct to Supabase. Next session should:
+    git add supabase/functions/send-pay-app/index.ts
+    git commit -m "fix(billing): forward caller JWT on qb-sync-invoice fan-out"
+    git push
+
+===============================================================================
+DATA CLEANUP DONE
+===============================================================================
+
+1. Pay app status:
+   - Reset "submitted" → "draft" mid-debug to test, then restored to
+     "submitted" with original submitted_at='2026-04-17 19:25:39.46+00'
+     to prevent accidental resend from the UI.
+
+2. DA Builders customer dedup:
+   There were TWO customers named "DA Builders" in tenant 246f6551...:
+     - 31eaed26-6347-4295-a701-1bc6ba1d176d (created 2026-04-16) — REAL,
+       has email dan@da-builders.com, phone, business_address, FK refs
+       from call_log + customer_pay_app_templates
+     - 6df31cc7-6bc1-4f2e-b460-2bcf2e2f4ec1 (created 2026-04-02) — STUB,
+       no email, no address, zero FK references
+   Deleted the orphan (6df31cc7...). DA Builders is now single-row.
+
+3. QB side:
+   Chris handled manually — inactivated the stale "10004 - John Doe"
+   customer and created invoice 10004 for DA Builders directly in QB.
+
+===============================================================================
+OPEN THREADS / KNOWN ISSUES
+===============================================================================
+
+1. INVOICE NUMBERING — invoice 10004 was reused.
+   The old "John Doe" proposal from the v46-era was also invoice 10004.
+   DA Builders just got 10004 too. Number generator isn't tracking max()
+   across soft-deleted/old rows. Not urgent but will bite again. Consider:
+   - Move invoice numbering to tenant_config with a monotonic counter
+   - Or compute max(id::int) over all non-deleted invoices at creation time
+
+2. OTHER QB FAN-OUT CALLS — verify none repeat the bug.
+   The service-role-as-Bearer pattern likely came from copy/paste. Worth
+   a grep across supabase/functions/**/*.ts for:
+     Bearer ${SUPABASE_SERVICE_ROLE_KEY}
+   inside a fetch() to /functions/v1/ — every hit is suspect if the
+   target function does sb.auth.getUser(token).
+   Quick check done this session: send-invoice may have the same shape
+   (qb-sync-invoice fan-out) — didn't verify, flagging for next session.
+
+3. QB CUSTOMER SUB-NAME DUPLICATION (deferred).
+   When QB customers/jobs get pushed, the sub-customer name can end up
+   identical to the parent (e.g. "10004 - John Doe" / "10004 - John Doe").
+   Didn't investigate because today's DA Builders invoice never made it
+   to QB at all — so we don't have a fresh example. When the fix from
+   this session gets tested on a real job, watch for this and add to
+   next handoff if it recurs.
+
+4. TEST THE FIX on a real pay-app send.
+   Pick a throwaway proposal. Send pay app from UI. Within a few seconds
+   watch invoices.qb_invoice_id populate. If it stays NULL, pull function
+   logs — the auth should now succeed. Success looks like:
+     Pay-app email response: 200
+     qb-sync-invoice response: 200  (or 201)
+
+===============================================================================
+USEFUL COMMANDS (reused this session)
+===============================================================================
+
+Query prod DB via CLI:
+  supabase db query --linked --output table "SELECT ..."
+
+Pull edge function logs via Management API:
+  TOKEN extracted from macOS keychain:
+    security find-generic-password -s "Supabase CLI" -w
+    (value is "go-keyring-base64:..." — strip prefix, base64 -d)
+  Then:
+    curl -s "https://api.supabase.com/v1/projects/pbgvgjjuhnpsumnowuym\
+/analytics/endpoints/logs.all?iso_timestamp_start=<ISO>&sql=<url-encoded>" \
+      -H "Authorization: Bearer $TOKEN"
+  Tables: function_logs (console output), function_edge_logs (requests),
+  edge_logs (API gateway / PostgREST).
+  NOTE: default window is small — pass iso_timestamp_start / _end.
+
+DA Builders canonical customer row:
+  id=31eaed26-6347-4295-a701-1bc6ba1d176d
+  tenant_id=246f6551-60de-4965-bb97-9a52971bc05d
+
+DA Builders pay app #1:
+  id=924e11e2-cdf2-43da-b425-627cd6161e49
+  invoice_id=10004  billing_schedule → proposal c2411516-...
+
+===============================================================================
+NEXT SESSION PICKUP
+===============================================================================
+
+Priority order for "more work on the pay-app feature":
+  1. Commit + push the send-pay-app auth fix (not yet in git).
+  2. Test the fix end-to-end on a real job and confirm qb_invoice_id
+     populates.
+  3. Grep for other service-role-as-Bearer fan-outs; fix any found.
+  4. Decide on invoice numbering approach (see open thread #1).
+  5. Whatever new pay-app work Chris had in mind — this doc was written
+     before that conversation.

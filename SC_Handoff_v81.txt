@@ -1,0 +1,209 @@
+SC_Handoff_v81 — April 20, 2026 (Archive proposals, URL routing, polish)
+Session: long stretch focused on the archive-import → invoice path.
+Two new proposal types/flows, a routing architecture refactor, and a
+handful of small UX fixes. Everything is live on scmybiz.com.
+
+===============================================================================
+STATE OF THE WORLD
+===============================================================================
+
+EVERYTHING IS LIVE on scmybiz.com.
+
+Migrations applied this session (via supabase db push):
+  20260420120000_storage_job_attachments_delete_policy.sql
+  20260420130000_call_log_archive_record_id.sql       (column already existed,
+                                                       migration formalizes FK)
+  20260420140000_proposals_is_archive_proposal.sql
+  20260420150000_proposals_historical_billed.sql
+
+Edge functions: none redeployed this session. (See open thread #2 — the
+v80 send-pay-app auth fix WAS deployed before this session but was finally
+committed today.)
+
+===============================================================================
+MAJOR WORK
+===============================================================================
+
+1. CALL LOG — DELETE ATTACHMENTS
+   - × button on each attachment pill (CallLogDetail) with confirm prompt.
+   - Hardened against the silent-no-op pattern: storage.remove() returns
+     { data: [], error: null } when a DELETE policy is missing — now we
+     check data.length and surface a clear error instead of pretending it
+     worked.
+   - Migration adds the missing DELETE policy on the job-attachments
+     bucket so the actual deletes succeed.
+   - Memory note saved (feedback_storage_silent_noop.md) so future
+     storage code remembers this gotcha.
+
+2. ARCHIVE → LIVE: NO MORE SKELETON PROPOSAL
+   - ImportToLiveWizard used to insert a proposal row with total = sold
+     amount and zero proposal_wtc rows. That broke the New Invoice flow
+     silently because the per-WTC % grid had nothing to render.
+   - Removed the skeleton insert. Archive-imported jobs now create
+     a call_log only. Users build a real proposal afterwards (standard
+     OR archive-type — see #3).
+   - CallLogDetail shows "No proposal yet — invoicing is disabled until
+     a proposal is created" when linkedProposals is empty.
+
+3. ARCHIVE JOB PROPOSAL (NEW PROPOSAL TYPE)
+   - New column proposals.is_archive_proposal (boolean default false).
+   - New ArchiveProposalModal — lightweight form: Sold Amount, Description,
+     Work Types (tagging only), no WTC builder.
+   - Reachable two ways: dedicated "+ Archive Job Proposal" button on
+     CallLogDetail (only when archive_record_id is set), and a secondary
+     button on the standard NewProposalModal.
+   - ProposalDetail detects is_archive_proposal and swaps the WTC
+     Calculators panel for an ArchiveProposalPanel showing editable
+     Sold Amount + Already Billed (Historical) + tagged work types.
+   - New Invoice modal detects archive proposals and swaps the per-WTC %
+     grid for a single "Invoice Amount" capped at remaining =
+     total - (historical_billed + sum of in-system invoices).
+   - Standard proposal flow is fully untouched.
+
+4. HISTORICAL BILLED AMOUNT
+   - New column proposals.historical_billed_amount (numeric default 0).
+   - Captured on archive proposal creation (Already Billed (Historical)
+     input next to Sold Amount).
+   - Editable on ProposalDetail's ArchiveProposalPanel (read-only view
+     shows it side-by-side at full prominence; Edit reveals inputs).
+   - "Edit historical billed →" link in the New Invoice archive
+     breakdown closes the modal and jumps to the proposal detail.
+
+5. ARCHIVE BADGE ON CALL LOG
+   - Purple ARCHIVE pill next to the Sold stage pill on Call Log list
+     rows and Call Log detail header when call_log.archive_record_id is
+     set. Hover tooltip explains.
+
+6. URL-BASED ROUTING (BIG REFACTOR)
+   - Replaced the App-level state machine (active, initial*Id, navHistory)
+     with real react-router URLs. Every section + detail now has a path:
+       /home, /calllog, /calllog/:id, /proposals, /proposals/:id,
+       /invoices, /invoices/:id, /customers, /customers/:id, etc.
+   - Browser back/forward works natively across cross-section nav.
+   - Refresh stays on the current detail.
+   - URLs are now shareable.
+   - Cross-section state hand-offs (Home → CallLog stage filter, CallLog
+     → Proposals new-proposal job preselect) use react-router location
+     state.
+   - The earlier in-memory navHistory/popNav system was ripped out
+     (was added earlier today as a half-measure; should have done routing
+     in the first place — see Open Thread #4 / lessons-learned in memory).
+
+7. CROSS-LINK NAVIGATION BUTTONS
+   - Job/Proposal/Invoice detail headers each have small "Job →" /
+     "Proposal →" / "Invoice →" buttons that navigate to the linked
+     detail across sections (only shown when exactly one is linked).
+   - Plus "+ Create Invoice" button on ProposalDetail when status=Sold
+     (works for both standard and archive proposals).
+
+8. PROPOSAL NUMBERING — REVERT-AFTER-OVERFIX
+   - I introduced a duplicate-P# bug in ArchiveProposalModal by counting
+     non-deleted proposals only. Briefly tried a universal renumber-
+     on-delete change across NewProposalModal + ProposalDetail. Chris
+     audited me and called out unnecessary edits to working original
+     code. Reverted to minimal fix: ArchiveProposalModal now counts ALL
+     (matching original NewProposalModal). Original monotonic numbering
+     scheme preserved. Memory note saved (feedback_minimal_fix_first.md).
+
+9. POLISH
+   - Money inputs (Sold Amount, Already Billed) format with thousand
+     separators on blur (96,520.06 not 96520.06).
+   - New Invoice picker filters out soft-deleted proposals (was showing
+     duplicate P-labels for deleted skeletons).
+   - NewInvoiceModal step 2 guards against null selProposal during
+     auto-select after preselectedProposal mounting.
+
+===============================================================================
+DATA NOTES
+===============================================================================
+
+- Getto Transportation Center 100% Solids Epoxy (call_log id 3500):
+    Active proposal: 00eb49ca-8087-4a5b-9676-696ad31ba7d4 (P1, archive
+    type, $96,520, historical_billed_amount $93,685 — Chris adjusted
+    via the Edit panel).
+    Two soft-deleted proposals also exist for the same call_log
+    (35e99d2c P1 standard, 64b5cd5c P2 standard draft) — left in DB.
+
+- DA Builders, pay app #1 (invoice 10004): per v80, fully resolved
+  outside this session. No new pay-app sends this session.
+
+===============================================================================
+OPEN THREADS / KNOWN ISSUES
+===============================================================================
+
+1. PAGE REMOUNT ON LIST↔DETAIL ROUTE CHANGE
+   /proposals and /proposals/:id are separate Route definitions, so
+   navigating between them remounts the Proposals component. Same for
+   CallLog/Invoices/Customers. Pages reload their data each time.
+   CallLog has sessionStorage cache so it's snappy; others reload from
+   network. Acceptable but if it feels janky, switch to a wildcard
+   Route or nested Outlet pattern.
+
+2. SEND-PAY-APP AUTH FIX FROM V80 — NOW COMMITTED
+   The one-line fix in supabase/functions/send-pay-app/index.ts:256
+   (Bearer service role → forward authHeader) had been deployed to
+   Supabase but never committed. Committed in this session's final
+   handoff push. Repo and deployed function are now in sync.
+
+3. OTHER QB FAN-OUT CALLS (CARRYOVER FROM V80)
+   Still want to grep supabase/functions/**/*.ts for the
+   `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` pattern in fetch() to
+   /functions/v1/ — every hit is suspect if the target function does
+   sb.auth.getUser(token). Not done this session.
+
+4. INVOICE NUMBERING (CARRYOVER FROM V80)
+   Invoice IDs are still based on max+1 across all rows; soft-deletes
+   don't free up numbers. Not urgent; Chris can decide whether to
+   move to a tenant_config monotonic counter when ready.
+
+5. MULTI-INVOICE PROPOSAL HEADER LINK
+   ProposalDetail header shows "Invoice →" only when exactly one
+   invoice is linked. With >1 invoices, just a count hint pointing
+   to the in-body Linked Items section. A dropdown would be cleaner
+   if Chris finds himself jumping between many.
+
+6. EXISTING SKELETON PROPOSAL CLEANUP (DEFERRED BY CHRIS)
+   Chris said "I'll delete it manually" for the original Getto skeleton
+   (35e99d2c). It's still soft-deleted in the DB. No action needed.
+
+===============================================================================
+NEXT SESSION PICKUP
+===============================================================================
+
+Priority order for "more polish on the archive-proposal / invoice flow":
+  1. Test a full archive-proposal lifecycle on a non-Getto job:
+     create proposal, set historical billed, create invoice for the
+     remainder, verify invoice appears correctly and remaining = $0.
+  2. Address open thread #1 (page remount) only if the UX feels janky
+     — defer otherwise.
+  3. Sweep open thread #3 (other QB fan-out calls).
+  4. Whatever new work Chris brings.
+
+===============================================================================
+USEFUL COMMANDS
+===============================================================================
+
+Apply pending DB migrations:
+  supabase db push
+
+Query prod DB via CLI:
+  supabase db query --linked --output table "SELECT ..."
+
+Build locally before push:
+  npx vite build  (run from ~/sales-command)
+
+Vercel deploys on push to main automatically.
+
+===============================================================================
+MEMORY NOTES SAVED THIS SESSION
+===============================================================================
+
+- feedback_storage_silent_noop.md — Supabase storage.remove() returns empty
+  array (not error) when DELETE policy missing; check data.length.
+- project_archive_no_skeleton.md — Archive → Live creates only call_log;
+  no auto-skeleton proposal. Two explicit proposal paths exist.
+- project_routing.md — Every section + detail uses real react-router URLs;
+  navigate() for all cross-links. Don't reintroduce initial*Id state.
+- feedback_minimal_fix_first.md — When new code breaks against original
+  code, fix the new code; don't restructure original. Prove originals
+  are broken before touching them.

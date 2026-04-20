@@ -253,7 +253,7 @@ serve(async (req) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        "Authorization": authHeader,
       },
       body: JSON.stringify({ invoiceId }),
     })

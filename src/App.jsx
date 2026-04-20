@@ -81,6 +81,26 @@ function SalesCommandApp() {
   const [initialProposal, setInitialProposal] = useState(null);
   const [initialInvoiceId, setInitialInvoiceId] = useState(null);
   const [initialCustomerId, setInitialCustomerId] = useState(null);
+  const [initialJobId, setInitialJobId] = useState(null);
+  const [navHistory, setNavHistory] = useState([]);
+
+  function navigateTo({ targetType, targetId, from }) {
+    if (from) setNavHistory(h => [...h, from]);
+    if (targetType === "proposal") { setInitialProposal({ openId: targetId }); setActive("proposals"); }
+    else if (targetType === "invoice") { setInitialInvoiceId(targetId); setActive("invoices"); }
+    else if (targetType === "job") { setInitialJobId(targetId); setActive("calllog"); }
+  }
+
+  function popNav() {
+    if (navHistory.length === 0) return false;
+    const entry = navHistory[navHistory.length - 1];
+    setNavHistory(h => h.slice(0, -1));
+    if (entry.openType === "proposal") setInitialProposal({ openId: entry.openId });
+    else if (entry.openType === "invoice") setInitialInvoiceId(entry.openId);
+    else if (entry.openType === "job") setInitialJobId(entry.openId);
+    setActive(entry.section);
+    return true;
+  }
   const [open,       setOpen]       = useState(true);
   const [showTOC,    setShowTOC]    = useState(false);
   const [subPage,    setSubPage]    = useState(null);
@@ -204,9 +224,9 @@ function SalesCommandApp() {
     switch (active) {
       case "home": return <Home displayName={displayName} displayRole={displayRole} setActive={setActive} setBidDueFilter={setBidDueFilter} onStageFilter={stage => { setStageFilter(stage); setActive("calllog"); }} />;
       case "dashboard": return <SalesDash displayName={displayName} displayRole={displayRole} />;
-      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} stageFilter={stageFilter} onClearStageFilter={() => setStageFilter(null)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} onNavigateProposal={id => { setInitialProposal({ openId: id }); setActive("proposals"); }} onNavigateInvoice={(id) => { setInitialInvoiceId(id); setActive("invoices"); }} onNavigateCustomer={custId => { setInitialCustomerId(custId); setActive("customers"); }} setSubPage={setSubPage} />;
-      case "proposals": return <Proposals teamMember={teamMember} initialProposal={initialProposal} onClearInitial={() => setInitialProposal(null)} setSubPage={setSubPage} onNavigateInvoice={(id) => { setInitialInvoiceId(id); setActive("invoices"); }} />;
-      case "invoices":  return <Invoices initialInvoiceId={initialInvoiceId} onClearInitialInvoice={() => setInitialInvoiceId(null)} setSubPage={setSubPage} teamMember={teamMember} />;
+      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} stageFilter={stageFilter} onClearStageFilter={() => setStageFilter(null)} initialJobId={initialJobId} onClearInitialJob={() => setInitialJobId(null)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} navigateTo={navigateTo} popNav={popNav} hasNavBack={navHistory.length > 0} onNavigateProposal={id => navigateTo({ targetType: "proposal", targetId: id })} onNavigateInvoice={(id) => navigateTo({ targetType: "invoice", targetId: id })} onNavigateCustomer={custId => { setInitialCustomerId(custId); setActive("customers"); }} setSubPage={setSubPage} />;
+      case "proposals": return <Proposals teamMember={teamMember} initialProposal={initialProposal} onClearInitial={() => setInitialProposal(null)} setSubPage={setSubPage} navigateTo={navigateTo} popNav={popNav} hasNavBack={navHistory.length > 0} onNavigateInvoice={(id) => navigateTo({ targetType: "invoice", targetId: id })} />;
+      case "invoices":  return <Invoices initialInvoiceId={initialInvoiceId} onClearInitialInvoice={() => setInitialInvoiceId(null)} setSubPage={setSubPage} teamMember={teamMember} navigateTo={navigateTo} popNav={popNav} hasNavBack={navHistory.length > 0} />;
       case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
       case "customers": return <Customers setActive={setActive} setInitialProposal={setInitialProposal} setInitialInvoiceId={setInitialInvoiceId} initialCustomerId={initialCustomerId} onClearInitialCustomer={() => setInitialCustomerId(null)} setSubPage={setSubPage} />;
       case "team":      return <Team teamMember={teamMember} />;

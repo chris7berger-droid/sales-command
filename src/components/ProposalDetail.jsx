@@ -11,7 +11,7 @@ import Pill from "./Pill";
 import ProposalPDFModal from "./ProposalPDFModal";
 import BillingScheduleSection from "./BillingScheduleSection";
 
-function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember }) {
+function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember, onNavigateJob, onNavigateInvoice }) {
   const [p, setP] = useState(pInit);
   const money = p.call_log?.show_cents ? fmt$c : fmt$;
   const [showWTC, setShowWTC] = useState(false);
@@ -46,6 +46,14 @@ const [showAddPicker, setShowAddPicker] = useState(false);
 const [newContactOpen, setNewContactOpen] = useState(false);
 const [editingPrimary, setEditingPrimary] = useState(false);
 const [primaryDraft, setPrimaryDraft] = useState("");
+const [linkedInvoices, setLinkedInvoices] = useState([]);
+
+useEffect(() => {
+  (async () => {
+    const { data } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).order("sent_at", { ascending: false });
+    setLinkedInvoices(data || []);
+  })();
+}, [p.id]);
 
 useEffect(() => {
   supabase.from("team_members").select("id, name").eq("active", true).order("name").then(({ data }) => setAllTeamMembers(data || []));
@@ -588,6 +596,21 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.tealDark, fontWeight: 800, fontSize: 12.5, padding: 0, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>
           ← Back
         </button>
+        {p.call_log_id && onNavigateJob && (
+          <button onClick={() => onNavigateJob(p.call_log_id)} title="Open Call Log entry" style={{ background: C.linenDeep, border: `1px solid ${C.borderStrong}`, cursor: "pointer", color: C.tealDark, fontWeight: 800, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 12px", borderRadius: 6 }}>
+            Job →
+          </button>
+        )}
+        {linkedInvoices.length === 1 && onNavigateInvoice && (
+          <button onClick={() => onNavigateInvoice(linkedInvoices[0].id)} title="Open Invoice" style={{ background: C.linenDeep, border: `1px solid ${C.borderStrong}`, cursor: "pointer", color: C.tealDark, fontWeight: 800, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 12px", borderRadius: 6 }}>
+            Invoice →
+          </button>
+        )}
+        {linkedInvoices.length > 1 && onNavigateInvoice && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.ui }}>
+            {linkedInvoices.length} invoices — see below
+          </span>
+        )}
         <div style={{ width: 1, height: 18, background: C.border }} />
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>
           Proposal {p.call_log?.display_job_number || p.id} P{p.proposal_number || 1}

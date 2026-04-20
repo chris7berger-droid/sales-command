@@ -13,7 +13,7 @@ import FilterBar from "../components/FilterBar";
 import NewInquiryWizard from "../components/NewInquiryWizard";
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-export default function CallLog({ teamMember, onNewProposal, onNavigateProposal, onNavigateInvoice, onNavigateCustomer, bidDueFilter, onClearBidDueFilter, stageFilter, onClearStageFilter, setSubPage }) {
+export default function CallLog({ teamMember, onNewProposal, onNavigateProposal, onNavigateInvoice, onNavigateCustomer, bidDueFilter, onClearBidDueFilter, stageFilter, onClearStageFilter, setSubPage, initialJobId, onClearInitialJob, navigateTo, popNav, hasNavBack }) {
   const [rows, setRows]           = useState([]);
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -101,6 +101,13 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
     }
   }, [stageFilter]);
 
+  useEffect(() => {
+    if (!initialJobId || rows.length === 0) return;
+    const job = rows.find(r => String(r.id) === String(initialJobId));
+    if (job) setSelJob(job);
+    onClearInitialJob && onClearInitialJob();
+  }, [initialJobId, rows]);
+
   // Track sub-page for TOC
   useEffect(() => {
     if (setSubPage) setSubPage(selJob ? "detail" : showModal ? "new" : null);
@@ -113,13 +120,13 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
         job={selJob}
         teamMembers={team}
         workTypes={workTypes}
-        onBack={() => setSelJob(null)}
+        onBack={() => { if (hasNavBack && popNav()) return; setSelJob(null); }}
         onSaved={() => { setSelJob(null); load(); }}
         onDeleted={() => { setSelJob(null); load(); }}
         teamMember={teamMember}
         onNewProposal={onNewProposal ? () => onNewProposal(selJob) : undefined}
-        onNavigateProposal={onNavigateProposal}
-        onNavigateInvoice={onNavigateInvoice}
+        onNavigateProposal={id => navigateTo ? navigateTo({ targetType: "proposal", targetId: id, from: { section: "calllog", openType: "job", openId: selJob.id } }) : onNavigateProposal?.(id)}
+        onNavigateInvoice={id => navigateTo ? navigateTo({ targetType: "invoice", targetId: id, from: { section: "calllog", openType: "job", openId: selJob.id } }) : onNavigateInvoice?.(id)}
         onNavigateCustomer={onNavigateCustomer}
       />
     );

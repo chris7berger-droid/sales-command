@@ -641,7 +641,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
 }
 
 // ── Invoice Detail ────────────────────────────────────────────────────────
-function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
+function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, onNavigateProposal }) {
   const money = fmt$c;
   const [inv, setInv] = useState(invoice);
   const [lines, setLines] = useState([]);
@@ -866,9 +866,21 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-      <button onClick={onBack} style={{ background: C.dark, border: "none", cursor: "pointer", color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 14px", borderRadius: 6, marginBottom: 20, alignSelf: "flex-start" }}>
-        ← Invoices
-      </button>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 20 }}>
+        <button onClick={onBack} style={{ background: C.dark, border: "none", cursor: "pointer", color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 14px", borderRadius: 6 }}>
+          ← Invoices
+        </button>
+        {inv.proposals?.call_log_id && onNavigateJob && (
+          <button onClick={() => onNavigateJob(inv.proposals.call_log_id)} title="Open Call Log entry" style={{ background: C.linenDeep, border: `1px solid ${C.borderStrong}`, cursor: "pointer", color: C.tealDark, fontWeight: 800, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 12px", borderRadius: 6 }}>
+            Job →
+          </button>
+        )}
+        {inv.proposal_id && onNavigateProposal && (
+          <button onClick={() => onNavigateProposal(inv.proposal_id)} title="Open Proposal" style={{ background: C.linenDeep, border: `1px solid ${C.borderStrong}`, cursor: "pointer", color: C.tealDark, fontWeight: 800, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 12px", borderRadius: 6 }}>
+            Proposal →
+          </button>
+        )}
+      </div>
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 4 }}>
@@ -1095,7 +1107,7 @@ const QB_CLIENT_ID = "ABg3H5TIV6XdDtSWlJXDC3rM7u8zKI3k5yHlbUaIrIiYNiUmc7";
 const QB_REDIRECT_URI = "https://www.scmybiz.com/qb/callback";
 const QB_AUTH_URL = `https://appcenter.intuit.com/connect/oauth2?client_id=${QB_CLIENT_ID}&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}&response_type=code&scope=com.intuit.quickbooks.accounting&state=salescommand`;
 
-export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setSubPage, teamMember }) {
+export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setSubPage, teamMember, navigateTo, popNav, hasNavBack }) {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -1106,7 +1118,7 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
   const load = async () => {
     const data = await fetchAll(
       "invoices",
-      "*, proposals(call_log(sales_name, customer_name, display_job_number, show_cents))",
+      "*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents))",
       { filters: [["is", "deleted_at", null]], order: { column: "sent_at", ascending: false } }
     );
     setInvoices(data);
@@ -1157,7 +1169,14 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
     if (setSubPage) setSubPage(sel ? "detail" : showModal ? "new" : null);
   }, [sel, showModal]);
 
-  if (sel) return <InvoiceDetail invoice={sel} onBack={() => { setSel(null); load(); }} onUpdated={async () => { const data = await load(); const fresh = (data || []).find(i => i.id === sel.id); if (fresh) setSel(fresh); }} onDeleted={() => { setSel(null); load(); }} />;
+  if (sel) return <InvoiceDetail
+    invoice={sel}
+    onBack={() => { if (hasNavBack && popNav()) return; setSel(null); load(); }}
+    onUpdated={async () => { const data = await load(); const fresh = (data || []).find(i => i.id === sel.id); if (fresh) setSel(fresh); }}
+    onDeleted={() => { setSel(null); load(); }}
+    onNavigateJob={id => navigateTo?.({ targetType: "job", targetId: id, from: { section: "invoices", openType: "invoice", openId: sel.id } })}
+    onNavigateProposal={id => navigateTo?.({ targetType: "proposal", targetId: id, from: { section: "invoices", openType: "invoice", openId: sel.id } })}
+  />;
 
   return (
     <>

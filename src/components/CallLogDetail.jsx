@@ -274,10 +274,27 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
 
-      {/* Back */}
-      <button onClick={onBack} style={{ background: C.dark, border: "none", cursor: "pointer", color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 14px", borderRadius: 6, marginBottom: 20, alignSelf: "flex-start" }}>
-        ← Call Log
-      </button>
+      {/* Back + cross-nav */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 20 }}>
+        <button onClick={onBack} style={{ background: C.dark, border: "none", cursor: "pointer", color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 14px", borderRadius: 6 }}>
+          ← Call Log
+        </button>
+        {linkedProposals.length === 1 && onNavigateProposal && (
+          <button onClick={() => onNavigateProposal(linkedProposals[0].id)} title="Open Proposal" style={{ background: C.linenDeep, border: `1px solid ${C.borderStrong}`, cursor: "pointer", color: C.tealDark, fontWeight: 800, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 12px", borderRadius: 6 }}>
+            Proposal →
+          </button>
+        )}
+        {linkedInvoices.length === 1 && onNavigateInvoice && (
+          <button onClick={() => onNavigateInvoice(linkedInvoices[0].id)} title="Open Invoice" style={{ background: C.linenDeep, border: `1px solid ${C.borderStrong}`, cursor: "pointer", color: C.tealDark, fontWeight: 800, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 12px", borderRadius: 6 }}>
+            Invoice →
+          </button>
+        )}
+        {(linkedProposals.length > 1 || linkedInvoices.length > 1) && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.ui }}>
+            Multiple linked items — see below
+          </span>
+        )}
+      </div>
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 4 }}>

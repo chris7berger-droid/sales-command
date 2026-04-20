@@ -12,7 +12,7 @@ import FilterBar from "../components/FilterBar";
 import NewProposalModal from "../components/NewProposalModal";
 import ProposalDetail from "../components/ProposalDetail";
 
-export default function Proposals({ teamMember, initialProposal, onClearInitial, setSubPage, onNavigateInvoice }) {
+export default function Proposals({ teamMember, initialProposal, onClearInitial, setSubPage, onNavigateInvoice, navigateTo, popNav, hasNavBack }) {
   const [proposals, setProposals] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [sel, setSel]             = useState(null);
@@ -82,7 +82,14 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
     if (setSubPage) setSubPage(sel ? "detail" : null);
   }, [sel]);
 
-  if (sel) return <ProposalDetail p={sel} onBack={() => setSel(null)} onDeleted={() => { setSel(null); load(); }} teamMember={teamMember} />;
+  if (sel) return <ProposalDetail
+    p={sel}
+    onBack={() => { if (hasNavBack && popNav()) return; setSel(null); }}
+    onDeleted={() => { setSel(null); load(); }}
+    teamMember={teamMember}
+    onNavigateJob={id => navigateTo?.({ targetType: "job", targetId: id, from: { section: "proposals", openType: "proposal", openId: sel.id } })}
+    onNavigateInvoice={id => navigateTo ? navigateTo({ targetType: "invoice", targetId: id, from: { section: "proposals", openType: "proposal", openId: sel.id } }) : onNavigateInvoice?.(id)}
+  />;
 
   return (
     <>

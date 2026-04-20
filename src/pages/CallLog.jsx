@@ -246,7 +246,16 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
                 )},
                 { k: "customer_name", l: "Customer", r: (v, row) => <span style={{ fontWeight: 500 }}>{v || row.job_name}</span> },
                 { k: "created_at", l: "Date", r: v => fmtD(v) },
-                { k: "stage", l: "Stage", r: v => <Pill label={v} cm={STAGE_C} /> },
+                { k: "stage", l: "Stage", r: (v, row) => (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <Pill label={v} cm={STAGE_C} />
+                    {row.archive_record_id && (
+                      <span title="Imported from archive — no proposal exists. Build a proposal before invoicing." style={{ fontSize: 10, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "2px 7px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)", cursor: "help" }}>
+                        ARCHIVE
+                      </span>
+                    )}
+                  </span>
+                )},
                 { k: "sales_name", l: "Rep" },
                 { k: "bid_due", l: "Bid Due", r: v => <span style={{ color: over(v) ? C.red : C.textBody, fontWeight: 500 }}>{fmtD(v)}</span> },
                 { k: "follow_up", l: "Follow Up", r: v => v ? <span style={{ color: over(v) ? C.red : C.textBody }}>{fmtD(v)}</span> : <span style={{ color: C.textFaint }}>—</span> },

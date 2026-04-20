@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
@@ -1193,7 +1194,9 @@ const QB_CLIENT_ID = "ABg3H5TIV6XdDtSWlJXDC3rM7u8zKI3k5yHlbUaIrIiYNiUmc7";
 const QB_REDIRECT_URI = "https://www.scmybiz.com/qb/callback";
 const QB_AUTH_URL = `https://appcenter.intuit.com/connect/oauth2?client_id=${QB_CLIENT_ID}&redirect_uri=${encodeURIComponent(QB_REDIRECT_URI)}&response_type=code&scope=com.intuit.quickbooks.accounting&state=salescommand`;
 
-export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setSubPage, teamMember, navigateTo, popNav, hasNavBack }) {
+export default function Invoices({ setSubPage, teamMember }) {
+  const navigate = useNavigate();
+  const { id: routeInvoiceId } = useParams();
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -1219,15 +1222,18 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
 
   useEffect(() => {
     (async () => {
-      const data = await load();
+      await load();
       checkQb();
-      if (initialInvoiceId) {
-        const inv = (data || []).find(i => i.id === initialInvoiceId);
-        if (inv) setSel(inv);
-        onClearInitialInvoice && onClearInitialInvoice();
-      }
     })();
   }, []);
+
+  // Sync selected invoice with URL :id param
+  useEffect(() => {
+    if (!routeInvoiceId) { setSel(null); return; }
+    if (invoices.length === 0) return;
+    const inv = invoices.find(i => i.id === routeInvoiceId);
+    if (inv) setSel(inv);
+  }, [routeInvoiceId, invoices]);
 
   const drafted = invoices.filter(i => i.status === "New").reduce((a, i) => a + (i.amount || 0), 0);
   const pending = invoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);
@@ -1257,11 +1263,11 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
 
   if (sel) return <InvoiceDetail
     invoice={sel}
-    onBack={() => { if (hasNavBack && popNav()) return; setSel(null); load(); }}
+    onBack={() => { navigate("/invoices"); load(); }}
     onUpdated={async () => { const data = await load(); const fresh = (data || []).find(i => i.id === sel.id); if (fresh) setSel(fresh); }}
-    onDeleted={() => { setSel(null); load(); }}
-    onNavigateJob={id => navigateTo?.({ targetType: "job", targetId: id, from: { section: "invoices", openType: "invoice", openId: sel.id } })}
-    onNavigateProposal={id => navigateTo?.({ targetType: "proposal", targetId: id, from: { section: "invoices", openType: "invoice", openId: sel.id } })}
+    onDeleted={() => { navigate("/invoices"); load(); }}
+    onNavigateJob={id => navigate(`/calllog/${id}`)}
+    onNavigateProposal={id => navigate(`/proposals/${id}`)}
   />;
 
   return (
@@ -1269,7 +1275,7 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
       {showModal && (
         <NewInvoiceModal
           onClose={() => setShowModal(false)}
-          onCreated={(inv) => { setShowModal(false); setSel(inv); load(); }}
+          onCreated={(inv) => { setShowModal(false); navigate(`/invoices/${inv.id}`); load(); }}
         />
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -1320,7 +1326,7 @@ export default function Invoices({ initialInvoiceId, onClearInitialInvoice, setS
               }},
             ]}
             rows={filteredInvoices}
-            onRow={row => setSel(row)}
+            onRow={row => navigate(`/invoices/${row.id}`)}
           />
         )}
       </div>

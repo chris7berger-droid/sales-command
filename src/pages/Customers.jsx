@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
 import { supabase } from "../lib/supabase";
@@ -652,7 +653,9 @@ function matchSearch(c, q) {
     || (c.last_name || "").toLowerCase().includes(s);
 }
 
-export default function Customers({ setActive, setInitialProposal, setInitialInvoiceId, initialCustomerId, onClearInitialCustomer, setSubPage }) {
+export default function Customers({ setSubPage }) {
+  const navigate = useNavigate();
+  const { id: routeCustomerId } = useParams();
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
@@ -671,15 +674,17 @@ export default function Customers({ setActive, setInitialProposal, setInitialInv
     }
     setCustomers(all);
     setLoading(false);
-    // Auto-open customer if navigated from another page
-    if (initialCustomerId && data) {
-      const match = data.find(c => c.id === initialCustomerId);
-      if (match) setViewing(match);
-      if (onClearInitialCustomer) onClearInitialCustomer();
-    }
   };
 
   useEffect(() => { load(); }, []);
+
+  // Sync viewing customer with URL :id param
+  useEffect(() => {
+    if (!routeCustomerId) { setViewing(null); return; }
+    if (customers.length === 0) return;
+    const match = customers.find(c => c.id === routeCustomerId);
+    if (match) setViewing(match);
+  }, [routeCustomerId, customers]);
 
   const termsLabel = (t) => t ? `Net ${t}` : "—";
 
@@ -693,20 +698,11 @@ export default function Customers({ setActive, setInitialProposal, setInitialInv
       <>
         <CustomerDetail
           customer={viewing}
-          onBack={() => setViewing(null)}
+          onBack={() => navigate("/customers")}
           onEdit={() => setEditing(viewing)}
-          onNavigateJob={(job) => {
-            // Navigate to call log with this job selected
-            if (setActive) setActive("calllog");
-          }}
-          onNavigateProposal={(id) => {
-            if (setInitialProposal) setInitialProposal({ openId: id });
-            if (setActive) setActive("proposals");
-          }}
-          onNavigateInvoice={(id) => {
-            if (setInitialInvoiceId) setInitialInvoiceId(id);
-            if (setActive) setActive("invoices");
-          }}
+          onNavigateJob={(job) => navigate(`/calllog/${job.id}`)}
+          onNavigateProposal={(id) => navigate(`/proposals/${id}`)}
+          onNavigateInvoice={(id) => navigate(`/invoices/${id}`)}
         />
         {editing && (
           <CustomerModal
@@ -755,7 +751,7 @@ export default function Customers({ setActive, setInitialProposal, setInitialInv
             { k: "billing_terms",  l: "Terms",         r: v => termsLabel(v) },
           ]}
           rows={search ? customers.filter(c => matchSearch(c, search)) : customers}
-          onRow={row => setViewing(row)}
+          onRow={row => navigate(`/customers/${row.id}`)}
         />
       )}
 

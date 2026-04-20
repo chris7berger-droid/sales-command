@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { fmt$, tod } from "../lib/utils";
 import { STAGES } from "../lib/mockData";
@@ -70,7 +71,8 @@ function GoalDrilldown({ title, items, onClose }) {
   );
 }
 
-export default function Home({ displayName = "there", displayRole = "Sales Rep", setActive, setBidDueFilter, onStageFilter }) {
+export default function Home({ displayName = "there", displayRole = "Sales Rep" }) {
+  const navigate = useNavigate();
 
   const [rows,          setRows]          = useState([]);
   const [monthRows,     setMonthRows]     = useState([]);
@@ -172,7 +174,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
 
       {/* ALERT BANNER */}
       {(bids > 0 || fups > 0) && (
-        <div onClick={() => { if (setBidDueFilter) setBidDueFilter(true); if (setActive) setActive("calllog"); }} style={{ background: "rgba(249,168,37,0.12)", border: "1.5px solid rgba(249,168,37,0.4)", borderRadius: 10, padding: "11px 18px", display: "flex", gap: 12, alignItems: "center", cursor: "pointer" }}>
+        <div onClick={() => navigate("/calllog", { state: { bidDueFilter: true } })} style={{ background: "rgba(249,168,37,0.12)", border: "1.5px solid rgba(249,168,37,0.4)", borderRadius: 10, padding: "11px 18px", display: "flex", gap: 12, alignItems: "center", cursor: "pointer" }}>
           <span style={{ fontSize: 16 }}>⚠</span>
           <span style={{ fontSize: 13.5, color: "#7a5000", fontWeight: 700, fontFamily: F.ui }}>
             {bids > 0 && `${bids} bid${bids > 1 ? "s" : ""} due today`}
@@ -184,10 +186,10 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
 
       {/* STAT CARDS */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(172px,1fr))", gap: 12 }}>
-        <StatCard label="New Inquiries" value={loading ? "…" : sc["New Inquiry"] || 0} sub="This month" accent={C.teal}   onClick={() => onStageFilter && onStageFilter("New Inquiry")} />
-        <StatCard label="Wants Bid"     value={loading ? "…" : sc["Wants Bid"]   || 0} sub="Active"     accent={C.amber}  onClick={() => onStageFilter && onStageFilter("Wants Bid")} />
-        <StatCard label="Has Bid"       value={loading ? "…" : sc["Has Bid"]     || 0} sub="Awaiting"   accent={C.purple} onClick={() => onStageFilter && onStageFilter("Has Bid")} />
-        <StatCard label="Sold"          value={loading ? "…" : soldTotal} sub="All time" accent={C.green}  onClick={() => onStageFilter && onStageFilter("Sold")} />
+        <StatCard label="New Inquiries" value={loading ? "…" : sc["New Inquiry"] || 0} sub="This month" accent={C.teal}   onClick={() => navigate("/calllog", { state: { stageFilter: "New Inquiry" } })} />
+        <StatCard label="Wants Bid"     value={loading ? "…" : sc["Wants Bid"]   || 0} sub="Active"     accent={C.amber}  onClick={() => navigate("/calllog", { state: { stageFilter: "Wants Bid" } })} />
+        <StatCard label="Has Bid"       value={loading ? "…" : sc["Has Bid"]     || 0} sub="Awaiting"   accent={C.purple} onClick={() => navigate("/calllog", { state: { stageFilter: "Has Bid" } })} />
+        <StatCard label="Sold"          value={loading ? "…" : soldTotal} sub="All time" accent={C.green}  onClick={() => navigate("/calllog", { state: { stageFilter: "Sold" } })} />
       </div>
 
       {/* PIPELINE BAR */}

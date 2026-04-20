@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
@@ -12,34 +13,32 @@ import FilterBar from "../components/FilterBar";
 import NewProposalModal from "../components/NewProposalModal";
 import ProposalDetail from "../components/ProposalDetail";
 
-export default function Proposals({ teamMember, initialProposal, onClearInitial, setSubPage, onNavigateInvoice, navigateTo, popNav, hasNavBack }) {
+export default function Proposals({ teamMember, setSubPage }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { id: routeProposalId } = useParams();
+  const navState = location.state || {};
   const [proposals, setProposals] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [sel, setSel]             = useState(null);
-  const [showModal, setShowModal] = useState(false);
+  const [showModal, setShowModal] = useState(!!navState.newJob);
 
-  const [preselectedJob, setPreselectedJob] = useState(null);
+  const [preselectedJob, setPreselectedJob] = useState(navState.newJob || null);
   const [statusFilter, setStatusFilter]     = useState("All");
   const [workTypes, setWorkTypes]           = useState([]);
   const [filters, setFilters]               = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
 
   useEffect(() => {
-    if (initialProposal?.job) {
-      setPreselectedJob(initialProposal.job);
-      setShowModal(true);
-      onClearInitial && onClearInitial();
-    } else if (initialProposal?.openId) {
-      (async () => {
-        const { data } = await supabase
-          .from("proposals")
-          .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(email, contact_email, business_address, business_city, business_state, business_zip))")
-          .eq("id", initialProposal.openId)
-          .maybeSingle();
-        if (data) setSel(data);
-      })();
-      onClearInitial && onClearInitial();
-    }
-  }, [initialProposal]);
+    if (!routeProposalId) { setSel(null); return; }
+    (async () => {
+      const { data } = await supabase
+        .from("proposals")
+        .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(email, contact_email, business_address, business_city, business_state, business_zip))")
+        .eq("id", routeProposalId)
+        .maybeSingle();
+      if (data) setSel(data);
+    })();
+  }, [routeProposalId]);
 
   const load = async () => {
     const [data, invData, { data: wtData }] = await Promise.all([
@@ -84,11 +83,11 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
 
   if (sel) return <ProposalDetail
     p={sel}
-    onBack={() => { if (hasNavBack && popNav()) return; setSel(null); }}
-    onDeleted={() => { setSel(null); load(); }}
+    onBack={() => navigate("/proposals")}
+    onDeleted={() => { navigate("/proposals"); load(); }}
     teamMember={teamMember}
-    onNavigateJob={id => navigateTo?.({ targetType: "job", targetId: id, from: { section: "proposals", openType: "proposal", openId: sel.id } })}
-    onNavigateInvoice={id => navigateTo ? navigateTo({ targetType: "invoice", targetId: id, from: { section: "proposals", openType: "proposal", openId: sel.id } }) : onNavigateInvoice?.(id)}
+    onNavigateJob={id => navigate(`/calllog/${id}`)}
+    onNavigateInvoice={id => navigate(`/invoices/${id}`)}
   />;
 
   return (
@@ -96,7 +95,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
       {showModal && (
         <NewProposalModal
           onClose={() => { setShowModal(false); setPreselectedJob(null); }}
-          onCreated={(newProposal) => { setShowModal(false); setPreselectedJob(null); setSel(newProposal); load(); }}
+          onCreated={(newProposal) => { setShowModal(false); setPreselectedJob(null); navigate(`/proposals/${newProposal.id}`); load(); }}
           preselectedJob={preselectedJob}
         />
       )}
@@ -182,7 +181,7 @@ export default function Proposals({ teamMember, initialProposal, onClearInitial,
               }},
               { k: "_a", l: "", r: (_, row) => (
                 <div style={{ display: "flex", gap: 5 }}>
-                  <Btn sz="sm" v="secondary" onClick={() => setSel(row)}>Open</Btn>
+                  <Btn sz="sm" v="secondary" onClick={() => navigate(`/proposals/${row.id}`)}>Open</Btn>
                   <Btn sz="sm" v="ghost">PDF</Btn>
                 </div>
               )},

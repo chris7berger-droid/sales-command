@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { C, F } from "../lib/tokens";
 import ArchiveSearchView from "../components/HistoryLocker/ArchiveSearchView";
@@ -11,7 +12,8 @@ const TABS = [
   { id: "batches", label: "Import Batches", roles: ["Admin"] },
 ];
 
-export default function Archive({ userRole, onNavigateProposal }) {
+export default function Archive({ userRole }) {
+  const navigate = useNavigate();
   const [tab, setTab] = useState("search");
   const [tenantId, setTenantId] = useState(null);
 
@@ -46,7 +48,7 @@ export default function Archive({ userRole, onNavigateProposal }) {
         </div>
       )}
 
-      {tab === "search" && <ArchiveSearchView tenantId={tenantId} onNavigateProposal={onNavigateProposal} canImport={userRole === "Admin" || userRole === "Manager"} />}
+      {tab === "search" && <ArchiveSearchView tenantId={tenantId} onNavigateProposal={id => navigate(`/proposals/${id}`)} canImport={userRole === "Admin" || userRole === "Manager"} />}
       {tab === "import" && <ArchiveImportWizard tenantId={tenantId} onDone={() => setTab("search")} />}
       {tab === "batches" && <ArchiveBatchManager tenantId={tenantId} />}
     </div>

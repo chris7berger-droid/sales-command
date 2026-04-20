@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import PublicSigningPage from "./pages/PublicSigningPage";
 import { C, F, GLOBAL_CSS } from "./lib/tokens";
 import { supabase } from "./lib/supabase";
@@ -75,32 +75,6 @@ export default function App() {
 }
 
 function SalesCommandApp() {
-  const [active,     setActive]     = useState("home");
-  const [bidDueFilter, setBidDueFilter] = useState(false);
-  const [stageFilter, setStageFilter] = useState(null);
-  const [initialProposal, setInitialProposal] = useState(null);
-  const [initialInvoiceId, setInitialInvoiceId] = useState(null);
-  const [initialCustomerId, setInitialCustomerId] = useState(null);
-  const [initialJobId, setInitialJobId] = useState(null);
-  const [navHistory, setNavHistory] = useState([]);
-
-  function navigateTo({ targetType, targetId, from }) {
-    if (from) setNavHistory(h => [...h, from]);
-    if (targetType === "proposal") { setInitialProposal({ openId: targetId }); setActive("proposals"); }
-    else if (targetType === "invoice") { setInitialInvoiceId(targetId); setActive("invoices"); }
-    else if (targetType === "job") { setInitialJobId(targetId); setActive("calllog"); }
-  }
-
-  function popNav() {
-    if (navHistory.length === 0) return false;
-    const entry = navHistory[navHistory.length - 1];
-    setNavHistory(h => h.slice(0, -1));
-    if (entry.openType === "proposal") setInitialProposal({ openId: entry.openId });
-    else if (entry.openType === "invoice") setInitialInvoiceId(entry.openId);
-    else if (entry.openType === "job") setInitialJobId(entry.openId);
-    setActive(entry.section);
-    return true;
-  }
   const [open,       setOpen]       = useState(true);
   const [showTOC,    setShowTOC]    = useState(false);
   const [subPage,    setSubPage]    = useState(null);
@@ -220,23 +194,6 @@ function SalesCommandApp() {
   const displayRole     = teamMember?.role      ?? "Member";
   const displayInitials = displayName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 
-  const page = () => {
-    switch (active) {
-      case "home": return <Home displayName={displayName} displayRole={displayRole} setActive={setActive} setBidDueFilter={setBidDueFilter} onStageFilter={stage => { setStageFilter(stage); setActive("calllog"); }} />;
-      case "dashboard": return <SalesDash displayName={displayName} displayRole={displayRole} />;
-      case "calllog":   return <CallLog teamMember={teamMember} bidDueFilter={bidDueFilter} onClearBidDueFilter={() => setBidDueFilter(false)} stageFilter={stageFilter} onClearStageFilter={() => setStageFilter(null)} initialJobId={initialJobId} onClearInitialJob={() => setInitialJobId(null)} onNewProposal={job => { setInitialProposal({ job }); setActive("proposals"); }} navigateTo={navigateTo} popNav={popNav} hasNavBack={navHistory.length > 0} onNavigateProposal={id => navigateTo({ targetType: "proposal", targetId: id })} onNavigateInvoice={(id) => navigateTo({ targetType: "invoice", targetId: id })} onNavigateCustomer={custId => { setInitialCustomerId(custId); setActive("customers"); }} setSubPage={setSubPage} />;
-      case "proposals": return <Proposals teamMember={teamMember} initialProposal={initialProposal} onClearInitial={() => setInitialProposal(null)} setSubPage={setSubPage} navigateTo={navigateTo} popNav={popNav} hasNavBack={navHistory.length > 0} onNavigateInvoice={(id) => navigateTo({ targetType: "invoice", targetId: id })} />;
-      case "invoices":  return <Invoices initialInvoiceId={initialInvoiceId} onClearInitialInvoice={() => setInitialInvoiceId(null)} setSubPage={setSubPage} teamMember={teamMember} navigateTo={navigateTo} popNav={popNav} hasNavBack={navHistory.length > 0} />;
-      case "managers":  return displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />;
-      case "customers": return <Customers setActive={setActive} setInitialProposal={setInitialProposal} setInitialInvoiceId={setInitialInvoiceId} initialCustomerId={initialCustomerId} onClearInitialCustomer={() => setInitialCustomerId(null)} setSubPage={setSubPage} />;
-      case "team":      return <Team teamMember={teamMember} />;
-      case "archive":   return <Archive userRole={displayRole} onNavigateProposal={id => { setInitialProposal({ openId: id }); setActive("proposals"); }} />;
-      case "settings":  return <Settings userRole={displayRole} />;
-      case "wtc":       return <Placeholder label="WTC" />;
-      default:          return <Placeholder label={NAV.find(n => n.id === active)?.label || active} />;
-    }
-  };
-
   return (
     <TenantConfigProvider>
     <BrowserRouter>
@@ -252,26 +209,33 @@ function SalesCommandApp() {
             : <div style={{ minHeight: "100vh", background: C.linen, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F.ui, color: C.textMuted }}>Not authorized</div>
         } />
         <Route path="*" element={
-          <>
-            <AppShell
-              active={active} setActive={setActive}
-              open={open} setOpen={setOpen}
-              displayName={displayName} displayRole={displayRole}
-              displayInitials={displayInitials} page={page}
-              onOpenDirectory={() => setShowTOC(true)}
-            />
-            <PageBadge
-              pageNumber={getPageNumber(active, subPage)}
-              onClick={() => setShowTOC(true)}
-            />
-            {showTOC && (
-              <TOCOverlay
-                currentPageId={getPageNumber(active, subPage)}
-                onClose={() => setShowTOC(false)}
-                onNavigate={(chapterId) => { setSubPage(null); setActive(chapterId); }}
-              />
-            )}
-          </>
+          <AppShell
+            open={open} setOpen={setOpen}
+            displayName={displayName} displayRole={displayRole}
+            displayInitials={displayInitials}
+            onOpenDirectory={() => setShowTOC(true)}
+            showTOC={showTOC} setShowTOC={setShowTOC}
+            subPage={subPage} setSubPage={setSubPage}
+          >
+            <Routes>
+              <Route path="/" element={<Navigate to="/home" replace />} />
+              <Route path="/home" element={<Home displayName={displayName} displayRole={displayRole} />} />
+              <Route path="/dashboard" element={<SalesDash displayName={displayName} displayRole={displayRole} />} />
+              <Route path="/calllog" element={<CallLog teamMember={teamMember} setSubPage={setSubPage} />} />
+              <Route path="/calllog/:id" element={<CallLog teamMember={teamMember} setSubPage={setSubPage} />} />
+              <Route path="/proposals" element={<Proposals teamMember={teamMember} setSubPage={setSubPage} />} />
+              <Route path="/proposals/:id" element={<Proposals teamMember={teamMember} setSubPage={setSubPage} />} />
+              <Route path="/invoices" element={<Invoices teamMember={teamMember} setSubPage={setSubPage} />} />
+              <Route path="/invoices/:id" element={<Invoices teamMember={teamMember} setSubPage={setSubPage} />} />
+              <Route path="/customers" element={<Customers setSubPage={setSubPage} />} />
+              <Route path="/customers/:id" element={<Customers setSubPage={setSubPage} />} />
+              <Route path="/managers" element={displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />} />
+              <Route path="/team" element={<Team teamMember={teamMember} />} />
+              <Route path="/archive" element={<Archive userRole={displayRole} />} />
+              <Route path="/settings" element={<Settings userRole={displayRole} />} />
+              <Route path="*" element={<Navigate to="/home" replace />} />
+            </Routes>
+          </AppShell>
         } />
       </Routes>
     </BrowserRouter>
@@ -279,7 +243,16 @@ function SalesCommandApp() {
   );
 }
 
-function AppShell({ active, setActive, open, setOpen, displayName, displayRole, displayInitials, page, onOpenDirectory }) {
+// Map a URL pathname to the section id used by NAV / TOC / page badge
+function sectionFromPath(pathname) {
+  const seg = pathname.split("/").filter(Boolean)[0] || "home";
+  return seg;
+}
+
+function AppShell({ open, setOpen, displayName, displayRole, displayInitials, onOpenDirectory, showTOC, setShowTOC, subPage, setSubPage, children }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const active = sectionFromPath(location.pathname);
   return (
     <>
       <style>{GLOBAL_CSS}</style>
@@ -296,7 +269,7 @@ function AppShell({ active, setActive, open, setOpen, displayName, displayRole, 
             {NAV.filter(n => !n.roles || n.roles.includes(displayRole)).map(n => {
               const on = !n.action && active === n.id;
               return (
-                <button key={n.id} onClick={() => n.action === "directory" ? onOpenDirectory() : setActive(n.id)} title={n.label} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: open ? "8px 11px" : "8px 14px", borderRadius: 7, border: "none", background: on ? C.tealGlow : "transparent", color: on ? C.teal : "rgba(255,255,255,0.42)", cursor: "pointer", textAlign: "left", marginBottom: 2, transition: "all 0.12s", fontFamily: F.display, borderLeft: on ? `2px solid ${C.teal}` : "2px solid transparent" }}
+                <button key={n.id} onClick={() => n.action === "directory" ? onOpenDirectory() : navigate(`/${n.id}`)} title={n.label} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: open ? "8px 11px" : "8px 14px", borderRadius: 7, border: "none", background: on ? C.tealGlow : "transparent", color: on ? C.teal : "rgba(255,255,255,0.42)", cursor: "pointer", textAlign: "left", marginBottom: 2, transition: "all 0.12s", fontFamily: F.display, borderLeft: on ? `2px solid ${C.teal}` : "2px solid transparent" }}
                   onMouseEnter={e => { if (!on) { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "rgba(255,255,255,0.72)"; } }}
                   onMouseLeave={e => { if (!on) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(255,255,255,0.42)"; } }}
                 >
@@ -335,15 +308,26 @@ function AppShell({ active, setActive, open, setOpen, displayName, displayRole, 
               <span style={{ fontSize: 13, fontWeight: 800, color: C.textHead, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: F.display }}>{NAV.find(n => n.id === active)?.label}</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-             
+
             </div>
           </div>
           <div data-app-content style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
-            <ErrorBoundary>{page()}</ErrorBoundary>
+            <ErrorBoundary>{children}</ErrorBoundary>
           </div>
         </div>
 
       </div>
+      <PageBadge
+        pageNumber={getPageNumber(active, subPage)}
+        onClick={() => setShowTOC(true)}
+      />
+      {showTOC && (
+        <TOCOverlay
+          currentPageId={getPageNumber(active, subPage)}
+          onClose={() => setShowTOC(false)}
+          onNavigate={(chapterId) => { setSubPage(null); setShowTOC(false); navigate(`/${chapterId}`); }}
+        />
+      )}
     </>
   );
 }

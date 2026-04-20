@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
@@ -13,19 +14,24 @@ import FilterBar from "../components/FilterBar";
 import NewInquiryWizard from "../components/NewInquiryWizard";
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-export default function CallLog({ teamMember, onNewProposal, onNavigateProposal, onNavigateInvoice, onNavigateCustomer, bidDueFilter, onClearBidDueFilter, stageFilter, onClearStageFilter, setSubPage, initialJobId, onClearInitialJob, navigateTo, popNav, hasNavBack }) {
+export default function CallLog({ teamMember, setSubPage }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { id: routeJobId } = useParams();
+  const navState = location.state || {};
   const [rows, setRows]           = useState([]);
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
   const [workTypes, setWorkTypes] = useState([]);
   const [loading, setLoading]     = useState(true);
-  const [filter, setFilter]       = useState(stageFilter || "All");
+  const [filter, setFilter]       = useState(navState.stageFilter || "All");
   const [q, setQ]                 = useState("");
   const [filters, setFilters]     = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
   const [showModal, setShowModal] = useState(false);
   const [selJob, setSelJob]       = useState(null);
   const [showOld, setShowOld]     = useState(false);
   const [archiveBanner, setArchiveBanner] = useState(null);
+  const bidDueFilter = !!navState.bidDueFilter;
 
   const CACHE_KEY = "sc_calllog_cache";
 
@@ -94,19 +100,13 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
 
   useEffect(() => { load(); }, []);
 
+  // Keep selected job in sync with the URL :id param
   useEffect(() => {
-    if (stageFilter) {
-      setFilter(stageFilter);
-      onClearStageFilter && onClearStageFilter();
-    }
-  }, [stageFilter]);
-
-  useEffect(() => {
-    if (!initialJobId || rows.length === 0) return;
-    const job = rows.find(r => String(r.id) === String(initialJobId));
+    if (!routeJobId) { setSelJob(null); return; }
+    if (rows.length === 0) return;
+    const job = rows.find(r => String(r.id) === String(routeJobId));
     if (job) setSelJob(job);
-    onClearInitialJob && onClearInitialJob();
-  }, [initialJobId, rows]);
+  }, [routeJobId, rows]);
 
   // Track sub-page for TOC
   useEffect(() => {
@@ -120,14 +120,14 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
         job={selJob}
         teamMembers={team}
         workTypes={workTypes}
-        onBack={() => { if (hasNavBack && popNav()) return; setSelJob(null); }}
-        onSaved={() => { setSelJob(null); load(); }}
-        onDeleted={() => { setSelJob(null); load(); }}
+        onBack={() => navigate("/calllog")}
+        onSaved={() => { navigate("/calllog"); load(); }}
+        onDeleted={() => { navigate("/calllog"); load(); }}
         teamMember={teamMember}
-        onNewProposal={onNewProposal ? () => onNewProposal(selJob) : undefined}
-        onNavigateProposal={id => navigateTo ? navigateTo({ targetType: "proposal", targetId: id, from: { section: "calllog", openType: "job", openId: selJob.id } }) : onNavigateProposal?.(id)}
-        onNavigateInvoice={id => navigateTo ? navigateTo({ targetType: "invoice", targetId: id, from: { section: "calllog", openType: "job", openId: selJob.id } }) : onNavigateInvoice?.(id)}
-        onNavigateCustomer={onNavigateCustomer}
+        onNewProposal={() => navigate("/proposals", { state: { newJob: selJob } })}
+        onNavigateProposal={id => navigate(`/proposals/${id}`)}
+        onNavigateInvoice={id => navigate(`/invoices/${id}`)}
+        onNavigateCustomer={custId => navigate(`/customers/${custId}`)}
       />
     );
   }
@@ -199,7 +199,7 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
         {bidDueFilter && (
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(249,168,37,0.12)", border: "1.5px solid rgba(249,168,37,0.4)", borderRadius: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: "#7a5000" }}>⚠ Showing bids due today only</span>
-            <button onClick={() => onClearBidDueFilter && onClearBidDueFilter()} style={{ background: "none", border: "1.5px solid rgba(249,168,37,0.5)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: "#7a5000", cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
+            <button onClick={() => navigate("/calllog", { replace: true })} style={{ background: "none", border: "1.5px solid rgba(249,168,37,0.5)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: "#7a5000", cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
           </div>
         )}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -230,7 +230,7 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
               cols={[
                 { k: "job_number", l: "Job #", r: (v, row) => (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: F.display, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onClick={() => setSelJob(row)}>{(() => { const djn = row.display_job_number || String(v); const idx = djn.indexOf(" - "); return idx > -1 ? (<><span style={{ fontWeight: 600, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{djn.slice(0, idx)}</span><span style={{ fontWeight: 500, color: C.textMuted }}>{djn.slice(idx + 3)}</span></>) : <span style={{ fontWeight: 600, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{djn}</span>; })()}</span>
+                    <span style={{ fontFamily: F.display, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onClick={() => navigate(`/calllog/${row.id}`)}>{(() => { const djn = row.display_job_number || String(v); const idx = djn.indexOf(" - "); return idx > -1 ? (<><span style={{ fontWeight: 600, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{djn.slice(0, idx)}</span><span style={{ fontWeight: 500, color: C.textMuted }}>{djn.slice(idx + 3)}</span></>) : <span style={{ fontWeight: 600, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{djn}</span>; })()}</span>
                     {row.is_change_order && (
                       <span style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "2px 7px", borderRadius: 10, fontFamily: F.ui }}>CO</span>
                     )}
@@ -260,7 +260,7 @@ export default function CallLog({ teamMember, onNewProposal, onNavigateProposal,
                 { k: "bid_due", l: "Bid Due", r: v => <span style={{ color: over(v) ? C.red : C.textBody, fontWeight: 500 }}>{fmtD(v)}</span> },
                 { k: "follow_up", l: "Follow Up", r: v => v ? <span style={{ color: over(v) ? C.red : C.textBody }}>{fmtD(v)}</span> : <span style={{ color: C.textFaint }}>—</span> },
                 { k: "_a", l: "", r: (_, row) => (
-                  <Btn sz="sm" v="secondary" onClick={() => setSelJob(row)}>View</Btn>
+                  <Btn sz="sm" v="secondary" onClick={() => navigate(`/calllog/${row.id}`)}>View</Btn>
                 )},
               ]}
               rows={filtered}

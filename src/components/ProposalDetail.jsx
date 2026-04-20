@@ -1164,10 +1164,17 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
   );
 }
 
+function fmtMoneyInput(v) {
+  if (v == null || v === "") return "";
+  const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ""));
+  if (isNaN(n)) return String(v);
+  return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
 function ArchiveProposalPanel({ p, setP, money }) {
   const [editing, setEditing] = useState(false);
-  const [amount, setAmount] = useState(String(p.total || ""));
-  const [histBilled, setHistBilled] = useState(String(p.historical_billed_amount || 0));
+  const [amount, setAmount] = useState(fmtMoneyInput(p.total));
+  const [histBilled, setHistBilled] = useState(fmtMoneyInput(p.historical_billed_amount || 0));
   const [saving, setSaving] = useState(false);
   const [tagged, setTagged] = useState([]);
 
@@ -1208,7 +1215,7 @@ function ArchiveProposalPanel({ p, setP, money }) {
             <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Sold Amount</div>
             <div style={{ position: "relative" }}>
               <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.textFaint, fontFamily: F.ui }}>$</span>
-              <input value={amount} onChange={e => setAmount(e.target.value)}
+              <input value={amount} onChange={e => setAmount(e.target.value)} onBlur={() => setAmount(fmtMoneyInput(amount))}
                 style={{ padding: "10px 14px 10px 24px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, fontSize: 16, fontWeight: 700, color: C.textBody, fontFamily: F.ui, outline: "none", width: "100%", boxSizing: "border-box", WebkitAppearance: "none" }}
               />
             </div>
@@ -1217,14 +1224,14 @@ function ArchiveProposalPanel({ p, setP, money }) {
             <div title="Amount already billed before this job came into Sales Command. Counts against Remaining when invoicing." style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>Already Billed (Historical)</div>
             <div style={{ position: "relative" }}>
               <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.textFaint, fontFamily: F.ui }}>$</span>
-              <input value={histBilled} onChange={e => setHistBilled(e.target.value)}
+              <input value={histBilled} onChange={e => setHistBilled(e.target.value)} onBlur={() => setHistBilled(fmtMoneyInput(histBilled))}
                 style={{ padding: "10px 14px 10px 24px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, fontSize: 16, fontWeight: 700, color: C.textBody, fontFamily: F.ui, outline: "none", width: "100%", boxSizing: "border-box", WebkitAppearance: "none" }}
               />
             </div>
           </div>
           <div style={{ gridColumn: "1 / -1", display: "flex", gap: 8 }}>
             <Btn sz="sm" onClick={handleSave} disabled={saving}>{saving ? "Saving…" : "Save"}</Btn>
-            <Btn sz="sm" v="ghost" onClick={() => { setAmount(String(p.total || "")); setHistBilled(String(p.historical_billed_amount || 0)); setEditing(false); }}>Cancel</Btn>
+            <Btn sz="sm" v="ghost" onClick={() => { setAmount(fmtMoneyInput(p.total)); setHistBilled(fmtMoneyInput(p.historical_billed_amount || 0)); setEditing(false); }}>Cancel</Btn>
           </div>
         </div>
       ) : (

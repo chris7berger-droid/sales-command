@@ -9,6 +9,13 @@ function parseMoney(v) {
   return isNaN(n) ? 0 : n;
 }
 
+function fmtMoneyInput(v) {
+  if (v == null || v === "") return "";
+  const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ""));
+  if (isNaN(n)) return String(v);
+  return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
 export default function ArchiveProposalModal({ onClose, onCreated, preselectedJob }) {
   const [step, setStep] = useState(preselectedJob ? 2 : 1);
   const [jobs, setJobs] = useState([]);
@@ -200,6 +207,7 @@ export default function ArchiveProposalModal({ onClose, onCreated, preselectedJo
                     inputMode="decimal"
                     value={soldAmount}
                     onChange={e => setSoldAmount(e.target.value)}
+                    onBlur={() => setSoldAmount(fmtMoneyInput(soldAmount))}
                     placeholder="0"
                     style={{ ...inputStyle, paddingLeft: 24 }}
                     autoFocus
@@ -215,6 +223,7 @@ export default function ArchiveProposalModal({ onClose, onCreated, preselectedJo
                     inputMode="decimal"
                     value={historicalBilled}
                     onChange={e => setHistoricalBilled(e.target.value)}
+                    onBlur={() => setHistoricalBilled(fmtMoneyInput(historicalBilled))}
                     placeholder="0"
                     style={{ ...inputStyle, paddingLeft: 24 }}
                   />

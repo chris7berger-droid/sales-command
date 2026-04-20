@@ -33,6 +33,7 @@ const labelStyle = {
 
 // ── New Invoice Modal ─────────────────────────────────────────────────────
 export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
+  const navigate = useNavigate();
   const [step, setStep] = useState(preselectedProposal ? 2 : 1); // 1=select proposal, 2=billing %
   const [proposals, setProposals] = useState([]);
   const [search, setSearch] = useState("");
@@ -295,7 +296,17 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
                         <span style={{ fontWeight: 800, fontSize: 14, color: C.textHead, fontFamily: F.display }}>Archive Job Proposal</span>
                         <span style={{ fontSize: 10, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "2px 8px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)" }}>ARCHIVE</span>
                       </div>
-                      <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Sold: {money(total)} · Already billed: {money(archiveBilled)} · Remaining: <span style={{ color: C.green, fontWeight: 700 }}>{money(remaining)}</span></div>
+                      <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
+                        Sold: {money(total)} · Already billed: {money(archiveBilled)} · Remaining: <span style={{ color: C.green, fontWeight: 700 }}>{money(remaining)}</span>
+                        {" · "}
+                        <button
+                          onClick={() => { onClose(); navigate(`/proposals/${selProposal.id}`); }}
+                          title="Open the proposal to edit the historical billed amount"
+                          style={{ background: "none", border: "none", padding: 0, color: C.tealDark, fontWeight: 700, fontFamily: F.ui, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}
+                        >
+                          Edit historical billed →
+                        </button>
+                      </div>
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center" }}>

@@ -68,7 +68,8 @@ export default function PublicInvoicePage() {
     );
   }
 
-  const money = invoice.proposals?.call_log?.show_cents ? fmt$c : fmt$;
+  const effectiveShowCents = invoice.show_cents ?? invoice.proposals?.call_log?.show_cents;
+  const money = effectiveShowCents ? fmt$c : fmt$;
   const netTotal = (invoice.amount || 0) - (invoice.discount || 0);
   const cl = invoice.proposals?.call_log;
   const cust = cl?.customers;

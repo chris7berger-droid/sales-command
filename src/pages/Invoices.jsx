@@ -47,7 +47,8 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
   const [description, setDescription] = useState("");
   const [archiveAmount, setArchiveAmount] = useState("");
   const [archiveBilled, setArchiveBilled] = useState(0);
-  const money = selProposal?.call_log?.show_cents ? fmt$c : fmt$;
+  const [roundInvoice, setRoundInvoice] = useState(true);
+  const money = roundInvoice ? fmt$ : fmt$c;
 
   // Load default invoice description
   useEffect(() => {
@@ -83,6 +84,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
   async function selectProposal(p) {
     setSelProposal(p);
     setError(null);
+    setRoundInvoice(!p.call_log?.show_cents);
 
     if (p.is_archive_proposal) {
       const { data: priorInv } = await supabase
@@ -189,6 +191,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
         proposal_id: selProposal.id,
         due_date: dueDate || null,
         description: description.trim() || null,
+        show_cents: !roundInvoice,
       }])
       .select()
       .single();
@@ -283,6 +286,25 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
               {!preselectedProposal && (
                 <button onClick={() => setStep(1)} style={{ marginLeft: 12, background: "none", border: "none", color: C.teal, cursor: "pointer", fontWeight: 700, fontSize: 12, fontFamily: F.display }}>← Change</button>
               )}
+            </div>
+
+            {/* Rounding toggle */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: C.linenDeep, borderRadius: 8, border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 12, fontFamily: F.display, fontWeight: 700, color: C.textFaint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Amount Display</div>
+              <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+                <button
+                  onClick={() => setRoundInvoice(true)}
+                  style={{ background: roundInvoice ? C.dark : "transparent", border: `1px solid ${roundInvoice ? C.teal : C.border}`, borderRadius: 6, padding: "6px 12px", color: roundInvoice ? C.teal : C.textFaint, fontSize: 11, fontWeight: 700, fontFamily: F.display, cursor: "pointer" }}
+                >
+                  Round
+                </button>
+                <button
+                  onClick={() => setRoundInvoice(false)}
+                  style={{ background: !roundInvoice ? C.dark : "transparent", border: `1px solid ${!roundInvoice ? C.teal : C.border}`, borderRadius: 6, padding: "6px 12px", color: !roundInvoice ? C.teal : C.textFaint, fontSize: 11, fontWeight: 700, fontFamily: F.display, cursor: "pointer" }}
+                >
+                  Exact
+                </button>
+              </div>
             </div>
 
             {selProposal.is_archive_proposal && (() => {

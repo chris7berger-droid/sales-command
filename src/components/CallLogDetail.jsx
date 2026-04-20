@@ -126,8 +126,12 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
 
   async function handleDeleteAttachment(att) {
     if (!window.confirm(`Delete "${att.name}"? This cannot be undone.`)) return;
-    const { error: rmErr } = await supabase.storage.from("job-attachments").remove([att.path]);
+    const { data: removed, error: rmErr } = await supabase.storage.from("job-attachments").remove([att.path]);
     if (rmErr) { alert("Delete failed: " + rmErr.message); return; }
+    if (!removed || removed.length === 0) {
+      alert("Delete blocked by storage policy. Add a DELETE policy on bucket 'job-attachments' in Supabase Studio.");
+      return;
+    }
     await fetchAttachments();
   }
 

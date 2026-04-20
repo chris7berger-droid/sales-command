@@ -271,7 +271,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
           </>
         )}
 
-        {step === 2 && (
+        {step === 2 && selProposal && (
           <>
             <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui, marginBottom: 16 }}>
               <span style={{ fontWeight: 800, color: C.textHead }}>{selProposal.call_log?.display_job_number || `Proposal #${selProposal.id}`}</span>

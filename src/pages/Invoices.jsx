@@ -825,6 +825,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [editDueDate, setEditDueDate] = useState(invoice.due_date || "");
   const [editDiscount, setEditDiscount] = useState(String(invoice.discount || 0));
   const [editRetentionPct, setEditRetentionPct] = useState(String(invoice.retention_pct || 0));
+  const [editArchiveAmount, setEditArchiveAmount] = useState(String(invoice.amount || 0));
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
 
   useEffect(() => {
@@ -925,12 +926,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     onDeleted && onDeleted();
   }
 
+  const isArchiveInvoice = lines.length > 0 && lines.every(l => !l.proposal_wtc_id && !l.billing_schedule_line_id);
+
   function startEditing() {
     setEditId(inv.id);
     setEditDueDate(inv.due_date || "");
     setEditDiscount(String(inv.discount || 0));
     setEditRetentionPct(String(inv.retention_pct || 0));
     setEditDesc(inv.description || "");
+    setEditArchiveAmount(String(inv.amount || 0));
     const pcts = {};
     lines.forEach(l => { pcts[l.id] = String(l.billing_pct || 0); });
     setEditPcts(pcts);
@@ -944,8 +948,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       return;
     }
     setSaving(true);
-    // Recalculate line amounts based on new billing pcts
+    // Recalculate line amounts based on new billing pcts.
+    // Archive invoices have no proposal_wtc; preserve the directly-entered amount on the single line.
     const newLines = lines.map(l => {
+      if (isArchiveInvoice) {
+        const amt = parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0;
+        return { id: l.id, billing_pct: null, amount: Math.round(amt * 100) / 100 };
+      }
       const wtc = l.proposal_wtc;
       const wtcTotal = wtc ? calcWtcPrice(wtc) : 0;
       const pct = parseFloat(editPcts[l.id]) || 0;
@@ -1098,12 +1107,22 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           <div>
             <div style={labelStyle}>Retention (%)</div>
             <input type="number" min="0" max="100" step="0.5" value={editRetentionPct} onChange={e => setEditRetentionPct(e.target.value)} style={inputStyle} />
-            {parseFloat(editRetentionPct) > 0 && (
-              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
-                Held back: {fmt$c((parseFloat(inv.amount) || 0) * (parseFloat(editRetentionPct) / 100))}
-              </div>
-            )}
+            {parseFloat(editRetentionPct) > 0 && (() => {
+              const gross = isArchiveInvoice ? (parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : (parseFloat(inv.amount) || 0);
+              return (
+                <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
+                  Held back: {fmt$c(gross * (parseFloat(editRetentionPct) / 100))}
+                </div>
+              );
+            })()}
           </div>
+          {isArchiveInvoice && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <div style={labelStyle}>Invoice Amount ($)</div>
+              <input type="text" inputMode="decimal" value={editArchiveAmount} onChange={e => setEditArchiveAmount(e.target.value)} style={inputStyle} />
+              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Archive proposal — edit the invoice amount directly.</div>
+            </div>
+          )}
           <div style={{ gridColumn: "1 / -1" }}>
             <div style={labelStyle}>Description / PO #</div>
             <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="e.g. PO #12345 — Gym Floor Polish" style={inputStyle} />
@@ -1159,18 +1178,22 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                   const wtc = l.proposal_wtc;
                   const sov = l.billing_schedule_line;
                   const isSov = !wtc && sov;
+                  const isArchiveLine = !wtc && !sov;
                   const lineLabel = isSov
                     ? (sov.line_code ? `${sov.line_code} — ${sov.description}` : sov.description)
-                    : (wtc?.work_types?.name || l.description || "—");
-                  const rowTotal = isSov ? (parseFloat(sov.scheduled_value) || 0) : (wtc ? calcWtcPrice(wtc) : 0);
+                    : (wtc?.work_types?.name || l.description || (isArchiveLine ? "Archive Invoice" : "—"));
+                  const storedAmt = parseFloat(l.amount) || 0;
+                  const rowTotal = isSov ? (parseFloat(sov.scheduled_value) || 0) : (wtc ? calcWtcPrice(wtc) : (isArchiveLine ? (editing ? (parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : storedAmt) : 0));
                   const editPct = parseFloat(editPcts[l.id]) || 0;
-                  const editAmt = rowTotal * (editPct / 100);
+                  const editAmt = isArchiveLine ? rowTotal : rowTotal * (editPct / 100);
                   return (
                     <tr key={l.id} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? C.linenLight : C.linen }}>
                       <td style={{ padding: "12px 15px", fontWeight: 700, color: C.textHead }}>{lineLabel}</td>
                       <td style={{ padding: "12px 15px", fontVariantNumeric: "tabular-nums" }}>{money(rowTotal)}</td>
                       <td style={{ padding: "12px 15px" }}>
-                        {editing ? (
+                        {isArchiveLine ? (
+                          <span style={{ color: C.textFaint, fontSize: 12, fontFamily: F.ui }}>—</span>
+                        ) : editing ? (
                           <input type="number" min="0" max="100" step="1" value={editPcts[l.id] || ""} onChange={e => setEditPcts(prev => ({ ...prev, [l.id]: e.target.value }))} style={{ ...inputStyle, width: 70, padding: "4px 8px", fontSize: 12, textAlign: "right" }} />
                         ) : (
                           <span style={{ background: C.dark, color: C.teal, padding: "2px 8px", borderRadius: 6, fontWeight: 800, fontSize: 12 }}>{l.billing_pct}%</span>

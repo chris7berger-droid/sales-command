@@ -114,13 +114,21 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     if (listErr || !data) return;
     setAttachments(
       data.map(file => {
+        const path = `${job.id}/${file.name}`;
         const { data: urlData } = supabase.storage
           .from("job-attachments")
-          .getPublicUrl(`${job.id}/${file.name}`);
+          .getPublicUrl(path);
         const display = file.name.replace(/^\d+-/, "");
-        return { name: display, url: urlData.publicUrl };
+        return { name: display, url: urlData.publicUrl, path };
       })
     );
+  }
+
+  async function handleDeleteAttachment(att) {
+    if (!window.confirm(`Delete "${att.name}"? This cannot be undone.`)) return;
+    const { error: rmErr } = await supabase.storage.from("job-attachments").remove([att.path]);
+    if (rmErr) { alert("Delete failed: " + rmErr.message); return; }
+    await fetchAttachments();
   }
 
   useEffect(() => { fetchAttachments(); }, [job.id]);
@@ -496,15 +504,23 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         <div style={labelStyle}>Attachments</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
           {attachments.map(att => (
-            <a
-              key={att.url}
-              href={att.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ background: C.dark, color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", padding: "6px 14px", borderRadius: 6, textDecoration: "none", display: "inline-block" }}
-            >
-              {att.name}
-            </a>
+            <span key={att.path} style={{ background: C.dark, borderRadius: 6, display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px 6px 14px" }}>
+              <a
+                href={att.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textDecoration: "none" }}
+              >
+                {att.name}
+              </a>
+              <span
+                onClick={() => handleDeleteAttachment(att)}
+                title="Delete attachment"
+                style={{ cursor: "pointer", color: C.teal, fontSize: 16, lineHeight: 1, fontWeight: 700, padding: "0 2px" }}
+              >
+                ×
+              </span>
+            </span>
           ))}
           {attachments.length === 0 && (
             <span style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>No attachments yet</span>

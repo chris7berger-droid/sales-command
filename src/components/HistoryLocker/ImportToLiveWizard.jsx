@@ -336,21 +336,8 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         if (wErr) console.error("job_work_types insert failed:", wErr.message);
       }
 
-      // 5. Skeleton proposal
-      const total = parseMoney(form.soldAmount);
-      const { data: newProp, error: pErr } = await supabase.from("proposals").insert([{
-        call_log_id: newJob.id,
-        customer: custName(),
-        status: "Sold",
-        total,
-        proposal_number: 1,
-        signing_token: crypto.randomUUID(),
-        archive_record_id: record.id,
-      }]).select("id").single();
-      if (pErr) throw new Error("Proposal: " + pErr.message);
-
       setSaving(false);
-      onSaved?.({ proposalId: newProp.id, jobId: newJob.id });
+      onSaved?.({ jobId: newJob.id });
     } catch (e) {
       setSaving(false);
       setError(e.message || "Import failed");
@@ -579,7 +566,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
               {sumRow("Archive ID",   record.legacy_id)}
             </div>
             <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui, marginTop: 12, lineHeight: 1.5 }}>
-              On import: creates a call_log (stage = Sold) + skeleton proposal, both linked back to this archive record.
+              On import: creates a live call_log (stage = Sold) linked to this archive record. No proposal is created — build one from the job's detail page when you're ready to invoice.
               Attachments stay in archive storage — no files are copied.
             </div>
           </div>

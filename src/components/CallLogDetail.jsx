@@ -537,10 +537,14 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       </div>
 
       {/* Linked Items */}
-      {(linkedProposals.length > 0 || linkedInvoices.length > 0) && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={labelStyle}>Linked Items</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ marginBottom: 24 }}>
+        <div style={labelStyle}>Linked Items</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {linkedProposals.length === 0 && (
+            <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, padding: "12px 14px", fontSize: 13, color: C.textMuted, fontFamily: F.ui, lineHeight: 1.5 }}>
+              <span style={{ fontWeight: 800, color: C.textHead }}>No proposal yet.</span> Invoicing is disabled until a proposal is created — use <span style={{ fontWeight: 700, color: C.tealDark }}>+ New Proposal</span> above.
+            </div>
+          )}
             {linkedProposals.length > 0 && (
               <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, overflow: "hidden" }}>
                 <div style={{ padding: "8px 14px", background: C.dark, display: "flex", alignItems: "center", gap: 8 }}>
@@ -599,9 +603,8 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                 })}
               </div>
             )}
-          </div>
         </div>
-      )}
+      </div>
 
       {/* Save */}
       {editing && (

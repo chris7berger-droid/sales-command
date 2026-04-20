@@ -89,9 +89,8 @@ export default function ArchiveRecordDetail({ record, onBack, onNavigateProposal
         <ImportToLiveWizard
           record={record}
           onClose={() => setShowImport(false)}
-          onSaved={({ proposalId }) => {
+          onSaved={() => {
             setShowImport(false);
-            if (onNavigateProposal) onNavigateProposal(proposalId);
           }}
         />
       )}

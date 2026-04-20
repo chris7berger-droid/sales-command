@@ -38,8 +38,7 @@ function NewProposalModal({ onClose, onCreated, preselectedJob }) {
     const { data: existing } = await supabase
       .from("proposals")
       .select("id")
-      .eq("call_log_id", selJob.id)
-      .is("deleted_at", null);
+      .eq("call_log_id", selJob.id);
     const proposalNumber = (existing?.length || 0) + 1;
 
     const { data, error: err } = await supabase

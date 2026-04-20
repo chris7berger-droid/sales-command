@@ -409,18 +409,6 @@ async function deletePropAttachment(fullName) {
     if (!window.confirm("Delete this proposal? This cannot be undone.")) return;
     const { error } = await supabase.from("proposals").update({ deleted_at: new Date().toISOString() }).eq("id", p.id);
     if (error) { alert(error.message); return; }
-    // Renumber: decrement proposal_number on any remaining active siblings with higher numbers
-    if (p.call_log_id && p.proposal_number) {
-      const { data: higher } = await supabase
-        .from("proposals")
-        .select("id, proposal_number")
-        .eq("call_log_id", p.call_log_id)
-        .is("deleted_at", null)
-        .gt("proposal_number", p.proposal_number);
-      for (const sib of higher || []) {
-        await supabase.from("proposals").update({ proposal_number: sib.proposal_number - 1 }).eq("id", sib.id);
-      }
-    }
     onDeleted && onDeleted();
   }
 

@@ -1,0 +1,158 @@
+SC_Handoff_v82 — April 20, 2026 (Invoice rounding, Approve→QB, retention)
+Session focused on the archive-invoice flow surfaced by Martin Harris /
+Plenium Builders billing. Three features + one destructive-bug fix.
+Everything is live on scmybiz.com.
+
+===============================================================================
+STATE OF THE WORLD
+===============================================================================
+
+EVERYTHING IS LIVE on scmybiz.com.
+
+Migrations applied this session (via supabase db push):
+  20260420160000_invoices_show_cents.sql
+  20260420170000_invoices_retention.sql
+
+Edge functions redeployed this session:
+  qb-sync-invoice (now posts retention as a descriptive discount line)
+
+===============================================================================
+MAJOR WORK
+===============================================================================
+
+1. PER-INVOICE ROUND / EXACT TOGGLE
+   - Problem: fmt$ rounds to whole dollars site-wide, so an archive invoice
+     entered as $2,834.95 displayed (and invoiced to the customer) as
+     $2,835.  Martin Harris doesn't round — they need $2,834.95.
+   - Added nullable invoices.show_cents column (NULL = inherit from
+     call_log.show_cents).
+   - New Invoice modal has a Round / Exact toggle pinned near the top.
+     Defaults from call_log.show_cents (off → Round, on → Exact).  Modal
+     display and the saved show_cents flag both use the toggle.
+   - PublicInvoicePage now prefers invoice.show_cents, falls back to
+     call_log.show_cents.  So the customer-facing page matches what you
+     chose at creation.
+   - In-app invoice list / detail / PDF previews still render fmt$c always
+     (full precision for your reference).  If that feels wrong later we
+     can wire those to show_cents too.
+
+2. APPROVE → QB BUTTON (pay-app-only customers)
+   - Some GCs (e.g. Martin Harris) don't accept HDSP-format invoices at
+     all — they require billing submitted through their own system
+     (Procore / GCPay / Textura).  HDSP still needs the invoice in QB for
+     record keeping so the incoming check can match an open invoice.
+   - New "Approve → QB" button on InvoicePDFModal header, next to
+     "Send Invoice".  Shown when status=New and !hideSend.
+   - Action: calls qb-sync-invoice, marks invoice status=Sent + sent_at=now
+     via the existing onSent plumbing, closes modal.  NO customer email.
+   - Memory saved (project_pay_app_only_customers.md) distinguishing this
+     flow from the HDSP-pay-app product (different thing entirely).
+
+3. PER-INVOICE RETENTION
+   - New columns: invoices.retention_pct (e.g. 10 for 10%) + invoices.
+     retention_amount (the held-back dollars, computed at save).
+   - New Invoice modal: Retention (%) field next to Due Date.  Live preview
+     under input shows "Held back: $X · Net due: $Y".
+   - InvoiceDetail edit: Retention (%) field next to Discount.  Same live
+     held-back preview.
+   - Read-only InvoiceDetail: StatCard grid grows to 4 columns when
+     retention > 0 (Invoice Amount | Discount | Retention (X%) | Net Total).
+   - InvoicePDFModal + PublicInvoicePage: "Less Retention (X%)" line
+     appears above the boxed Amount Due.  Amount Due = amount − discount
+     − retention.
+   - qb-sync-invoice: retention posted as a DiscountLineDetail line with
+     Description "Retention (X%) — held back".  QBO Plus / Advanced have
+     native retainage but we don't depend on that tier — this keeps the
+     QB net matching what's actually being billed now.
+   - Scope (a) only: no release-retention workflow yet.  Held-back $ lives
+     on the invoice row; when you're ready to bill the retention back, we
+     build a "create release invoice from held retention" button (pulls
+     from all invoices on the job and creates a single release invoice).
+
+4. FIX: EDIT-INVOICE ZEROED ARCHIVE INVOICES (destructive bug)
+   - Chris caught this between the retention ship and a real save:
+     on an archive invoice, the edit view showed Line Value $0.00 and
+     Billing % 0 (because archive lines have proposal_wtc_id=null and
+     billing_pct=null, and the table calc'd from calcWtcPrice(null)=0).
+   - Hitting Save Changes would have recalc'd newAmount = 0 and
+     overwritten the actual invoice total.  On the Plenium $57,097.70
+     invoice this would have wiped the AR.
+   - Fix: isArchiveInvoice detected when every line has no wtc and no sov.
+     Edit form shows a full-width "Invoice Amount ($)" input bound to
+     editArchiveAmount.  Save logic branches: archive lines preserve the
+     directly-entered amount; standard lines keep the WTC × % recalc.
+   - Line items table handles archive lines: label "Archive Invoice",
+     Line Value shows stored amount (or live editArchiveAmount in edit
+     mode), Billing % shows "—".
+
+===============================================================================
+OPEN THREADS / KNOWN ISSUES
+===============================================================================
+
+1. RETENTION RELEASE WORKFLOW (deferred)
+   Held-back $ accumulates on invoices per job but there's no
+   "create release invoice" button yet.  When Chris is ready to bill a
+   final retention release, we'll add a flow that sums
+   retention_amount across the job's invoices, creates a new invoice
+   line for the total (and zeros the held amounts so they don't
+   double-count).
+
+2. IN-APP INVOICE DISPLAY IGNORES show_cents (by design, for now)
+   InvoicePDFModal, InvoiceDetail, and the Invoices list all use fmt$c
+   unconditionally.  Only the New Invoice modal and PublicInvoicePage
+   honor the per-invoice toggle.  Flag if the dashboard-level rounding
+   ever feels wrong.
+
+3. PAGE REMOUNT ON LIST↔DETAIL (from v81, unchanged)
+4. OTHER QB FAN-OUT CALLS SWEEP (from v80/v81, unchanged)
+5. INVOICE NUMBERING (from v80, unchanged)
+6. MULTI-INVOICE HEADER LINK (from v81, unchanged)
+
+===============================================================================
+DATA NOTES
+===============================================================================
+
+- Plenium Builders -WNS Expansion TI (call_log id ??? — Invoice 10006):
+    Archive invoice $57,097.70, 5% retention ($2,854.89), net due
+    $54,242.81.  Used to reproduce the edit-view bug and as a live sanity
+    check for the retention deduction on PDF + public page.
+
+- Getto Transportation Center (Invoice 10005):
+    Archive invoice $2,834.95 exact (show_cents=true via toggle).  Used
+    to verify round/exact behavior end-to-end.
+
+===============================================================================
+NEXT SESSION PICKUP
+===============================================================================
+
+Priority order:
+  1. Manual E2E test on a fresh job:
+     create archive proposal → create invoice with retention → preview
+     (confirm "Less Retention" renders) → Approve → QB (confirm the QB
+     invoice shows the retention discount line and the correct net).
+  2. Retention release workflow if Chris is ready (open thread #1).
+  3. QB fan-out sweep carryover (v81 open thread #3).
+  4. Whatever new work Chris brings.
+
+===============================================================================
+USEFUL COMMANDS
+===============================================================================
+
+Apply pending DB migrations:
+  supabase db push
+
+Deploy an edge function (always --no-verify-jwt):
+  supabase functions deploy <fn-name> --no-verify-jwt
+
+Build locally before push:
+  npx vite build  (run from ~/sales-command)
+
+Vercel deploys on push to main automatically.
+
+===============================================================================
+MEMORY NOTES SAVED THIS SESSION
+===============================================================================
+
+- project_pay_app_only_customers.md — Some GCs don't accept our invoices,
+  only their own pay-app format.  Approve→QB posts to QB without
+  emailing customer (record keeping only).

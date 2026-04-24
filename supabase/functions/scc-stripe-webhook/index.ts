@@ -24,18 +24,20 @@ async function verifyStripeSignature(payload: string, sigHeader: string, secret:
   const signature = parts["v1"];
   if (!timestamp || !signature) return false;
 
+  const hexPairs = signature.match(/.{2}/g);
+  if (!hexPairs) return false;
+  const sigBytes = new Uint8Array(hexPairs.map(b => parseInt(b, 16)));
+
   const signedPayload = `${timestamp}.${payload}`;
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"]
+    ["verify"]
   );
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedPayload));
-  const expected = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
 
-  return expected === signature;
+  return await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(signedPayload));
 }
 
 serve(async (req) => {
@@ -52,13 +54,16 @@ serve(async (req) => {
     const body = await req.text();
     const sigHeader = req.headers.get("stripe-signature") || "";
 
-    // Verify webhook signature
-    if (SCC_STRIPE_WEBHOOK_SECRET) {
-      const valid = await verifyStripeSignature(body, sigHeader, SCC_STRIPE_WEBHOOK_SECRET);
-      if (!valid) {
-        console.error("Invalid SCC Stripe webhook signature");
-        return new Response("Invalid signature", { status: 400 });
-      }
+    // Verify webhook signature — secret MUST be configured
+    if (!SCC_STRIPE_WEBHOOK_SECRET) {
+      console.error("FATAL: SCC_STRIPE_WEBHOOK_SECRET is not configured — rejecting all events");
+      return new Response("Webhook secret not configured", { status: 500 });
+    }
+
+    const valid = await verifyStripeSignature(body, sigHeader, SCC_STRIPE_WEBHOOK_SECRET);
+    if (!valid) {
+      console.error("Invalid SCC Stripe webhook signature");
+      return new Response("Invalid signature", { status: 400 });
     }
 
     const event = JSON.parse(body);

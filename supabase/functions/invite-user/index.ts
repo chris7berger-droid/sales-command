@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
 const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.app", "https://www.scmybiz.com", "https://scmybiz.com"];
@@ -42,6 +43,32 @@ serve(async (req) => {
       });
     }
 
+    // is_admin_or_manager() reads auth.uid() from the JWT, so it must run on a
+    // user-scoped client — the service-role client has no user context.
+    const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: isAdmin, error: roleErr } = await userClient.rpc("is_admin_or_manager");
+    if (roleErr || isAdmin !== true) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 403,
+      });
+    }
+
+    const { data: callerRow, error: callerErr } = await supabase
+      .from("team_members")
+      .select("tenant_id")
+      .eq("auth_id", user.id)
+      .single();
+    if (callerErr || !callerRow?.tenant_id) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 403,
+      });
+    }
+    const callerTenantId = callerRow.tenant_id;
+
     const { email, name, teamMemberId, senderEmail, senderName } = await req.json();
 
     if (!email) {
@@ -49,6 +76,20 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 400,
       });
+    }
+
+    if (teamMemberId) {
+      const { data: targetRow, error: targetErr } = await supabase
+        .from("team_members")
+        .select("tenant_id")
+        .eq("id", teamMemberId)
+        .single();
+      if (targetErr || !targetRow || targetRow.tenant_id !== callerTenantId) {
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 403,
+        });
+      }
     }
 
     console.log("invite-user invoked", { email, name, teamMemberId, senderEmail, senderName });

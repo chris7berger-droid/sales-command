@@ -98,8 +98,10 @@ serve(async (req) => {
 
     // Revoke auth: delete all sessions and the auth user so they can't log in
     if (member?.auth_id) {
-      // Delete all sessions first
-      await supabase.rpc("delete_user_sessions", { target_user_id: member.auth_id }).catch(() => {});
+      // Fire-and-forget. supabase.rpc() is a PostgrestBuilder (no .catch), so try/catch is required.
+      try {
+        await supabase.rpc("delete_user_sessions", { target_user_id: member.auth_id });
+      } catch (_) { /* swallow */ }
       // Delete the auth user entirely — they'll be re-invited if reactivated
       const { error: authErr } = await supabase.auth.admin.deleteUser(member.auth_id);
       if (authErr) {

@@ -358,6 +358,7 @@ export default function PublicSigningPage() {
           jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
           proposalId: proposal.id,
           callLogId: proposal.call_log_id,
+          signing_token: token,
         },
       });
       console.log("proposal-signed result:", fnData, fnError);

@@ -1,0 +1,186 @@
+SC_Handoff_v83 — April 27, 2026 (Invoice Email Intro + Work Description split)
+Session split the conflated invoice "description" field into two distinct
+purposes: an Email Introduction (drops into the customer email body) and
+a Work Description (prints on the invoice above the Amount Due banner).
+
+DB migration applied. Edge function deployed. Code changes live on a
+feature branch and verified on a Vercel preview deploy. NOT YET MERGED
+to main — see "INTEGRATION PLAN" below.
+
+===============================================================================
+STATE OF THE WORLD
+===============================================================================
+
+PRODUCTION (scmybiz.com): currently serving 38c4b0f via Vercel rollback.
+  Reason: bf69fb8 (PR #4 RLS audit fixes) broke the signing flow.
+  Chris is fixing the RLS issue tonight (2026-04-27).
+
+LOCAL main = origin/main = bf69fb8 (the broken RLS commit).
+  Do NOT push merges to main until RLS is fixed; Vercel auto-deploys main
+  to production and the rollback only affects the active deployment, not
+  git history.
+
+THIS SESSION'S WORK lives on:
+  Branch: feat/invoice-intro-and-description (origin + local)
+  Tip:    54efb5b feat(invoices): split invoice text into Email Intro + Work Description
+  Vercel preview verified (paths 1-4 below all passed).
+
+DB MIGRATION ALREADY APPLIED (in production schema):
+  20260427120000_invoices_intro.sql
+    - ALTER TABLE invoices ADD COLUMN intro text
+    - ALTER TABLE tenant_config ADD COLUMN default_invoice_intro text
+    - Seeded default_invoice_intro on existing tenants
+
+EDGE FUNCTION ALREADY DEPLOYED (live on Supabase):
+  send-invoice (now accepts `intro` in payload, renders it in the customer
+  email between greeting and invoice card; falls back to the original
+  "Please find your invoice below." when intro is null/empty)
+
+So the schema and the edge function are AHEAD of what's running on the
+production frontend (38c4b0f). That's fine — both are backwards-compatible:
+  - intro column is nullable, existing reads/writes ignore it
+  - send-invoice tolerates payloads without intro (renders fallback)
+
+===============================================================================
+WHAT WAS BUILT
+===============================================================================
+
+1. TWO DISTINCT FIELDS, ONE PER PURPOSE
+   - invoices.intro (NEW)        → Email body (customer email only)
+   - invoices.description (EXISTING, semantics tightened)
+                                 → Work description on the invoice itself
+
+2. NEW INVOICE MODAL (Invoices.jsx)
+   - Two stacked textareas:
+       "Email Introduction" — pre-filled from tenant_config.default_invoice_intro
+       "Work Description"   — pre-filled from tenant_config.default_invoice_description
+   - Each has helper text explaining where it appears.
+   - Both saved on Create.
+
+3. INVOICE DETAIL EDIT (Invoices.jsx)
+   - Old "Description / PO #" single-line input removed.
+   - Replaced with the same two-textarea pattern.
+   - Both saved on Save Changes.
+
+4. CUSTOMER EMAIL BODY (send-invoice edge fn)
+   - When intro is present and non-empty, replaces "Please find your
+     invoice below." with the intro text (HTML-escaped, preserves line
+     breaks via white-space: pre-wrap).
+   - When intro is null/empty, fallback to original copy.
+
+5. WORK DESCRIPTION RELOCATION (PublicInvoicePage, InvoicePDFModal, invoicePdf.js)
+   - Moved from above-line-items to a tinted block IMMEDIATELY ABOVE the
+     Amount Due banner.
+   - Same treatment in all three render paths (preview, public, PDF).
+
+===============================================================================
+INTEGRATION PLAN — after Chris fixes the RLS issue tonight
+===============================================================================
+
+Once the RLS issue from PR #4 is resolved (either fix-forward or revert
+that PR cleanly), here's how to land this work:
+
+OPTION A — RLS fix-forward (PR #4 stays in history, gets fixed by a new commit)
+  1. cd ~/sales-command
+  2. git fetch origin
+  3. git checkout main && git pull
+  4. git merge --no-ff feat/invoice-intro-and-description
+  5. git push origin main
+  → Vercel auto-deploys; no further action needed.
+
+OPTION B — PR #4 reverted via a new revert commit
+  1. cd ~/sales-command
+  2. git fetch origin
+  3. git checkout main && git pull   (after the revert is on main)
+  4. git merge --no-ff feat/invoice-intro-and-description
+  5. git push origin main
+  → Same as Option A from step 4 onward.
+
+OPTION C — feat branch needs to be rebased onto a different base
+  Only needed if main's history is rewritten (force-push). Avoid if
+  possible. If unavoidable:
+    git checkout feat/invoice-intro-and-description
+    git rebase main
+    (resolve any conflicts; none expected — touched files are
+     Invoices.jsx, PublicInvoicePage.jsx, invoicePdf.js, send-invoice/index.ts,
+     and a new migration file)
+    git push --force-with-lease origin feat/invoice-intro-and-description
+    git checkout main && git merge --no-ff feat/invoice-intro-and-description
+    git push origin main
+
+NOTE: schema migration and edge function are already deployed, so the
+merge is purely a frontend deploy. No need to re-run `supabase db push`
+or `supabase functions deploy send-invoice`.
+
+===============================================================================
+OPEN BUG DOCUMENTED FOR LATER
+===============================================================================
+
+INVOICE SEND ERROR SURFACING (caught during testing, deferred)
+  - When supabase.functions.invoke("send-invoice", ...) returns 4xx/5xx,
+    the JSON body containing the real error ("Invalid invoice amount",
+    "Customer email is required", etc.) is swallowed by supabase-js.
+  - User sees a generic "Send failed." (or sometimes nothing) and has to
+    open DevTools to find the 400.
+  - Fix: in InvoicePDFModal.handleSend (Invoices.jsx ~line 565), wrap the
+    invoke and parse the response body manually on non-2xx, OR switch to
+    a direct fetch() so we can read the body regardless of status.
+  - Same pattern likely affects qb-sync-invoice and other edge fn calls
+    — sweep when fixing.
+
+===============================================================================
+OPEN THREADS CARRIED OVER FROM v82
+===============================================================================
+
+1. RETENTION RELEASE WORKFLOW (held-back $ accumulates, no release flow)
+2. IN-APP INVOICE DISPLAY IGNORES show_cents (by design, for now)
+3. PAGE REMOUNT ON LIST↔DETAIL
+4. OTHER QB FAN-OUT CALLS SWEEP
+5. INVOICE NUMBERING
+6. MULTI-INVOICE HEADER LINK
+
+===============================================================================
+USEFUL COMMANDS
+===============================================================================
+
+Verify migration is applied:
+  Run in Supabase SQL editor:
+    SELECT column_name FROM information_schema.columns
+     WHERE table_name = 'invoices' AND column_name = 'intro';
+    SELECT column_name FROM information_schema.columns
+     WHERE table_name = 'tenant_config' AND column_name = 'default_invoice_intro';
+  Both should return one row.
+
+Override the seeded default intro (one-liner):
+  UPDATE public.tenant_config
+     SET default_invoice_intro = 'Your custom default intro text here.';
+
+Re-deploy edge function (only if changed again):
+  supabase functions deploy send-invoice --no-verify-jwt
+
+Build locally:
+  npx vite build  (run from ~/sales-command)
+
+===============================================================================
+MEMORY NOTES SAVED THIS SESSION
+===============================================================================
+
+- project_invoice_error_surfacing.md — Open bug: send-invoice 400s show
+  generic console error, real reason swallowed by supabase-js fnError.
+  Same pattern likely affects other edge function calls.
+
+===============================================================================
+NEXT SESSION PICKUP
+===============================================================================
+
+Priority order:
+  1. Fix the RLS issue (PR #4 broke signing flow) — Chris is doing tonight.
+  2. After RLS fix is on main: merge feat/invoice-intro-and-description per
+     INTEGRATION PLAN above.
+  3. Real-invoice E2E once frontend is live: pick a $> 0 invoice on a real
+     customer with a real billing email, hit Send, confirm the email body
+     uses the intro and the public invoice page shows the work description
+     above Amount Due.
+  4. Fix the send-invoice error surfacing bug (small, see open bug above).
+  5. Retention release workflow.
+  6. Whatever new work Chris brings.

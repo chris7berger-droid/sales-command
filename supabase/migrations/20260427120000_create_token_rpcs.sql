@@ -1,62 +1,36 @@
 -- ============================================================
--- Tighten anon RLS for the public signing + invoice flows.
--- Addresses 2026-04-26 audit findings #1, #2, and the signature-
--- insert leg of #4. The legacy policies allowed anon to read or
--- mutate ANY row where signing_token / viewing_token IS NOT NULL,
--- with no per-row token match — so anyone with the bundled anon
--- key could omit the .eq("signing_token", ...) filter and access
--- everything.
+-- Part 1 of 2 — Create token-checking RPCs.
+-- Pairs with: 20260427120100_drop_anon_signing_policies.sql
 --
--- Strategy:
---   * SELECTs  → token-checking SECURITY DEFINER RPCs (one bundled
---                row per call).
---   * UPDATEs  → routed through the existing proposal-signed edge
---                function (already validates the token, runs as
---                service role).
---   * INSERTs  → same: signature insert moves into proposal-signed
---                edge function.
+-- This migration is safe to apply at any time and on its own does
+-- not change anon access. It just defines three SECURITY DEFINER
+-- functions that the public signing + invoice pages will call.
+-- The over-broad anon policies are dropped in the part-2 migration
+-- AFTER the new frontend (which uses these RPCs) is live.
 --
--- The new RPCs take the token as an argument so the auth check is
--- explicit and unambiguous (no header-sniffing inside an RLS
--- policy).
+-- Deploy order (full sequence):
+--   1. supabase functions deploy proposal-signed
+--   2. Apply THIS migration  (RPCs exist, no anon access change)
+--   3. Merge frontend PR; wait for Vercel "Ready"
+--   4. Apply 20260427120100_drop_anon_signing_policies.sql
 --
--- The original sql/rls_*.sql baselines are intentionally NOT
--- edited; this migration is the diff.
+-- Rollback for this part alone (between step 2 and step 4):
+--   DROP FUNCTION public.get_proposal_by_token(uuid);
+--   DROP FUNCTION public.mark_proposal_viewed(uuid);
+--   DROP FUNCTION public.get_invoice_by_viewing_token(uuid);
+-- Full-state rollback (after step 4): see
+--   sql/rollback_20260427120000_tighten_anon_rls_signing_flow.sql
 --
--- Cross-repo note: these tables are also used by sch-command,
--- field-command, and AR-Command-Center. Coordinate deploys.
---
--- Scope creep, called out on purpose: get_proposal_by_token also
--- returns customer business address fields. The old anon policies
--- never granted SELECT on `customers`, so the joined customer
--- fields in PublicSigningPage have been silently null in prod.
--- Returning them through the RPC fixes that latent bug — same
--- token gate, same call, no new attack surface.
+-- Scope creep, called out: get_proposal_by_token returns customer
+-- business address fields. The previous anon policies never granted
+-- SELECT on `customers`, so the joined customer fields in the
+-- signing page have been silently null in prod. Same token gate,
+-- same call — fixing while in the area.
 -- ============================================================
 
 
 -- ------------------------------------------------------------
--- 1. DROP the over-broad anon policies.
---    No replacement policies — the RPCs + edge function take over.
--- ------------------------------------------------------------
-
-DROP POLICY IF EXISTS "proposals_public_sign"             ON public.proposals;
-DROP POLICY IF EXISTS "proposals_public_sign_update"      ON public.proposals;
-DROP POLICY IF EXISTS "call_log_public_sign_update"       ON public.call_log;
-DROP POLICY IF EXISTS "proposal_wtc_public_read"          ON public.proposal_wtc;
-DROP POLICY IF EXISTS "proposal_recipients_public_update" ON public.proposal_recipients;
-DROP POLICY IF EXISTS "proposal_signatures_public_insert" ON public.proposal_signatures;
-DROP POLICY IF EXISTS "invoices_public_view"              ON public.invoices;
-DROP POLICY IF EXISTS "invoice_lines_public_read"         ON public.invoice_lines;
-
--- Note: call_log_public_read (SELECT) is intentionally left in
--- place — it was not flagged in findings #1 or #2, and keeping
--- it lets joins from authenticated paths continue to work
--- unchanged. The signing page no longer reads call_log directly.
-
-
--- ------------------------------------------------------------
--- 2. RPC: get_proposal_by_token(p_token uuid) → jsonb
+-- 1. RPC: get_proposal_by_token(p_token uuid) → jsonb
 --    Single round-trip read for PublicSigningPage.
 -- ------------------------------------------------------------
 
@@ -138,7 +112,7 @@ GRANT EXECUTE ON FUNCTION public.get_proposal_by_token(uuid) TO anon, authentica
 
 
 -- ------------------------------------------------------------
--- 3. RPC: mark_proposal_viewed(p_token uuid) → void
+-- 2. RPC: mark_proposal_viewed(p_token uuid) → void
 --    Idempotent: only flips viewed_at where it's still NULL.
 --    Side-effecting, so kept separate from the STABLE read RPC.
 -- ------------------------------------------------------------
@@ -167,7 +141,7 @@ GRANT EXECUTE ON FUNCTION public.mark_proposal_viewed(uuid) TO anon, authenticat
 
 
 -- ------------------------------------------------------------
--- 4. RPC: get_invoice_by_viewing_token(p_token uuid) → jsonb
+-- 3. RPC: get_invoice_by_viewing_token(p_token uuid) → jsonb
 --    Single round-trip read for PublicInvoicePage.
 -- ------------------------------------------------------------
 
@@ -264,30 +238,14 @@ GRANT EXECUTE ON FUNCTION public.get_invoice_by_viewing_token(uuid) TO anon, aut
 
 
 -- ============================================================
--- VERIFY (run these in the SQL editor after deploy)
+-- VERIFY (run after applying)
 -- ============================================================
---
--- 1. The dropped policies are gone:
--- SELECT tablename, policyname, cmd, roles
--- FROM pg_policies
--- WHERE schemaname = 'public'
---   AND policyname IN (
---     'proposals_public_sign',
---     'proposals_public_sign_update',
---     'call_log_public_sign_update',
---     'proposal_wtc_public_read',
---     'proposal_recipients_public_update',
---     'proposal_signatures_public_insert',
---     'invoices_public_view',
---     'invoice_lines_public_read'
---   );
--- -- Expect 0 rows.
---
--- 2. The new RPCs exist and anon can EXECUTE them:
--- SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args,
+-- SELECT n.nspname, p.proname,
+--        pg_get_function_identity_arguments(p.oid) AS args,
 --        has_function_privilege('anon', p.oid, 'execute') AS anon_can_exec
 -- FROM pg_proc p
 -- JOIN pg_namespace n ON n.oid = p.pronamespace
 -- WHERE n.nspname = 'public'
---   AND p.proname IN ('get_proposal_by_token', 'mark_proposal_viewed', 'get_invoice_by_viewing_token');
+--   AND p.proname IN ('get_proposal_by_token', 'mark_proposal_viewed',
+--                     'get_invoice_by_viewing_token');
 -- -- Expect 3 rows, all anon_can_exec = true.

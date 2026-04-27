@@ -156,13 +156,6 @@ export default function PublicInvoicePage() {
             </div>
           </div>
 
-          {/* Description */}
-          {invoice.description && (
-            <div style={{ fontSize: 13, color: "#4a4238", lineHeight: 1.6, marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid rgba(28,24,20,0.12)", whiteSpace: "pre-wrap" }}>
-              {invoice.description}
-            </div>
-          )}
-
           {/* Line items */}
           <div style={{ marginBottom: 24 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Line Items</div>
@@ -216,6 +209,14 @@ export default function PublicInvoicePage() {
               </div>
             </div>
           )}
+          {/* Work Description (above Amount Due) */}
+          {invoice.description && (
+            <div style={{ fontSize: 13, color: "#4a4238", lineHeight: 1.6, marginBottom: 12, padding: "12px 16px", background: "#f8f6f3", border: "1px solid rgba(28,24,20,0.08)", borderRadius: 8, whiteSpace: "pre-wrap" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Work Description</div>
+              {invoice.description}
+            </div>
+          )}
+
           <div style={{ border: "2px solid #30cfac", borderRadius: 8, padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#4a4238", letterSpacing: "0.08em", textTransform: "uppercase" }}>Amount Due</div>
             <div style={{ fontSize: 26, fontWeight: 800, color: "#1c1814", letterSpacing: "-0.01em" }}>{money(netTotal)}</div>

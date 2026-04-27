@@ -21,28 +21,20 @@ export default function PublicInvoicePage() {
       const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!token || !uuidRe.test(token)) { setError("Invalid invoice link."); setLoading(false); return; }
 
-      const { data: inv, error: invErr } = await supabase
-        .from("invoices")
-        .select("*, proposals(call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip)))")
-        .eq("viewing_token", token)
-        .single();
+      const { data: bundle, error: rpcErr } = await supabase.rpc("get_invoice_by_viewing_token", { p_token: token });
+      if (rpcErr || !bundle) { setError("Invoice not found."); setLoading(false); return; }
 
-      if (invErr || !inv) { setError("Invoice not found."); setLoading(false); return; }
+      // Reshape RPC bundle into the invoice object the rest of the page expects:
+      // invoice.proposals.call_log.{...}.customers.{...} mirrors the prior nested-select shape.
+      const inv = {
+        ...bundle.invoice,
+        proposals: bundle.call_log
+          ? { call_log: { ...bundle.call_log, customers: bundle.customer || null } }
+          : null,
+      };
       setInvoice(inv);
-
-      // Load lines
-      const { data: lineData } = await supabase
-        .from("invoice_lines")
-        .select("*, proposal_wtc(*, work_types(name))")
-        .eq("invoice_id", inv.id);
-      setLines(lineData || []);
-
-      // Load rep contact
-      const salesName = inv.proposals?.call_log?.sales_name;
-      if (salesName) {
-        const { data: rep } = await supabase.from("team_members").select("phone, email").eq("name", salesName).maybeSingle();
-        if (rep) setRepContact({ phone: rep.phone || "", email: rep.email || "" });
-      }
+      setLines(bundle.lines || []);
+      if (bundle.rep) setRepContact({ phone: bundle.rep.phone || "", email: bundle.rep.email || "" });
 
       setLoading(false);
     }

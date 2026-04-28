@@ -28,6 +28,7 @@ export default function CallLog({ teamMember, setSubPage }) {
   const [q, setQ]                 = useState("");
   const [filters, setFilters]     = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
   const [showModal, setShowModal] = useState(false);
+  const [coParent, setCoParent]   = useState(null);
   const [selJob, setSelJob]       = useState(null);
   const [showOld, setShowOld]     = useState(false);
   const [archiveBanner, setArchiveBanner] = useState(null);
@@ -113,22 +114,39 @@ export default function CallLog({ teamMember, setSubPage }) {
     if (setSubPage) setSubPage(selJob ? "detail" : showModal ? "new" : null);
   }, [selJob, showModal]);
 
+  const wizardEl = (showModal || coParent) ? (
+    <NewInquiryWizard
+      onClose={() => { setShowModal(false); setCoParent(null); }}
+      onSaved={() => { setShowModal(false); setCoParent(null); load(); }}
+      team={team}
+      customers={customers}
+      allJobs={rows}
+      workTypes={workTypes}
+      initialJobType={coParent ? "co" : null}
+      initialParentJobId={coParent ? coParent.id : null}
+    />
+  ) : null;
+
   // Show detail page when a job is selected
   if (selJob) {
     return (
-      <CallLogDetail
-        job={selJob}
-        teamMembers={team}
-        workTypes={workTypes}
-        onBack={() => navigate("/calllog")}
-        onSaved={() => { navigate("/calllog"); load(); }}
-        onDeleted={() => { navigate("/calllog"); load(); }}
-        teamMember={teamMember}
-        onNewProposal={() => navigate("/proposals", { state: { newJob: selJob } })}
-        onNavigateProposal={id => navigate(`/proposals/${id}`)}
-        onNavigateInvoice={id => navigate(`/invoices/${id}`)}
-        onNavigateCustomer={custId => navigate(`/customers/${custId}`)}
-      />
+      <>
+        {wizardEl}
+        <CallLogDetail
+          job={selJob}
+          teamMembers={team}
+          workTypes={workTypes}
+          onBack={() => navigate("/calllog")}
+          onSaved={() => { navigate("/calllog"); load(); }}
+          onDeleted={() => { navigate("/calllog"); load(); }}
+          teamMember={teamMember}
+          onNewProposal={() => navigate("/proposals", { state: { newJob: selJob } })}
+          onAddCO={() => setCoParent(selJob)}
+          onNavigateProposal={id => navigate(`/proposals/${id}`)}
+          onNavigateInvoice={id => navigate(`/invoices/${id}`)}
+          onNavigateCustomer={custId => navigate(`/customers/${custId}`)}
+        />
+      </>
     );
   }
 
@@ -152,16 +170,7 @@ export default function CallLog({ teamMember, setSubPage }) {
 
   return (
     <>
-      {showModal && (
-        <NewInquiryWizard
-          onClose={() => setShowModal(false)}
-          onSaved={() => { setShowModal(false); load(); }}
-          team={team}
-          customers={customers}
-          allJobs={rows}
-          workTypes={workTypes}
-        />
-      )}
+      {wizardEl}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <SectionHeader title="Call Log" action={<Btn sz="sm" onClick={() => setShowModal(true)}>+ New Inquiry</Btn>} />
         {/* Active / Old Jobs toggle */}

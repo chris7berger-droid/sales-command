@@ -79,8 +79,9 @@ function buildStepList(jobType) {
   return steps;
 }
 
-function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workTypes }) {
-  const [step, setStep] = useState(0);
+function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workTypes, initialJobType = null, initialParentJobId = null }) {
+  const preset = initialJobType === "co" && initialParentJobId;
+  const [step, setStep] = useState(preset ? 2 : 0);
   const [saving, setSaving] = useState(false);
   const [wtSearch, setWtSearch] = useState("");
   const [error, setError] = useState(null);
@@ -95,9 +96,9 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
   }, []);
 
   const [data, setData] = useState({
-    jobType: null,
+    jobType: initialJobType,
     manualJobNum: "",
-    parentJobId: "",
+    parentJobId: initialParentJobId ? String(initialParentJobId) : "",
     coStandalone: false,
     customerType: null,
     customerMode: null,
@@ -677,7 +678,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     <div style={{ position: "fixed", inset: 0, background: "rgba(28,24,20,0.65)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
       {/* Left arrow — absolutely positioned, always same spot */}
       <div style={{ position: "fixed", top: "50%", left: "calc(50% - 364px)", transform: "translateY(-50%)", zIndex: 101 }}>
-        {step > 0 ? (
+        {step > (preset ? 2 : 0) ? (
           <NavCircle onClick={back}>←</NavCircle>
         ) : (
           <div style={{ width: 48 }} />

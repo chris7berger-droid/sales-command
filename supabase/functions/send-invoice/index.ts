@@ -41,7 +41,7 @@ serve(async (req) => {
       });
     }
 
-    const { invoiceId, customerEmail, customerName, amount, jobName, jobId, dueDate, senderEmail } = await req.json();
+    const { invoiceId, customerEmail, customerName, amount, jobName, jobId, dueDate, senderEmail, intro } = await req.json();
 
     console.log("send-invoice invoked", { invoiceId, customerEmail, amount, jobName });
 
@@ -143,7 +143,9 @@ serve(async (req) => {
               <p style="margin: 4px 0 0; color: #4a4238; font-size: 13px;">Industrial & Commercial Concrete Coatings</p>
             </div>
             <p>Hi ${customerName},</p>
-            <p>Please find your invoice below.</p>
+            ${(intro && intro.trim())
+              ? `<div style="font-size: 14px; color: #1c1814; line-height: 1.6; white-space: pre-wrap; margin: 0 0 16px;">${intro.trim().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>`
+              : `<p>Please find your invoice below.</p>`}
             <div style="background: #f8f6f3; border: 1.5px solid #e5e0d8; border-radius: 10px; padding: 20px; margin: 24px 0;">
               <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
                 <span style="font-size: 12px; color: #887c6e; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;">Invoice #${invoiceId}</span>

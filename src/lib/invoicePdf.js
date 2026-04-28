@@ -198,24 +198,6 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
   doc.line(margin, y, pageW - margin, y);
   y += 18;
 
-  // ── Description / Introduction ─────────────────────────────────────────
-  if (invoice.description && String(invoice.description).trim()) {
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...gray);
-    const descLines = doc.splitTextToSize(String(invoice.description).trim(), contentW);
-    descLines.forEach(line => {
-      y = ensureSpace(doc, y, 14, pageH);
-      doc.text(line, margin, y);
-      y += 14;
-    });
-    y += 8;
-    doc.setDrawColor(220, 215, 210);
-    doc.setLineWidth(0.5);
-    doc.line(margin, y, pageW - margin, y);
-    y += 18;
-  }
-
   // ── Line Items table ───────────────────────────────────────────────────
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
@@ -325,6 +307,27 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     doc.text("Discount", colPctX, y, { align: "right" });
     doc.text(`-${fmt$(discount)}`, colTotX, y, { align: "right" });
     y += 18;
+  }
+
+  // ── Work Description (above Amount Due) ────────────────────────────────
+  if (invoice.description && String(invoice.description).trim()) {
+    const descLines = doc.splitTextToSize(String(invoice.description).trim(), contentW - 24);
+    const blockH = 18 + descLines.length * 13 + 12;
+    y = ensureSpace(doc, y, blockH + 8, pageH);
+    doc.setFillColor(248, 246, 243);
+    doc.setDrawColor(220, 215, 210);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(margin, y, contentW, blockH, 4, 4, "FD");
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...lightGray);
+    doc.text("WORK DESCRIPTION", margin + 12, y + 14);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...gray);
+    let dy = y + 28;
+    descLines.forEach(line => { doc.text(line, margin + 12, dy); dy += 13; });
+    y += blockH + 8;
   }
 
   // Amount Due banner — teal outlined box

@@ -45,17 +45,21 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
   const [error, setError] = useState(null);
   const [dueDate, setDueDate] = useState("");
   const [description, setDescription] = useState("");
+  const [intro, setIntro] = useState("");
   const [archiveAmount, setArchiveAmount] = useState("");
   const [archiveBilled, setArchiveBilled] = useState(0);
   const [roundInvoice, setRoundInvoice] = useState(true);
   const [retentionPct, setRetentionPct] = useState("");
   const money = roundInvoice ? fmt$ : fmt$c;
 
-  // Load default invoice description
+  // Load tenant defaults for description + intro
   useEffect(() => {
     getTenantConfig().then(cfg => {
       if (cfg.default_invoice_description && !description) {
         setDescription(cfg.default_invoice_description);
+      }
+      if (cfg.default_invoice_intro && !intro) {
+        setIntro(cfg.default_invoice_intro);
       }
     });
   }, []);
@@ -196,6 +200,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
         proposal_id: selProposal.id,
         due_date: dueDate || null,
         description: description.trim() || null,
+        intro: intro.trim() || null,
         show_cents: !roundInvoice,
         retention_pct: retPct,
         retention_amount: retAmt,
@@ -440,16 +445,30 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
               </div>
             </div>
 
-            {/* Description / Introduction */}
+            {/* Email Intro (goes in the customer email body) */}
             <div style={{ marginTop: 12 }}>
-              <div style={labelStyle}>Invoice Description</div>
+              <div style={labelStyle}>Email Introduction</div>
+              <textarea
+                value={intro}
+                onChange={e => setIntro(e.target.value)}
+                rows={4}
+                placeholder="This goes in the body of the customer email…"
+                style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
+              />
+              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Appears in the email above the invoice card. Not printed on the invoice.</div>
+            </div>
+
+            {/* Work Description (prints on the invoice above Amount Due) */}
+            <div style={{ marginTop: 12 }}>
+              <div style={labelStyle}>Work Description</div>
               <textarea
                 value={description}
                 onChange={e => setDescription(e.target.value)}
                 rows={3}
-                placeholder="Add a message to appear on the invoice..."
+                placeholder="Describe the work being billed…"
                 style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
               />
+              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Prints on the invoice above the Amount Due.</div>
             </div>
 
             {/* Total + Create */}
@@ -541,6 +560,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
           jobId: invoice.job_id || "",
           dueDate: invoice.due_date || null,
           senderEmail: repContact.email || "noreply@salescommand.app",
+          intro: invoice.intro || null,
         },
       });
       if (fnError) throw new Error(fnError.message || "Send failed.");
@@ -676,13 +696,6 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
                 </div>
               </div>
 
-              {/* Description / Introduction */}
-              {invoice.description && (
-                <div style={{ fontSize: 13, color: "#4a4238", lineHeight: 1.6, marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid rgba(28,24,20,0.12)", whiteSpace: "pre-wrap" }}>
-                  {invoice.description}
-                </div>
-              )}
-
               {/* Line items table */}
               <div style={{ marginBottom: 24 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Line Items</div>
@@ -741,6 +754,14 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
                   </div>
                 </div>
               )}
+              {/* Work Description (above Amount Due) */}
+              {invoice.description && (
+                <div style={{ fontSize: 13, color: "#4a4238", lineHeight: 1.6, marginBottom: 12, padding: "12px 16px", background: "#f8f6f3", border: "1px solid rgba(28,24,20,0.08)", borderRadius: 8, whiteSpace: "pre-wrap" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Work Description</div>
+                  {invoice.description}
+                </div>
+              )}
+
               <div style={{ border: "2px solid #30cfac", borderRadius: 8, padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#4a4238", letterSpacing: "0.08em", textTransform: "uppercase" }}>Amount Due</div>
                 <div style={{ fontSize: 26, fontWeight: 800, color: "#1c1814", letterSpacing: "-0.01em" }}>{money(netTotal)}</div>
@@ -832,6 +853,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url }));
   }, []);
   const [editDesc, setEditDesc] = useState(invoice.description || "");
+  const [editIntro, setEditIntro] = useState(invoice.intro || "");
   const [editPcts, setEditPcts] = useState({});
   const [saving, setSaving] = useState(false);
   const [showPaidPDF, setShowPaidPDF] = useState(false);
@@ -934,6 +956,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     setEditDiscount(String(inv.discount || 0));
     setEditRetentionPct(String(inv.retention_pct || 0));
     setEditDesc(inv.description || "");
+    setEditIntro(inv.intro || "");
     setEditArchiveAmount(String(inv.amount || 0));
     const pcts = {};
     lines.forEach(l => { pcts[l.id] = String(l.billing_pct || 0); });
@@ -972,6 +995,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       retention_pct: retPct,
       retention_amount: retAmt,
       description: editDesc || null,
+      intro: editIntro || null,
       amount: Math.round(newAmount * 100) / 100,
     }).eq("id", inv.id);
     if (invErr) { alert(invErr.message); setSaving(false); return; }
@@ -995,7 +1019,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         .catch(e => console.warn("QB sync failed:", e.message));
     }
 
-    setInv(prev => ({ ...prev, id: editId, due_date: editDueDate || null, discount: parseFloat(editDiscount) || 0, retention_pct: retPct, retention_amount: retAmt, description: editDesc || null, amount: Math.round(newAmount * 100) / 100 }));
+    setInv(prev => ({ ...prev, id: editId, due_date: editDueDate || null, discount: parseFloat(editDiscount) || 0, retention_pct: retPct, retention_amount: retAmt, description: editDesc || null, intro: editIntro || null, amount: Math.round(newAmount * 100) / 100 }));
     setLines(prev => prev.map(l => {
       const nl = newLines.find(n => n.id === l.id);
       return nl ? { ...l, billing_pct: nl.billing_pct, amount: nl.amount } : l;
@@ -1124,8 +1148,14 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             </div>
           )}
           <div style={{ gridColumn: "1 / -1" }}>
-            <div style={labelStyle}>Description / PO #</div>
-            <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="e.g. PO #12345 — Gym Floor Polish" style={inputStyle} />
+            <div style={labelStyle}>Email Introduction</div>
+            <textarea value={editIntro} onChange={e => setEditIntro(e.target.value)} rows={4} placeholder="This goes in the body of the customer email…" style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }} />
+            <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Appears in the email above the invoice card. Not printed on the invoice.</div>
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <div style={labelStyle}>Work Description</div>
+            <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} placeholder="Describe the work being billed…" style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }} />
+            <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Prints on the invoice above the Amount Due.</div>
           </div>
           {inv.qb_invoice_id && (
             <div style={{ gridColumn: "1 / -1" }}>

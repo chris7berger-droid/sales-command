@@ -1,0 +1,245 @@
+SC_Handoff_v86 — April 28, 2026 (Add-CO button + QuickBooks auto-sync skip)
+
+Two distinct features shipped this session, on two stacked branches that
+both merged cleanly to main:
+
+  1. feat/calllog-add-co-button → main      (commit 3a67c07)
+  2. feat/qb-skip-sync         → main       (commit 07d6c6f)
+
+Both deployed to scmybiz.com via Vercel auto-deploy on push.
+
+================================================================
+WHAT WAS DONE
+================================================================
+
+1. + Add CO button on Call Log detail page
+   ----------------------------------------
+   The Change Order flow was buried in step 1 of the New Inquiry wizard.
+   User couldn't find it ("I built this thing and I couldn't find it").
+   Surfaced it on the parent job's detail page where it belongs.
+
+   - CallLogDetail.jsx: new + Add CO button (secondary variant) next to
+     + New Proposal, gated on !job.is_change_order && !editing so it
+     only shows on parent-eligible jobs and not while editing.
+   - NewInquiryWizard.jsx: accepts initialJobType + initialParentJobId
+     props. When both set, opens at the coTreatment step (Wrap into
+     Parent / Standalone) — skips jobType + parentJob steps because
+     they're already determined. Back arrow is clamped so it can't
+     rewind into the now-skipped screens.
+   - CallLog.jsx: hoist wizard render above the detail early-return so
+     it can mount in both list and detail views; new coParent state
+     drives the wizard with the parent job context.
+
+   Files: src/pages/CallLog.jsx, src/components/CallLogDetail.jsx,
+          src/components/NewInquiryWizard.jsx
+   (commits c937a41)
+
+2. QuickBooks auto-sync skip — two-axis design
+   ---------------------------------------------
+   Problem: Importing legacy archive jobs that already exist in QB,
+   and using the existing Archive Job Proposal flow, double-posts to
+   QB (creates duplicate sub-customer + duplicate invoice + duplicate
+   payment).
+
+   Design (after planning agent surfaced the mixed-proposal case):
+   skip if EITHER signal is true:
+     - proposals.is_archive_proposal === true   (existing column)
+     - call_log.qb_skip_sync === true           (new column)
+
+   This handles the user's real workflow: an imported archive job can
+   carry both an archive-style proposal (auto-skipped via
+   is_archive_proposal) AND a fresh new-live proposal (skipped or
+   synced based on the per-job flag).
+
+   Migration 20260428120000_call_log_qb_skip_sync.sql:
+     - alter table call_log add column qb_skip_sync boolean default false
+     - backfill = true for every row where archive_record_id is not null
+     - guard: AND qb_skip_sync = false so re-running the migration won't
+       clobber a manual override
+     - partial index on qb_skip_sync = true
+
+   Edge functions — all 4 honor the flag, return HTTP 200 with shape
+   { success: true, skipped: true, reason: "is_archive_proposal" |
+     "qb_skip_sync" } so the void-flow user-visible error path stays
+   silent and the other three function's .catch wrappers behave the
+   same as before:
+
+     - qb-create-job: accepts optional proposalId in body. If proposal
+       is archive-style OR job has skip flag → return success-skipped.
+     - qb-sync-invoice: skip check runs BEFORE the qbCustomerId throw
+       so archive jobs (which have null qb_customer_id) skip cleanly
+       instead of surfacing "Job not synced to QuickBooks yet".
+     - qb-record-payment: REORDERED — call_log lookup now happens
+       BEFORE the qb_invoice_id null-check for the same reason.
+     - qb-void-invoice: skip check before the existing "not in QB"
+       branch. Response shape carefully avoids the `error` field so
+       Invoices.jsx's surfaced error path stays quiet.
+
+   Frontend wiring:
+     - ProposalDetail.jsx + PublicSigningPage.jsx: now pass proposalId
+       alongside callLogId in qb-create-job invoke calls.
+     - ImportToLiveWizard.jsx: inserts qb_skip_sync: true on every
+       archive import (belt-and-suspenders, in case the migration
+       backfill is ever rolled back or skipped).
+     - CallLogDetail.jsx: new checkbox in JOB INFO section under the
+       existing show_cents toggle. Label: "Skip QuickBooks auto-sync
+       on new proposals (archive-style proposals are always skipped)".
+       Mirrors the show_cents pattern (form state, handleSave, button
+       chassis).
+
+   QB SKIP badge — visible confidence indicator:
+     - ProposalDetail header: teal-on-dark "QB SKIP" pill next to the
+       Draft status pill (and after the ARCHIVE badge if archive-
+       style). Hover for tooltip explaining the trigger.
+     - Proposals list row: same badge in compact form in Status column.
+     - Renders only when sync would be skipped (no badge = will sync,
+       which is the default behavior for the dominant case).
+     - qb_skip_sync threaded into the call_log joined selects in both
+       ProposalDetail.jsx and Proposals.jsx so the badge has data to
+       read.
+
+   (commits 625f28b, f553ffe)
+
+================================================================
+DEPLOY ORDER (FOR THE RECORD)
+================================================================
+
+The plan agent flagged that deploy-order skew is the most dangerous
+failure mode. Order followed:
+
+  1. Migration applied first via `supabase db push` (added column +
+     backfilled archive jobs to qb_skip_sync = true).
+  2. All 4 edge functions deployed via supabase functions deploy
+     <name> --no-verify-jwt. This is the moment production behavior
+     CHANGED: archive jobs (already backfilled to qb_skip_sync=true)
+     immediately stopped double-posting to QB even though prod
+     frontend was still old.
+  3. Frontend merged to main, Vercel auto-deployed. The frontend
+     merge added: the override checkbox, the QB SKIP badge, and the
+     proposalId pass-through to qb-create-job (which adds per-
+     proposal granularity via is_archive_proposal).
+
+Net safety: the migration + edge function change ALONE was a complete
+bug fix; the frontend merge was the polish layer (UI surfaces +
+finer-grained skip control via is_archive_proposal).
+
+================================================================
+DB STATE
+================================================================
+
+One new migration applied this session, ledger consistent:
+
+  20260428120000_call_log_qb_skip_sync
+
+Verification SQL (run in Supabase SQL editor any time):
+
+  select count(*) filter (where qb_skip_sync = true and archive_record_id is null)     as overridden_live,
+         count(*) filter (where qb_skip_sync = true and archive_record_id is not null) as archive_default,
+         count(*) filter (where qb_skip_sync = false and archive_record_id is not null) as archive_overridden_to_sync,
+         count(*) filter (where qb_skip_sync = false and archive_record_id is null)    as live_normal
+  from public.call_log;
+
+================================================================
+COMMITS THIS SESSION
+================================================================
+
+  07d6c6f  Merge pull request: feat/qb-skip-sync → main
+  f553ffe  feat(qb): QB SKIP badge on proposal detail + list
+  625f28b  feat(qb): per-job skip-sync flag + per-proposal archive auto-skip
+  3a67c07  Merge pull request: feat/calllog-add-co-button → main
+  c937a41  feat(calllog): + Add CO button on job detail page
+
+================================================================
+NOT ADDRESSED THIS SESSION (CARRIED FORWARD)
+================================================================
+
+From v85 RLS audit (still open):
+
+High:
+  - tenant_config_public_read still exposes business financials to anon
+  - team_members_public_read still exposes employee directory to anon
+  - xlsx@^0.18.5 (prototype pollution + ReDoS, no upstream fix)
+  - vite 7.3.1 (3 high advisories, fix available)
+  - flatted + picomatch transitive CVEs
+
+Medium:
+  - Stripe webhook + proposal-signed CORS using ACAO: *
+  - reset-password unauthenticated and unbounded (DoS surface)
+  - dompurify / postcss / brace-expansion moderate CVEs
+  - Hardcoded Supabase URL + anon key fallback in src/lib/supabase.js
+  - Console logs leak rep emails / IDs to public DevTools
+
+Low:
+  - .gitignore doesn't block .env / .env.production
+  - qb_connection plaintext refresh tokens
+  - Repo root clutter: 60+ SC_Handoff files, 9 fix_*.py scripts
+  - 24 console.* in production client bundle
+
+Other open threads:
+  - send-invoice 400 surfacing bug (real reason swallowed by
+    supabase-js fnError) — sweep to qb-sync-invoice et al.
+  - Retention release workflow
+  - In-app invoice display ignores show_cents (by design)
+  - Page remount on list↔detail
+  - QB fan-out sweep
+  - Invoice numbering
+  - Multi-invoice header link
+  - History Locker pagination — DataTable sorts visible page only
+  - importApi.js (bulk CSV) does NOT honor a virtual qb_skip_sync
+    field. Out of scope this session per user; default false is safe.
+    Revisit if archive-mode CSV imports become common.
+
+================================================================
+LESSONS / RUNBOOK
+================================================================
+
+A. Multi-surface features deserve a planning pass
+   This session: 1 migration + 4 edge functions + 3 insert paths +
+   2 UI surfaces + sibling-repo sweep + deploy ordering. Spinning up
+   the Plan agent before any code was written caught:
+     - The qb-record-payment ordering bug (had to move the call_log
+       lookup BEFORE the qb_invoice_id check)
+     - The qb-void-invoice response-shape requirement (no `error`
+       field, since that path is user-surfaced)
+     - The mixed-proposal case the user expected (drove the design
+       to use BOTH proposals.is_archive_proposal AND
+       call_log.qb_skip_sync, OR'd together)
+
+B. Stacked feature branches work fine for related-but-distinct work
+   feat/qb-skip-sync was branched from feat/calllog-add-co-button
+   (not main) so the user could test both features on a single Vercel
+   preview while we built. Merge order to main: dependency first
+   (CO), then the stacked branch (qb-skip-sync). Both merged cleanly
+   with --no-ff merge commits preserving the feature history.
+
+C. Edge-function-first deployment is the safe path for a multi-
+   surface bug fix
+   The order DB → edge functions → frontend means the bug fix is
+   already live as soon as edge functions deploy. Frontend just adds
+   UI affordances. If a frontend deploy fails or has to be rolled
+   back, the bug fix stays in place.
+
+D. Plan agent open-question protocol
+   Plan agent flagged 3 open questions. User answered 1/2/3 in a
+   single message; we revised the design when #2 changed the answer
+   ("expects mixed-proposal case" → swapped from one-flag-on-call_log
+   to OR'd-with-is_archive_proposal). Trust but verify works both
+   ways: planner surfaced the limitation we'd missed; user
+   surfaced the workflow we'd miscaptured.
+
+================================================================
+NEXT SESSION PICKUP
+================================================================
+
+Priority order:
+  1. Verify on production: pick a real archive job, walk through
+     Archive Job Proposal → invoice → confirm logs show skipped and
+     no QB duplicates created. Optionally toggle the new checkbox
+     and confirm the unlock works.
+  2. Manual cleanup of any pre-existing duplicates in QuickBooks
+     sandbox/prod from prior testing (user accepted this in scope).
+  3. RLS audit follow-up — high-severity items above (anon read of
+     tenant_config and team_members).
+  4. send-invoice / qb-sync-invoice error surfacing bug (small).
+  5. Retention release workflow.
+  6. Whatever new work Chris brings.

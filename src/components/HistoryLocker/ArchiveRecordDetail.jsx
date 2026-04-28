@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { C, F } from "../../lib/tokens";
 import JOB_FOLDER_MAP from "./jobFolderMap";
 import ImportToLiveWizard from "./ImportToLiveWizard";
 
 export default function ArchiveRecordDetail({ record, onBack, onNavigateProposal, canImport }) {
+  const navigate = useNavigate();
   const raw = record.raw_data || {};
   const keys = Object.keys(raw).sort();
   const [attachments, setAttachments] = useState([]);
@@ -89,8 +91,10 @@ export default function ArchiveRecordDetail({ record, onBack, onNavigateProposal
         <ImportToLiveWizard
           record={record}
           onClose={() => setShowImport(false)}
-          onSaved={() => {
+          onSaved={({ jobId } = {}) => {
             setShowImport(false);
+            if (jobId) navigate(`/calllog/${jobId}`);
+            else navigate("/calllog");
           }}
         />
       )}

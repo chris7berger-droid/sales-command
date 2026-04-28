@@ -1,0 +1,253 @@
+SC_Handoff_v85 — April 28, 2026 (Archive invoice fixes, Import-to-Live wizard polish, sortable tables)
+
+Session focus: catch up the parked invoice-intro branch, ship a stack of
+archive-flow fixes, add column sorting to the shared DataTable, and clean
+up the History Locker detail page.
+
+================================================================
+WHAT WAS DONE
+================================================================
+
+1. Caught up + merged the parked invoice-intro/work-description branch
+   ----------------------------------------------------------------
+   feat/invoice-intro-and-description had been pushed but never PR'd
+   while the v83 RLS hardening went out on main.
+
+   Steps taken:
+     - Renamed the branch's local SC_Handoff_v83.txt → SC_Handoff_v84.txt
+       to avoid collision with main's v83 (RLS hardening, also dated
+       2026-04-27)
+     - git merge origin/main into the branch — clean auto-merge;
+       PublicInvoicePage.jsx auto-merged correctly (kept the new
+       Work-Description block AND the createPublicClient token-pinned
+       client from main)
+     - Repaired Supabase migration ledger:
+         supabase migration repair --status applied 20260427180000 20260427190000
+       (those two RLS migrations were applied via Studio yesterday so
+       the ledger thought they were still pending)
+     - supabase db push --include-all
+       Applied 20260427120000_invoices_intro.sql; remote already had
+       both columns (someone added them via Studio earlier) so the
+       IF NOT EXISTS guards no-op'd. Ledger now consistent.
+     - Opened PR #6, merged. Branch deleted.
+
+2. Modal scroll fix — Invoice creation
+   -----------------------------------
+   Adding the Email Intro + Work Description textareas pushed step 2 of
+   the New Invoice modal past its 85vh maxHeight. The Total + Create
+   Invoice action bar was visually orphaned outside the modal. Wrapped
+   step 2's form fields in a flex:1 / overflowY:auto / minHeight:0
+   container so the body scrolls and the action bar stays pinned.
+   (commit 36071de)
+
+3. Archive invoice line rendering + format-aware billing %
+   -------------------------------------------------------
+   Archive proposals have no proposal_wtc rows, so archive invoice lines
+   were rendering "—" / $0.00 / stray "%". Now pulls alternative data:
+
+     Description: comma-joined work_types from
+                  proposal.call_log.job_work_types
+     Amount:      proposal.total (the Sold amount)
+     Billing %:   line.amount / proposal.total × 100
+
+   Billing % follows the per-invoice Round/Exact toggle:
+     Round (show_cents=false): integer percent → "100%"
+     Exact (show_cents=true):  2-decimal       → "99.99%"
+
+   Side-fix: InvoicePDFModal preview was hard-coded to const money = fmt$c.
+   Now respects invoice.show_cents (matches the toggle, like
+   PublicInvoicePage already did).
+
+   Applied identically to InvoicePDFModal preview AND PublicInvoicePage.
+   invoicePdf.js (jsPDF generator) only runs from the pay-app flow which
+   uses billing_schedule_line — doesn't intersect with archive
+   proposals — so left untouched.
+   (commit b41bdd8)
+
+4. History Locker search bar width
+   -------------------------------
+   Search form had no max-width, spanned the entire viewport on wide
+   screens. Capped at 720px to roughly match the Source/Type/From/To
+   filter row below.
+   (commit db58f84)
+
+5. Take-live wizard now navigates to Call Log on completion
+   --------------------------------------------------------
+   ArchiveRecordDetail's onSaved callback was just closing the wizard
+   with setShowImport(false) — user was left on the History Locker
+   detail page wondering where the new live job went. Now navigates
+   to /calllog/{newJobId} so the new job opens immediately.
+   (commit 038fdd8)
+
+6. Job-number step in the Import-to-Live wizard
+   --------------------------------------------
+   Was always assigning the next auto-increment (10000+), forcing the
+   user to manually edit the new call_log to restore the legacy number.
+   Inserted a new step 7 "Job Number" between Work Types and Review.
+
+   Behavior:
+     - Default: keep the legacy number (parsed from record.legacy_id
+       via /^(\d{4,5})/, e.g. "7210 - Foo" → 7210)
+     - On mount, fetches BOTH the next auto-increment number AND
+       checks if legacy is already in use on a live call_log row
+     - If legacy is taken: that radio is disabled with a hint
+       "Already in use on Job #{display_job_number}" and default
+       flips to "Assign new number"
+     - If legacy_id can't be parsed: legacy radio disabled with
+       explanatory copy
+     - Re-checks legacy availability at submit time so a parallel
+       import can't cause a collision; surfaces a clean error if so
+     - Review step now shows the chosen Job Number marked (legacy)
+       or (new); review step bumped from n=7 to n=8
+
+   File: src/components/HistoryLocker/ImportToLiveWizard.jsx
+   (commit a5b4e9c)
+
+7. Clickable column sort on the shared DataTable
+   ---------------------------------------------
+   DataTable now has internal sort state. Headers show:
+     ↕ (faint white)  - sortable but inactive
+     ↑ (teal)         - active, ascending
+     ↓ (teal)         - active, descending
+     no arrow         - non-sortable
+
+   Click toggles direction; clicking a different column resets to asc.
+   Empty-label columns auto-excluded; explicit opt-out via sortable: false.
+   Custom values via sortVal: (row) => any when raw row[k] doesn't
+   sort sensibly.
+
+   Default sorts wired:
+     Call Log         - created_at desc
+     Proposals        - created_at desc
+     Invoices         - sent_at    desc
+     History Locker   - record_date desc
+
+   sortVal added in:
+     Proposals: 3× proposal_wtc-derived columns (count, min start_date,
+                min end_date) + invoices column
+     Invoices:  the computed Aging column
+
+   Customers and Team pages also got column sort for free.
+
+   Caveat: History Locker pagination — DataTable sorts the visible page
+   (PAGE_SIZE = 50), NOT the full filtered result set. Server-side sort
+   would be a separate, larger change.
+   (commit fd757d2)
+
+8. History Locker detail-page header restructured
+   ----------------------------------------------
+   On an archive record's detail view:
+     - Search/Import/Import Batches admin tabs now hidden (only relevant
+       on the search view). ArchiveSearchView reports detail entry/exit
+       to Archive.jsx via a new onDetailChange callback.
+     - Back-to-Search + Import-to-Live grouped together on the LEFT
+       inside one row.
+     - Everything moved into a single full-width card with linenCard
+       background + borderStrong border. Top: action buttons. Divider.
+       Bottom: legacy_id badge, customer name, job name, meta tags.
+     - Eliminates the empty right-hand whitespace that existed before.
+   (commit 3f0cfda)
+
+================================================================
+COMMITS THIS SESSION
+================================================================
+
+  3f0cfda  fix(history-locker): cleaner detail header — full-width card, tabs hidden
+  fd757d2  feat(table): clickable sort arrows on column headers
+  a5b4e9c  feat(history-locker): job-number step in Import-to-Live wizard
+  038fdd8  fix(history-locker): navigate to Call Log after take-live wizard
+  db58f84  fix(history-locker): cap search bar width
+  b41bdd8  fix(invoices): archive invoices render proper line row + format-aware billing %
+  36071de  fix(invoices): scroll new-invoice modal body so Create button stays pinned
+  f13e131  Merge pull request #6 (Email Intro + Work Description split)
+  6827d06  chore: rename v83 invoice-intro handoff to v84
+  99a568f  Merge remote-tracking branch 'origin/main' into feat/invoice-intro-and-description
+
+================================================================
+DB STATE
+================================================================
+
+Migration ledger now consistent — three 2026-04-27 migrations
+all marked applied:
+
+  20260427120000_invoices_intro                         (additive: cols)
+  20260427180000_add_token_gated_policies               (RLS hardening)
+  20260427190000_drop_old_anon_signing_policies         (RLS hardening)
+
+The 20260427180000/190000 pair was applied yesterday via Supabase
+SQL Editor; ledger was repaired this session via:
+
+  supabase migration repair --status applied 20260427180000 20260427190000
+
+invoices.intro and tenant_config.default_invoice_intro columns existed
+on remote already (added via Studio earlier). Re-running the migration
+no-op'd the ALTER TABLE statements thanks to IF NOT EXISTS, and the
+seed UPDATE filled default_invoice_intro for any null rows.
+
+================================================================
+NOT ADDRESSED THIS SESSION (carried forward)
+================================================================
+
+Still open from 2026-04-26 RLS audit (per v83):
+
+High:
+  - tenant_config_public_read still exposes business financials to anon
+  - team_members_public_read still exposes employee directory to anon
+  - xlsx@^0.18.5 (prototype pollution + ReDoS, no upstream fix)
+  - vite 7.3.1 (3 high advisories, fix available)
+  - flatted + picomatch transitive CVEs
+
+Medium:
+  - Stripe webhook + proposal-signed CORS using ACAO: *
+  - reset-password unauthenticated and unbounded (DoS surface)
+  - dompurify / postcss / brace-expansion moderate CVEs
+  - Hardcoded Supabase URL + anon key fallback in src/lib/supabase.js
+  - Console logs leak rep emails / IDs to public DevTools
+
+Low:
+  - .gitignore doesn't block .env / .env.production
+  - qb_connection plaintext refresh tokens
+  - Repo root clutter: 60+ SC_Handoff files, 9 fix_*.py scripts
+  - 24 console.* in production client bundle
+
+New, opened this session:
+
+  - Sort on paginated tables (History Locker only) sorts the visible
+    page, not the full filtered result set. Server-side sort would
+    push sort params into the search RPC and be a larger change.
+  - invoicePdf.js (jsPDF generator) hard-codes fmt$ for line amount
+    and total — doesn't honor invoice.show_cents. Not user-facing
+    today because it only runs in the pay-app flow, which uses
+    billing_schedule_line lines (not archive). Worth fixing whenever
+    pay-apps + archive intersect.
+
+================================================================
+LESSONS / RUNBOOK
+================================================================
+
+A. Migration ledger drift after Studio SQL
+   When SQL is pasted into the Supabase SQL Editor, supabase_migrations
+   .schema_migrations does NOT get a row. Next time `supabase db push`
+   runs, the CLI thinks every "applied via Studio" migration is still
+   pending. The fix:
+
+     supabase migration repair --status applied <ts1> <ts2> …
+
+   Then `supabase db push` (add --include-all if the new migration
+   timestamps before the just-marked ones).
+
+   Prevention: ALWAYS run new migrations via `supabase db push`, never
+   the SQL Editor. Studio is a last resort for emergency hotfixes only.
+
+B. Auto-merge of touched-by-both files needs eyeballing
+   The PR #6 auto-merge of PublicInvoicePage.jsx came out semantically
+   correct (kept both sides' intent) but auto-merge can be syntactically
+   clean and behaviorally wrong. Always grep the touched file post-merge
+   for both sides' identifiable changes before assuming it merged
+   correctly.
+
+C. v-numbered handoffs must be checked against main before naming
+   The v83 collision (one v83 on a feature branch + a different v83
+   on main, both 2026-04-27) was a numbering accident waiting to bite.
+   Before naming the next handoff, check `git show origin/main:SC_Handoff_v??.txt`
+   to verify the number is free.

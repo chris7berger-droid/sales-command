@@ -259,11 +259,12 @@ export default function CallLog({ teamMember, setSubPage }) {
                 { k: "sales_name", l: "Rep" },
                 { k: "bid_due", l: "Bid Due", r: v => <span style={{ color: over(v) ? C.red : C.textBody, fontWeight: 500 }}>{fmtD(v)}</span> },
                 { k: "follow_up", l: "Follow Up", r: v => v ? <span style={{ color: over(v) ? C.red : C.textBody }}>{fmtD(v)}</span> : <span style={{ color: C.textFaint }}>—</span> },
-                { k: "_a", l: "", r: (_, row) => (
+                { k: "_a", l: "", sortable: false, r: (_, row) => (
                   <Btn sz="sm" v="secondary" onClick={() => navigate(`/calllog/${row.id}`)}>View</Btn>
                 )},
               ]}
               rows={filtered}
+              defaultSort={{ key: "created_at", dir: "desc" }}
             />
             <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>
               {filtered.length} record{filtered.length !== 1 ? "s" : ""}

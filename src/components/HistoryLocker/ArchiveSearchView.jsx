@@ -166,7 +166,7 @@ export default function ArchiveSearchView({ tenantId, onNavigateProposal, canImp
       {/* Results table */}
       {rows.length > 0 && (
         <>
-          <DataTable cols={cols} rows={rows} onRow={r => setSelected(r)} />
+          <DataTable cols={cols} rows={rows} onRow={r => setSelected(r)} defaultSort={{ key: "record_date", dir: "desc" }} />
 
           {/* Pagination */}
           {totalPages > 1 && (

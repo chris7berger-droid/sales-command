@@ -153,33 +153,47 @@ export default function Proposals({ teamMember, setSubPage }) {
               { k: "total",      l: "Total",      r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$(v)}</span> },
               { k: "created_at", l: "Created",    r: v => fmtD(v?.slice(0,10)) },
               { k: "approved_at",l: "Approved",   r: v => v ? fmtD(v?.slice(0,10)) : <span style={{ color: C.textFaint }}>—</span> },
-              { k: "proposal_wtc", l: "WTCs", r: v => {
-                const count = (v || []).length;
-                return <span style={{ fontWeight: 700, fontFamily: F.display }}>{count || "—"}</span>;
-              }},
-              { k: "proposal_wtc", l: "Job Start", r: v => {
-                const dates = (v || []).map(w => w.start_date).filter(Boolean);
-                if (dates.length === 0) return <span style={{ color: C.textFaint }}>—</span>;
-                if (dates.length > 1) return <span style={{ color: C.textFaint, fontStyle: "italic" }}>Multiple</span>;
-                return fmtD(dates[0]);
-              }},
-              { k: "proposal_wtc", l: "Job End", r: v => {
-                const dates = (v || []).map(w => w.end_date).filter(Boolean);
-                if (dates.length === 0) return <span style={{ color: C.textFaint }}>—</span>;
-                if (dates.length > 1) return <span style={{ color: C.textFaint, fontStyle: "italic" }}>Multiple</span>;
-                return fmtD(dates[0]);
-              }},
-              { k: "invoices", l: "Invoice", r: (v, row) => {
-                const invs = v || [];
-                if (invs.length === 0) return <span style={{ color: C.textFaint }}>—</span>;
-                return (
-                  <span onClick={e => { e.stopPropagation(); if (onNavigateInvoice) onNavigateInvoice(invs[0].id); }}
-                    style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui, cursor: "pointer" }}>
-                    {invs[0].status || "View"}
-                  </span>
-                );
-              }},
-              { k: "_a", l: "", r: (_, row) => (
+              { k: "proposal_wtc", l: "WTCs",
+                sortVal: row => (row.proposal_wtc || []).length,
+                r: v => {
+                  const count = (v || []).length;
+                  return <span style={{ fontWeight: 700, fontFamily: F.display }}>{count || "—"}</span>;
+                }},
+              { k: "proposal_wtc", l: "Job Start",
+                sortVal: row => {
+                  const dates = (row.proposal_wtc || []).map(w => w.start_date).filter(Boolean).sort();
+                  return dates[0] || null;
+                },
+                r: v => {
+                  const dates = (v || []).map(w => w.start_date).filter(Boolean);
+                  if (dates.length === 0) return <span style={{ color: C.textFaint }}>—</span>;
+                  if (dates.length > 1) return <span style={{ color: C.textFaint, fontStyle: "italic" }}>Multiple</span>;
+                  return fmtD(dates[0]);
+                }},
+              { k: "proposal_wtc", l: "Job End",
+                sortVal: row => {
+                  const dates = (row.proposal_wtc || []).map(w => w.end_date).filter(Boolean).sort();
+                  return dates[0] || null;
+                },
+                r: v => {
+                  const dates = (v || []).map(w => w.end_date).filter(Boolean);
+                  if (dates.length === 0) return <span style={{ color: C.textFaint }}>—</span>;
+                  if (dates.length > 1) return <span style={{ color: C.textFaint, fontStyle: "italic" }}>Multiple</span>;
+                  return fmtD(dates[0]);
+                }},
+              { k: "invoices", l: "Invoice",
+                sortVal: row => (row.invoices && row.invoices[0]?.status) || null,
+                r: (v, row) => {
+                  const invs = v || [];
+                  if (invs.length === 0) return <span style={{ color: C.textFaint }}>—</span>;
+                  return (
+                    <span onClick={e => { e.stopPropagation(); if (onNavigateInvoice) onNavigateInvoice(invs[0].id); }}
+                      style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui, cursor: "pointer" }}>
+                      {invs[0].status || "View"}
+                    </span>
+                  );
+                }},
+              { k: "_a", l: "", sortable: false, r: (_, row) => (
                 <div style={{ display: "flex", gap: 5 }}>
                   <Btn sz="sm" v="secondary" onClick={() => navigate(`/proposals/${row.id}`)}>Open</Btn>
                   <Btn sz="sm" v="ghost">PDF</Btn>
@@ -188,6 +202,7 @@ export default function Proposals({ teamMember, setSubPage }) {
             ]}
             rows={filteredProposals}
             onRow={setSel}
+            defaultSort={{ key: "created_at", dir: "desc" }}
           />
         )}
       </div>

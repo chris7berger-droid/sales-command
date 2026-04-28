@@ -1493,16 +1493,22 @@ export default function Invoices({ setSubPage, teamMember }) {
               { k: "discount", l: "Discount",  r: v => v > 0 ? <span style={{ color: C.red, fontWeight: 700 }}>−{fmt$c(v)}</span> : <span style={{ color: C.textFaint }}>—</span> },
               { k: "sent_at",  l: "Sent",      r: v => fmtD(v) },
               { k: "due_date", l: "Due",       r: v => fmtD(v) },
-              { k: "_aging",   l: "Aging",     r: (_, row) => {
-                const d = aging(row);
-                if (d === null) return <span style={{ color: C.textFaint }}>—</span>;
-                return <span style={{ fontWeight: 800, fontFamily: F.display, color: d > 0 ? C.red : d === 0 ? C.amber : C.green }}>
-                  {d > 0 ? `${d}d overdue` : d === 0 ? "Due today" : `${Math.abs(d)}d`}
-                </span>;
-              }},
+              { k: "_aging",   l: "Aging",
+                sortVal: row => {
+                  const d = aging(row);
+                  return d === null ? null : d;
+                },
+                r: (_, row) => {
+                  const d = aging(row);
+                  if (d === null) return <span style={{ color: C.textFaint }}>—</span>;
+                  return <span style={{ fontWeight: 800, fontFamily: F.display, color: d > 0 ? C.red : d === 0 ? C.amber : C.green }}>
+                    {d > 0 ? `${d}d overdue` : d === 0 ? "Due today" : `${Math.abs(d)}d`}
+                  </span>;
+                }},
             ]}
             rows={filteredInvoices}
             onRow={row => navigate(`/invoices/${row.id}`)}
+            defaultSort={{ key: "sent_at", dir: "desc" }}
           />
         )}
       </div>

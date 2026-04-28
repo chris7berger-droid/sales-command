@@ -102,7 +102,7 @@ export default function ArchiveSearchView({ tenantId, onNavigateProposal, canImp
   return (
     <div>
       {/* Search bar */}
-      <form onSubmit={handleSearch} style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+      <form onSubmit={handleSearch} style={{ display: "flex", gap: 10, marginBottom: 16, maxWidth: 720 }}>
         <input
           placeholder="Search archived records..."
           value={q}

@@ -87,8 +87,32 @@ serve(async (req) => {
       });
     }
 
-    // Fetch invoice to get qb_invoice_id
-    const { data: invoice } = await sb.from("invoices").select("qb_invoice_id").eq("id", invoiceId).single();
+    // Fetch invoice to get qb_invoice_id + proposal/call_log skip flags
+    const { data: invoice } = await sb.from("invoices").select("qb_invoice_id, proposal_id, job_id").eq("id", invoiceId).single();
+
+    // Resolve skip flags via proposal -> call_log, mirroring sync/record-payment
+    let skipSync = false;
+    let skipReason = null;
+    if (invoice?.proposal_id) {
+      const { data: proposal } = await sb.from("proposals").select("call_log_id, is_archive_proposal").eq("id", invoice.proposal_id).maybeSingle();
+      if (proposal?.is_archive_proposal) { skipSync = true; skipReason = "is_archive_proposal"; }
+      if (proposal?.call_log_id) {
+        const { data: cl } = await sb.from("call_log").select("qb_skip_sync").eq("id", proposal.call_log_id).maybeSingle();
+        if (cl?.qb_skip_sync) { skipSync = true; skipReason = skipReason || "qb_skip_sync"; }
+      }
+    }
+    if (!skipSync && invoice?.job_id) {
+      const { data: cl } = await sb.from("call_log").select("qb_skip_sync").eq("display_job_number", invoice.job_id).limit(1).maybeSingle();
+      if (cl?.qb_skip_sync) { skipSync = true; skipReason = "qb_skip_sync"; }
+    }
+
+    if (skipSync) {
+      console.log("qb-void-invoice: skipping per flag", { invoiceId, reason: skipReason });
+      return new Response(JSON.stringify({ success: true, skipped: true, reason: skipReason }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
+      });
+    }
+
     if (!invoice?.qb_invoice_id) {
       // Not in QB — nothing to void
       return new Response(JSON.stringify({ success: true, action: "skipped", reason: "not in QB" }), {

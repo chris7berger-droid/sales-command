@@ -367,6 +367,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         billing_zip:     form.billingSame ? form.businessZip     : null,
         billing_address_same: form.billingSame,
         archive_record_id: record.id,
+        qb_skip_sync: true,
       }]).select().single();
       if (jErr) throw new Error("Call log: " + jErr.message);
 

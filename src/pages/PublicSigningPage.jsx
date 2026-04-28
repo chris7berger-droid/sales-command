@@ -372,7 +372,7 @@ export default function PublicSigningPage() {
       // QB job sync (non-blocking, skip test jobs)
       const isTest = (proposal.customer || "").toLowerCase().includes("test");
       if (proposal.call_log_id && !isTest) {
-        supabase.functions.invoke("qb-create-job", { body: { callLogId: proposal.call_log_id } }).catch(() => {});
+        supabase.functions.invoke("qb-create-job", { body: { callLogId: proposal.call_log_id, proposalId: proposal.id } }).catch(() => {});
       }
 
       setSigned(true);

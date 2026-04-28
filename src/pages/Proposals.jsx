@@ -33,7 +33,7 @@ export default function Proposals({ teamMember, setSubPage }) {
     (async () => {
       const { data } = await supabase
         .from("proposals")
-        .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(email, contact_email, business_address, business_city, business_state, business_zip))")
+        .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, qb_skip_sync, customers(email, contact_email, business_address, business_city, business_state, business_zip))")
         .eq("id", routeProposalId)
         .maybeSingle();
       if (data) setSel(data);
@@ -44,7 +44,7 @@ export default function Proposals({ teamMember, setSubPage }) {
     const [data, invData, { data: wtData }] = await Promise.all([
       fetchAll(
         "proposals",
-        "*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(email, contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id)",
+        "*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, qb_skip_sync, customers(email, contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id)",
         { filters: [["is", "deleted_at", null]], order: { column: "created_at", ascending: false } }
       ),
       fetchAll("invoices", "id, status, proposal_id"),
@@ -147,6 +147,9 @@ export default function Proposals({ teamMember, setSubPage }) {
                   <Pill label={v} cm={PROP_C} />
                   {row.is_archive_proposal && (
                     <span title="Archive Job Proposal — no WTC. Invoice with a flat amount." style={{ fontSize: 10, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "2px 7px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)", cursor: "help" }}>ARCHIVE</span>
+                  )}
+                  {(row.is_archive_proposal || row.call_log?.qb_skip_sync) && (
+                    <span title={row.is_archive_proposal ? "QuickBooks auto-sync skipped — archive-style proposal" : "QuickBooks auto-sync skipped — job flagged"} style={{ fontSize: 10, fontWeight: 700, background: C.dark, color: C.teal, padding: "2px 7px", borderRadius: 10, fontFamily: F.ui, border: `1px solid ${C.teal}`, cursor: "help", letterSpacing: "0.04em" }}>QB SKIP</span>
                   )}
                 </span>
               ) },

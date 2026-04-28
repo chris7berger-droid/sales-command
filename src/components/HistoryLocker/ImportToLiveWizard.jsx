@@ -73,6 +73,7 @@ const STEPS = [
   { key: "addresses",     label: "Addresses" },
   { key: "salesRep",      label: "Sales Rep" },
   { key: "workTypes",     label: "Work Types" },
+  { key: "jobNumber",     label: "Job Number" },
   { key: "review",        label: "Review" },
 ];
 
@@ -87,6 +88,14 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
   const [team, setTeam]           = useState([]);
   const [workTypes, setWorkTypes] = useState([]);
   const [defaultTerms, setDefaultTerms] = useState(30);
+  const [nextAutoJobNum, setNextAutoJobNum] = useState(null);
+  const [legacyTakenBy, setLegacyTakenBy] = useState(null); // { id, display_job_number } | null
+
+  // Parse legacy job number once (e.g., "7210" or "7210 - Foo" → 7210)
+  const legacyJobNumParsed = (() => {
+    const m = String(record.legacy_id || "").match(/^(\d{4,5})/);
+    return m ? Number(m[1]) : null;
+  })();
 
   // Prefill derived from archive record
   const archiveCustName = (raw["customer/customerName"] || raw["customer/ifCustomerName"] || raw["customer/Customer Name"] || record.customer_name || "").trim();
@@ -133,6 +142,9 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
     projectName: archiveJobName,
     bidDue: archiveBidDue,
     soldAmount: String(archiveSoldAmt || ""),
+
+    // job number
+    useLegacyJobNum: true,
   });
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -140,16 +152,28 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
   // Load lookups
   useEffect(() => {
     (async () => {
-      const [cAll, tRes, wRes, tcRes] = await Promise.all([
+      const [cAll, tRes, wRes, tcRes, lastJobRes, legacyCheckRes] = await Promise.all([
         fetchAll("customers", "id, name, customer_type, first_name, last_name, phone, email, contact_phone, contact_email, business_address, business_city, business_state, business_zip, billing_terms, billing_name, billing_email, billing_phone", { order: "name" }),
         supabase.from("team_members").select("id, name, email, role").eq("active", true),
         supabase.from("work_types").select("id, name, cost_code").order("name"),
         supabase.from("tenant_config").select("default_billing_terms").limit(1).maybeSingle(),
+        supabase.from("call_log").select("job_number").order("job_number", { ascending: false }).limit(1),
+        legacyJobNumParsed
+          ? supabase.from("call_log").select("id, display_job_number").eq("job_number", legacyJobNumParsed).maybeSingle()
+          : Promise.resolve({ data: null }),
       ]);
       setCustomers(cAll || []);
       setTeam(tRes.data || []);
       setWorkTypes(wRes.data || []);
       if (tcRes.data?.default_billing_terms) setDefaultTerms(tcRes.data.default_billing_terms);
+      const lastNum = lastJobRes.data?.[0]?.job_number;
+      setNextAutoJobNum(lastNum ? lastNum + 1 : 10000);
+      if (legacyCheckRes.data) {
+        setLegacyTakenBy(legacyCheckRes.data);
+        setForm(f => ({ ...f, useLegacyJobNum: false }));
+      } else if (!legacyJobNumParsed) {
+        setForm(f => ({ ...f, useLegacyJobNum: false }));
+      }
     })();
   }, []);
 
@@ -244,6 +268,12 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
       case "workTypes":
         if (!form.selectedWorkTypeIds.length) { setError("Select at least one work type"); return false; }
         return true;
+      case "jobNumber":
+        if (form.useLegacyJobNum && (!legacyJobNumParsed || legacyTakenBy)) {
+          setError("Legacy number unavailable — pick Assign New");
+          return false;
+        }
+        return true;
       default:
         return true;
     }
@@ -296,9 +326,21 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         customerId = newC.id;
       }
 
-      // 2. Next job number
-      const { data: lastJob } = await supabase.from("call_log").select("job_number").order("job_number", { ascending: false }).limit(1);
-      const jobNum = lastJob && lastJob.length ? (lastJob[0].job_number || 9999) + 1 : 10000;
+      // 2. Job number — legacy if user picked it (re-check availability), else next auto
+      let jobNum;
+      if (form.useLegacyJobNum && legacyJobNumParsed) {
+        const { data: stillTaken } = await supabase.from("call_log")
+          .select("id, display_job_number")
+          .eq("job_number", legacyJobNumParsed)
+          .maybeSingle();
+        if (stillTaken) {
+          throw new Error(`Legacy number ${legacyJobNumParsed} is now in use on Job #${stillTaken.display_job_number || stillTaken.id}. Go back and choose Assign New.`);
+        }
+        jobNum = legacyJobNumParsed;
+      } else {
+        const { data: lastJob } = await supabase.from("call_log").select("job_number").order("job_number", { ascending: false }).limit(1);
+        jobNum = lastJob && lastJob.length ? (lastJob[0].job_number || 9999) + 1 : 10000;
+      }
       const displayLabel = form.projectName || custName();
       const displayJobNum = `${jobNum} - ${displayLabel}`;
 
@@ -542,6 +584,56 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         </div>
       );
 
+      case "jobNumber": {
+        const legacyDisabled = !legacyJobNumParsed || !!legacyTakenBy;
+        const Radio = ({ selected, disabled, onClick, primary, sub, hint }) => (
+          <div
+            onClick={disabled ? undefined : onClick}
+            style={{
+              display: "flex", gap: 12, alignItems: "flex-start",
+              padding: "14px 16px", marginBottom: 10,
+              background: selected ? C.dark : C.linenDeep,
+              border: `1.5px solid ${selected ? C.teal : C.border}`,
+              borderRadius: 10,
+              cursor: disabled ? "not-allowed" : "pointer",
+              opacity: disabled ? 0.55 : 1,
+            }}
+          >
+            <div style={{
+              width: 18, height: 18, borderRadius: "50%",
+              border: `2px solid ${selected ? C.teal : C.border}`,
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1,
+            }}>
+              {selected && <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.teal }} />}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: selected ? C.teal : C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>{primary}</div>
+              {sub && <div style={{ fontSize: 12, color: selected ? "rgba(48,207,172,0.85)" : C.textBody, fontFamily: F.ui, marginTop: 2 }}>{sub}</div>}
+              {hint && <div style={{ fontSize: 11, color: selected ? "rgba(255,255,255,0.55)" : C.textFaint, fontFamily: F.ui, marginTop: 4 }}>{hint}</div>}
+            </div>
+          </div>
+        );
+        return (
+          <div>
+            <StepLabel n={7} label="Job Number" />
+            <Radio
+              selected={form.useLegacyJobNum}
+              disabled={legacyDisabled}
+              onClick={() => set("useLegacyJobNum", true)}
+              primary={legacyJobNumParsed ? `Keep legacy number: ${legacyJobNumParsed}` : "No legacy number to keep"}
+              sub={!legacyJobNumParsed ? `Couldn't parse a number from "${record.legacy_id || "—"}"` : null}
+              hint={legacyTakenBy ? `Already in use on Job #${legacyTakenBy.display_job_number || legacyTakenBy.id}` : null}
+            />
+            <Radio
+              selected={!form.useLegacyJobNum}
+              onClick={() => set("useLegacyJobNum", false)}
+              primary={`Assign new number: ${nextAutoJobNum ?? "…"}`}
+              sub="Next auto-incremented job number"
+            />
+          </div>
+        );
+      }
+
       case "review": {
         const sumRow = (label, val) => (
           <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
@@ -550,9 +642,10 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
           </div>
         );
         const wtNames = form.selectedWorkTypeIds.map(id => workTypes.find(w => w.id === id)?.name).filter(Boolean).join(", ");
+        const chosenJobNum = form.useLegacyJobNum && legacyJobNumParsed ? legacyJobNumParsed : nextAutoJobNum;
         return (
           <div>
-            <StepLabel n={7} label="Review" />
+            <StepLabel n={8} label="Review" />
             <div style={{ padding: 14, background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}` }}>
               {sumRow("Customer",     `${custName()} (${form.customerMode === "existing" ? "existing" : "new"})`)}
               {sumRow("Type",         form.customerType)}
@@ -563,6 +656,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
               {sumRow("Work Types",   wtNames)}
               {sumRow("Project",      form.projectName)}
               {sumRow("Sold Amount",  form.soldAmount ? `$${Number(form.soldAmount).toLocaleString("en-US", { maximumFractionDigits: 0 })}` : "—")}
+              {sumRow("Job Number",   chosenJobNum ? `${chosenJobNum}${form.useLegacyJobNum ? " (legacy)" : " (new)"}` : "—")}
               {sumRow("Archive ID",   record.legacy_id)}
             </div>
             <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui, marginTop: 12, lineHeight: 1.5 }}>

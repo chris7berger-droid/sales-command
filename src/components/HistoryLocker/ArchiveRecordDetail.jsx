@@ -68,25 +68,6 @@ export default function ArchiveRecordDetail({ record, onBack, onNavigateProposal
 
   return (
     <div>
-      {/* Top bar: Back + Import */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <button onClick={onBack} style={{
-          padding: "7px 18px", borderRadius: 20, border: `1.5px solid ${C.tealBorder}`,
-          background: C.dark, color: C.teal, fontSize: 12, fontWeight: 700,
-          cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
-        }}>
-          &larr; Back to Search
-        </button>
-        {canImport && record.record_type === "call_log" && (
-          <button onClick={() => setShowImport(true)} style={{
-            padding: "8px 22px", borderRadius: 7, border: "none",
-            background: C.teal, color: C.dark, fontSize: 12.5, fontWeight: 800,
-            cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
-          }}>
-            Import to Live →
-          </button>
-        )}
-      </div>
       {showImport && (
         <ImportToLiveWizard
           record={record}
@@ -99,8 +80,34 @@ export default function ArchiveRecordDetail({ record, onBack, onNavigateProposal
         />
       )}
 
-      {/* Header */}
-      <div style={{ marginBottom: 24 }}>
+      {/* Combined header card: actions on top, record info below */}
+      <div style={{
+        background: C.linenCard,
+        border: `1px solid ${C.borderStrong}`,
+        borderRadius: 12,
+        padding: "14px 18px",
+        marginBottom: 24,
+        boxShadow: "0 2px 10px rgba(28,24,20,0.06)",
+      }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={onBack} style={{
+            padding: "7px 18px", borderRadius: 20, border: `1.5px solid ${C.tealBorder}`,
+            background: C.dark, color: C.teal, fontSize: 12, fontWeight: 700,
+            cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
+          }}>
+            &larr; Back to Search
+          </button>
+          {canImport && record.record_type === "call_log" && (
+            <button onClick={() => setShowImport(true)} style={{
+              padding: "8px 22px", borderRadius: 7, border: "none",
+              background: C.teal, color: C.dark, fontSize: 12.5, fontWeight: 800,
+              cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
+            }}>
+              Import to Live →
+            </button>
+          )}
+        </div>
+        <div style={{ height: 1, background: C.border, margin: "14px -18px" }} />
         <h2 style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.03em", margin: 0 }}>
           {record.legacy_id && <span style={{ background: C.dark, color: C.teal, padding: "2px 10px", borderRadius: 6, fontSize: 18, marginRight: 8 }}>{record.legacy_id}</span>}
           {record.customer_name || "Archived Record"}

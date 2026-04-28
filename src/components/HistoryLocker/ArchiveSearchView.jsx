@@ -17,7 +17,7 @@ const labelStyle = {
   color: C.textFaint, fontFamily: F.display, marginBottom: 3,
 };
 
-export default function ArchiveSearchView({ tenantId, onNavigateProposal, canImport }) {
+export default function ArchiveSearchView({ tenantId, onNavigateProposal, canImport, onDetailChange }) {
   const [q, setQ] = useState("");
   const [sourceSystem, setSourceSystem] = useState("");
   const [recordType, setRecordType] = useState("");
@@ -28,6 +28,8 @@ export default function ArchiveSearchView({ tenantId, onNavigateProposal, canImp
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
+
+  useEffect(() => { onDetailChange?.(!!selected); }, [selected]);
   const [sources, setSources] = useState([]);
   const [types, setTypes] = useState([]);
 

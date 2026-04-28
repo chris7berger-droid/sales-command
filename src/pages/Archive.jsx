@@ -16,6 +16,7 @@ export default function Archive({ userRole }) {
   const navigate = useNavigate();
   const [tab, setTab] = useState("search");
   const [tenantId, setTenantId] = useState(null);
+  const [viewingDetail, setViewingDetail] = useState(false);
 
   useEffect(() => {
     supabase.from("tenant_config").select("id").limit(1).single()
@@ -30,8 +31,8 @@ export default function Archive({ userRole }) {
         </h1>
       </div>
 
-      {/* Admin tabs — only show when admin has extra views available */}
-      {userRole === "Admin" && (
+      {/* Admin tabs — hidden when viewing a record's detail */}
+      {userRole === "Admin" && !viewingDetail && (
         <div style={{ display: "flex", gap: 6, marginBottom: 22 }}>
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
@@ -48,7 +49,7 @@ export default function Archive({ userRole }) {
         </div>
       )}
 
-      {tab === "search" && <ArchiveSearchView tenantId={tenantId} onNavigateProposal={id => navigate(`/proposals/${id}`)} canImport={userRole === "Admin" || userRole === "Manager"} />}
+      {tab === "search" && <ArchiveSearchView tenantId={tenantId} onNavigateProposal={id => navigate(`/proposals/${id}`)} canImport={userRole === "Admin" || userRole === "Manager"} onDetailChange={setViewingDetail} />}
       {tab === "import" && <ArchiveImportWizard tenantId={tenantId} onDone={() => setTab("search")} />}
       {tab === "batches" && <ArchiveBatchManager tenantId={tenantId} />}
     </div>

@@ -495,8 +495,13 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
 
 // ── Invoice PDF Modal ─────────────────────────────────────────────────────
 function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) {
-  const money = fmt$c;
+  const money = invoice.show_cents ? fmt$c : fmt$;
+  const fmtPct = (n) => {
+    const v = parseFloat(n) || 0;
+    return invoice.show_cents ? `${v.toFixed(2)}%` : `${Math.round(v)}%`;
+  };
   const [view, setView] = useState("preview");
+  const [archiveCtx, setArchiveCtx] = useState({ isArchive: false, sold: 0, workTypes: "" });
   const [sending, setSending] = useState(false);
   const [sendDone, setSendDone] = useState(false);
   const [sendError, setSendError] = useState(null);
@@ -529,7 +534,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
       if (!invoice.proposal_id) { setLoadingContact(false); return; }
       const { data: prop } = await supabase
         .from("proposals")
-        .select("call_log_id, call_log(customer_id, customer_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, customers(billing_email, billing_name, contact_email, first_name, last_name, name))")
+        .select("call_log_id, total, is_archive_proposal, call_log(customer_id, customer_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, customers(billing_email, billing_name, contact_email, first_name, last_name, name), job_work_types(work_types(name)))")
         .eq("id", invoice.proposal_id)
         .maybeSingle();
       const cl = prop?.call_log;
@@ -541,6 +546,10 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
       if (cl) {
         const parts = [cl.jobsite_address, cl.jobsite_city, cl.jobsite_state, cl.jobsite_zip].filter(Boolean);
         setJobsiteAddress(parts.length > 1 ? `${cl.jobsite_address || ""}\n${[cl.jobsite_city, cl.jobsite_state].filter(Boolean).join(", ")}${cl.jobsite_zip ? " " + cl.jobsite_zip : ""}` : parts.join(""));
+      }
+      if (prop?.is_archive_proposal) {
+        const wtNames = (cl?.job_work_types || []).map(j => j.work_types?.name).filter(Boolean).join(", ");
+        setArchiveCtx({ isArchive: true, sold: parseFloat(prop.total) || 0, workTypes: wtNames });
       }
       setLoadingContact(false);
     }
@@ -714,15 +723,25 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
                       const wtc = l.proposal_wtc;
                       const sov = l.billing_schedule_line;
                       const isSov = !wtc && sov;
+                      const isArchiveLine = !wtc && !sov && archiveCtx.isArchive;
                       const lineLabel = isSov
                         ? (sov.line_code ? `${sov.line_code} — ${sov.description}` : sov.description)
-                        : (wtc?.work_types?.name || l.description || "—");
-                      const rowTotal = isSov ? (parseFloat(sov.scheduled_value) || 0) : (wtc ? calcWtcPrice(wtc) : 0);
+                        : isArchiveLine
+                          ? (archiveCtx.workTypes || "—")
+                          : (wtc?.work_types?.name || l.description || "—");
+                      const rowTotal = isSov
+                        ? (parseFloat(sov.scheduled_value) || 0)
+                        : isArchiveLine
+                          ? archiveCtx.sold
+                          : (wtc ? calcWtcPrice(wtc) : 0);
+                      const billingPct = isArchiveLine
+                        ? (archiveCtx.sold > 0 ? ((parseFloat(l.amount) || 0) / archiveCtx.sold) * 100 : 0)
+                        : (parseFloat(l.billing_pct) || 0);
                       return (
                         <tr key={l.id} style={{ borderBottom: "1px solid rgba(28,24,20,0.1)" }}>
                           <td style={{ padding: "10px 12px", fontWeight: 600 }}>{lineLabel}</td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(rowTotal)}</td>
-                          <td style={{ padding: "10px 12px", textAlign: "right" }}>{l.billing_pct}%</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right" }}>{fmtPct(billingPct)}</td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{money(l.amount)}</td>
                         </tr>
                       );

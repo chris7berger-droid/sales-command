@@ -25,7 +25,7 @@ export default function PublicInvoicePage() {
 
       const { data: inv, error: invErr } = await supabase
         .from("invoices")
-        .select("*, proposals(call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip)))")
+        .select("*, proposals(total, is_archive_proposal, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))")
         .eq("viewing_token", token)
         .single();
 
@@ -72,6 +72,13 @@ export default function PublicInvoicePage() {
 
   const effectiveShowCents = invoice.show_cents ?? invoice.proposals?.call_log?.show_cents;
   const money = effectiveShowCents ? fmt$c : fmt$;
+  const fmtPct = (n) => {
+    const v = parseFloat(n) || 0;
+    return effectiveShowCents ? `${v.toFixed(2)}%` : `${Math.round(v)}%`;
+  };
+  const isArchive = !!invoice.proposals?.is_archive_proposal;
+  const archiveSold = parseFloat(invoice.proposals?.total) || 0;
+  const archiveWorkTypes = (invoice.proposals?.call_log?.job_work_types || []).map(j => j.work_types?.name).filter(Boolean).join(", ");
   const retentionAmt = parseFloat(invoice.retention_amount) || 0;
   const retentionPct = parseFloat(invoice.retention_pct) || 0;
   const netTotal = (invoice.amount || 0) - (invoice.discount || 0) - retentionAmt;
@@ -172,12 +179,17 @@ export default function PublicInvoicePage() {
               <tbody>
                 {lines.map(l => {
                   const wtc = l.proposal_wtc;
-                  const wtcTotal = wtc ? calcWtcPrice(wtc) : 0;
+                  const isArchiveLine = !wtc && isArchive;
+                  const lineLabel = isArchiveLine ? (archiveWorkTypes || "—") : (wtc?.work_types?.name || "—");
+                  const rowAmount = isArchiveLine ? archiveSold : (wtc ? calcWtcPrice(wtc) : 0);
+                  const billingPct = isArchiveLine
+                    ? (archiveSold > 0 ? ((parseFloat(l.amount) || 0) / archiveSold) * 100 : 0)
+                    : (parseFloat(l.billing_pct) || 0);
                   return (
                     <tr key={l.id} style={{ borderBottom: "1px solid rgba(28,24,20,0.1)" }}>
-                      <td style={{ padding: "10px 12px", fontWeight: 600 }}>{wtc?.work_types?.name || "—"}</td>
-                      <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(wtcTotal)}</td>
-                      <td style={{ padding: "10px 12px", textAlign: "right" }}>{l.billing_pct}%</td>
+                      <td style={{ padding: "10px 12px", fontWeight: 600 }}>{lineLabel}</td>
+                      <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(rowAmount)}</td>
+                      <td style={{ padding: "10px 12px", textAlign: "right" }}>{fmtPct(billingPct)}</td>
                       <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{money(l.amount)}</td>
                     </tr>
                   );

@@ -292,6 +292,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
 
         {step === 2 && selProposal && (
           <>
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 0, paddingRight: 4 }}>
             <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui, marginBottom: 16 }}>
               <span style={{ fontWeight: 800, color: C.textHead }}>{selProposal.call_log?.display_job_number || `Proposal #${selProposal.id}`}</span>
               {" · "}{selProposal.call_log?.customer_name || selProposal.customer}
@@ -469,6 +470,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
                 style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }}
               />
               <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Prints on the invoice above the Amount Due.</div>
+            </div>
             </div>
 
             {/* Total + Create */}

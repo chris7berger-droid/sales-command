@@ -1,4 +1,4 @@
-SC_Handoff_v83 — April 27, 2026 (Invoice Email Intro + Work Description split)
+SC_Handoff_v84 — April 27, 2026 (Invoice Email Intro + Work Description split)
 Session split the conflated invoice "description" field into two distinct
 purposes: an Email Introduction (drops into the customer email body) and
 a Work Description (prints on the invoice above the Amount Due banner).

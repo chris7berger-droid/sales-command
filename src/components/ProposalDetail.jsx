@@ -565,7 +565,7 @@ async function deletePropAttachment(fullName) {
       await supabase.from("call_log").update({ stage: "Sold" }).eq("id", p.call_log_id);
       // Sync job to QuickBooks (skip if test job)
       const isTest = (p.call_log?.job_name || "").toLowerCase().includes("test");
-      !isTest && supabase.functions.invoke("qb-create-job", { body: { callLogId: p.call_log_id } })
+      !isTest && supabase.functions.invoke("qb-create-job", { body: { callLogId: p.call_log_id, proposalId: p.id } })
         .then(r => { if (r.data?.error) console.warn("QB sync:", r.data.error); else console.log("QB job created:", r.data); })
         .catch(e => console.warn("QB sync failed:", e.message));
     }

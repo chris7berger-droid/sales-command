@@ -136,19 +136,32 @@ serve(async (req) => {
     // So we go through: invoice.proposal_id -> proposals.call_log_id -> call_log
     let qbCustomerId = null;
     let jobState = null;
+    let skipSync = false;
+    let skipReason = null;
     if (invoice.proposal_id) {
-      const { data: proposal } = await sb.from("proposals").select("call_log_id").eq("id", invoice.proposal_id).maybeSingle();
+      const { data: proposal } = await sb.from("proposals").select("call_log_id, is_archive_proposal").eq("id", invoice.proposal_id).maybeSingle();
+      if (proposal?.is_archive_proposal) { skipSync = true; skipReason = "is_archive_proposal"; }
       if (proposal?.call_log_id) {
-        const { data: callLog } = await sb.from("call_log").select("qb_customer_id, jobsite_state").eq("id", proposal.call_log_id).maybeSingle();
+        const { data: callLog } = await sb.from("call_log").select("qb_customer_id, jobsite_state, qb_skip_sync").eq("id", proposal.call_log_id).maybeSingle();
         qbCustomerId = callLog?.qb_customer_id;
         jobState = callLog?.jobsite_state;
+        if (callLog?.qb_skip_sync) { skipSync = true; skipReason = skipReason || "qb_skip_sync"; }
       }
     }
     // Fallback: try matching by display_job_number
     if (!qbCustomerId) {
-      const { data: callLog } = await sb.from("call_log").select("qb_customer_id, jobsite_state").eq("display_job_number", invoice.job_id).limit(1).maybeSingle();
+      const { data: callLog } = await sb.from("call_log").select("qb_customer_id, jobsite_state, qb_skip_sync").eq("display_job_number", invoice.job_id).limit(1).maybeSingle();
       qbCustomerId = callLog?.qb_customer_id;
       jobState = callLog?.jobsite_state;
+      if (callLog?.qb_skip_sync) { skipSync = true; skipReason = skipReason || "qb_skip_sync"; }
+    }
+
+    // Skip BEFORE the qbCustomerId throw — archive-imported jobs intentionally have no QB customer.
+    if (skipSync) {
+      console.log("qb-sync-invoice: skipping per flag", { invoiceId, reason: skipReason });
+      return new Response(JSON.stringify({ success: true, skipped: true, reason: skipReason }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
+      });
     }
 
     if (!qbCustomerId) {

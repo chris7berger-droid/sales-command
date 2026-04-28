@@ -87,6 +87,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     billing_phone:    cust.billing_phone   || "",
     billing_email:    cust.billing_email   || "",
     show_cents:       job.show_cents       || false,
+    qb_skip_sync:     job.qb_skip_sync     || false,
   });
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -235,6 +236,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         jobsite_state:      form.jobsite_state   || null,
         jobsite_zip:        form.jobsite_zip     || null,
         show_cents:         form.show_cents,
+        qb_skip_sync:       form.qb_skip_sync,
       })
       .eq("id", job.id);
     setSaving(false);
@@ -407,6 +409,14 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
               {form.show_cents && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
             </div>
             <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Show cents on proposals & invoices (legacy jobs)</span>
+          </button>
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <button onClick={() => editing && set("qb_skip_sync", !form.qb_skip_sync)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: editing ? "pointer" : "default", padding: "4px 0", opacity: editing ? 1 : 0.75 }}>
+            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${form.qb_skip_sync ? C.teal : C.borderStrong}`, background: form.qb_skip_sync ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {form.qb_skip_sync && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
+            </div>
+            <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Skip QuickBooks auto-sync on new proposals (archive-style proposals are always skipped)</span>
           </button>
         </div>
       </Section>

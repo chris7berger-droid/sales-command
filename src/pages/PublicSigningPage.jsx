@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { supabase } from "../lib/supabase";
+import { createPublicClient } from "../lib/supabasePublic";
+import { useMemo } from "react";
 import { calcWtcPrice } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 
@@ -20,6 +21,7 @@ document.head.appendChild(gvLink);
 
 export default function PublicSigningPage() {
   const { token } = useParams();
+  const supabase = useMemo(() => createPublicClient({ signingToken: token }), [token]);
   const [proposal, setProposal] = useState(null);
   const [wtc, setWtc] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -358,6 +360,7 @@ export default function PublicSigningPage() {
           jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
           proposalId: proposal.id,
           callLogId: proposal.call_log_id,
+          signing_token: token,
         },
       });
       console.log("proposal-signed result:", fnData, fnError);

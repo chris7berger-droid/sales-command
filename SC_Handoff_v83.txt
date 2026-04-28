@@ -1,0 +1,183 @@
+SC_Handoff_v83
+Date: 2026-04-27
+Author: Chris Berger (with Claude assistance)
+Topic: RLS hardening — token-gated anon access for signing & invoice pages
+
+================================================================
+WHAT WAS DONE
+================================================================
+
+Closed audit findings (2026-04-26 audit):
+  - Critical #1: anon UPDATE on any signable proposal
+  - Critical #2: anon SELECT on every signable proposal + children
+  - High #4 (signature insert leg): anon INSERT into proposal_signatures
+  - Equivalent leak on invoices + invoice_lines (viewing_token broad policy)
+
+Approach: REPLACED broad "signing_token IS NOT NULL" anon policies with
+policies that require the caller to present the matching token via a
+custom HTTP request header (x-signing-token / x-viewing-token).
+
+Frontend code that queries these tables now uses a dedicated public
+Supabase client that pins the token in headers. Existing query logic
+unchanged — minimal surgical edit.
+
+================================================================
+FILES TOUCHED
+================================================================
+
+New:
+  src/lib/supabasePublic.js
+    - createPublicClient({ signingToken | viewingToken }) factory
+    - Returns a Supabase client with the token pinned in global headers
+    - persistSession=false / autoRefreshToken=false / detectSessionInUrl=false
+      (public pages must never share an admin session)
+
+  supabase/migrations/20260427180000_add_token_gated_policies.sql
+    - Adds public.request_signing_token() / public.request_viewing_token()
+      helper functions (read x-signing-token / x-viewing-token from
+      current_setting('request.headers'))
+    - Adds new *_token policies to: proposals, proposal_wtc,
+      proposal_recipients, proposal_signatures, call_log,
+      invoices, invoice_lines
+
+  supabase/migrations/20260427190000_drop_old_anon_signing_policies.sql
+    - Drops the original broad policies after the *_token policies
+      were verified end-to-end on production.
+    - Also drops two un-tracked legacy policies discovered during
+      the migration: "Allow public read by signing_token" and
+      "Allow public update status by signing_token" on proposals.
+
+  sql/rollback_drop_old_anon_signing_policies.sql
+    - Recreates the broad policies if rollback is ever needed.
+    - Note: the two un-tracked legacy policies are NOT recreated
+      (intentional — they were redundant).
+
+Modified:
+  src/pages/PublicSigningPage.jsx — swapped supabase import to
+    createPublicClient({ signingToken: token }) via useMemo.
+    No other logic changed.
+  src/pages/PublicInvoicePage.jsx — same pattern with viewingToken.
+  .gitignore — added supabase/.temp/
+
+================================================================
+DEPLOY GATES (the ones yesterday skipped)
+================================================================
+
+A. PR #5 created and merged to main.
+   Commit on main: 25017c6 (merge commit).
+   Vercel auto-deployed — production at this point: NEW frontend
+   + OLD broad policies (signing still worked via legacy path).
+
+B. Production signing tested end-to-end with the real test proposal.
+   PASSED — green "Proposal Accepted" confirmed.
+
+C. Migration 20260427180000_add_token_gated_policies.sql applied
+   via Supabase SQL Editor.
+   Both old AND new policies active simultaneously (RLS combines
+   with OR — net effect: no behavior change, safe overlap window).
+
+D. Production signing tested AGAIN with both policy sets active.
+   PASSED — green "Proposal Accepted" confirmed.
+
+E. Migration 20260427190000_drop_old_anon_signing_policies.sql
+   applied via Supabase SQL Editor.
+   Old broad policies removed. Only token-gated policies remain.
+
+F. Production signing tested ONE FINAL TIME with strict
+   enforcement only.
+   PASSED — green "Proposal Accepted" confirmed.
+
+Final cleanup commit: b215691 — recorded the drop migration +
+rollback in main (no source code change, no behavior impact).
+
+================================================================
+PRODUCTION STATE (END OF SESSION)
+================================================================
+
+Vercel: deploying b215691 (no-op vs. previously deployed code)
+GitHub main: at b215691
+Database policies on signing/invoice tables (anon role):
+  - call_log_public_read_token              (SELECT)
+  - call_log_public_sign_update_token       (UPDATE)
+  - invoice_lines_public_read_token         (SELECT)
+  - invoices_public_view_token              (SELECT)
+  - proposal_recipients_public_update_token (UPDATE)
+  - proposal_signatures_public_insert_token (INSERT)
+  - proposal_wtc_public_read_token          (SELECT)
+  - proposals_public_sign_token             (SELECT)
+  - proposals_public_sign_update_token      (UPDATE)
+
+================================================================
+WHAT THIS DID NOT FIX (still open from 2026-04-26 audit)
+================================================================
+
+High:
+  - tenant_config_public_read still exposes business financials to anon
+  - team_members_public_read still exposes employee directory to anon
+  - xlsx@^0.18.5 (prototype pollution + ReDoS, no upstream fix)
+  - vite 7.3.1 (3 high advisories, fix available)
+  - flatted + picomatch transitive CVEs
+
+Medium:
+  - Stripe webhook + proposal-signed CORS using ACAO: *
+  - reset-password unauthenticated and unbounded (DoS surface)
+  - dompurify / postcss / brace-expansion moderate CVEs
+  - Hardcoded Supabase URL + anon key fallback in src/lib/supabase.js
+  - Console logs leak rep emails / IDs to public DevTools
+
+Low:
+  - .gitignore doesn't block .env / .env.production
+  - qb_connection plaintext refresh tokens
+  - Repo root clutter: 60+ SC_Handoff files, 9 fix_*.py scripts
+  - 24 console.* in production client bundle
+
+================================================================
+LESSONS / RUNBOOK (re-usable pattern for future RLS work)
+================================================================
+
+The 6-gate sequence used here is the template:
+  1. Build all changes on a branch (do NOT touch main)
+  2. Vercel preview deploy (free safety net — DO NOT skip)
+  3. Sign/test on preview URL in incognito (real anon conditions)
+     -- if Vercel preview-protection is on, temporarily disable
+        Vercel Authentication for preview deploys; re-enable after
+  4. Merge PR — Vercel deploys frontend; old policies still active
+  5. Test on PRODUCTION before tightening any DB policies
+  6. Apply additive migration (new policies alongside old)
+  7. Test on production again (overlap window — both sets active)
+  8. Apply drop migration (old policies removed)
+  9. Test on production a third time (strict enforcement only)
+  10. Commit drop migration + rollback to main as a record
+
+Critical: never skip the preview test. Yesterday's failure happened
+because preview testing was skipped "to save time."
+
+Critical: each migration must have a paired rollback file in sql/
+written BEFORE applying.
+
+Critical: SQL pasted into Supabase SQL Editor sometimes loses the
+first line's "-- " comment marker on copy/paste — manually verify
+the first line is a comment before clicking Run.
+
+Critical: copy/paste from rendered chat sometimes injects markdown
+link formatting into table names like [public.call](http://public.call)_log.
+Inspect for brackets and URLs before running SQL.
+
+================================================================
+CROSS-REPO IMPACT
+================================================================
+
+Tables affected (proposals, proposal_wtc, proposal_recipients,
+proposal_signatures, invoices, invoice_lines, call_log) are shared
+across all 4 Command Suite repos.
+
+Re-grep sch-command, field-command, AR-Command-Center for direct
+anon queries against these tables before next deploy of any of those.
+If they query as anon WITHOUT the token header, those queries will
+now return empty / fail. (Audit on 2026-04-26 said grep was clean,
+but verify again at next deploy time.)
+
+If they only access these tables via authenticated sessions OR via
+edge functions using service_role, they are unaffected.
+
+================================================================

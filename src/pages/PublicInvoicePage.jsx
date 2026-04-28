@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { supabase } from "../lib/supabase";
+import { createPublicClient } from "../lib/supabasePublic";
+import { useMemo } from "react";
 import { calcWtcPrice } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
 
 export default function PublicInvoicePage() {
   const { token } = useParams();
+  const supabase = useMemo(() => createPublicClient({ viewingToken: token }), [token]);
   const [invoice, setInvoice] = useState(null);
   const [lines, setLines] = useState([]);
   const [loading, setLoading] = useState(true);

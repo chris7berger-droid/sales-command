@@ -38,20 +38,20 @@ export default function PublicSigningPage() {
       const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!token || !uuidRe.test(token)) { setError("Invalid signing link."); setLoading(false); return; }
 
-      const { data: bundle, error: rpcErr } = await supabase.rpc("get_proposal_by_token", { p_token: token });
-      if (rpcErr || !bundle) { setError("Proposal not found."); setLoading(false); return; }
+      const { data: prop, error: propErr } = await supabase
+        .from("proposals")
+        .select("*, call_log_id, call_log(job_name, display_job_number, customer_name, sales_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, customers(business_address, business_city, business_state, business_zip, contact_email))")
+        .eq("signing_token", token)
+        .single();
 
-      // Reshape RPC bundle into the prop object the rest of the page expects:
-      // proposal.call_log.{...}.customers.{...} mirrors the prior nested-select shape.
-      const prop = {
-        ...bundle.proposal,
-        call_log_id: bundle.proposal?.call_log_id ?? bundle.call_log?.id ?? null,
-        call_log: bundle.call_log
-          ? { ...bundle.call_log, customers: bundle.customer || null }
-          : null,
-      };
+      if (propErr || !prop) { setError("Proposal not found."); setLoading(false); return; }
 
-      if (bundle.rep) setRepInfo(bundle.rep);
+      // Fetch rep contact info for header
+      const salesName = prop.call_log?.sales_name;
+      if (salesName) {
+        const { data: rep } = await supabase.from("team_members").select("name, email, phone").eq("name", salesName).maybeSingle();
+        if (rep) setRepInfo(rep);
+      }
 
       if (prop.status === "Sold") { setSigned(true); setProposal(prop); setLoading(false); return; }
 
@@ -63,7 +63,11 @@ export default function PublicSigningPage() {
         return;
       }
 
-      const wtcData = bundle.wtc || [];
+      const { data: wtcData } = await supabase
+        .from("proposal_wtc")
+        .select("*, work_types(name)")
+        .eq("proposal_id", prop.id)
+        .order("created_at", { ascending: true });
 
       // Load proposal attachments
       const prefix = `proposal-${prop.id}`;
@@ -75,11 +79,15 @@ export default function PublicSigningPage() {
       });
 
       setProposal({ ...prop, _attachments: propAttachments });
-      setWtc(wtcData);
+      setWtc(wtcData || []);
       setLoading(false);
 
-      // Track view — RPC flips viewed_at on recipients still null for this token
-      supabase.rpc("mark_proposal_viewed", { p_token: token }).then(() => {});
+      // Track view — update viewed_at for any recipients who haven't viewed yet
+      supabase.from("proposal_recipients")
+        .update({ viewed_at: new Date().toISOString() })
+        .eq("proposal_id", prop.id)
+        .is("viewed_at", null)
+        .then(() => {});
     }
     load();
   }, [token]);
@@ -322,11 +330,23 @@ export default function PublicSigningPage() {
         pdfUrl = urlData?.publicUrl || null;
       }
 
-      // Update status + insert signature row + notify rep — all via the edge
-      // function (service role bypasses RLS). The bundled rep info from the
-      // load RPC lets us skip a separate team_members fetch here.
+      // Save signature record
+      await supabase.from("proposal_signatures").insert({
+        proposal_id: proposal.id,
+        signer_name: name.trim(),
+        signer_email: null,
+        ip_address: ip,
+        pdf_url: pdfUrl,
+        signed_at: new Date().toISOString(),
+      });
+
+      // Update status + notify rep via edge function (uses service role key to bypass RLS)
       const salesName = proposal.call_log?.sales_name || "";
-      const repEmail = repInfo?.email || "";
+      let repEmail = "";
+      if (salesName) {
+        const { data: rep } = await supabase.from("team_members").select("email").eq("name", salesName).maybeSingle();
+        repEmail = rep?.email || "";
+      }
       console.log("Calling proposal-signed edge function", { proposalId: proposal.id, callLogId: proposal.call_log_id, repEmail, salesName });
       const { data: fnData, error: fnError } = await supabase.functions.invoke("proposal-signed", {
         body: {
@@ -334,9 +354,6 @@ export default function PublicSigningPage() {
           repName: salesName,
           customerName: proposal.call_log?.customer_name || "Customer",
           signerName: name.trim(),
-          signerEmail: null,
-          ipAddress: ip,
-          pdfUrl,
           proposalNumber: proposal.proposal_number || proposal.id,
           jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
           proposalId: proposal.id,
@@ -346,10 +363,9 @@ export default function PublicSigningPage() {
       });
       console.log("proposal-signed result:", fnData, fnError);
       if (fnError) {
-        console.error("proposal-signed edge function failed:", fnError);
-        alert("We couldn't finalize your signature. Please refresh and try again, or contact your estimator.");
-        setSigning(false);
-        return;
+        console.error("proposal-signed edge function failed, attempting direct update:", fnError);
+        await supabase.from("proposals").update({ status: "Sold", approved_at: new Date().toISOString() }).eq("id", proposal.id);
+        if (proposal.call_log_id) await supabase.from("call_log").update({ stage: "Sold" }).eq("id", proposal.call_log_id);
       }
       // QB job sync (non-blocking, skip test jobs)
       const isTest = (proposal.customer || "").toLowerCase().includes("test");

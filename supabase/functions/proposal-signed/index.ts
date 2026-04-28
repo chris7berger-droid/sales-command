@@ -16,20 +16,7 @@ serve(async (req) => {
   }
 
   try {
-    const {
-      repEmail,
-      repName,
-      customerName,
-      signerName,
-      signerEmail,
-      ipAddress,
-      pdfUrl,
-      proposalNumber,
-      jobName,
-      proposalId,
-      callLogId,
-      signing_token,
-    } = await req.json();
+    const { repEmail, repName, customerName, signerName, proposalNumber, jobName, proposalId, callLogId, signing_token } = await req.json();
 
     // The caller must present the proposal's signing_token — the same secret
     // the public signing page used to load the proposal. Proves the caller
@@ -54,37 +41,6 @@ serve(async (req) => {
     }
 
     console.log("proposal-signed invoked", { repEmail, proposalNumber, signerName, proposalId, callLogId });
-
-    // Insert the signature row (service role bypasses RLS — replaces the
-    // dropped proposal_signatures_public_insert anon policy).
-    // Idempotency: check for an existing signature on this proposal first.
-    // The insert path is the only thing that can re-fire on retry/double-click;
-    // signer_email is allowed to be null today, so we can't put it in a unique
-    // index, so we guard with a SELECT instead. Schema-safe (no DDL).
-    if (signerName) {
-      const { data: existingSig, error: existingSigErr } = await sb
-        .from("proposal_signatures")
-        .select("id")
-        .eq("proposal_id", proposalId)
-        .limit(1)
-        .maybeSingle();
-      if (existingSigErr) {
-        console.error("proposal-signed: signature lookup failed:", existingSigErr.message);
-      } else if (existingSig) {
-        console.log("proposal-signed: signature already exists for proposal", proposalId, "— skipping insert");
-      } else {
-        const { error: sigErr } = await sb.from("proposal_signatures").insert({
-          proposal_id: proposalId,
-          signer_name: signerName,
-          signer_email: signerEmail ?? null,
-          ip_address: ipAddress ?? null,
-          pdf_url: pdfUrl ?? null,
-          signed_at: new Date().toISOString(),
-        });
-        if (sigErr) console.error("proposal-signed: failed to insert signature:", sigErr.message);
-        else console.log("proposal-signed: signature recorded for proposal", proposalId);
-      }
-    }
 
     // Update proposal status to Sold (using service role key — bypasses RLS)
     const { error: propErr } = await sb.from("proposals").update({ status: "Sold", approved_at: new Date().toISOString() }).eq("id", proposalId);

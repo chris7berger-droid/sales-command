@@ -57,7 +57,7 @@ function stageColor(stage) {
   return map[stage] || { bg: "rgba(255,255,255,0.06)", color: C.textFaint };
 }
 
-export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onDeleted, teamMember, onNewProposal, onNavigateProposal, onNavigateInvoice, onNavigateCustomer }) {
+export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onDeleted, teamMember, onNewProposal, onAddCO, onNavigateProposal, onNavigateInvoice, onNavigateCustomer }) {
   const cust = job.customers || {};
   const [linkedProposals, setLinkedProposals] = useState([]);
   const [linkedInvoices, setLinkedInvoices] = useState([]);
@@ -337,6 +337,9 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           {editing && <Btn sz="sm" v="ghost" onClick={() => setEditing(false)}>Cancel</Btn>}
           {onNewProposal && (
             <Btn sz="sm" onClick={onNewProposal}>+ New Proposal</Btn>
+          )}
+          {onAddCO && !job.is_change_order && !editing && (
+            <Btn sz="sm" v="secondary" onClick={onAddCO}>+ Add CO</Btn>
           )}
           {job.archive_record_id && (
             <Btn sz="sm" v="secondary" onClick={() => setShowArchiveModal(true)} title="Use this tool for building simple proposals without WTC to create invoice or easily recreate a history">

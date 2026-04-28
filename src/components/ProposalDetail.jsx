@@ -606,8 +606,8 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
       )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.tealDark, fontWeight: 800, fontSize: 12.5, padding: 0, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-          ← Back
+        <button onClick={onBack} style={{ background: C.dark, border: "none", cursor: "pointer", color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 14px", borderRadius: 6 }}>
+          ← Proposals
         </button>
         {p.call_log_id && onNavigateJob && (
           <button onClick={() => onNavigateJob(p.call_log_id)} title="Open Call Log entry" style={{ background: C.linenDeep, border: `1px solid ${C.borderStrong}`, cursor: "pointer", color: C.tealDark, fontWeight: 800, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 12px", borderRadius: 6 }}>

@@ -13,6 +13,7 @@ import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
 import FilterBar from "../components/FilterBar";
+import QBLinkModal from "../components/QBLinkModal";
 
 // ── Shared styles ─────────────────────────────────────────────────────────
 const inputStyle = {
@@ -881,6 +882,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [showVoidModal, setShowVoidModal] = useState(null); // "delete" | "pullback" | null
   const [voidReason, setVoidReason] = useState("");
   const [editReason, setEditReason] = useState("");
+  const [showQBLinkModal, setShowQBLinkModal] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState(null);
+  const [syncReLink, setSyncReLink] = useState(false);
 
   // Auto-refresh: poll for payment status updates when invoice is Sent/Waiting
   useEffect(() => {
@@ -897,6 +902,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
   useEffect(() => {
     async function loadDetail() {
+      // Refetch the invoice so call_log.qb_customer_id / qb_skip_sync reflect any
+      // recent QB link/unlink action — list-cached props can be stale.
+      const { data: freshInv } = await supabase
+        .from("invoices")
+        .select("*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))")
+        .eq("id", inv.id)
+        .maybeSingle();
+      if (freshInv) setInv(prev => ({ ...prev, ...freshInv }));
+
       // Fetch invoice lines with WTC info
       const { data: lineData } = await supabase
         .from("invoice_lines")
@@ -938,6 +952,48 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     }
     setInv(prev => ({ ...prev, ...updates }));
     onUpdated && onUpdated();
+  }
+
+  async function handleQBSync() {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncError(null);
+    setSyncReLink(false);
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: inv.id } });
+      if (fnErr) throw new Error(fnErr.message || "QB sync failed.");
+      if (data?.error === "qb_customer_invalid") {
+        setSyncError(data.message || "Linked QuickBooks customer no longer exists or is inactive.");
+        setSyncReLink(true);
+        setSyncing(false);
+        return;
+      }
+      if (data?.error) throw new Error(data.error);
+      if (data?.skipped) throw new Error(`QB sync skipped: ${data.reason}`);
+
+      if (inv.status === "Paid") {
+        const { data: pData, error: pErr } = await supabase.functions.invoke("qb-record-payment", { body: { invoiceId: inv.id } });
+        if (pErr) throw new Error(pErr.message || "QB payment sync failed.");
+        if (pData?.error === "qb_customer_invalid") {
+          setSyncError(pData.message || "Linked QuickBooks customer no longer exists or is inactive.");
+          setSyncReLink(true);
+          setSyncing(false);
+          return;
+        }
+        if (pData?.error) throw new Error(pData.error);
+      }
+
+      const { data: refreshed } = await supabase
+        .from("invoices")
+        .select("*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))")
+        .eq("id", inv.id)
+        .maybeSingle();
+      if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
+      onUpdated && onUpdated();
+    } catch (e) {
+      setSyncError(e.message || "QB sync failed.");
+    }
+    setSyncing(false);
   }
 
   const aging = () => {
@@ -1285,6 +1341,14 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             {actions.map(a => (
               <Btn key={a.status} sz="sm" v="ghost" onClick={() => updateStatus(a.status)}>{a.label}</Btn>
             ))}
+            {!inv.qb_invoice_id
+              && !inv.proposals?.call_log?.qb_skip_sync
+              && inv.proposals?.call_log?.qb_customer_id
+              && inv.status !== "New" && (
+              <Btn sz="sm" v="secondary" onClick={handleQBSync} disabled={syncing}>
+                {syncing ? "Syncing…" : "Sync to QuickBooks"}
+              </Btn>
+            )}
             {canPullBack && (
               <Btn sz="sm" v="ghost" onClick={handlePullBack}>Pull Back</Btn>
             )}
@@ -1292,6 +1356,36 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           </>
         )}
       </div>
+
+      {syncError && (
+        <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(229,57,53,0.12)", border: `1px solid ${C.red}`, borderRadius: 8, fontSize: 13, color: C.red, fontFamily: F.ui, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ flex: 1 }}>{syncError}</span>
+          {syncReLink && inv.proposals?.call_log_id && (
+            <Btn sz="sm" v="ghost" onClick={() => setShowQBLinkModal(true)}>Re-link Job</Btn>
+          )}
+          <button onClick={() => { setSyncError(null); setSyncReLink(false); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 16, fontWeight: 700 }}>✕</button>
+        </div>
+      )}
+
+      {showQBLinkModal && inv.proposals?.call_log_id && (
+        <QBLinkModal
+          callLogId={inv.proposals.call_log_id}
+          currentQbCustomerId={inv.proposals?.call_log?.qb_customer_id}
+          onClose={() => setShowQBLinkModal(false)}
+          onLinked={async () => {
+            setShowQBLinkModal(false);
+            setSyncError(null);
+            setSyncReLink(false);
+            const { data: refreshed } = await supabase
+              .from("invoices")
+              .select("*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))")
+              .eq("id", inv.id)
+              .maybeSingle();
+            if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
+            onUpdated && onUpdated();
+          }}
+        />
+      )}
       {inv.status === "Paid" && inv.paid_at && (
         <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ fontSize: 12, color: C.green, fontWeight: 700, fontFamily: F.display }}>
@@ -1383,7 +1477,7 @@ export default function Invoices({ setSubPage, teamMember }) {
   const load = async () => {
     const data = await fetchAll(
       "invoices",
-      "*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents))",
+      "*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))",
       { filters: [["is", "deleted_at", null]], order: { column: "sent_at", ascending: false } }
     );
     setInvoices(data);

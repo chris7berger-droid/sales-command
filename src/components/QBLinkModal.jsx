@@ -26,7 +26,8 @@ export default function QBLinkModal({ callLogId, currentQbCustomerId, onClose, o
     debounceRef.current = setTimeout(async () => {
       const { data, error: fnErr } = await supabase.functions.invoke("qb-search-customers", { body: { q: q.trim() } });
       if (fnErr) {
-        setError(fnErr.message || "Search failed.");
+        const body = await fnErr.context?.json?.().catch(() => null);
+        setError(body?.error || fnErr.message || "Search failed.");
         setResults([]);
         setLoading(false);
         return;
@@ -55,7 +56,8 @@ export default function QBLinkModal({ callLogId, currentQbCustomerId, onClose, o
       body: { callLogId, qbCustomerId: selectedId },
     });
     if (fnErr) {
-      setError(fnErr.message || "Link failed. Try again.");
+      const body = await fnErr.context?.json?.().catch(() => null);
+      setError(body?.error || fnErr.message || "Link failed. Try again.");
       setLinking(false);
       return;
     }

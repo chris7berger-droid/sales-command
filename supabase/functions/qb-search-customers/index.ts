@@ -110,9 +110,13 @@ serve(async (req) => {
       });
     }
 
-    // Escape backslash first, then single-quote (QB query language uses '' for literal ').
+    // Escape backslash first, then single-quote.
+    // Note: QB query language does NOT support parentheses for grouping — keep
+    // WHERE as a flat AND chain. DisplayName is the canonical search field;
+    // for sub-customers it's the "Parent:Job" path, so it covers the typical
+    // lookup pattern (parents and jobs both match on the parent name fragment).
     const escaped = q.trim().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    const query = `SELECT Id, DisplayName, CompanyName, Job, ParentRef, Active FROM Customer WHERE Active = true AND (DisplayName LIKE '%${escaped}%' OR CompanyName LIKE '%${escaped}%') MAXRESULTS 25`;
+    const query = `SELECT Id, DisplayName, CompanyName, Job, ParentRef, Active FROM Customer WHERE Active = true AND DisplayName LIKE '%${escaped}%' MAXRESULTS 25`;
 
     const { accessToken, realmId } = await getQBToken(sb);
     const data = await qbApi("GET", `/query?query=${encodeURIComponent(query)}`, accessToken, realmId);

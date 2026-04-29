@@ -58,7 +58,7 @@ function stageColor(stage) {
   return map[stage] || { bg: "rgba(255,255,255,0.06)", color: C.textFaint };
 }
 
-export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onDeleted, teamMember, onNewProposal, onAddCO, onNavigateProposal, onNavigateInvoice, onNavigateCustomer }) {
+export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onJobRefresh, onDeleted, teamMember, onNewProposal, onAddCO, onNavigateProposal, onNavigateInvoice, onNavigateCustomer }) {
   const cust = job.customers || {};
   const [linkedProposals, setLinkedProposals] = useState([]);
   const [linkedInvoices, setLinkedInvoices] = useState([]);
@@ -102,6 +102,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [showQBLinkModal, setShowQBLinkModal] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
+  const [qbToast, setQbToast] = useState(null);
   const [wtDropOpen, setWtDropOpen] = useState(false);
   const wtDropRef = useRef(null);
 
@@ -297,7 +298,12 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           callLogId={job.id}
           currentQbCustomerId={job.qb_customer_id}
           onClose={() => setShowQBLinkModal(false)}
-          onLinked={() => { setShowQBLinkModal(false); onSaved && onSaved(); }}
+          onLinked={(c) => {
+            setShowQBLinkModal(false);
+            setQbToast({ kind: "linked", text: `Linked to QuickBooks customer "${c.displayName}" (QB ID ${c.id})` });
+            setTimeout(() => setQbToast(null), 5000);
+            (onJobRefresh || onSaved) && (onJobRefresh || onSaved)();
+          }}
         />
       )}
 
@@ -425,6 +431,12 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         </div>
         <div style={{ marginTop: 12 }}>
           <div style={{ ...labelStyle, marginBottom: 8 }}>QuickBooks</div>
+          {qbToast && (
+            <div style={{ marginBottom: 10, padding: "8px 12px", background: qbToast.kind === "linked" ? "rgba(67,160,71,0.14)" : "rgba(28,24,20,0.10)", border: `1px solid ${qbToast.kind === "linked" ? C.green : C.borderStrong}`, borderRadius: 6, fontSize: 12.5, color: qbToast.kind === "linked" ? C.green : C.textBody, fontFamily: F.ui, display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ flex: 1 }}>{qbToast.text}</span>
+              <button onClick={() => setQbToast(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 14, fontWeight: 700, opacity: 0.6 }}>✕</button>
+            </div>
+          )}
           {job.qb_customer_id ? (
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: 11, fontWeight: 700, background: C.dark, color: C.teal, padding: "3px 10px", borderRadius: 6, fontFamily: F.ui, letterSpacing: "0.04em" }}>
@@ -444,7 +456,9 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                     .eq("id", job.id);
                   setUnlinking(false);
                   if (uErr) { setError("Unlink failed: " + uErr.message); return; }
-                  onSaved && onSaved();
+                  setQbToast({ kind: "unlinked", text: "Unlinked from QuickBooks. Future invoices on this job will skip auto-sync." });
+                  setTimeout(() => setQbToast(null), 5000);
+                  (onJobRefresh || onSaved) && (onJobRefresh || onSaved)();
                 }}
               >
                 {unlinking ? "Unlinking…" : "Unlink"}

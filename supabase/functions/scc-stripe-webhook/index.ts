@@ -40,11 +40,17 @@ async function verifyStripeSignature(payload: string, sigHeader: string, secret:
   return await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(signedPayload));
 }
 
+const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.app", "https://www.scmybiz.com", "https://scmybiz.com"];
+
 serve(async (req) => {
+  const origin = req.headers.get("origin") || "";
+  const isAllowed = ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".vercel.app");
+  const allowedOrigin = isAllowed ? origin : ALLOWED_ORIGINS[0];
+
   if (req.method === "OPTIONS") {
     return new Response("ok", {
       headers: {
-        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Origin": allowedOrigin,
         "Access-Control-Allow-Headers": "content-type, stripe-signature",
       },
     });

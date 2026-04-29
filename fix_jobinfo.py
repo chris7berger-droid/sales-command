@@ -1,7 +1,0 @@
-f = 'src/pages/WTCCalculator.jsx'
-c = open(f).read()
-old = '  const [showPDF,     setShowPDF]     = useState(false);\n  const [showSigning, setShowSigning] = useState(false);'
-new = '  const [showPDF,     setShowPDF]     = useState(false);\n  const [showSigning, setShowSigning] = useState(false);\n  const [proposalNumber, setProposalNumber] = useState(null);\n  const [jobInfo, setJobInfo] = useState({ customerName: "", jobsiteAddress: "", jobName: "" });\n\n  useEffect(() => {\n    if (!proposalId) return;\n    async function loadJobInfo() {\n      const { data } = await supabase\n        .from("proposals")\n        .select("proposal_number, customer, call_log(job_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip)")\n        .eq("id", proposalId)\n        .single();\n      if (data?.proposal_number) setProposalNumber(data.proposal_number);\n      if (data) {\n        setJobInfo({\n          customerName: data.customer || "",\n          jobName: data.call_log?.job_name || "",\n          jobsiteAddress: [\n            data.call_log?.jobsite_address,\n            data.call_log?.jobsite_city,\n            data.call_log?.jobsite_state,\n            data.call_log?.jobsite_zip,\n          ].filter(Boolean).join(", "),\n        });\n      }\n    }\n    loadJobInfo();\n  }, [proposalId]);'
-print('found' if old in c else 'NOT found')
-c = c.replace(old, new, 1)
-open(f, 'w').write(c)

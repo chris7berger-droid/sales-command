@@ -12,6 +12,11 @@ const ALLOWED_ORIGINS = [
   "https://www.schmybiz.com", "https://schmybiz.com",
 ];
 
+// Simple in-memory rate limit: max 3 requests per email per 15 minutes
+const rateLimitMap = new Map<string, number[]>();
+const RATE_LIMIT = 3;
+const RATE_WINDOW_MS = 15 * 60 * 1000;
+
 serve(async (req) => {
   const origin = req.headers.get("origin") || "";
   const isAllowed = ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".vercel.app");
@@ -34,6 +39,20 @@ serve(async (req) => {
         status: 400,
       });
     }
+
+    // Rate limit by email
+    const key = email.toLowerCase().trim();
+    const now = Date.now();
+    const hits = (rateLimitMap.get(key) || []).filter(t => now - t < RATE_WINDOW_MS);
+    if (hits.length >= RATE_LIMIT) {
+      // Return success to avoid revealing rate-limit state
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
+    hits.push(now);
+    rateLimitMap.set(key, hits);
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },

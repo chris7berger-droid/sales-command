@@ -16,10 +16,16 @@ const PRICE_MAP: Record<string, string | undefined> = {
   schedule: SCC_STRIPE_PRICE_SCHEDULE,
 };
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.app", "https://www.scmybiz.com", "https://scmybiz.com"];
+
+function getCors(req: Request) {
+  const origin = req.headers.get("origin") || "";
+  const isAllowed = ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".vercel.app");
+  return {
+    "Access-Control-Allow-Origin": isAllowed ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  };
+}
 
 async function stripeRequest(endpoint: string, params: Record<string, string>, method = "POST") {
   const res = await fetch(`https://api.stripe.com/v1/${endpoint}`, {
@@ -47,7 +53,7 @@ async function stripeGet(endpoint: string) {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: CORS });
+    return new Response("ok", { headers: getCors(req) });
   }
 
   try {
@@ -129,7 +135,7 @@ serve(async (req) => {
       const session = await stripeRequest("checkout/sessions", params);
 
       return new Response(JSON.stringify({ url: session.url }), {
-        headers: { ...CORS, "Content-Type": "application/json" },
+        headers: { ...getCors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -145,7 +151,7 @@ serve(async (req) => {
       });
 
       return new Response(JSON.stringify({ url: session.url }), {
-        headers: { ...CORS, "Content-Type": "application/json" },
+        headers: { ...getCors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -192,7 +198,7 @@ serve(async (req) => {
       }
 
       return new Response(JSON.stringify(result), {
-        headers: { ...CORS, "Content-Type": "application/json" },
+        headers: { ...getCors(req), "Content-Type": "application/json" },
       });
     }
 
@@ -202,7 +208,7 @@ serve(async (req) => {
     console.error("create-billing-session error:", error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 400,
-      headers: { ...CORS, "Content-Type": "application/json" },
+      headers: { ...getCors(req), "Content-Type": "application/json" },
     });
   }
 });

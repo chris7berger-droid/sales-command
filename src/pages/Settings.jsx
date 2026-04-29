@@ -431,7 +431,7 @@ function BillingSection() {
         setStatus(data);
         if (data?.subscribed_apps?.length) setSelectedApps(data.subscribed_apps);
       } catch (e) {
-        console.error("Failed to load billing status:", e);
+        // billing status load failed — non-critical
       }
       setLoading(false);
     })();

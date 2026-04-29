@@ -508,7 +508,6 @@ async function deletePropAttachment(fullName) {
       };
 
       const { data: inserted, error } = await supabase.from("jobs").insert([row]).select("job_id, status");
-      console.log("[SendToSchedule] inserted:", inserted);
       if (error) {
         if (error.code === "23505") { alert("This proposal has already been sent to Schedule Command."); setSentToSchedule(true); }
         else { alert("Error sending to Schedule: " + error.message); }
@@ -535,7 +534,7 @@ async function deletePropAttachment(fullName) {
         }
         if (matRows.length > 0) {
           const { error: matErr } = await supabase.from("materials").insert(matRows);
-          if (matErr) console.error("[SendToSchedule] materials insert error:", matErr);
+          if (matErr) alert("Materials sync warning: " + matErr.message);
         }
       }
 
@@ -566,8 +565,7 @@ async function deletePropAttachment(fullName) {
       // Sync job to QuickBooks (skip if test job)
       const isTest = (p.call_log?.job_name || "").toLowerCase().includes("test");
       !isTest && supabase.functions.invoke("qb-create-job", { body: { callLogId: p.call_log_id, proposalId: p.id } })
-        .then(r => { if (r.data?.error) console.warn("QB sync:", r.data.error); else console.log("QB job created:", r.data); })
-        .catch(e => console.warn("QB sync failed:", e.message));
+        .catch(() => {});
     }
     // Refresh
     const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();

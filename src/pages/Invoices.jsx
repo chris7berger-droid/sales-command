@@ -579,8 +579,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
       // Sync to QuickBooks (non-blocking, skip test jobs)
       if (!(invoice.job_name || "").toLowerCase().includes("test")) {
         supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: invoice.id } })
-          .then(r => { if (r.data?.error) console.warn("QB invoice sync:", r.data.error); else console.log("QB invoice synced:", r.data); })
-          .catch(e => console.warn("QB invoice sync failed:", e.message));
+          .catch(() => {});
       }
       setSendDone(true);
       onSent && onSent(data);
@@ -933,8 +932,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     // Sync payment to QuickBooks when marked as Paid (skip test jobs)
     if (newStatus === "Paid" && inv.qb_invoice_id && !(inv.job_name || "").toLowerCase().includes("test")) {
       supabase.functions.invoke("qb-record-payment", { body: { invoiceId: inv.id } })
-        .then(r => { if (r.data?.error) console.warn("QB payment sync:", r.data.error); else console.log("QB payment recorded:", r.data); })
-        .catch(e => console.warn("QB payment sync failed:", e.message));
+        .catch(() => {});
     }
     setInv(prev => ({ ...prev, ...updates }));
     onUpdated && onUpdated();
@@ -1036,8 +1034,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     // Sync to QuickBooks with edit reason (non-blocking, skip test jobs)
     if (inv.qb_invoice_id && !(inv.job_name || "").toLowerCase().includes("test")) {
       supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: editId, editReason: editReason.trim() } })
-        .then(r => { if (r.data?.error) console.warn("QB sync:", r.data.error); else console.log("QB invoice updated:", r.data); })
-        .catch(e => console.warn("QB sync failed:", e.message));
+        .catch(() => {});
     }
 
     setInv(prev => ({ ...prev, id: editId, due_date: editDueDate || null, discount: parseFloat(editDiscount) || 0, retention_pct: retPct, retention_amount: retAmt, description: editDesc || null, intro: editIntro || null, amount: Math.round(newAmount * 100) / 100 }));

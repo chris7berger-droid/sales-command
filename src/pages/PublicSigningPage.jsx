@@ -353,7 +353,6 @@ export default function PublicSigningPage() {
         const { data: reps } = await supabase.rpc("get_rep_contact", { rep_name: salesName });
         repEmail = reps?.[0]?.email || "";
       }
-      console.log("Calling proposal-signed edge function", { proposalId: proposal.id, callLogId: proposal.call_log_id, repEmail, salesName });
       const { data: fnData, error: fnError } = await supabase.functions.invoke("proposal-signed", {
         body: {
           repEmail,
@@ -367,9 +366,7 @@ export default function PublicSigningPage() {
           signing_token: token,
         },
       });
-      console.log("proposal-signed result:", fnData, fnError);
       if (fnError) {
-        console.error("proposal-signed edge function failed, attempting direct update:", fnError);
         await supabase.from("proposals").update({ status: "Sold", approved_at: new Date().toISOString() }).eq("id", proposal.id);
         if (proposal.call_log_id) await supabase.from("call_log").update({ stage: "Sold" }).eq("id", proposal.call_log_id);
       }
@@ -380,8 +377,7 @@ export default function PublicSigningPage() {
       }
 
       setSigned(true);
-    } catch (e) {
-      console.error(e);
+    } catch (_) {
       alert("Something went wrong. Please try again.");
     }
     setSigning(false);

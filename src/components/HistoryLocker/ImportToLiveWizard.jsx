@@ -376,7 +376,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         const { error: wErr } = await supabase.from("job_work_types").insert(
           form.selectedWorkTypeIds.map(id => ({ call_log_id: newJob.id, work_type_id: id }))
         );
-        if (wErr) console.error("job_work_types insert failed:", wErr.message);
+        if (wErr) alert("Warning: work types save failed: " + wErr.message);
       }
 
       setSaving(false);

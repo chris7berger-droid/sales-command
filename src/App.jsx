@@ -102,7 +102,7 @@ function SalesCommandApp() {
           return;
         }
         // Stale recovery event — set session normally so the user stays logged in
-        console.warn("Stale PASSWORD_RECOVERY event — setting session normally");
+        // Stale PASSWORD_RECOVERY event — set session normally
       }
       if (event === "TOKEN_REFRESHED" && !s) {
         // Refresh token was rejected — force clean logout

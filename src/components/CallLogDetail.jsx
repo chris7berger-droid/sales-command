@@ -191,16 +191,14 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     if (!window.confirm("Delete this job? This cannot be undone.")) return;
     // Delete linked work types first (FK constraint)
     const { error: wtErr } = await supabase.from("job_work_types").delete().eq("call_log_id", job.id);
-    if (wtErr) console.warn("job_work_types delete:", wtErr.message);
+    if (wtErr) { alert("Warning: work types cleanup failed: " + wtErr.message); }
     // Null out call_log_id on soft-deleted proposals (DB FK blocks delete otherwise)
     await supabase.from("proposals").update({ call_log_id: null }).eq("call_log_id", job.id).not("deleted_at", "is", null);
     const { error: delErr, count } = await supabase.from("call_log").delete().eq("id", job.id).select();
-    console.log("call_log delete result:", { delErr, count });
     if (delErr) { alert("Delete failed: " + delErr.message); return; }
     // Verify it was actually deleted (RLS may silently block)
     const { data: still } = await supabase.from("call_log").select("id").eq("id", job.id).maybeSingle();
     if (still) {
-      console.warn("RLS blocked delete for call_log id:", job.id);
       alert("Delete blocked by database policy. Check Supabase RLS on call_log table — you need a DELETE policy.");
       return;
     }

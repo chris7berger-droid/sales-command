@@ -263,7 +263,7 @@ export default function NewPayAppModal({ schedule, lines, proposal, onClose, onC
             .eq("id", payApp.id);
         } catch (pdfErr) {
           // PDF failure shouldn't block the pay app + invoice creation
-          console.error("PDF fill failed:", pdfErr);
+          // PDF failure — alert shown below
           alert("Pay app + invoice saved, but PDF generation failed: " + (pdfErr.message || pdfErr));
         }
       }

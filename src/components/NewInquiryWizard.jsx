@@ -285,7 +285,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       const { error: jwtErr } = await supabase.from("job_work_types").insert(
         data.selectedWorkTypes.map(id => ({ call_log_id: newJob.id, work_type_id: id }))
       );
-      if (jwtErr) console.error("job_work_types insert failed:", jwtErr.message);
+      if (jwtErr) alert("Warning: work types save failed: " + jwtErr.message);
     }
 
     if (data.attachments.length > 0) await uploadFiles(newJob.id);

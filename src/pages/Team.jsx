@@ -86,7 +86,7 @@ function MemberModal({ member, onClose, onSaved, onDeactivated, senderEmail, sen
     setSaving(false);
     if (fnErr || data?.error) {
       const msg = data?.error || fnErr?.message || "Failed to send invite";
-      console.error("invite-user error:", { fnErr, data });
+      // invite error — message shown to user below
       // Roll back the inserted row if this was a new member
       if (isNew) await supabase.from("team_members").delete().eq("id", teamMemberId);
       setError(msg);

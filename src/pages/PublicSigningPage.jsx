@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { createPublicClient } from "../lib/supabasePublic";
 import { useMemo } from "react";
 import { calcWtcPrice } from "../lib/calc";
-import { getTenantConfig, DEFAULTS } from "../lib/config";
+import { DEFAULTS } from "../lib/config";
 
 const T = {
   green: "#30cfac",
@@ -33,7 +33,11 @@ export default function PublicSigningPage() {
   const [pulledBack, setPulledBack] = useState(false);
   const [repInfo, setRepInfo] = useState(null);
 
-  useEffect(() => { getTenantConfig().then(setConfig); }, []);
+  useEffect(() => {
+    supabase.rpc("get_public_tenant_config").then(({ data }) => {
+      if (data?.[0]) setConfig({ ...DEFAULTS, ...data[0] });
+    });
+  }, [supabase]);
 
   useEffect(() => {
     async function load() {
@@ -51,8 +55,8 @@ export default function PublicSigningPage() {
       // Fetch rep contact info for header
       const salesName = prop.call_log?.sales_name;
       if (salesName) {
-        const { data: rep } = await supabase.from("team_members").select("name, email, phone").eq("name", salesName).maybeSingle();
-        if (rep) setRepInfo(rep);
+        const { data: reps } = await supabase.rpc("get_rep_contact", { rep_name: salesName });
+        if (reps?.[0]) setRepInfo(reps[0]);
       }
 
       if (prop.status === "Sold") { setSigned(true); setProposal(prop); setLoading(false); return; }
@@ -346,8 +350,8 @@ export default function PublicSigningPage() {
       const salesName = proposal.call_log?.sales_name || "";
       let repEmail = "";
       if (salesName) {
-        const { data: rep } = await supabase.from("team_members").select("email").eq("name", salesName).maybeSingle();
-        repEmail = rep?.email || "";
+        const { data: reps } = await supabase.rpc("get_rep_contact", { rep_name: salesName });
+        repEmail = reps?.[0]?.email || "";
       }
       console.log("Calling proposal-signed edge function", { proposalId: proposal.id, callLogId: proposal.call_log_id, repEmail, salesName });
       const { data: fnData, error: fnError } = await supabase.functions.invoke("proposal-signed", {

@@ -886,6 +886,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(null);
   const [syncReLink, setSyncReLink] = useState(false);
+  const [syncToast, setSyncToast] = useState(null);
 
   // Auto-refresh: poll for payment status updates when invoice is Sent/Waiting
   useEffect(() => {
@@ -990,6 +991,9 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         .maybeSingle();
       if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
       onUpdated && onUpdated();
+      const paidNote = inv.status === "Paid" ? " Payment also recorded." : "";
+      setSyncToast(`Invoice synced to QuickBooks (QB ID ${refreshed?.qb_invoice_id || "—"}).${paidNote}`);
+      setTimeout(() => setSyncToast(null), 5000);
     } catch (e) {
       setSyncError(e.message || "QB sync failed.");
     }
@@ -1346,7 +1350,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
               && inv.proposals?.call_log?.qb_customer_id
               && inv.status !== "New" && (
               <Btn sz="sm" v="secondary" onClick={handleQBSync} disabled={syncing}>
-                {syncing ? "Syncing…" : "Sync to QuickBooks"}
+                {syncing ? "Syncing…" : "Sync and Send"}
               </Btn>
             )}
             {canPullBack && (
@@ -1364,6 +1368,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             <Btn sz="sm" v="ghost" onClick={() => setShowQBLinkModal(true)}>Re-link Job</Btn>
           )}
           <button onClick={() => { setSyncError(null); setSyncReLink(false); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 16, fontWeight: 700 }}>✕</button>
+        </div>
+      )}
+
+      {syncToast && (
+        <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(67,160,71,0.14)", border: `1px solid ${C.green}`, borderRadius: 8, fontSize: 13, color: C.green, fontFamily: F.ui, display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ flex: 1 }}>{syncToast}</span>
+          <button onClick={() => setSyncToast(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", fontSize: 14, fontWeight: 700, opacity: 0.6 }}>✕</button>
         </div>
       )}
 

@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { createPublicClient } from "../lib/supabasePublic";
 import { useMemo } from "react";
 import { calcWtcPrice } from "../lib/calc";
-import { getTenantConfig, DEFAULTS } from "../lib/config";
+import { DEFAULTS } from "../lib/config";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
 
 export default function PublicInvoicePage() {
@@ -16,7 +16,11 @@ export default function PublicInvoicePage() {
   const [config, setConfig] = useState(DEFAULTS);
   const [repContact, setRepContact] = useState({ phone: "", email: "" });
 
-  useEffect(() => { getTenantConfig().then(setConfig); }, []);
+  useEffect(() => {
+    supabase.rpc("get_public_tenant_config").then(({ data }) => {
+      if (data?.[0]) setConfig({ ...DEFAULTS, ...data[0] });
+    });
+  }, [supabase]);
 
   useEffect(() => {
     async function load() {
@@ -42,7 +46,8 @@ export default function PublicInvoicePage() {
       // Load rep contact
       const salesName = inv.proposals?.call_log?.sales_name;
       if (salesName) {
-        const { data: rep } = await supabase.from("team_members").select("phone, email").eq("name", salesName).maybeSingle();
+        const { data: reps } = await supabase.rpc("get_rep_contact", { rep_name: salesName });
+        const rep = reps?.[0];
         if (rep) setRepContact({ phone: rep.phone || "", email: rep.email || "" });
       }
 

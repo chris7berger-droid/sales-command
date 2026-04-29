@@ -73,7 +73,7 @@ const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.a
 
 serve(async (req) => {
   const origin = req.headers.get("origin") || "";
-  const isAllowed = ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".vercel.app");
+  const isAllowed = ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".vercel.app") || origin.startsWith("http://localhost:");
   const allowedOrigin = isAllowed ? origin : ALLOWED_ORIGINS[0];
   const corsHeaders = {
     "Access-Control-Allow-Origin": allowedOrigin,

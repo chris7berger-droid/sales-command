@@ -117,30 +117,36 @@ serve(async (req) => {
     const { data: invoice } = await sb.from("invoices").select("*").eq("id", invoiceId).single();
     if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
 
-    // Fetch QB customer ID via proposal -> call_log, capture skip flags along the way
-    // (skip check must run BEFORE the qb_invoice_id null-check so archive invoices
-    // skip cleanly instead of surfacing a misleading "not synced to QB yet" error)
+    // Resolve QB customer + skip flags via proposal -> call_log (fallback by display_job_number).
+    // Skip checks must run BEFORE the qb_invoice_id null-check so archive invoices
+    // skip cleanly instead of surfacing a misleading "not synced to QB yet" error.
     let qbCustomerId = null;
-    let skipSync = false;
-    let skipReason = null;
+    let qbSkipSync = false;
+    let isArchiveProposal = false;
     if (invoice.proposal_id) {
       const { data: proposal } = await sb.from("proposals").select("call_log_id, is_archive_proposal").eq("id", invoice.proposal_id).maybeSingle();
-      if (proposal?.is_archive_proposal) { skipSync = true; skipReason = "is_archive_proposal"; }
+      isArchiveProposal = !!proposal?.is_archive_proposal;
       if (proposal?.call_log_id) {
         const { data: cl } = await sb.from("call_log").select("qb_customer_id, qb_skip_sync").eq("id", proposal.call_log_id).maybeSingle();
-        qbCustomerId = cl?.qb_customer_id;
-        if (cl?.qb_skip_sync) { skipSync = true; skipReason = skipReason || "qb_skip_sync"; }
+        qbCustomerId = cl?.qb_customer_id || null;
+        qbSkipSync = !!cl?.qb_skip_sync;
       }
     }
     if (!qbCustomerId) {
       const { data: cl } = await sb.from("call_log").select("qb_customer_id, qb_skip_sync").eq("display_job_number", invoice.job_id).limit(1).maybeSingle();
-      qbCustomerId = cl?.qb_customer_id;
-      if (cl?.qb_skip_sync) { skipSync = true; skipReason = skipReason || "qb_skip_sync"; }
+      qbCustomerId = cl?.qb_customer_id || null;
+      qbSkipSync = qbSkipSync || !!cl?.qb_skip_sync;
     }
 
-    if (skipSync) {
-      console.log("qb-record-payment: skipping per flag", { invoiceId, reason: skipReason });
-      return new Response(JSON.stringify({ success: true, skipped: true, reason: skipReason }), {
+    if (qbSkipSync) {
+      console.log("qb-record-payment: skipping per flag", { invoiceId, reason: "qb_skip_sync" });
+      return new Response(JSON.stringify({ success: true, skipped: true, reason: "qb_skip_sync" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
+      });
+    }
+    if (!qbCustomerId && isArchiveProposal) {
+      console.log("qb-record-payment: skipping per flag", { invoiceId, reason: "is_archive_proposal_unlinked" });
+      return new Response(JSON.stringify({ success: true, skipped: true, reason: "is_archive_proposal_unlinked" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
       });
     }
@@ -151,6 +157,7 @@ serve(async (req) => {
       });
     }
 
+    // Defense-in-depth: linked-job invariant should make this unreachable in normal flow.
     if (!qbCustomerId) throw new Error("Job not synced to QuickBooks");
 
     const { accessToken, realmId } = await getQBToken(sb);
@@ -187,6 +194,15 @@ serve(async (req) => {
 
   } catch (error) {
     console.error("qb-record-payment error:", error.message);
+    if (/Customer.*inactive|Reference.*Customer/i.test(error.message || "")) {
+      return new Response(JSON.stringify({
+        error: "qb_customer_invalid",
+        message: "Linked QuickBooks customer no longer exists or is inactive. Re-link this job to a current QB customer.",
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 500,

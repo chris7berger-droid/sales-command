@@ -90,25 +90,27 @@ serve(async (req) => {
     // Fetch invoice to get qb_invoice_id + proposal/call_log skip flags
     const { data: invoice } = await sb.from("invoices").select("qb_invoice_id, proposal_id, job_id").eq("id", invoiceId).single();
 
-    // Resolve skip flags via proposal -> call_log, mirroring sync/record-payment
-    let skipSync = false;
-    let skipReason = null;
+    // Resolve qb_skip_sync via proposal -> call_log (fallback by display_job_number).
+    // Note: is_archive_proposal is intentionally NOT a skip reason here. Voiding only
+    // needs qb_invoice_id — once an archive invoice was successfully synced (post-link),
+    // it must be voidable. Unlinked archive invoices never reach QB, so the
+    // `!qb_invoice_id` branch below handles them as "nothing to void" naturally.
+    let qbSkipSync = false;
     if (invoice?.proposal_id) {
-      const { data: proposal } = await sb.from("proposals").select("call_log_id, is_archive_proposal").eq("id", invoice.proposal_id).maybeSingle();
-      if (proposal?.is_archive_proposal) { skipSync = true; skipReason = "is_archive_proposal"; }
+      const { data: proposal } = await sb.from("proposals").select("call_log_id").eq("id", invoice.proposal_id).maybeSingle();
       if (proposal?.call_log_id) {
         const { data: cl } = await sb.from("call_log").select("qb_skip_sync").eq("id", proposal.call_log_id).maybeSingle();
-        if (cl?.qb_skip_sync) { skipSync = true; skipReason = skipReason || "qb_skip_sync"; }
+        qbSkipSync = !!cl?.qb_skip_sync;
       }
     }
-    if (!skipSync && invoice?.job_id) {
+    if (!qbSkipSync && invoice?.job_id) {
       const { data: cl } = await sb.from("call_log").select("qb_skip_sync").eq("display_job_number", invoice.job_id).limit(1).maybeSingle();
-      if (cl?.qb_skip_sync) { skipSync = true; skipReason = "qb_skip_sync"; }
+      qbSkipSync = !!cl?.qb_skip_sync;
     }
 
-    if (skipSync) {
-      console.log("qb-void-invoice: skipping per flag", { invoiceId, reason: skipReason });
-      return new Response(JSON.stringify({ success: true, skipped: true, reason: skipReason }), {
+    if (qbSkipSync) {
+      console.log("qb-void-invoice: skipping per flag", { invoiceId, reason: "qb_skip_sync" });
+      return new Response(JSON.stringify({ success: true, skipped: true, reason: "qb_skip_sync" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
       });
     }

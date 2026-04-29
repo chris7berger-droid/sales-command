@@ -125,15 +125,25 @@ serve(async (req) => {
     const { data: job } = await sb.from("call_log").select("*").eq("id", callLogId).single();
     if (!job) throw new Error(`Call log ${callLogId} not found`);
 
-    // Skip QB sync if the job is flagged or the triggering proposal is archive-style.
+    // Skip QB sync per flags. Order matters: qb_skip_sync wins (manual override).
+    // Archive proposals always skip create — when linked, the user manually picked
+    // the QB customer and we must not create a duplicate sub-customer next to it;
+    // when unlinked, there's nothing to attach an invoice to anyway.
     let isArchiveProposal = false;
     if (proposalId) {
       const { data: prop } = await sb.from("proposals").select("is_archive_proposal").eq("id", proposalId).maybeSingle();
       isArchiveProposal = !!prop?.is_archive_proposal;
     }
-    if (job.qb_skip_sync || isArchiveProposal) {
-      console.log("qb-create-job: skipping per flag", { callLogId, qb_skip_sync: job.qb_skip_sync, isArchiveProposal });
-      return new Response(JSON.stringify({ success: true, skipped: true, reason: isArchiveProposal ? "is_archive_proposal" : "qb_skip_sync" }), {
+    if (job.qb_skip_sync) {
+      console.log("qb-create-job: skipping per flag", { callLogId, reason: "qb_skip_sync" });
+      return new Response(JSON.stringify({ success: true, skipped: true, reason: "qb_skip_sync" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
+      });
+    }
+    if (isArchiveProposal) {
+      const reason = job.qb_customer_id ? "is_archive_proposal_linked" : "is_archive_proposal_unlinked";
+      console.log("qb-create-job: skipping per flag", { callLogId, reason });
+      return new Response(JSON.stringify({ success: true, skipped: true, reason }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
       });
     }

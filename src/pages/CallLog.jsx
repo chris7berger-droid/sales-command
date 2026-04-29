@@ -138,6 +138,7 @@ export default function CallLog({ teamMember, setSubPage }) {
           workTypes={workTypes}
           onBack={() => navigate("/calllog")}
           onSaved={() => { navigate("/calllog"); load(); }}
+          onJobRefresh={() => load()}
           onDeleted={() => { navigate("/calllog"); load(); }}
           teamMember={teamMember}
           onNewProposal={() => navigate("/proposals", { state: { newJob: selJob } })}

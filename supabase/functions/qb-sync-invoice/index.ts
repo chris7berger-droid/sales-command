@@ -82,7 +82,7 @@ const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.a
 
 serve(async (req) => {
   const origin = req.headers.get("origin") || "";
-  const isAllowed = ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".vercel.app");
+  const isAllowed = ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".vercel.app") || origin.startsWith("http://localhost:");
   const allowedOrigin = isAllowed ? origin : ALLOWED_ORIGINS[0];
   const corsHeaders = {
     "Access-Control-Allow-Origin": allowedOrigin,
@@ -131,39 +131,46 @@ serve(async (req) => {
       .select("*, proposal_wtc(*, work_types(name, cost_code))")
       .eq("invoice_id", invoiceId);
 
-    // Fetch the call log for QB customer ID via proposal -> call_log
-    // invoices.job_id is the job number (string), not call_log.id (int)
-    // So we go through: invoice.proposal_id -> proposals.call_log_id -> call_log
+    // Resolve QB customer + skip flags via proposal -> call_log.
+    // invoices.job_id is the job number (string), not call_log.id (int);
+    // primary path is invoice.proposal_id -> proposals.call_log_id -> call_log,
+    // fallback matches call_log by display_job_number.
     let qbCustomerId = null;
     let jobState = null;
-    let skipSync = false;
-    let skipReason = null;
+    let qbSkipSync = false;
+    let isArchiveProposal = false;
     if (invoice.proposal_id) {
       const { data: proposal } = await sb.from("proposals").select("call_log_id, is_archive_proposal").eq("id", invoice.proposal_id).maybeSingle();
-      if (proposal?.is_archive_proposal) { skipSync = true; skipReason = "is_archive_proposal"; }
+      isArchiveProposal = !!proposal?.is_archive_proposal;
       if (proposal?.call_log_id) {
         const { data: callLog } = await sb.from("call_log").select("qb_customer_id, jobsite_state, qb_skip_sync").eq("id", proposal.call_log_id).maybeSingle();
-        qbCustomerId = callLog?.qb_customer_id;
-        jobState = callLog?.jobsite_state;
-        if (callLog?.qb_skip_sync) { skipSync = true; skipReason = skipReason || "qb_skip_sync"; }
+        qbCustomerId = callLog?.qb_customer_id || null;
+        jobState = callLog?.jobsite_state || null;
+        qbSkipSync = !!callLog?.qb_skip_sync;
       }
     }
-    // Fallback: try matching by display_job_number
     if (!qbCustomerId) {
       const { data: callLog } = await sb.from("call_log").select("qb_customer_id, jobsite_state, qb_skip_sync").eq("display_job_number", invoice.job_id).limit(1).maybeSingle();
-      qbCustomerId = callLog?.qb_customer_id;
-      jobState = callLog?.jobsite_state;
-      if (callLog?.qb_skip_sync) { skipSync = true; skipReason = skipReason || "qb_skip_sync"; }
+      qbCustomerId = callLog?.qb_customer_id || null;
+      jobState = jobState || callLog?.jobsite_state || null;
+      qbSkipSync = qbSkipSync || !!callLog?.qb_skip_sync;
     }
 
-    // Skip BEFORE the qbCustomerId throw — archive-imported jobs intentionally have no QB customer.
-    if (skipSync) {
-      console.log("qb-sync-invoice: skipping per flag", { invoiceId, reason: skipReason });
-      return new Response(JSON.stringify({ success: true, skipped: true, reason: skipReason }), {
+    // Ordered guards: qb_skip_sync (manual override) wins over archive semantics.
+    // Archive-style proposals only skip when no QB customer is linked — once linked,
+    // sync proceeds normally so invoices/payments flow to the picked QB sub-customer.
+    if (qbSkipSync) {
+      console.log("qb-sync-invoice: skipping per flag", { invoiceId, reason: "qb_skip_sync" });
+      return new Response(JSON.stringify({ success: true, skipped: true, reason: "qb_skip_sync" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
       });
     }
-
+    if (!qbCustomerId && isArchiveProposal) {
+      console.log("qb-sync-invoice: skipping per flag", { invoiceId, reason: "is_archive_proposal_unlinked" });
+      return new Response(JSON.stringify({ success: true, skipped: true, reason: "is_archive_proposal_unlinked" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
+      });
+    }
     if (!qbCustomerId) {
       throw new Error("Job not synced to QuickBooks yet. Approve the proposal first.");
     }
@@ -309,6 +316,15 @@ serve(async (req) => {
 
   } catch (error) {
     console.error("qb-sync-invoice error:", error.message);
+    if (/Customer.*inactive|Reference.*Customer/i.test(error.message || "")) {
+      return new Response(JSON.stringify({
+        error: "qb_customer_invalid",
+        message: "Linked QuickBooks customer no longer exists or is inactive. Re-link this job to a current QB customer.",
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 500,

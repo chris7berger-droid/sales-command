@@ -5,6 +5,7 @@ import { fmt$ } from "../lib/utils";
 import Btn from "./Btn";
 import { supabase } from "../lib/supabase";
 import ArchiveProposalModal from "./ArchiveProposalModal";
+import QBLinkModal from "./QBLinkModal";
 
 const STAGES = ["New Inquiry", "Wants Bid", "Has Bid", "Sold", "Lost"];
 
@@ -57,7 +58,7 @@ function stageColor(stage) {
   return map[stage] || { bg: "rgba(255,255,255,0.06)", color: C.textFaint };
 }
 
-export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onDeleted, teamMember, onNewProposal, onAddCO, onNavigateProposal, onNavigateInvoice, onNavigateCustomer }) {
+export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onSaved, onJobRefresh, onDeleted, teamMember, onNewProposal, onAddCO, onNavigateProposal, onNavigateInvoice, onNavigateCustomer }) {
   const cust = job.customers || {};
   const [linkedProposals, setLinkedProposals] = useState([]);
   const [linkedInvoices, setLinkedInvoices] = useState([]);
@@ -99,6 +100,9 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [showQBLinkModal, setShowQBLinkModal] = useState(false);
+  const [unlinking, setUnlinking] = useState(false);
+  const [qbToast, setQbToast] = useState(null);
   const [wtDropOpen, setWtDropOpen] = useState(false);
   const wtDropRef = useRef(null);
 
@@ -287,6 +291,20 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         />
       )}
 
+      {showQBLinkModal && (
+        <QBLinkModal
+          callLogId={job.id}
+          currentQbCustomerId={job.qb_customer_id}
+          onClose={() => setShowQBLinkModal(false)}
+          onLinked={(c) => {
+            setShowQBLinkModal(false);
+            setQbToast({ kind: "linked", text: `Linked to QuickBooks customer "${c.displayName}" (QB ID ${c.id})` });
+            setTimeout(() => setQbToast(null), 5000);
+            (onJobRefresh || onSaved) && (onJobRefresh || onSaved)();
+          }}
+        />
+      )}
+
       {/* Back + cross-nav */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 20 }}>
         <button onClick={onBack} style={{ background: C.dark, border: "none", cursor: "pointer", color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", padding: "6px 14px", borderRadius: 6 }}>
@@ -321,7 +339,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           <span style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#9b59b6", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui }}>CO</span>
         )}
         {job.archive_record_id && (
-          <span title="Imported from archive — no proposal exists. Build a proposal before invoicing." style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)", cursor: "help" }}>ARCHIVE</span>
+          <span title="Imported from archive — link a QB customer to enable invoice sync." style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)", cursor: "help" }}>ARCHIVE</span>
         )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           {!editing && <Btn sz="sm" v="ghost" onClick={() => setEditing(true)}>Edit</Btn>}
@@ -409,12 +427,51 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
             <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Show cents on proposals & invoices (legacy jobs)</span>
           </button>
         </div>
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: 12 }}>
+          <div style={{ ...labelStyle, marginBottom: 8 }}>QuickBooks</div>
+          {qbToast && (
+            <div style={{ marginBottom: 10, padding: "8px 12px", background: qbToast.kind === "linked" ? "rgba(67,160,71,0.14)" : "rgba(28,24,20,0.10)", border: `1px solid ${qbToast.kind === "linked" ? C.green : C.borderStrong}`, borderRadius: 6, fontSize: 12.5, color: qbToast.kind === "linked" ? C.green : C.textBody, fontFamily: F.ui, display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ flex: 1 }}>{qbToast.text}</span>
+              <button onClick={() => setQbToast(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 14, fontWeight: 700, opacity: 0.6 }}>✕</button>
+            </div>
+          )}
+          {job.qb_customer_id ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, background: C.dark, color: C.teal, padding: "3px 10px", borderRadius: 6, fontFamily: F.ui, letterSpacing: "0.04em" }}>
+                LINKED · QB ID {job.qb_customer_id}
+              </span>
+              <Btn
+                sz="sm"
+                v="ghost"
+                disabled={unlinking}
+                onClick={async () => {
+                  if (unlinking) return;
+                  if (!confirm("Unlink this job from its QuickBooks customer? Existing QB invoices remain — only future syncs will be blocked.")) return;
+                  setUnlinking(true);
+                  const { error: uErr } = await supabase
+                    .from("call_log")
+                    .update({ qb_customer_id: null, qb_skip_sync: true })
+                    .eq("id", job.id);
+                  setUnlinking(false);
+                  if (uErr) { setError("Unlink failed: " + uErr.message); return; }
+                  setQbToast({ kind: "unlinked", text: "Unlinked from QuickBooks. Future invoices on this job will skip auto-sync." });
+                  setTimeout(() => setQbToast(null), 5000);
+                  (onJobRefresh || onSaved) && (onJobRefresh || onSaved)();
+                }}
+              >
+                {unlinking ? "Unlinking…" : "Unlink"}
+              </Btn>
+            </div>
+          ) : (
+            <Btn sz="sm" v="ghost" onClick={() => setShowQBLinkModal(true)}>Link to QB Customer</Btn>
+          )}
+        </div>
+        <div style={{ marginTop: 10 }}>
           <button onClick={() => editing && set("qb_skip_sync", !form.qb_skip_sync)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: editing ? "pointer" : "default", padding: "4px 0", opacity: editing ? 1 : 0.75 }}>
             <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${form.qb_skip_sync ? C.teal : C.borderStrong}`, background: form.qb_skip_sync ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
               {form.qb_skip_sync && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
             </div>
-            <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Skip QuickBooks auto-sync on new proposals (archive-style proposals are always skipped)</span>
+            <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Skip QuickBooks auto-sync (overrides linking)</span>
           </button>
         </div>
       </Section>

@@ -98,7 +98,7 @@ useEffect(() => {
   const interval = setInterval(async () => {
     const { data } = await supabase
       .from("proposals")
-      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, customers(email, contact_email, business_address, business_city, business_state, business_zip))")
+      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))")
       .eq("id", p.id)
       .single();
     if (data && data.status !== p.status) setP(data);
@@ -433,7 +433,7 @@ async function deletePropAttachment(fullName) {
       await supabase.from("call_log").update({ stage: "Wants Bid" }).eq("id", p.call_log_id);
     }
     // Refresh
-    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
+    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);
     const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true });
     setWtcs(wtcData || []);
@@ -568,13 +568,13 @@ async function deletePropAttachment(fullName) {
         .catch(() => {});
     }
     // Refresh
-    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
+    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);
     setShowApproveModal(false);
     setApproveReason("");
   }
 
-if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} onInternalApprove={p.status === "Sent" ? async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowApproveModal(true); } : undefined} />;
+if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} onInternalApprove={p.status === "Sent" ? async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowApproveModal(true); } : undefined} />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -631,8 +631,11 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
         {p.is_archive_proposal && (
           <span title="Archive Job Proposal — no WTC. Invoice with a flat amount." style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)", cursor: "help" }}>ARCHIVE</span>
         )}
-        {(p.is_archive_proposal || p.call_log?.qb_skip_sync) && (
-          <span title={p.is_archive_proposal ? "QuickBooks auto-sync skipped — archive-style proposals are never posted to QB" : "QuickBooks auto-sync skipped — this job is flagged 'Skip QB' on the call log"} style={{ fontSize: 10.5, fontWeight: 700, background: C.dark, color: C.teal, padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: `1px solid ${C.teal}`, cursor: "help", letterSpacing: "0.04em" }}>QB SKIP</span>
+        {p.call_log?.qb_customer_id && (
+          <span title={`Linked to QuickBooks customer ${p.call_log.qb_customer_id}`} style={{ fontSize: 10.5, fontWeight: 700, background: C.dark, color: C.teal, padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: `1px solid ${C.teal}`, cursor: "help", letterSpacing: "0.04em" }}>LINKED</span>
+        )}
+        {(p.call_log?.qb_skip_sync || (p.is_archive_proposal && !p.call_log?.qb_customer_id)) && (
+          <span title={p.call_log?.qb_skip_sync ? "QuickBooks auto-sync skipped — this job is flagged 'Skip QB' on the call log" : "QuickBooks auto-sync skipped — archive proposal not linked to a QB customer. Link the job to enable sync."} style={{ fontSize: 10.5, fontWeight: 700, background: C.dark, color: C.teal, padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: `1px solid ${C.teal}`, cursor: "help", letterSpacing: "0.04em" }}>QB SKIP</span>
         )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           {canDelete && (

@@ -1,0 +1,340 @@
+SC_Handoff_v88
+Date: 2026-04-29
+Author: Chris Berger (with Claude assistance)
+Topic: Link archive-imported jobs to existing QuickBooks customers + retroactive
+       invoice sync. Closes the workflow gap where Archive Job Proposals could
+       not push invoices to QB even after the underlying job had been pulled
+       back to live.
+
+================================================================
+WHY
+================================================================
+
+Job 6844 (Plenium Builders) was imported from the archive via the History
+Locker → Import to Live wizard. The wizard sets call_log.qb_skip_sync=true
+and never populates call_log.qb_customer_id. After the user generated an
+archive-style proposal + invoice and unchecked "Skip QuickBooks", the
+invoice still didn't post to QB — server returned
+{ success: true, skipped: true, reason: "is_archive_proposal" } silently.
+
+Root cause: four QB edge functions hard-skipped whenever
+proposals.is_archive_proposal=true, regardless of qb_skip_sync. The skip
+is correct for archive jobs that legitimately have no QB record, but
+wrong for archive jobs that already exist in QB and just need to be
+linked.
+
+================================================================
+WHAT WAS DONE
+================================================================
+
+1. Edge function guards relaxed
+   ----------------------------
+   The archive-skip in the four QB functions is now conditional on the
+   job having no qb_customer_id. Once a job is linked, sync proceeds
+   normally.
+
+   - qb-create-job: split the archive skip into is_archive_proposal_linked
+     vs is_archive_proposal_unlinked reasons. Linked archive jobs short-
+     circuit successfully so we don't recreate a sub-customer next to
+     the user's manual pick.
+   - qb-sync-invoice: reshaped guard order
+       qb_skip_sync (manual override, always wins)
+       → is_archive_proposal_unlinked (current default for archive jobs)
+       → "Job not synced to QuickBooks yet" throw
+   - qb-record-payment: same reshape as sync-invoice. Defense-in-depth
+     `if (!qbCustomerId) throw` retained as a safety net even though
+     unreachable in the new flow.
+   - qb-void-invoice: dropped is_archive_proposal as a skip reason
+     entirely. Voiding only needs qb_invoice_id; the existing
+     "not in QB" branch already handles unlinked archive invoices.
+
+2. Stale-customer error mapping
+   ----------------------------
+   qb-sync-invoice and qb-record-payment now translate QB CustomerRef
+   errors (regex /Customer.*inactive|Reference.*Customer/i) into a
+   structured response:
+     { error: "qb_customer_invalid",
+       message: "Linked QuickBooks customer no longer exists or is
+                 inactive. Re-link this job to a current QB customer." }
+   Status 200 with the `error` field follows the existing pattern
+   (fnError reserved for transport-level failures).
+
+3. New edge function: qb-search-customers
+   --------------------------------------
+   Read-only QB customer search backing the link modal. The browser
+   never holds QB tokens.
+   - Body: { q: string } (q.length >= 2)
+   - WHERE clause: Active = true AND DisplayName LIKE '%q%' MAXRESULTS 25
+   - IMPORTANT: QB Online query language does NOT support OR or
+     parentheses for grouping — confirmed via Intuit docs after the
+     first deploy returned QueryParserError. DisplayName-only search
+     covers sub-customers (their DisplayName is "Parent:Job" so a
+     search on the parent name fragment still finds the job).
+   - Escapes \\ and ' in q before interpolating into the QB query.
+
+4. New edge function: qb-link-customer
+   -----------------------------------
+   Server-side write path for linking. Closes both the
+   search→pick→confirm staleness window AND the column-write exposure
+   (any authenticated tenant user can today write arbitrary
+   qb_customer_id to call_log via direct PostgREST — column-level RLS
+   doesn't exist in Postgres).
+   - Body: { callLogId: number, qbCustomerId: string }
+   - Verifies the QB customer exists & Active=true via QB query
+   - On success: service-role UPDATE call_log SET qb_customer_id=$1,
+     qb_skip_sync=false WHERE id=$2
+   - Returns { error: "qb_customer_invalid" } at status 200 if QB
+     reports the customer is inactive or missing
+
+5. New component: QBLinkModal
+   --------------------------
+   Search-and-pick modal styled per CLAUDE.md (no white bg, C.linenCard
+   panel, C.linenDeep inputs, teal-on-dark selection state).
+   - Debounced 300ms search via qb-search-customers
+   - Confirm invokes qb-link-customer; surfaces qb_customer_invalid as
+     an inline "no longer active" message that clears results and
+     forces re-search
+   - Reads response body via fnErr.context.json() so non-2xx errors
+     show the actual edge-function message instead of supabase-js's
+     generic "Edge Function returned a non-2xx status code"
+
+6. CallLogDetail wiring
+   --------------------
+   Replaced the lone qb_skip_sync checkbox with a QuickBooks cluster:
+   - When linked: chip "LINKED · QB ID {id}" (C.dark bg + C.teal text
+     per dollar-badge rule) + ghost Unlink button. Unlink writes
+     { qb_customer_id: null, qb_skip_sync: true } directly via
+     supabase.from (no edge function — unlinking can't corrupt
+     anything).
+   - When unlinked: ghost "Link to QB Customer" button → opens modal.
+   - Existing skip checkbox label updated to "Skip QuickBooks
+     auto-sync (overrides linking)".
+   - ARCHIVE header chip title updated to point users at the link
+     action.
+   - 5s auto-dismissing toast on link (green) and unlink (neutral).
+   - New onJobRefresh prop on CallLog.jsx that reloads rows WITHOUT
+     navigating. The original onLinked path called onSaved which
+     navigates back to the call log list — that unmounted the detail
+     and discarded the toast.
+
+7. Proposal list + detail badge wording
+   ------------------------------------
+   - qb_customer_id added to call_log() select projections in
+     Proposals.jsx (2 sites) and ProposalDetail.jsx (4 sites).
+   - New LINKED pill (C.dark bg + C.teal text) when qb_customer_id is
+     set. Sits between ARCHIVE and QB SKIP if both apply.
+   - QB SKIP pill condition reshaped to match the actual sync semantics:
+     fires iff qb_skip_sync OR (is_archive_proposal AND !qb_customer_id).
+     Old copy claimed archive proposals are "never posted to QB" — now
+     points at linking instead.
+
+8. Manual Sync and Send button on InvoiceDetail
+   --------------------------------------------
+   For invoices that exist but were never pushed to QB — typically the
+   archive-proposal-then-link case where the invoice was generated
+   before the link.
+   - Button label: "Sync and Send" (renamed from initial "Sync to
+     QuickBooks" per user preference; the action effectively sends to
+     QuickBooks)
+   - Visibility: !qb_invoice_id && !qb_skip_sync && qb_customer_id &&
+     status !== "New"
+   - Handler invokes qb-sync-invoice; if status==="Paid" follows up
+     with qb-record-payment; refreshes inv state on success
+   - Maps qb_customer_invalid responses to an inline error banner with
+     a "Re-link Job" button that opens QBLinkModal scoped to the
+     invoice's call_log_id
+   - Green success toast with the new QB invoice ID + "Payment also
+     recorded" suffix when applicable
+
+9. CORS allowlist now permits localhost
+   ------------------------------------
+   Pre-existing limitation across all six QB functions: the allowlist
+   only permitted prod domains and *.vercel.app preview URLs, so
+   `npm run dev` on localhost:5173 was blocked. Auth still requires a
+   Bearer token, so CORS isn't the security boundary — adding
+   localhost is safe and unblocks future local QB-touching dev.
+   Applied uniformly to qb-create-job, qb-sync-invoice, qb-record-
+   payment, qb-void-invoice, qb-search-customers, qb-link-customer.
+
+================================================================
+DEPLOY STATE
+================================================================
+
+Vercel (frontend):
+  - merged feat/qb-archive-link → main (commit d8d345d)
+  - auto-deploying to scmybiz.com on the push following the merge
+
+Supabase (edge functions) — DEPLOYED THIS SESSION:
+  - qb-create-job
+  - qb-sync-invoice
+  - qb-record-payment
+  - qb-void-invoice
+  - qb-search-customers (new)
+  - qb-link-customer (new)
+  All deployed via `supabase functions deploy <name>` while the
+  frontend was still on old code. Backwards-compatible: the relaxed
+  guards are strictly more permissive, the new functions are additive.
+
+Supabase (database):
+  - No schema migration. call_log.qb_customer_id already existed
+    from a prior session.
+
+npm run build: clean
+npm audit: clean (0 vulnerabilities — inherited from v87)
+
+================================================================
+TEST COVERAGE
+================================================================
+
+Verified in local dev (npm run dev) before merge:
+  ✓ qb-search-customers query syntax (after the QueryParserError fix)
+  ✓ qb-link-customer writes call_log.qb_customer_id + flips qb_skip_sync
+  ✓ LINKED chip appears, Unlink chip toggles back, toast on both
+  ✓ Approve → QB pushes a freshly-linked archive invoice to QB sandbox
+    (existing flow, unblocked by linking)
+
+NOT verified (carrying forward as low-risk untested):
+  - The new "Sync and Send" button's handler end-to-end. Code path
+    only different from Approve → QB in: refresh-after-sync logic,
+    optional qb-record-payment fan-out when status=Paid, the toast
+    wiring on this specific button, and the qb_customer_invalid
+    Re-link path. The underlying qb-sync-invoice is proven via the
+    Approve → QB test.
+
+Regression checks (DEFERRED to next real-world hit):
+  - Unlinked archive job still skips silently with reason
+    "is_archive_proposal_unlinked" (was just "is_archive_proposal")
+  - qb_skip_sync still wins on a linked job
+  - Normal non-archive jobs unchanged
+
+================================================================
+FILES TOUCHED
+================================================================
+
+New:
+  src/components/QBLinkModal.jsx
+  supabase/functions/qb-link-customer/index.ts
+  supabase/functions/qb-search-customers/index.ts
+
+Modified:
+  src/components/CallLogDetail.jsx — link cluster, toast, onJobRefresh
+  src/components/ProposalDetail.jsx — qb_customer_id in selects, LINKED pill
+  src/pages/CallLog.jsx — onJobRefresh prop wiring
+  src/pages/Invoices.jsx — Sync and Send button, error/toast banners
+  src/pages/Proposals.jsx — qb_customer_id in selects, LINKED pill, badge gating
+  supabase/functions/qb-create-job/index.ts — guard split, localhost CORS
+  supabase/functions/qb-sync-invoice/index.ts — guard reshape, stale-cust mapping, localhost CORS
+  supabase/functions/qb-record-payment/index.ts — guard reshape, stale-cust mapping, localhost CORS
+  supabase/functions/qb-void-invoice/index.ts — drop archive skip, localhost CORS
+
+================================================================
+COMMITS THIS SESSION
+================================================================
+
+  d8d345d  Merge feat/qb-archive-link: link archive jobs to existing
+           QB customers + retroactive sync
+  8fc3ead  feat(qb-link): rename retroactive sync button + success toast
+  e65d985  fix(qb-link): make link/unlink usable — query syntax,
+           error surfacing, success toast
+  2179499  fix(qb): allow http://localhost:* origins in QB edge
+           function CORS
+  a24cc84  feat(qb): manual Sync to QuickBooks button + Re-link
+           error path on InvoiceDetail (phase 4)
+  9d4eb49  feat(qb): proposal list + detail badge wording for linked
+           archive jobs (phase 3)
+  3e2f1a5  feat(qb): QBLinkModal + CallLogDetail wiring (phase 2)
+  92f1a81  feat(qb): allow archive-style proposals to sync once QB
+           customer is linked (phase 1: edge functions)
+
+================================================================
+LESSONS
+================================================================
+
+A. Don't guess at third-party API errors — fetch the docs
+   The first qb-search-customers deploy failed with
+   QueryParserError: Encountered "(" at column 99. I proposed a
+   "drop the parens" fix from the column position alone. Chris
+   pushed back: "are you guessing or did you find documentation?"
+   Pulling the actual Intuit docs showed the parser rejects BOTH
+   parens AND OR in WHERE clauses — so my paren-only fix would
+   have surfaced a second error after redeploy and burned another
+   debug cycle. Saved as feedback memory for future sessions.
+
+B. CORS allowlist on edge functions assumed prod-only deploy
+   All six QB functions had ALLOWED_ORIGINS limited to prod
+   domains + *.vercel.app, blocking localhost dev. None had ever
+   been tested locally. Fix is safe (auth is the boundary, not
+   CORS) but flag this pattern for future edge functions.
+
+C. onSaved-navigates surprise discarded the success toast
+   CallLog.jsx's onSaved callback navigates back to the list,
+   unmounting the detail. The link toast was set immediately
+   before onSaved fired, so React saw the state update but the
+   component vanished before the user saw it. Added a separate
+   onJobRefresh prop that just reloads data without navigating —
+   the toast survives because the component stays mounted.
+
+D. Vercel preview branch was the right call for QB-touching work
+   First-pass test on `npm run dev` hit the localhost CORS issue.
+   User correctly pointed out that the Vercel preview branch
+   workflow would have avoided this entirely (allowlist already
+   permits *.vercel.app). For internal-tool edge function work
+   that needs QB access, prefer pushing to a feature branch over
+   local dev unless someone's wired localhost into the allowlist
+   first.
+
+================================================================
+NOT ADDRESSED THIS SESSION (CARRIED FORWARD)
+================================================================
+
+From v87 (still open):
+  - Low #15: qb_connection plaintext refresh tokens. Recommend
+    /ultraplan before implementing — touches all QB edge functions
+    + the token refresh flow. Low urgency (service_role only).
+
+From v86 (still open):
+  - send-invoice / qb-sync-invoice error surfacing — supabase-js
+    swallows the real reason behind a generic fnError message.
+    PARTIAL FIX this session: QBLinkModal now reads
+    fnErr.context.json() to surface the body. Pattern available
+    to apply elsewhere.
+  - Retention release workflow.
+  - In-app invoice display ignores show_cents (by design).
+  - Page remount on list↔detail.
+  - QB fan-out sweep.
+  - Invoice numbering.
+  - Multi-invoice header link.
+  - History Locker pagination — DataTable sorts visible page only.
+  - importApi.js (bulk CSV) does NOT honor a virtual qb_skip_sync
+    field. Still out of scope; default false is safe.
+
+New this session:
+  - "Sync and Send" button (the new InvoiceDetail manual sync
+    path) is implemented but not exercised end-to-end. The
+    underlying edge function is proven; the button's specific
+    handler logic isn't. Will surface the first time someone
+    needs to retroactively push a Sent/Waiting invoice to QB
+    (most likely an archive job linked AFTER the invoice was
+    created).
+  - Regression test plan (unlinked archive jobs still skip,
+    qb_skip_sync still wins, normal jobs unchanged) deferred.
+
+================================================================
+NEXT SESSION PICKUP
+================================================================
+
+Priority order:
+  1. Verify on production (scmybiz.com): walk Job 6844 → confirm
+     LINKED chip, then exercise the retroactive Sync and Send
+     button on a different archive invoice that was never pushed
+     to QB.
+  2. Run regression checks (any unlinked archive job → confirm
+     skip reason "is_archive_proposal_unlinked", linked job with
+     qb_skip_sync re-checked → confirm "qb_skip_sync" wins,
+     normal proposal approval → unchanged).
+  3. v87 carry-forward: Low #15 qb_connection token encryption.
+  4. send-invoice error surfacing — apply the
+     fnErr.context.json() pattern from QBLinkModal to handleSend
+     and elsewhere.
+  5. Retention release workflow.
+  6. Whatever new work Chris brings.

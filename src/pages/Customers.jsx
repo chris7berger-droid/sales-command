@@ -8,6 +8,7 @@ import { getCurrentTeamMember } from "../lib/auth";
 import SectionHeader from "../components/SectionHeader";
 import DataTable from "../components/DataTable";
 import Btn from "../components/Btn";
+import CustomerMergeModal from "../components/CustomerMergeModal";
 
 const STD_TERMS = [5, 15, 30, 45, 60, 90, 120];
 const CONTACT_ROLES = ["Project Manager", "Office Manager", "Billing Contact"];
@@ -136,7 +137,7 @@ function CustomerModal({ customer, onClose, onSaved }) {
 }
 
 /* ─── Contact Modal ─── */
-function ContactModal({ contact, customerId, onClose, onSaved }) {
+function ContactModal({ contact, customerId, canManage, onClose, onSaved }) {
   const isNew = !contact;
   const [form, setForm] = useState({
     name:  contact?.name  || "",
@@ -204,7 +205,7 @@ function ContactModal({ contact, customerId, onClose, onSaved }) {
         {error && <div style={{ marginTop: 14, color: C.red, fontSize: 13, fontFamily: F.ui }}>{error}</div>}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
           <div>
-            {!isNew && <Btn v="ghost" sz="sm" onClick={handleDelete} style={{ color: C.red }}>Delete</Btn>}
+            {!isNew && canManage && <Btn v="ghost" sz="sm" onClick={handleDelete} style={{ color: C.red }}>Delete</Btn>}
           </div>
           <div style={{ display: "flex", gap: 10 }}>
             <Btn v="ghost" sz="sm" onClick={onClose}>Cancel</Btn>
@@ -422,7 +423,7 @@ function PayAppTemplatesSection({ customerId, canManage }) {
 }
 
 /* ─── Customer Detail View ─── */
-function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigateProposal, onNavigateInvoice }) {
+function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigateProposal, onNavigateInvoice, onDeleted, onMerged }) {
   const [jobs, setJobs]           = useState([]);
   const [proposals, setProposals] = useState([]);
   const [invoices, setInvoices]   = useState([]);
@@ -431,7 +432,36 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
   const [tab, setTab]             = useState("jobs");
   const [contactModal, setContactModal] = useState(null); // null | "new" | contact obj
   const [teamMember, setTeamMember] = useState(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [deleting, setDeleting]   = useState(false);
   const canManage = !!teamMember && ["Admin", "Manager"].includes(teamMember.role);
+
+  async function handleDelete() {
+    if (deleting) return;
+    if (!window.confirm(`Delete customer "${customer.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    const { error: rpcErr } = await supabase.rpc("delete_customer", { p_customer_id: customer.id });
+    setDeleting(false);
+    if (rpcErr) {
+      const msg = rpcErr.message || "";
+      if (msg.includes("HAS_CHILDREN")) {
+        // Postgres exception DETAIL is returned as the second segment of the
+        // error string; details vary by PostgREST version. We always have a
+        // signal that children exist — show the actionable message.
+        window.alert(`This customer can't be deleted because it still has jobs, contacts, or pay-app templates attached. Use Merge to consolidate it into another customer first.`);
+      } else if (msg.includes("FORBIDDEN")) {
+        window.alert("You don't have permission to delete customers.");
+      } else if (msg.includes("NOT_FOUND")) {
+        window.alert("Customer no longer exists. Reload and try again.");
+      } else if (msg.includes("TENANT_MISMATCH")) {
+        window.alert("Customer belongs to a different tenant.");
+      } else {
+        window.alert(msg || "Delete failed. Try again.");
+      }
+      return;
+    }
+    onDeleted?.();
+  }
 
   useEffect(() => { getCurrentTeamMember().then(setTeamMember); }, []);
 
@@ -497,6 +527,8 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <button onClick={onBack} style={{ background: "none", border: `1.5px solid ${C.borderStrong}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase" }}>← Back</button>
         <h2 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.03em", textTransform: "uppercase", flex: 1 }}>{customer.name}</h2>
+        {canManage && <Btn sz="sm" v="ghost" onClick={() => setMergeOpen(true)} style={{ color: C.amber }}>Merge</Btn>}
+        {canManage && <Btn sz="sm" v="ghost" onClick={handleDelete} disabled={deleting} style={{ color: C.red }}>{deleting ? "Deleting…" : "Delete"}</Btn>}
         <Btn sz="sm" v="ghost" onClick={onEdit}>Edit</Btn>
       </div>
 
@@ -545,7 +577,16 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
       </div>
 
       {/* Contact Modal */}
-      {contactModal && <ContactModal contact={contactModal === "new" ? null : contactModal} customerId={customer.id} onClose={() => setContactModal(null)} onSaved={() => { setContactModal(null); loadContacts(); }} />}
+      {contactModal && <ContactModal contact={contactModal === "new" ? null : contactModal} customerId={customer.id} canManage={canManage} onClose={() => setContactModal(null)} onSaved={() => { setContactModal(null); loadContacts(); }} />}
+
+      {/* Merge Modal */}
+      {mergeOpen && (
+        <CustomerMergeModal
+          duplicateCustomer={customer}
+          onClose={() => setMergeOpen(false)}
+          onMerged={(survivorId) => { setMergeOpen(false); onMerged?.(survivorId); }}
+        />
+      )}
 
       {/* Pay App Templates */}
       <PayAppTemplatesSection customerId={customer.id} canManage={canManage} />
@@ -703,6 +744,8 @@ export default function Customers({ setSubPage }) {
           onNavigateJob={(job) => navigate(`/calllog/${job.id}`)}
           onNavigateProposal={(id) => navigate(`/proposals/${id}`)}
           onNavigateInvoice={(id) => navigate(`/invoices/${id}`)}
+          onDeleted={() => { setViewing(null); navigate("/customers"); load(); }}
+          onMerged={(survivorId) => { setViewing(null); navigate(`/customers/${survivorId}`); load(); }}
         />
         {editing && (
           <CustomerModal

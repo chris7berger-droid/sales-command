@@ -1,0 +1,295 @@
+SC_Handoff_v89
+Date: 2026-04-30
+Author: Chris Berger (with Claude assistance)
+Topic: Customer Delete + Merge for duplicate cleanup. Sales reps had been
+       creating duplicate customers; the app had no way to remove them.
+       This adds a server-atomic delete + merge flow with full audit trail.
+
+================================================================
+WHY
+================================================================
+
+Production carried a growing pile of duplicate customers — sales reps not
+knowing the existing customer search was creating new ones instead of
+picking the existing match. There was no Delete button on the customer
+detail page, and even if there had been, plain delete would either fail
+on FK violation (call_log.customer_id) or silently break things.
+
+The right shape is two-tool: empty-customer delete for the easy cases,
+and a merge-into-survivor flow for the ones that already have jobs.
+Both Admin/Manager only — sales must not be able to dig the hole deeper.
+
+================================================================
+WHAT WAS DONE
+================================================================
+
+1. Plan agent up front
+   --------------------
+   Used the Plan agent to design the full feature before writing any
+   code. The plan locked in: hard delete (no soft-delete column, since
+   that would force `deleted_at IS NULL` filters into ~8 reader files),
+   server-side SECURITY DEFINER RPCs over an edge function (RPCs give
+   true single-transaction atomicity; edge function only adds value
+   when you need auth.admin.* APIs, which this doesn't), and a
+   customer_merges audit table for the "where did this customer go"
+   paper trail.
+
+2. Migration: 20260430120000_customer_delete_merge.sql
+   ---------------------------------------------------
+   * customer_merges audit table with the standard tenant_id pattern
+     (default + FK to tenant_config), four authenticated policies,
+     mutations gated to is_admin_or_manager(). duplicate_id is
+     intentionally not an FK so the audit row survives the dup's
+     deletion.
+   * delete_customer(p_customer_id uuid) -> jsonb
+     - is_admin_or_manager check up front (RAISE FORBIDDEN with
+       errcode 42501 if not)
+     - Tenant verification via SELECT FOR UPDATE on the row
+     - Counts call_log + customer_contacts + customer_pay_app_templates
+     - RAISE HAS_CHILDREN with JSON detail if any > 0 (count check is
+       inside the same txn as the DELETE, so a sales rep can't slip a
+       job in between)
+     - Otherwise DELETE
+   * merge_customers(p_dup_id uuid, p_survivor_id uuid) -> jsonb
+     - Locks both rows in deterministic id-order to prevent
+       (A,B)/(B,A) deadlock from concurrent merges
+     - Re-points call_log.customer_id and refreshes the
+       call_log.customer_name snapshot to survivor's name
+     - Demotes duplicate's primary contact + default customer-scope
+       template before re-pointing (one primary / one default per
+       customer is preserved)
+     - Re-points customer_contacts and customer_pay_app_templates
+     - qb_customer_id rule: if survivor is null and dup has one,
+       copy onto survivor and flag qb_customer_id_copied=true. If
+       survivor has one, keep it. App NEVER calls QuickBooks; dup's
+       QB record is left for manual cleanup in QuickBooks.
+     - INSERT into customer_merges with name snapshots + counts +
+       performed_by
+     - DELETE the now-empty duplicate
+     - Returns counts as jsonb
+   * Tightened policies: customers_delete and customer_contacts_delete
+     now require is_admin_or_manager() in addition to tenant scope.
+     customer_pay_app_templates_delete already required this from the
+     04-17 pay-apps migration.
+
+3. UI: CustomerMergeModal.jsx
+   --------------------------
+   New component modeled on QBLinkModal.jsx pattern (full-modal picker,
+   not a dropdown — for an irreversible op the user needs to see
+   city/phone/QB-status, not just name).
+   * Step 1: paginated tenant-scoped customer list (excluding the
+     duplicate), in-memory search by name/city/phone/email.
+     Selected-row treatment matches v88: C.dark bg + C.teal text +
+     teal left-border.
+   * Step 2: preview panel shows survivor + duplicate names, jobs/
+     contacts/templates counts (loaded on modal mount via three
+     count-only queries), QB rule banner colored by tone (warn for
+     "both have QB", info otherwise), and a contact-dedupe heads-up
+     ("Duplicate contacts may result; review afterward").
+   * Typed-confirm: user must type literal "MERGE" to enable the
+     final button. Per the agent's plan this is the GitHub-style
+     guardrail for irreversible ops.
+   * Error mapping: SAME_CUSTOMER, FORBIDDEN, TENANT_MISMATCH,
+     NOT_FOUND_* — each gets a specific message.
+
+4. CustomerDetail header wiring (Customers.jsx)
+   --------------------------------------------
+   * Two new buttons on the header next to Edit:
+     - Merge (amber ghost) → opens CustomerMergeModal
+     - Delete (red ghost) → calls delete_customer RPC
+   * Both gated by canManage (Admin/Manager).
+   * Delete handler does a CLIENT-SIDE pre-check first against
+     already-loaded jobs/contacts state and surfaces a precise alert
+     ("Can't delete X — it still has 8 jobs and 2 contacts attached.
+     Use Merge to consolidate it into another customer first.")
+     instead of showing a misleading window.confirm before the RPC.
+     Server still re-checks via HAS_CHILDREN; the pre-check is purely
+     UX.
+   * Parent page wires onDeleted (clear viewing, navigate to list,
+     reload) and onMerged (navigate to survivor's detail page,
+     reload).
+
+5. ContactModal Delete now canManage-gated
+   ---------------------------------------
+   The contact-card Delete button in ContactModal had no role gate.
+   Post-policy-tighten it would silent-fail for sales (RLS rejects,
+   client-side delete returns no error). Added canManage prop +
+   button gate so sales never sees a button that no-ops.
+
+6. Migration ledger repair
+   -----------------------
+   Pre-flight migration list showed two unpushed entries from the
+   prior session: 20260429180000_add_public_rpc_functions and
+   20260429190000_drop_public_read_policies. Both turned out to have
+   already been applied via Supabase before being committed. Repaired
+   the ledger with `supabase migration repair --status applied
+   20260429180000 20260429190000` before the new push so the new
+   migration applied cleanly.
+
+================================================================
+DEPLOY STATE
+================================================================
+
+Vercel (frontend):
+  - feat/customer-delete-merge merged to main (b9557db)
+  - Auto-deploying to scmybiz.com
+  - Includes 2617fd9 (vite-plugin-react peer-compat fix that was
+    cherry-picked onto main mid-session — earlier prod build had
+    failed on it)
+
+Supabase (database) — DEPLOYED THIS SESSION:
+  - 20260430120000_customer_delete_merge.sql applied via
+    `supabase db push`
+  - Migration ledger repaired for the two prior 04-29 entries
+  - Verified: customer_merges table, two RPCs, tightened policies all
+    present
+
+Supabase (edge functions): no changes.
+
+npm run build: clean.
+
+================================================================
+TEST COVERAGE
+================================================================
+
+All five steps of the plan exercised on Vercel preview before merge:
+  ✓ Empty-customer delete (happy path) — confirm + delete worked
+  ✓ Delete blocked by children — fast-fail alert with job/contact
+    counts (after the mid-session window.confirm UX fix)
+  ✓ Merge basic — picked two real duplicates, jobs re-pointed under
+    survivor, dup gone
+  ✓ Merge with QB linkage — banner copy correct, qb_customer_id
+    copied to survivor
+  ✓ Sales role — Merge/Delete buttons hidden, contact Delete also
+    hidden
+
+NOT verified end-to-end this session (low risk, function-level
+proven):
+  - Cross-tenant attempt (would surface TENANT_MISMATCH)
+  - Concurrent merge of same dup from two browsers (would surface
+    NOT_FOUND on the second after the FOR UPDATE)
+  - Default-customer-template demote when both sides have one
+    (template logic is symmetrical to primary-contact, which IS
+    proven via the merge basic test)
+
+================================================================
+FILES TOUCHED
+================================================================
+
+New:
+  src/components/CustomerMergeModal.jsx
+  supabase/migrations/20260430120000_customer_delete_merge.sql
+
+Modified:
+  src/pages/Customers.jsx — Merge/Delete buttons on CustomerDetail
+                            header, handleDelete with client-side
+                            pre-check, ContactModal canManage prop,
+                            CustomerMergeModal mount, parent wiring
+                            (onDeleted, onMerged)
+
+================================================================
+COMMITS THIS SESSION
+================================================================
+
+  b9557db  Merge feat/customer-delete-merge: customer delete + merge
+           for duplicate cleanup
+  0da77cf  fix(customers): skip delete confirm when children exist
+  61b069a  Merge branch 'main' into feat/customer-delete-merge
+           (pulled in 2617fd9 vite-plugin-react peer fix)
+  3e898fa  feat(customers): delete + merge for duplicate cleanup
+
+  (cherry-picked onto main mid-session, prior to merge:)
+  2617fd9  fix(deps): bump @vitejs/plugin-react to ^6.0.1 for
+           vite 8 peer compat
+
+================================================================
+LESSONS
+================================================================
+
+A. Plan agent before code, when the surface is wide
+   The customer merge surface touches: customers, call_log,
+   customer_contacts, customer_pay_app_templates, qb_customer_id,
+   primary-contact + default-template invariants, RLS, role gating,
+   audit. Asking the Plan agent first surfaced edge cases (deadlock
+   from (A,B)/(B,A) merges, primary-contact demote rule, audit-row
+   survivability) that would have leaked out as bugs during testing
+   otherwise. Worth the extra turn.
+
+B. Always migration list before db push
+   Two prior-session migrations were sitting unapplied locally but
+   already-applied remotely. Pushing my new migration without
+   checking would have either re-run them (idempotent SQL, would
+   succeed) or hit conflicts on the `team_members_public_read`
+   re-creation. The migration repair pattern (memory:
+   feedback_migration_ledger_repair) is the right tool when this
+   diverges.
+
+C. window.confirm before a server-side guard is misleading UX
+   First-pass UI showed `window.confirm("Delete customer X?")` even
+   on customers with 8 jobs attached — RPC rejected correctly but
+   the dialog implied success. Chris caught this on first preview
+   click. Fix: pre-check loaded state and skip the confirm with a
+   precise alert. Pattern to remember: if you can already tell
+   client-side that the action will fail, don't show a generic
+   "are you sure" before showing the real reason.
+
+D. Vercel preview URLs are per-deployment, not per-branch
+   Chris hard-refreshed an old preview URL after a fresh push and
+   saw stale code. Per-deployment URLs (sales-command-XXXX.vercel.app)
+   are pinned to a specific build. The branch-alias URL
+   (sales-command-git-<branch>-<scope>.vercel.app) is what tracks
+   the latest build for the branch. Mention the alias upfront when
+   pushing preview-test work.
+
+E. Cherry-pick mid-session for a hot dep fix
+   A v88-era vite-plugin-react peer fix was on a side branch that
+   had failed to deploy. Chris cherry-picked it onto main mid-flight,
+   we merged main back into the feature branch (no-ff merge to keep
+   history readable), and Vercel rebuilt the preview clean. Working
+   pattern when you discover a cross-cutting fix mid-feature.
+
+================================================================
+NOT ADDRESSED THIS SESSION (CARRIED FORWARD)
+================================================================
+
+From the agent's plan, intentionally out of scope:
+  - Bulk-delete from the customer list page (rejected per agent —
+    invites mistakes; CustomerDetail is the right surface).
+  - Auto-dedupe of contacts on merge (rejected — heuristic
+    misfires too easily, e.g. parent/child sharing a phone).
+    Surfaced in modal copy as "review afterward."
+
+From v88 (still open):
+  - Low #15: qb_connection plaintext refresh tokens.
+  - send-invoice / qb-sync-invoice error surfacing (partial fix in
+    QBLinkModal — pattern available to apply to handleSend).
+  - "Sync and Send" button on InvoiceDetail still not exercised
+    end-to-end.
+  - Retention release workflow.
+  - In-app invoice display ignores show_cents.
+  - Page remount on list↔detail.
+  - QB fan-out sweep.
+  - Invoice numbering.
+  - Multi-invoice header link.
+  - History Locker pagination.
+  - importApi.js (bulk CSV) does NOT honor virtual qb_skip_sync.
+
+New this session, deferred:
+  - Cross-tenant + concurrent-merge regression cases not exercised
+    (function-level logic is proven, the orchestration around them
+    is what's untested).
+
+================================================================
+NEXT SESSION PICKUP
+================================================================
+
+Priority order:
+  1. Verify on production (scmybiz.com): Chris does the actual
+     duplicate-customer cleanup pass using the new tools. Most
+     likely first sweep finds another edge case or two.
+  2. Customer settings page (memory: project_settings_page) —
+     standing item.
+  3. v88 carry-forward: send-invoice error surfacing (apply
+     fnErr.context.json() pattern from QBLinkModal).
+  4. Whatever Chris hits during the duplicate cleanup that needs
+     follow-up.

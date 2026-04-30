@@ -137,3 +137,14 @@ See section 3.
 - `src/components/PayAppDetailModal.jsx`
 - `src/pages/Customers.jsx`
 - `supabase/migrations/20260417140000_pay_apps.sql`
+
+## 8. Pre-Start Checklist (read before Phase 1)
+
+- **Recent edits in this area** — `Customers.jsx` and `BillingScheduleSection.jsx` were both touched in v89 (customer delete/merge) and v88 (QB linking). Phase 1 deliberately does NOT modify `BillingScheduleSection.jsx`, so no merge risk there. Phase 1 DOES edit `NewPayAppModal.jsx` and `PayAppDetailModal.jsx` — both are stable since v87, low risk.
+- **Phase 2 retires `src/lib/payAppPdf.js`** — before deleting it, grep the repo for any other importers besides `NewPayAppModal` / `PayAppDetailModal`:
+  ```
+  grep -rn "payAppPdf" src/
+  ```
+- **AGRU template row** — the `customer_pay_app_templates` row labeled "AGRU Pay App" (job-scope, customer Plenium Builders) is the broken one. Phase 1 path: delete that row (or set `field_mapping = null`) so the customer falls through to the new standard generator.
+- **Test job for Phase 1 validation** — call_log 6458 (MB AGRU America, Plenium Builders, $101,627.37 contract). The existing pay app #1 ($21,956 completed, $1,098 retainage, $20,858 due) is the data we already entered; regenerate against the new generator and compare.
+- **Open questions in §6 are gating** — at minimum answer Q1 (Plenium accepts AIA G702/G703?) before starting Phase 1, since the answer determines whether Phase 1 alone unblocks AGRU or whether Phase 2 has to ship together.

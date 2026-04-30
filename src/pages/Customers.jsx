@@ -438,6 +438,17 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
 
   async function handleDelete() {
     if (deleting) return;
+    // Client-side pre-check: skip the "are you sure" prompt entirely if we
+    // already know the delete will be blocked. Server still re-checks inside
+    // delete_customer() so this is just UX, not authorization.
+    const childCount = jobs.length + contacts.length;
+    if (childCount > 0) {
+      const parts = [];
+      if (jobs.length) parts.push(`${jobs.length} job${jobs.length === 1 ? "" : "s"}`);
+      if (contacts.length) parts.push(`${contacts.length} contact${contacts.length === 1 ? "" : "s"}`);
+      window.alert(`Can't delete "${customer.name}" — it still has ${parts.join(" and ")} attached. Use Merge to consolidate it into another customer first.`);
+      return;
+    }
     if (!window.confirm(`Delete customer "${customer.name}"? This cannot be undone.`)) return;
     setDeleting(true);
     const { error: rpcErr } = await supabase.rpc("delete_customer", { p_customer_id: customer.id });

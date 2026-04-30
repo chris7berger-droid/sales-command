@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { STAGES } from "../lib/mockData";
 import Btn from "./Btn";
 import SearchSelect from "./SearchSelect";
+import ContactBillingPicker from "./ContactBillingPicker";
 
 const inputStyle = {
   padding: "10px 14px", borderRadius: 8,
@@ -116,6 +117,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     billingEmail: "",
     billingTerms: "30",
     billingTermsCustom: "",
+    billingSourceContactId: null,
     businessAddress: "", businessCity: "", businessState: "", businessZip: "",
     jobsiteAddress: "", jobsiteCity: "", jobsiteState: "", jobsiteZip: "", newSiteBuild: false, jobsiteSame: false,
     billingAddressSame: true,
@@ -226,19 +228,23 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     const billingAddrZip    = data.billingAddressSame ? data.businessZip     : data.billingAddrZip;
 
     let customerId = data.customerId || null;
-    // Update existing customer's contact/billing info if changed
+    const billingTermsNum = data.billingTerms === "custom" ? (parseInt(data.billingTermsCustom) || 30) : (parseInt(data.billingTerms) || 30);
+    // Update existing customer's contact info; skip billing_* writes when picker locked them from a customer_contacts Billing Contact row.
     if (data.customerMode === "existing" && customerId) {
-      await supabase.from("customers").update({
+      const update = {
         phone: data.contactPhone || null,
         email: data.contactEmail || null,
         contact_email: data.contactEmail || null,
         contact_phone: data.contactPhone || null,
-        billing_same: data.billingSame,
-        billing_name: data.billingSame ? null : data.billingName,
-        billing_phone: data.billingSame ? null : data.billingPhone,
-        billing_email: data.billingSame ? null : data.billingEmail,
-        billing_terms: data.billingTerms === "custom" ? (parseInt(data.billingTermsCustom) || 30) : (parseInt(data.billingTerms) || 30),
-      }).eq("id", customerId);
+        billing_terms: billingTermsNum,
+      };
+      if (!data.billingSourceContactId) {
+        update.billing_same = data.billingSame;
+        update.billing_name = data.billingSame ? null : data.billingName;
+        update.billing_phone = data.billingSame ? null : data.billingPhone;
+        update.billing_email = data.billingSame ? null : data.billingEmail;
+      }
+      await supabase.from("customers").update(update).eq("id", customerId);
     }
     if (data.customerMode === "new") {
       const { data: nc, error: custErr } = await supabase.from("customers").insert([{
@@ -250,12 +256,22 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
         billing_name: data.billingSame ? null : data.billingName,
         billing_phone: data.billingSame ? null : data.billingPhone,
         billing_email: data.billingSame ? null : data.billingEmail,
-        billing_terms: data.billingTerms === "custom" ? (parseInt(data.billingTermsCustom) || 30) : (parseInt(data.billingTerms) || 30),
+        billing_terms: billingTermsNum,
         business_address: data.businessAddress, business_city: data.businessCity,
         business_state: data.businessState, business_zip: data.businessZip,
       }]).select().single();
       if (custErr) { setError("Failed to create customer: " + custErr.message); setSaving(false); return; }
       if (nc) customerId = nc.id;
+      if (customerId && !data.billingSame && data.billingName.trim()) {
+        await supabase.from("customer_contacts").insert([{
+          customer_id: customerId,
+          name: data.billingName.trim(),
+          phone: data.billingPhone || null,
+          email: data.billingEmail || null,
+          role: "Billing Contact",
+          is_primary: true,
+        }]);
+      }
     }
 
     const { data: newJob, error: err } = await supabase.from("call_log").insert([{
@@ -290,9 +306,18 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
 
     if (data.attachments.length > 0) await uploadFiles(newJob.id);
 
-    // Save additional contacts to customer_contacts
+    // Save additional contacts to customer_contacts (skip rows that duplicate the Billing Contact just inserted by new-customer flow)
     if (customerId && data.additionalContacts.length > 0) {
-      const newContacts = data.additionalContacts.filter(c => !c.existingId && (c.name || c.email));
+      const billingKey = data.customerMode === "new" && !data.billingSame
+        ? `${data.billingName.trim().toLowerCase()}|${(data.billingEmail || "").trim().toLowerCase()}`
+        : null;
+      const newContacts = data.additionalContacts.filter(c => {
+        if (c.existingId) return false;
+        if (!c.name && !c.email) return false;
+        if (billingKey && c.role === "Billing Contact" &&
+            `${c.name.trim().toLowerCase()}|${(c.email || "").trim().toLowerCase()}` === billingKey) return false;
+        return true;
+      });
       if (newContacts.length > 0) {
         await supabase.from("customer_contacts").insert(
           newContacts.map(c => ({ customer_id: customerId, name: c.name, phone: c.phone, email: c.email, role: c.role }))
@@ -389,10 +414,10 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
                   else if (chosen.phone) set("contactPhone", chosen.phone);
                   if (chosen.contact_email) set("contactEmail", chosen.contact_email);
                   else if (chosen.email) set("contactEmail", chosen.email);
-                  // Load existing contacts for this customer
-                  supabase.from("customer_contacts").select("*").eq("customer_id", val).order("created_at").then(({ data: contacts }) => {
-                    set("additionalContacts", (contacts || []).map(c => ({ name: c.name || "", phone: c.phone || "", email: c.email || "", role: c.role || "Project Manager", existingId: c.id })));
-                  });
+                  if (chosen.billing_name)  set("billingName",  chosen.billing_name);
+                  if (chosen.billing_phone) set("billingPhone", chosen.billing_phone);
+                  if (chosen.billing_email) set("billingEmail", chosen.billing_email);
+                  set("additionalContacts", []);
                 }
               }}
             />
@@ -447,28 +472,46 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       case "contactInfo": return (
         <div>
           <StepLabel n={step + 1} label="Contact Information" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <input placeholder="Contact Name" value={data.contactName} onChange={e => set("contactName", e.target.value)} style={inputStyle} />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <input placeholder="Phone" value={data.contactPhone} onChange={e => set("contactPhone", e.target.value)} style={inputStyle} />
-              <input placeholder="Email" value={data.contactEmail} onChange={e => set("contactEmail", e.target.value)} style={inputStyle} />
-            </div>
-            <div style={{ marginTop: 6 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, marginBottom: 4 }}>Billing Terms</div>
-              <select value={data.billingTerms} onChange={e => set("billingTerms", e.target.value)} style={inputStyle}>
-                <option value="5">Net 5</option>
-                <option value="15">Net 15</option>
-                <option value="30">Net 30</option>
-                <option value="45">Net 45</option>
-                <option value="60">Net 60</option>
-                <option value="90">Net 90</option>
-                <option value="120">Net 120</option>
-                <option value="custom">Custom</option>
-              </select>
-              {data.billingTerms === "custom" && (
-                <input type="number" placeholder="Days" value={data.billingTermsCustom || ""} onChange={e => set("billingTermsCustom", e.target.value)} style={{ ...inputStyle, marginTop: 8 }} />
-              )}
-            </div>
+          <ContactBillingPicker
+            customerId={data.customerId}
+            customerMode={data.customerMode}
+            customerName={customers.find(c => c.id === data.customerId)?.name || ""}
+            contactValues={{
+              contactName: data.contactName,
+              contactPhone: data.contactPhone,
+              contactEmail: data.contactEmail,
+            }}
+            billingValues={{
+              billingName: data.billingName,
+              billingPhone: data.billingPhone,
+              billingEmail: data.billingEmail,
+            }}
+            onContactChange={patch => setData(d => ({ ...d, ...patch }))}
+            onBillingChange={patch => setData(d => ({ ...d, ...patch }))}
+            onBillingLockChange={(locked, contactId) =>
+              setData(d => ({
+                ...d,
+                billingSourceContactId: locked ? contactId : null,
+                billingSame: locked ? false : d.billingSame,
+              }))
+            }
+            hideBilling={data.customerMode === "new"}
+          />
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, marginBottom: 4 }}>Billing Terms</div>
+            <select value={data.billingTerms} onChange={e => set("billingTerms", e.target.value)} style={inputStyle}>
+              <option value="5">Net 5</option>
+              <option value="15">Net 15</option>
+              <option value="30">Net 30</option>
+              <option value="45">Net 45</option>
+              <option value="60">Net 60</option>
+              <option value="90">Net 90</option>
+              <option value="120">Net 120</option>
+              <option value="custom">Custom</option>
+            </select>
+            {data.billingTerms === "custom" && (
+              <input type="number" placeholder="Days" value={data.billingTermsCustom || ""} onChange={e => set("billingTermsCustom", e.target.value)} style={{ ...inputStyle, marginTop: 8 }} />
+            )}
           </div>
 
           {/* Additional Contacts */}

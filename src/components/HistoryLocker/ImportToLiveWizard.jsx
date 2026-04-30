@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { C, F } from "../../lib/tokens";
 import { supabase } from "../../lib/supabase";
 import { fetchAll } from "../../lib/supabaseHelpers";
+import ContactBillingPicker from "../ContactBillingPicker";
 
 const inputStyle = {
   padding: "10px 14px", borderRadius: 8,
@@ -128,6 +129,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
     billingEmail: "",   // REQUIRED
     billingPhone: "",
     billingTerms: "30",
+    billingSourceContactId: null,
 
     // addresses — jobsite prefilled, business blank
     jobsiteAddress: archiveAddr, jobsiteCity: archiveCity, jobsiteState: archiveState, jobsiteZip: archiveZip,
@@ -324,6 +326,17 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         }]).select().single();
         if (cErr) throw new Error("Customer: " + cErr.message);
         customerId = newC.id;
+
+        if (form.billingName.trim()) {
+          await supabase.from("customer_contacts").insert([{
+            customer_id: customerId,
+            name: form.billingName.trim(),
+            phone: form.billingPhone || null,
+            email: form.billingEmail || null,
+            role: "Billing Contact",
+            is_primary: true,
+          }]);
+        }
       }
 
       // 2. Job number — legacy if user picked it (re-check availability), else next auto
@@ -467,40 +480,29 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
       case "contact": return (
         <div>
           <StepLabel n={3} label="Contact & Billing" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <input placeholder="Contact Name (optional)" value={form.contactName} onChange={e => set("contactName", e.target.value)} style={inputStyle} />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <input placeholder="Phone" value={form.contactPhone} onChange={e => set("contactPhone", e.target.value)} style={inputStyle} />
-              <input placeholder="Email" value={form.contactEmail} onChange={e => set("contactEmail", e.target.value)} style={inputStyle} />
-            </div>
-
-            <div style={{ marginTop: 10, padding: "12px 14px", background: C.linen, borderRadius: 8, border: `1px solid ${C.border}` }}>
-              <div style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 6 }}>
-                Billing Contact
-                <span style={{ fontSize: 10, color: C.teal, background: C.dark, padding: "1px 6px", borderRadius: 4, letterSpacing: "0.08em" }}>REQUIRED</span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <input placeholder="Billing Contact Name" value={form.billingName} onChange={e => set("billingName", e.target.value)} style={inputStyle} />
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <input placeholder="Billing Phone" value={form.billingPhone} onChange={e => set("billingPhone", e.target.value)} style={inputStyle} />
-                  <input placeholder="Billing Email" value={form.billingEmail} onChange={e => set("billingEmail", e.target.value)} style={inputStyle} />
-                </div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: 6 }}>
-              <div style={labelStyle}>Billing Terms</div>
-              <select value={form.billingTerms} onChange={e => set("billingTerms", e.target.value)} style={inputStyle}>
-                <option value="5">Net 5</option>
-                <option value="15">Net 15</option>
-                <option value="30">Net 30</option>
-                <option value="45">Net 45</option>
-                <option value="60">Net 60</option>
-                <option value="90">Net 90</option>
-                <option value="120">Net 120</option>
-              </select>
-            </div>
-          </div>
+          <ContactBillingPicker
+            customerId={form.customerId}
+            customerMode={form.customerMode}
+            customerName={matchedCustomer?.name || ""}
+            contactValues={{
+              contactName: form.contactName,
+              contactPhone: form.contactPhone,
+              contactEmail: form.contactEmail,
+            }}
+            billingValues={{
+              billingName: form.billingName,
+              billingPhone: form.billingPhone,
+              billingEmail: form.billingEmail,
+              billingTerms: form.billingTerms,
+            }}
+            onContactChange={patch => setForm(f => ({ ...f, ...patch }))}
+            onBillingChange={patch => setForm(f => ({ ...f, ...patch }))}
+            onBillingLockChange={(locked, contactId) =>
+              setForm(f => ({ ...f, billingSourceContactId: locked ? contactId : null }))
+            }
+            requireBilling
+            showBillingTerms
+          />
         </div>
       );
 

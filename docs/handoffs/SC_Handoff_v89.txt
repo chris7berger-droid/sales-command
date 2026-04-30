@@ -293,3 +293,26 @@ Priority order:
      fnErr.context.json() pattern from QBLinkModal).
   4. Whatever Chris hits during the duplicate cleanup that needs
      follow-up.
+
+================================================================
+ADDENDUM (post-handoff, same day)
+================================================================
+
+After v89 was written, two follow-on items shipped to main:
+
+  f9b7dbb  docs(directory): add QB linking + Sync and Send entries
+           — The Directory (in-app help, src/components/TableOfContents.jsx)
+           was missing entries for the v88 QB link feature. Added 3 to
+           Job Detail (2.3): "Link to QB Customer button", "Unlink button",
+           "Skip QuickBooks auto-sync checkbox". Added 1 to Invoice Detail
+           (4.2): "Sync and Send button". Doc-only, no code change.
+
+Also verified during this session (not in v89's TEST COVERAGE):
+  ✓ End-to-end QB link flow on production for Job 7411 (ABTC) —
+    pulled archive job → linked via QBLinkModal → built proposal +
+    invoice → Sync and Send pushed it to QB. v88's "Sync and Send"
+    button (previously unverified) is now exercised against prod.
+
+  ✓ The vite-plugin-react peer fix (2617fd9, picked up in v89's main
+    merge) confirmed unblocking prod deploys: main now redeploys
+    cleanly on push.

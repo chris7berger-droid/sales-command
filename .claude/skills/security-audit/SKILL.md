@@ -141,16 +141,39 @@ Append to the "Diff vs last audit" section. Commit:
 
 ### Step 7 — Google Drive output
 
+The repo branch is the source of truth — Drive is a convenience copy. If
+Drive upload fails, the audit is still considered successful as long as the
+report committed and pushed in Step 6. Note the failure and continue.
+
+**Critical: do NOT base64-encode the markdown and upload as a binary blob.**
+Past runs have failed with `Stream idle timeout - partial response received`
+when the report grows past a few hundred lines. Use plain-text body inserts
+instead — Google Docs accepts text content directly with no size constraint
+that matters at audit-report scale.
+
 In Drive folder **"Audit Reports"**:
 
-1. Create Google Doc titled `Sales Command Audit — YYYY-MM-DD` containing
-   the full report.
-2. Find or create Google Doc titled `Sales Command Audit Status`. Insert a
-   new line at the **TOP** (so newest is first):
+1. **Full report doc.** Create Google Doc titled
+   `Sales Command Audit — YYYY-MM-DD`. Insert the report as **plain text in
+   the document body**, not as an attached file. If your Drive tooling only
+   supports file-style uploads, prefer one of these in order:
+   a. Direct text insert into a new Doc (preferred).
+   b. Upload as a `.md` file with `mimeType: text/markdown` (no base64
+      transcoding) and let Drive render it.
+   c. If you must base64, **split into chunks of ≤32 KB** and append
+      sequentially. Do not assemble one giant base64 string.
+2. **Status doc.** Find or create Google Doc titled
+   `Sales Command Audit Status`. Insert a new line at the **TOP** (so newest
+   is first). This is one short line — never base64, never chunk:
    - Zero critical:
      `[YYYY-MM-DD HH:MM PT] 🟢 0 critical, [N] high, [N] medium — claude/audit-YYYY-MM-DD`
    - 1+ critical:
      `[YYYY-MM-DD HH:MM PT] 🔴 [N] CRITICAL — review immediately — claude/audit-YYYY-MM-DD`
+3. **On Drive failure.** If Drive upload fails after one retry, append a
+   note to the bottom of the report file in the repo:
+   `> Drive upload failed: <error>. Report available at <branch URL>.`
+   Commit and push the note. Do not retry more than once — the Drive copy
+   is non-essential.
 
 ---
 

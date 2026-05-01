@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { authenticateCaller, unauthorizedResponse } from "../_shared/tenantAuth.ts";
 
 const SCC_STRIPE_SECRET_KEY = Deno.env.get("SCC_STRIPE_SECRET_KEY");
 const SCC_STRIPE_PRICE_SALES = Deno.env.get("SCC_STRIPE_PRICE_SALES");
@@ -57,23 +58,30 @@ serve(async (req) => {
   }
 
   try {
-    // Authenticate caller
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) throw new Error("Missing auth");
-
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-    if (authErr || !user) throw new Error("Unauthorized");
 
-    // Get tenant config
+    const caller = await authenticateCaller(supabase, req, SUPABASE_SERVICE_ROLE_KEY);
+    if (!caller.ok) return unauthorizedResponse(caller.status, getCors(req));
+    if (caller.isServiceRole) return unauthorizedResponse(403, getCors(req));
+
+    // Pull the caller's tenant_config row by id, not .limit(1).single() — the
+    // previous shape returned an arbitrary tenant in multi-tenant deploys
+    // and let any logged-in user create Stripe sessions / mutate
+    // stripe_customer_id on whatever tenant happened to come back first.
     const { data: config } = await supabase
       .from("tenant_config")
       .select("*")
-      .limit(1)
-      .single();
+      .eq("id", caller.tenantId)
+      .maybeSingle();
 
     if (!config) throw new Error("No tenant config found");
+
+    // Resolve the caller's email from auth without leaking other tenants'
+    // user records (replaces the now-removed `user.email` reference below).
+    const { data: callerAuth } = await supabase.auth.getUser(
+      req.headers.get("authorization")?.replace("Bearer ", "").trim() || "",
+    );
+    const callerEmail = callerAuth?.user?.email || "";
 
     const body = await req.json();
     const { action } = body;
@@ -98,7 +106,7 @@ serve(async (req) => {
       if (!customerId) {
         const customer = await stripeRequest("customers", {
           name: config.company_name || "Tenant",
-          email: config.email || user.email || "",
+          email: config.email || callerEmail || "",
           "metadata[tenant_id]": config.id,
         });
         customerId = customer.id;

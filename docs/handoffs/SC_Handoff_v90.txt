@@ -354,3 +354,49 @@ How to resume:
     the Vercel preview for feat/contact-billing-picker."
 
 ================================================================
+ADDENDUM (post-handoff, same day) — smoke test passed, merged
+================================================================
+
+Smoke test on the Vercel preview alias passed for surfaces 1, 2, 3, 5,
+and (after a fix) 8. Surfaces 4, 6, 7 skipped:
+  - 4 — no archive records without matching customers available to
+    test new-customer insert via ImportToLive. Test 5 covered the
+    same insert path via NewInquiry, verified.
+  - 6, 7 — edge cases not exercised (multiple Billing Contacts requires
+    manual DB row; non-admin RLS check requires a second user).
+
+Test 8 (mid-wizard customer change) initially FAILED — switching the
+selected customer from Plenium to a different customer left Plenium's
+contact + billing data persisting in form state. Two root causes:
+
+  A. NewInquiryWizard customerSelect onChange (and ImportToLiveWizard
+     customerMatch select onChange) only set contact/billing fields
+     when the new customer had truthy values — so a new customer with
+     no contact_phone left the prior customer's phone in form state.
+     Fix: unconditional reset on customer change with empty-string
+     fallback.
+  B. ContactBillingPicker only updated its local contacts state AFTER
+     the new fetch returned, so the previous customer's locked Billing
+     Contact card visually persisted during the loading window.
+     Fix: clear contacts immediately on customerId change before
+     starting the new fetch.
+
+Commit 6bf9d03 fixes both. Re-tested: passes.
+
+Merged to main: feat/contact-billing-picker → main (no-ff merge),
+auto-deploying to scmybiz.com.
+
+Final commit list on the branch:
+  6bf9d03  fix(wizards): reset stale contact/billing on customer change
+  3ae733e  chore: v90 handoff doc
+  584dce9  fix(wizards): capture errors from customer_contacts inserts
+  4c26a4d  feat(wizards): contact picker + Billing Contact override
+
+Lesson E (new): conditional set with `value || existing` is the wrong
+default for a "switching context" handler. When the user changes which
+record they're acting on, ALWAYS reset all derived fields, even to ""
+or null. Otherwise stale data from the previous context bleeds into
+the new one. Same shape of bug shows up in any "select X to populate
+form" handler. Add to the audit-bait list.
+
+================================================================

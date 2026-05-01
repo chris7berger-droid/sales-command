@@ -411,14 +411,13 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
                   if (chosen.business_state) set("businessState", chosen.business_state);
                   if (chosen.business_zip) set("businessZip", chosen.business_zip);
                   const cName = [chosen.first_name, chosen.last_name].filter(Boolean).join(" ");
-                  if (cName) set("contactName", cName);
-                  if (chosen.contact_phone) set("contactPhone", chosen.contact_phone);
-                  else if (chosen.phone) set("contactPhone", chosen.phone);
-                  if (chosen.contact_email) set("contactEmail", chosen.contact_email);
-                  else if (chosen.email) set("contactEmail", chosen.email);
-                  if (chosen.billing_name)  set("billingName",  chosen.billing_name);
-                  if (chosen.billing_phone) set("billingPhone", chosen.billing_phone);
-                  if (chosen.billing_email) set("billingEmail", chosen.billing_email);
+                  set("contactName", cName || "");
+                  set("contactPhone", chosen.contact_phone || chosen.phone || "");
+                  set("contactEmail", chosen.contact_email || chosen.email || "");
+                  set("billingName",  chosen.billing_name  || "");
+                  set("billingPhone", chosen.billing_phone || "");
+                  set("billingEmail", chosen.billing_email || "");
+                  set("billingSourceContactId", null);
                   set("additionalContacts", []);
                 }
               }}

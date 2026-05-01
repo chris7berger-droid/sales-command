@@ -53,6 +53,10 @@ export default function ContactBillingPicker({
       return;
     }
     const seq = ++fetchSeqRef.current;
+    setContacts([]);
+    setSelectedPrimaryId("");
+    setManualMode(false);
+    onBillingLockChange?.(false, null);
     setLoading(true);
     setLoadError(null);
     supabase.from("customer_contacts")

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { authenticateCaller, unauthorizedResponse } from "../_shared/tenantAuth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -7,6 +8,7 @@ const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SITE_URL = "https://salescommand.app";
 const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.app", "https://www.scmybiz.com", "https://scmybiz.com"];
+const VERIFIED_DOMAINS = ["hdspnv.com", "scmybiz.com", "schmybiz.com", "salescommand.app"];
 
 serve(async (req) => {
   const origin = req.headers.get("origin") || "";
@@ -24,40 +26,62 @@ serve(async (req) => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Verify caller is authenticated
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      });
-    }
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      });
-    }
+    const caller = await authenticateCaller(supabase, req, SUPABASE_SERVICE_ROLE_KEY);
+    if (!caller.ok) return unauthorizedResponse(caller.status, corsHeaders);
 
-    const { invoiceId, customerEmail, customerName, amount, jobName, jobId, dueDate, senderEmail, intro } = await req.json();
+    const { invoiceId, customerName, jobName, jobId, dueDate, senderEmail, intro } = await req.json();
 
-    console.log("send-invoice invoked", { invoiceId, customerEmail, amount, jobName });
-
-    if (!customerEmail) {
-      return new Response(JSON.stringify({ error: "Customer email is required" }), {
+    if (!invoiceId) {
+      return new Response(JSON.stringify({ error: "invoiceId is required" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 400,
       });
     }
 
+    // Pull invoice + linked customer email from the DB. Caller-supplied
+    // amount/customerEmail are no longer trusted — the DB row is the
+    // source of truth so a low-privilege account can't inflate amounts
+    // or redirect invoices to attacker-controlled inboxes.
+    const { data: invoice } = await supabase
+      .from("invoices")
+      .select("tenant_id, amount, viewing_token, proposal_id, job_id, proposals(call_log_id, call_log(customer_id, customers(email, contact_email)))")
+      .eq("id", invoiceId)
+      .maybeSingle();
+
+    if (!invoice) {
+      return new Response(JSON.stringify({ error: "Invoice not found" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 404,
+      });
+    }
+
+    if (!caller.isServiceRole && invoice.tenant_id !== caller.tenantId) {
+      return unauthorizedResponse(403, corsHeaders);
+    }
+
+    const amount = Number(invoice.amount);
     if (!amount || amount <= 0) {
       return new Response(JSON.stringify({ error: "Invalid invoice amount" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 400,
       });
     }
+
+    const customer = invoice.proposals?.call_log?.customers;
+    const customerEmail = customer?.contact_email || customer?.email;
+    if (!customerEmail) {
+      return new Response(JSON.stringify({ error: "No customer email on file for this invoice" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400,
+      });
+    }
+
+    // Restrict Resend `From` to verified domains (audit H10). Falls back to
+    // the noreply address if senderEmail is missing or domain is unverified.
+    const senderDomain = senderEmail ? String(senderEmail).split("@")[1]?.toLowerCase() : "";
+    const fromAddress = senderEmail && VERIFIED_DOMAINS.includes(senderDomain)
+      ? senderEmail
+      : "noreply@salescommand.app";
 
     if (!STRIPE_SECRET_KEY) {
       console.error("STRIPE_SECRET_KEY is not set");
@@ -111,14 +135,7 @@ serve(async (req) => {
     const checkoutUrl = stripeData.url;
     const checkoutId = stripeData.id;
 
-    // Look up viewing_token and store checkout URL
-    const { data: invRow } = await supabase
-      .from("invoices")
-      .select("viewing_token")
-      .eq("id", invoiceId)
-      .single();
-    const viewingToken = invRow?.viewing_token;
-    const viewInvoiceUrl = viewingToken ? `${SITE_URL}/invoice/${viewingToken}` : null;
+    const viewInvoiceUrl = invoice.viewing_token ? `${SITE_URL}/invoice/${invoice.viewing_token}` : null;
 
     // Store checkout URL on invoice
     await supabase.from("invoices").update({ stripe_checkout_url: checkoutUrl }).eq("id", invoiceId);
@@ -133,7 +150,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: senderEmail || "noreply@salescommand.app",
+        from: fromAddress,
         to: customerEmail,
         subject: `Invoice #${invoiceId} — ${jobName || "High Desert Surface Prep"}`,
         html: `
@@ -175,8 +192,9 @@ serve(async (req) => {
       });
     }
 
-    // Notification to sender (non-blocking)
-    if (senderEmail) {
+    // Notification to sender (non-blocking). Only sent if sender domain is
+    // verified — otherwise the From would be spoofable.
+    if (senderEmail && VERIFIED_DOMAINS.includes(senderDomain)) {
       try {
         await fetch("https://api.resend.com/emails", {
           method: "POST",
@@ -185,7 +203,7 @@ serve(async (req) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            from: senderEmail,
+            from: fromAddress,
             to: senderEmail,
             subject: `Invoice Sent — #${invoiceId} (${customerName})`,
             html: `

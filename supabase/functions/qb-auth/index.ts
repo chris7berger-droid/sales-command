@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { authenticateCaller, requireAdminOrManager, unauthorizedResponse } from "../_shared/tenantAuth.ts";
 
 const QB_CLIENT_ID = Deno.env.get("QB_CLIENT_ID");
 const QB_CLIENT_SECRET = Deno.env.get("QB_CLIENT_SECRET");
@@ -27,25 +28,21 @@ serve(async (req) => {
   try {
     const sb = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
 
-    // Verify caller is authenticated
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      });
-    }
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authErr } = await sb.auth.getUser(token);
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      });
-    }
-
     const { action, code, realmId } = await req.json();
     const basicAuth = btoa(`${QB_CLIENT_ID}:${QB_CLIENT_SECRET}`);
+
+    // status is read-only — any tenant member can check connection state.
+    // exchange/refresh mutate the OAuth connection and must be admin/manager.
+    const caller = action === "status"
+      ? await authenticateCaller(sb, req, SUPABASE_SERVICE_ROLE_KEY!)
+      : await requireAdminOrManager(sb, req, SUPABASE_SERVICE_ROLE_KEY!);
+
+    if (!caller.ok) return unauthorizedResponse(caller.status, corsHeaders);
+    if (caller.isServiceRole) {
+      // qb-auth is user-initiated; no internal call path is expected.
+      return unauthorizedResponse(403, corsHeaders);
+    }
+    const callerTenantId = caller.tenantId;
 
     if (action === "exchange") {
       // Exchange authorization code for tokens
@@ -86,10 +83,13 @@ serve(async (req) => {
       // Calculate expiry (access token lasts 1 hour)
       const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
 
-      // Delete any existing connection, then insert new one
-      await sb.from("qb_connection").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      // Delete only the caller-tenant's existing connection, then insert.
+      // The previous unbounded delete (`.neq("id", zero-uuid)`) wiped every
+      // tenant's connection on every exchange — see audit C4 (2026-04-30).
+      await sb.from("qb_connection").delete().eq("tenant_id", callerTenantId);
 
       const { error: insertErr } = await sb.from("qb_connection").insert({
+        tenant_id: callerTenantId,
         realm_id: realmId,
         access_token: tokenData.access_token,
         refresh_token: tokenData.refresh_token,
@@ -111,8 +111,12 @@ serve(async (req) => {
       });
 
     } else if (action === "refresh") {
-      // Refresh the access token
-      const { data: conn } = await sb.from("qb_connection").select("*").limit(1).maybeSingle();
+      // Refresh the access token for the caller's tenant only.
+      const { data: conn } = await sb
+        .from("qb_connection")
+        .select("*")
+        .eq("tenant_id", callerTenantId)
+        .maybeSingle();
 
       if (!conn) {
         return new Response(JSON.stringify({ error: "No QB connection found" }), {
@@ -162,8 +166,12 @@ serve(async (req) => {
       });
 
     } else if (action === "status") {
-      // Check connection status
-      const { data: conn } = await sb.from("qb_connection").select("realm_id, token_expires_at, updated_at").limit(1).maybeSingle();
+      // Check connection status for the caller's tenant only.
+      const { data: conn } = await sb
+        .from("qb_connection")
+        .select("realm_id, token_expires_at, updated_at")
+        .eq("tenant_id", callerTenantId)
+        .maybeSingle();
 
       if (!conn) {
         return new Response(JSON.stringify({ connected: false }), {

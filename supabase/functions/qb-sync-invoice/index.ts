@@ -15,9 +15,9 @@ const QB_API_BASE = QB_ENVIRONMENT === "production"
 const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 
 // ── Helper: get fresh QB access token ──────────────────────────────────
-async function getQBToken(sb: any) {
-  const { data: conn } = await sb.from("qb_connection").select("*").limit(1).single();
-  if (!conn) throw new Error("No QuickBooks connection found. Connect QB first.");
+async function getQBToken(sb: any, tenantId: string) {
+  const { data: conn } = await sb.from("qb_connection").select("*").eq("tenant_id", tenantId).maybeSingle();
+  if (!conn) throw new Error("No QuickBooks connection found for tenant. Connect QB first.");
 
   if (new Date(conn.token_expires_at) < new Date(Date.now() + 5 * 60 * 1000)) {
     console.log("qb-sync-invoice: refreshing expired token");
@@ -171,7 +171,7 @@ serve(async (req) => {
       throw new Error("Job not synced to QuickBooks yet. Approve the proposal first.");
     }
 
-    const { accessToken, realmId } = await getQBToken(sb);
+    const { accessToken, realmId } = await getQBToken(sb, invoice.tenant_id);
 
     // ── Find the "Services" item in QB ───────────────────────────────
     const servicesItem = await findItemExact("Services", accessToken, realmId);

@@ -14,9 +14,9 @@ const QB_API_BASE = QB_ENVIRONMENT === "production"
 
 const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 
-async function getQBToken(sb: any) {
-  const { data: conn } = await sb.from("qb_connection").select("*").limit(1).single();
-  if (!conn) throw new Error("No QuickBooks connection found.");
+async function getQBToken(sb: any, tenantId: string) {
+  const { data: conn } = await sb.from("qb_connection").select("*").eq("tenant_id", tenantId).maybeSingle();
+  if (!conn) throw new Error("No QuickBooks connection found for tenant.");
 
   if (new Date(conn.token_expires_at) < new Date(Date.now() + 5 * 60 * 1000)) {
     const basicAuth = btoa(`${QB_CLIENT_ID}:${QB_CLIENT_SECRET}`);
@@ -154,7 +154,7 @@ serve(async (req) => {
     // Defense-in-depth: linked-job invariant should make this unreachable in normal flow.
     if (!qbCustomerId) throw new Error("Job not synced to QuickBooks");
 
-    const { accessToken, realmId } = await getQBToken(sb);
+    const { accessToken, realmId } = await getQBToken(sb, invoice.tenant_id);
 
     // Net amount (after discount)
     const netAmount = (invoice.amount || 0) - (invoice.discount || 0);

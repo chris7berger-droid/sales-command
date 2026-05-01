@@ -14,9 +14,9 @@ const QB_API_BASE = QB_ENVIRONMENT === "production"
 
 const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 
-async function getQBToken(sb: any) {
-  const { data: conn } = await sb.from("qb_connection").select("*").limit(1).single();
-  if (!conn) throw new Error("No QuickBooks connection found.");
+async function getQBToken(sb: any, tenantId: string) {
+  const { data: conn } = await sb.from("qb_connection").select("*").eq("tenant_id", tenantId).maybeSingle();
+  if (!conn) throw new Error("No QuickBooks connection found for tenant.");
 
   if (new Date(conn.token_expires_at) < new Date(Date.now() + 5 * 60 * 1000)) {
     const basicAuth = btoa(`${QB_CLIENT_ID}:${QB_CLIENT_SECRET}`);
@@ -126,7 +126,7 @@ serve(async (req) => {
       });
     }
 
-    const { accessToken, realmId } = await getQBToken(sb);
+    const { accessToken, realmId } = await getQBToken(sb, invoice.tenant_id);
 
     // Fetch existing invoice to get SyncToken
     const url = `${QB_API_BASE}/v3/company/${realmId}/invoice/${invoice.qb_invoice_id}`;

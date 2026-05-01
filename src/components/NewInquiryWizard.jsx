@@ -263,7 +263,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       if (custErr) { setError("Failed to create customer: " + custErr.message); setSaving(false); return; }
       if (nc) customerId = nc.id;
       if (customerId && !data.billingSame && data.billingName.trim()) {
-        await supabase.from("customer_contacts").insert([{
+        const { error: bcErr } = await supabase.from("customer_contacts").insert([{
           customer_id: customerId,
           name: data.billingName.trim(),
           phone: data.billingPhone || null,
@@ -271,6 +271,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
           role: "Billing Contact",
           is_primary: true,
         }]);
+        if (bcErr) alert(`Customer saved, but billing contact didn't save: ${bcErr.message}. Add it from the customer record.`);
       }
     }
 
@@ -319,9 +320,10 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
         return true;
       });
       if (newContacts.length > 0) {
-        await supabase.from("customer_contacts").insert(
+        const { error: acErr } = await supabase.from("customer_contacts").insert(
           newContacts.map(c => ({ customer_id: customerId, name: c.name, phone: c.phone, email: c.email, role: c.role }))
         );
+        if (acErr) alert(`Couldn't save additional contacts: ${acErr.message}. Add them from the customer record.`);
       }
     }
 

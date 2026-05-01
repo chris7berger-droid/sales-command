@@ -328,7 +328,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         customerId = newC.id;
 
         if (form.billingName.trim()) {
-          await supabase.from("customer_contacts").insert([{
+          const { error: bcErr } = await supabase.from("customer_contacts").insert([{
             customer_id: customerId,
             name: form.billingName.trim(),
             phone: form.billingPhone || null,
@@ -336,6 +336,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
             role: "Billing Contact",
             is_primary: true,
           }]);
+          if (bcErr) alert(`Customer saved, but billing contact didn't save: ${bcErr.message}. Add it from the customer record.`);
         }
       }
 

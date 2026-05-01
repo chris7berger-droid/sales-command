@@ -1,0 +1,356 @@
+SC_Handoff_v90
+Date: 2026-05-01
+Author: Chris Berger (with Claude assistance)
+Topic: Contact picker + Billing Contact override on Import-to-Live and
+       New Inquiry wizards. Sales reps were re-typing contact and billing
+       info on every job even when the customer record already had the
+       data on file. Fix: pull from customer_contacts, lock the billing
+       block when a role='Billing Contact' row exists.
+
+Branch: feat/contact-billing-picker (pushed, NOT MERGED).
+Status: code complete, smoke test pending.
+
+================================================================
+WHY
+================================================================
+
+Two wizards prompt for contact + billing info while creating a job:
+  - HistoryLocker/ImportToLiveWizard.jsx (Archive → Live, step 3)
+  - NewInquiryWizard.jsx (contactInfo step)
+
+Both ignored the customer's saved contacts. Plenium Builders has Erica
+Thomas on file with role='Billing Contact', plus PMs Patrick and Will,
+yet step 3 still presented blank Billing Contact Name/Phone/Email
+fields marked REQUIRED. The user had to re-type Erica's info on every
+import.
+
+The fix: shared picker that fetches customer_contacts on customer
+selection, presents existing contacts as a Job-Contact dropdown, and
+auto-fills + locks the Billing Contact block whenever a row with
+role='Billing Contact' exists. Falls back to legacy customers.billing_*
+denormalized fields, then to manual entry.
+
+================================================================
+WHAT WAS DONE
+================================================================
+
+1. Plan agent up front
+   --------------------
+   Surface touched: customer_contacts, customers.billing_*, two
+   wizards, primary-contact rule, multiple-Billing-Contact edge case,
+   RLS, save-side legacy bridge. Plan agent designed a shared
+   ContactBillingPicker component, recommended per-customer fetch on
+   selection (matches NewInquiry's existing pattern + ProposalDetail
+   pattern), and identified that ArchiveImportWizard, bulk Import.jsx,
+   and CallLogDetail are NOT additional surfaces (verified — only the
+   two wizards take a per-record contact + billing step).
+
+2. New shared component: src/components/ContactBillingPicker.jsx
+   -------------------------------------------------------------
+   * Fetches customer_contacts on customerId change (useEffect with
+     fetchSeqRef abort token to ignore stale responses on rapid
+     customer toggling).
+   * pickBillingContact() helper: filters role='Billing Contact', prefers
+     is_primary, falls back to most-recent created_at.
+   * Picker UI states:
+     - 0 contacts → no dropdown, "No saved contacts on file" hint,
+       manual contact inputs visible.
+     - N contacts → "Job Contact" dropdown labeled "<Name> — <Role>",
+       with a "+ Use a different contact (manual entry)" toggle
+       revealing manual inputs as an opt-in fallback.
+   * Billing Contact lock: when found, renders a dark/teal locked card
+     (matches the "Matched Customer" pattern at ImportToLive line 414),
+     hides manual billing inputs entirely, and fires
+     onBillingLockChange(true, contactId) so parents can track
+     billingSourceContactId in form state.
+   * Multiple Billing Contacts: warns "Multiple billing contacts on
+     file — using <Name>. Consolidate on customer record." Non-blocking.
+   * RLS error path: if SELECT throws, surfaces "Couldn't load saved
+     contacts: <reason>" instead of looking like an empty list.
+
+3. ImportToLiveWizard.jsx (Archive → Live)
+   ---------------------------------------
+   * Step 3 "Contact & Billing" replaced with <ContactBillingPicker />.
+     Passes requireBilling, showBillingTerms (terms select stays
+     inline since it's part of step 3 visually).
+   * Form state: added billingSourceContactId (null when manual,
+     contact uuid when picker locked it).
+   * New-customer save: after the customers insert, also inserts a
+     customer_contacts row with role='Billing Contact', is_primary=true
+     when the user filled the billing block. Captures error (alert on
+     fail; non-blocking — customer was saved).
+   * No change to existing-customer save path — that path was already
+     correctly NOT writing customer billing fields.
+
+4. NewInquiryWizard.jsx
+   --------------------
+   * contactInfo step: inline contact name/phone/email block replaced
+     with <ContactBillingPicker hideBilling={data.customerMode === "new"} />.
+     Billing UI for new customers stays in customerSelect step (where
+     the "separate billing contact?" checkbox lives) — the picker only
+     adds the billing locked card / manual block for existing-customer
+     mode in this wizard.
+   * customerSelect onChange: removed the inline customer_contacts
+     fetch into additionalContacts (picker owns it now). Now also
+     prefills legacy customers.billing_* fields onto form state, so
+     when the picker fetch returns no Billing Contact row, the manual
+     block is pre-populated from the legacy denormalized columns.
+   * Save: when billingSourceContactId is set, OMIT billing_name/
+     billing_phone/billing_email from the customers update (avoids
+     overwriting customer_contacts-sourced data with a mirror of
+     itself). billing_terms still writes through.
+   * New-customer save: inserts a customer_contacts Billing Contact
+     row when the manual billing block was used. Dedupes against the
+     additionalContacts insert by (lowercased name + email) so a user
+     who also added a Billing Contact in the additionalContacts list
+     doesn't get a duplicate.
+   * additionalContacts batch insert: now captures error; alert on fail.
+
+5. Insert error capture (commit 584dce9)
+   --------------------------------------
+   Three customer_contacts.insert() calls were silently swallowing
+   errors. Audit finding M0k flagged this exact pattern in
+   Customers.jsx:175 and elsewhere — "RLS can silently no-op." All
+   three new/touched inserts now capture error and alert non-blocking
+   so the user knows the customer saved but the contact didn't, and
+   can recover by editing the customer record.
+
+================================================================
+DEPLOY STATE
+================================================================
+
+Vercel (frontend):
+  - Branch feat/contact-billing-picker pushed at 584dce9.
+  - Branch alias preview URL:
+      sales-command-git-feat-contact-billing-picker-<scope>.vercel.app
+    (the alias tracks the latest build for the branch — per-deployment
+    URLs are pinned, do not use those to test latest. v89 lesson D.)
+  - NOT merged to main. Main is unaffected.
+  - Two commits on the branch:
+      4c26a4d  feat(wizards): contact picker + Billing Contact override
+      584dce9  fix(wizards): capture errors from customer_contacts inserts
+
+Supabase (database): no schema changes. customer_contacts table is
+already in place with the standard tenant pattern.
+
+Supabase (edge functions): no changes.
+
+npm run build: clean (last verified after 584dce9).
+
+================================================================
+TEST COVERAGE
+================================================================
+
+ZERO end-to-end testing done this session. Smoke test is the next
+session's first task.
+
+Plan from agent (test surfaces in priority order):
+
+  1. Plenium Builders (the headline test case — has Erica Thomas as
+     Billing Contact)
+       - Import-to-Live → pull a Plenium archive record → step 3
+         "Contact & Billing"
+         → expect: dark/teal "Billing Contact (on file) — LOCKED" card
+           showing Erica Thomas + her phone + email. Manual billing
+           inputs HIDDEN. "Job Contact" dropdown shows Erica + Patrick
+           + Will. Picking Patrick populates contact name/phone/email
+           with his data. Validation passes (billingName/email auto-
+           filled).
+       - New Inquiry → pick Plenium → contactInfo step
+         → same behavior. "Job Contact" dropdown shows the 3 contacts.
+           Locked Billing Contact card visible.
+       - Save through and verify on Plenium's customer record:
+         customers.billing_* fields are UNCHANGED (because
+         billingSourceContactId was set, save path skipped the write).
+
+  2. Customer with no customer_contacts rows
+       → expect: picker hides dropdown, shows "No saved contacts on
+         file for <Customer>" hint. Manual contact inputs visible.
+         ImportToLive step 3 still requires billing name + email
+         (manual entry path). NewInquiry contactInfo: existing customer
+         with no contacts and no legacy billing_* — manual billing
+         block visible (with optional REQUIRED pill suppressed since
+         requireBilling=false in NewInquiry).
+
+  3. Customer with only Project Manager contacts (no Billing Contact)
+       → expect: Job Contact dropdown shows the PMs. Billing block in
+         manual mode. If customers.billing_* has legacy values, they
+         pre-populate the manual block.
+
+  4. New-customer flow on ImportToLive
+       → fill name + billing block → save → verify in Supabase that the
+         new customer has a customer_contacts row with role='Billing
+         Contact', is_primary=true, populated from form state.
+
+  5. New-customer flow on NewInquiry
+       → toggle "separate billing contact?" on, fill billing block,
+         save → same verification as #4.
+
+  6. Multiple Billing Contacts (data integrity check)
+       → if any customer in prod has 2+ rows with role='Billing
+         Contact', the picker should select is_primary=true row first,
+         else most-recent. Show a warning under the locked card.
+         Construct manually if needed for the test.
+
+  7. RLS sanity check
+       → run both wizards as a non-admin user. Picker should populate
+         (SELECT works for any authenticated user with tenant_id
+         match). If picker returns empty for a customer that clearly
+         has contacts, that's an RLS bug — flag it, do NOT merge.
+
+  8. Edge case: customer change mid-wizard
+       → in NewInquiry, pick customer A on customerSelect, advance to
+         contactInfo, then go back and pick customer B → picker should
+         re-fetch and show B's contacts (fetchSeqRef should prevent
+         A's response from clobbering B's).
+
+================================================================
+FILES TOUCHED
+================================================================
+
+New:
+  src/components/ContactBillingPicker.jsx
+
+Modified:
+  src/components/HistoryLocker/ImportToLiveWizard.jsx
+  src/components/NewInquiryWizard.jsx
+
+================================================================
+COMMITS THIS SESSION
+================================================================
+
+  584dce9  fix(wizards): capture errors from customer_contacts inserts
+  4c26a4d  feat(wizards): contact picker + Billing Contact override
+           on Import-to-Live and New Inquiry
+
+(Note: an earlier accidental commit ab69186 — duplicate of main's
+b2380b2 pay-app-checklist commit — was dropped from the branch via
+reset to origin/feat/contact-billing-picker before the hardening push.
+No work was lost; that commit's content is already on main as b2380b2.)
+
+================================================================
+PARALLEL WORK STREAM (do not let this confuse you next session)
+================================================================
+
+While the picker work was happening, a separate security audit branch
+landed on the repo:
+
+  - claude/security-audit-fixes-2026-04-30 (7 commits, NOT MERGED)
+    Tenant-isolation fixes on edge functions: qb-record-payment,
+    qb-sync-invoice, qb-void-invoice, send-invoice, create-billing-
+    session, qb-auth. Plus a new _shared/tenantAuth helper and a
+    migration adding tenant_id to qb_connection. Has its own handoff
+    at audit-reports/handoff-2026-05-01.md on that branch.
+
+  - claude/sweet-johnson-vvCCt (the audit report itself)
+    audit-reports/2026-04-30.md — 12 Critical, 13 High, 13 Medium, 8
+    Low findings.
+
+  - main was advanced to a7bcd72 (security-audit skill + Drive upload
+    fix) — workflow tooling only, no app code change.
+
+ZERO file overlap with the picker branch. No merge conflicts. No
+direct findings against the new ContactBillingPicker code (the audit
+ran before this branch existed).
+
+One audit finding indirectly related: M0k flagged that several
+customer_contacts mutations don't capture errors. The picker work
+included three new customer_contacts inserts; commit 584dce9 captures
+errors on all three to avoid re-introducing the M0k pattern.
+
+The audit's open Critical findings (C1, C2, C3, C9, C10, C12) do NOT
+touch wizards or customer_contacts. Separate work.
+
+================================================================
+LESSONS
+================================================================
+
+A. Plan agent before code, when the surface is wide
+   The picker spec has subtle rules: 0/1/N picker states, multiple
+   Billing Contacts edge case, when to write legacy columns vs not,
+   stale-cache handling, additionalContacts dedupe. Asking the Plan
+   agent first surfaced edge cases that would have leaked out as bugs
+   during testing. Same lesson as v89.
+
+B. Pre-commit cross-check before pushing a feature branch
+   Discovered an accidental duplicate commit (ab69186) on the feature
+   branch that was identical to b2380b2 already on main. Caught by
+   running git log on the branch before push. Once seen, dropped via
+   git reset --hard origin/<branch>. Lesson: when working in
+   ~/sales-command from multiple terminals, the active branch in the
+   working tree determines where commits land — switch to main before
+   doing unrelated docs work in another terminal.
+
+C. Capture insert errors at the call site, not just delete errors
+   CLAUDE.md "RLS can silently no-op" is written about deletes but the
+   pattern applies to inserts too — RLS rejection on insert returns an
+   error in the response, but if the caller doesn't destructure
+   `{ error }` it disappears silently. Audit M0k formalized this.
+   Three new inserts in this branch now capture errors with non-
+   blocking alerts on failure.
+
+D. Branches in working tree shared across terminals are a footgun
+   Same as B — if both terminals point at ~/sales-command, the active
+   branch is global to that working tree, not per-terminal. Use git
+   worktrees or distinct checkouts for parallel work.
+
+================================================================
+NOT ADDRESSED THIS SESSION (CARRIED FORWARD)
+================================================================
+
+From v89 (still open):
+  - Customer settings page (project_settings_page memory)
+  - send-invoice / qb-sync-invoice error surfacing (partial fix in
+    QBLinkModal — fnErr.context.json() pattern available)
+  - "Sync and Send" button on InvoiceDetail (verified on prod for
+    Job 7411 ABTC per v89 addendum, but not regression-tested)
+  - Retention release workflow
+  - In-app invoice display ignores show_cents
+  - Page remount on list↔detail
+  - QB fan-out sweep
+  - Invoice numbering
+  - Multi-invoice header link
+  - History Locker pagination
+  - importApi.js bulk CSV does NOT honor virtual qb_skip_sync
+
+New this session, deferred:
+  - Smoke test on Plenium + edge cases (next session priority 1)
+  - Re-running the audit on the picker branch (optional — picker code
+    didn't exist when the audit ran, so it was never scanned)
+
+From the audit (open, separate work stream):
+  - C1, C2, C3, C9, C10, C12 still open. See
+    audit-reports/handoff-2026-05-01.md on
+    claude/security-audit-fixes-2026-04-30 for the full list.
+  - claude/security-audit-fixes-2026-04-30 itself is unmerged and has
+    behavior-change risks (qb_connection migration must run before
+    edge function deploy; send-invoice now requires customer
+    contact_email; qb-auth requires admin/manager role). Test in
+    staging before merging.
+
+================================================================
+NEXT SESSION PICKUP
+================================================================
+
+Priority order:
+
+  1. Smoke test the picker on the Vercel preview alias for branch
+     feat/contact-billing-picker. Test surfaces 1-7 above (Plenium is
+     the headline). If clean, merge to main + auto-deploy to prod.
+
+  2. If anything breaks during smoke test, fix on the same branch
+     before merge.
+
+  3. Customer settings page (v88/v89 carry-forward).
+
+  4. Audit fixes — read audit-reports/handoff-2026-05-01.md on
+     claude/security-audit-fixes-2026-04-30 and continue from C1.
+
+  5. v88 carry-forward: send-invoice error surfacing.
+
+How to resume:
+  Open Claude Code in ~/sales-command and say:
+    "Resume v90 — read SC_Handoff_v90.txt, smoke test the picker on
+    the Vercel preview for feat/contact-billing-picker."
+
+================================================================

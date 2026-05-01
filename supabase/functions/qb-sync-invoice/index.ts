@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { authenticateCaller, unauthorizedResponse } from "../_shared/tenantAuth.ts";
 
 const QB_CLIENT_ID = Deno.env.get("QB_CLIENT_ID")!;
 const QB_CLIENT_SECRET = Deno.env.get("QB_CLIENT_SECRET")!;
@@ -96,22 +97,8 @@ serve(async (req) => {
   try {
     const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Verify caller is authenticated
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      });
-    }
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authErr } = await sb.auth.getUser(token);
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      });
-    }
+    const caller = await authenticateCaller(sb, req, SUPABASE_SERVICE_ROLE_KEY);
+    if (!caller.ok) return unauthorizedResponse(caller.status, corsHeaders);
 
     const { invoiceId, editReason } = await req.json();
     if (!invoiceId) {
@@ -121,8 +108,17 @@ serve(async (req) => {
     }
 
     // Fetch invoice
-    const { data: invoice } = await sb.from("invoices").select("*").eq("id", invoiceId).single();
-    if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
+    const { data: invoice } = await sb.from("invoices").select("*").eq("id", invoiceId).maybeSingle();
+    if (!invoice) {
+      return new Response(JSON.stringify({ error: "Invoice not found" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 404,
+      });
+    }
+
+    // Tenant binding: a user JWT may only sync invoices in their own tenant.
+    if (!caller.isServiceRole && invoice.tenant_id !== caller.tenantId) {
+      return unauthorizedResponse(403, corsHeaders);
+    }
 
     const isUpdate = !!invoice.qb_invoice_id;
 

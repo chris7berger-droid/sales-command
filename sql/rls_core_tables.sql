@@ -2,6 +2,24 @@
 -- RLS Phase 1: Core tenant-scoped tables
 -- Tables: customers, call_log, proposals, invoices
 --
+-- HARDENED 2026-05-02 (audit C2, 2026-04-30):
+-- The original seed shipped five anon SELECT/UPDATE policies on these
+-- tables in the documented 2026-04-26 anti-pattern shape — that is,
+-- predicates that just check `signing_token IS NOT NULL` /
+-- `viewing_token IS NOT NULL` without verifying the caller actually
+-- holds the matching token, plus two `WITH CHECK (true)` UPDATE
+-- policies that allowed token holders to rewrite arbitrary columns.
+-- All five were dropped in production by migrations
+--   20260427180000_add_token_gated_policies.sql
+--   20260427190000_drop_old_anon_signing_policies.sql
+--   20260502120000_signing_flow_security_definer.sql
+-- and replaced with token-match policies and SECURITY DEFINER RPCs.
+-- They have been removed from this seed too. Re-running this script
+-- on a fresh deploy will NOT re-introduce the incident.
+--
+-- Going forward: never add anon access policies in this file.
+-- Anon access flows exclusively through the migration files above.
+--
 -- Prerequisites:
 --   - tenant_id (NOT NULL) already exists on all 4 tables
 --   - public.get_user_tenant_id() already exists
@@ -81,30 +99,17 @@ CREATE POLICY "call_log_delete" ON public.call_log
   FOR DELETE TO authenticated
   USING (tenant_id = public.get_user_tenant_id());
 
--- Anon: PublicSigningPage reads call_log via proposals join
--- Scoped: only rows linked to a proposal that has a signing_token
-CREATE POLICY "call_log_public_read" ON public.call_log
-  FOR SELECT TO anon
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.proposals p
-      WHERE p.call_log_id = call_log.id
-        AND p.signing_token IS NOT NULL
-    )
-  );
-
--- Anon: PublicSigningPage fallback updates stage to "Sold" after signing
--- Same scope — only call_log rows tied to a signable proposal
-CREATE POLICY "call_log_public_sign_update" ON public.call_log
-  FOR UPDATE TO anon
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.proposals p
-      WHERE p.call_log_id = call_log.id
-        AND p.signing_token IS NOT NULL
-    )
-  )
-  WITH CHECK (true);
+-- Anon access to call_log:
+--   SELECT — provided by call_log_public_read_token in
+--     20260427180000_add_token_gated_policies.sql, which requires the
+--     caller to present the matching signing_token via x-signing-token.
+--   UPDATE — no anon policy. PublicSigningPage now flips
+--     call_log.stage='Sold' through the SECURITY DEFINER RPC
+--     mark_proposal_signed() defined in
+--     20260502120000_signing_flow_security_definer.sql, which reads
+--     call_log_id from proposals (not from caller input).
+-- Removed bare-`signing_token IS NOT NULL` policies and a WITH CHECK
+-- (true) UPDATE — audit C1/C2 (2026-04-30).
 
 
 -- ============================================================
@@ -134,17 +139,12 @@ CREATE POLICY "proposals_select" ON public.proposals
   FOR SELECT TO authenticated
   USING (tenant_id = public.get_user_tenant_id());
 
--- Anon users can read a single proposal by signing_token (public signing page)
-CREATE POLICY "proposals_public_sign" ON public.proposals
-  FOR SELECT TO anon
-  USING (signing_token IS NOT NULL);
-
--- Anon users can update proposal status after signing (fallback when edge fn fails)
--- Scoped to rows that have a signing_token (only signable proposals)
-CREATE POLICY "proposals_public_sign_update" ON public.proposals
-  FOR UPDATE TO anon
-  USING (signing_token IS NOT NULL)
-  WITH CHECK (signing_token IS NOT NULL);
+-- Anon access to proposals: provided by *_token policies in
+-- 20260427180000_add_token_gated_policies.sql (require x-signing-token
+-- header match). Sign-time mutation now flows through
+-- mark_proposal_signed() (20260502120000_signing_flow_security_definer).
+-- Removed bare `signing_token IS NOT NULL` SELECT + UPDATE policies —
+-- audit C2 (2026-04-30).
 
 CREATE POLICY "proposals_insert" ON public.proposals
   FOR INSERT TO authenticated
@@ -186,10 +186,10 @@ CREATE POLICY "invoices_select" ON public.invoices
   FOR SELECT TO authenticated
   USING (tenant_id = public.get_user_tenant_id());
 
--- Anon users can view a single invoice by viewing_token (customer payment page)
-CREATE POLICY "invoices_public_view" ON public.invoices
-  FOR SELECT TO anon
-  USING (viewing_token IS NOT NULL);
+-- Anon access to invoices: provided by invoices_public_view_token in
+-- 20260427180000_add_token_gated_policies.sql (require x-viewing-token
+-- header match). Removed bare `viewing_token IS NOT NULL` SELECT —
+-- audit C2 (2026-04-30).
 
 CREATE POLICY "invoices_insert" ON public.invoices
   FOR INSERT TO authenticated

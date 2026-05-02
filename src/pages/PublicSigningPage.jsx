@@ -88,12 +88,10 @@ export default function PublicSigningPage() {
       setWtc(wtcData || []);
       setLoading(false);
 
-      // Track view — update viewed_at for any recipients who haven't viewed yet
-      supabase.from("proposal_recipients")
-        .update({ viewed_at: new Date().toISOString() })
-        .eq("proposal_id", prop.id)
-        .is("viewed_at", null)
-        .then(() => {});
+      // Track view — server-side RPC marks recipients viewed_at via
+      // SECURITY DEFINER so the public policy doesn't need column-level
+      // anon UPDATE rights on proposal_recipients (audit C3).
+      supabase.rpc("mark_recipient_viewed", { p_token: token }).then(() => {});
     }
     load();
   }, [token]);
@@ -361,14 +359,16 @@ export default function PublicSigningPage() {
           signerName: name.trim(),
           proposalNumber: proposal.proposal_number || proposal.id,
           jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
-          proposalId: proposal.id,
-          callLogId: proposal.call_log_id,
           signing_token: token,
         },
       });
       if (fnError) {
-        await supabase.from("proposals").update({ status: "Sold", approved_at: new Date().toISOString() }).eq("id", proposal.id);
-        if (proposal.call_log_id) await supabase.from("call_log").update({ stage: "Sold" }).eq("id", proposal.call_log_id);
+        // Fallback path when the edge function call fails: invoke the
+        // same SECURITY DEFINER RPC the function would have called.
+        // The RPC reads call_log_id from proposals (not from anything
+        // the client supplies), so this path can't be steered to flip
+        // an unrelated call_log row's stage (audit C1, C10).
+        await supabase.rpc("mark_proposal_signed", { p_token: token });
       }
       // QB job sync (non-blocking, skip test jobs)
       const isTest = (proposal.customer || "").toLowerCase().includes("test");

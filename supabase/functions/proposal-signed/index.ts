@@ -21,42 +21,34 @@ serve(async (req) => {
   }
 
   try {
-    const { repEmail, repName, customerName, signerName, proposalNumber, jobName, proposalId, callLogId, signing_token } = await req.json();
+    const { repEmail, repName, customerName, signerName, proposalNumber, jobName, signing_token } = await req.json();
 
-    // The caller must present the proposal's signing_token — the same secret
-    // the public signing page used to load the proposal. Proves the caller
-    // has a legitimate signing session and blocks anonymous status flips.
-    if (!proposalId || !signing_token) {
+    if (!signing_token) {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 403,
       });
     }
+
+    // mark_proposal_signed is a SECURITY DEFINER RPC that validates the
+    // token, sets proposals.status='Sold' + approved_at, and updates
+    // call_log.stage='Sold' for the proposal's OWN call_log_id (read
+    // from the DB, not from the request body). Replaces three previous
+    // moves: trust caller's proposalId + callLogId, separate UPDATEs,
+    // and the column-unrestricted anon UPDATE policies (audit C1, C10).
     const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const { data: propRow, error: propLookupErr } = await sb
-      .from("proposals")
-      .select("signing_token")
-      .eq("id", proposalId)
-      .single();
-    if (propLookupErr || !propRow || propRow.signing_token !== signing_token) {
+    const { data: signedRows, error: signErr } = await sb.rpc("mark_proposal_signed", { p_token: signing_token });
+    if (signErr || !signedRows || signedRows.length === 0) {
+      console.error("proposal-signed: RPC failed:", signErr?.message);
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 403,
       });
     }
+    const proposalId = signedRows[0].proposal_id;
+    const callLogId = signedRows[0].call_log_id;
 
-    console.log("proposal-signed invoked", { repEmail, proposalNumber, signerName, proposalId, callLogId });
-
-    // Update proposal status to Sold (using service role key — bypasses RLS)
-    const { error: propErr } = await sb.from("proposals").update({ status: "Sold", approved_at: new Date().toISOString() }).eq("id", proposalId);
-    if (propErr) console.error("proposal-signed: failed to update proposal status:", propErr.message);
-    else console.log("proposal-signed: proposal", proposalId, "set to Sold");
-
-    if (callLogId) {
-      const { error: clErr } = await sb.from("call_log").update({ stage: "Sold" }).eq("id", callLogId);
-      if (clErr) console.error("proposal-signed: failed to update call_log stage:", clErr.message);
-      else console.log("proposal-signed: call_log", callLogId, "set to Sold");
-    }
+    console.log("proposal-signed: marked sold", { proposalId, callLogId, proposalNumber, signerName });
 
     if (!repEmail) {
       console.log("proposal-signed: no rep email, skipping notification but status updated");

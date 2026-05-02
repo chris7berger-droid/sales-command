@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { authenticateCaller, unauthorizedResponse } from "../_shared/tenantAuth.ts";
 
 const QB_CLIENT_ID = Deno.env.get("QB_CLIENT_ID")!;
 const QB_CLIENT_SECRET = Deno.env.get("QB_CLIENT_SECRET")!;
@@ -13,9 +14,9 @@ const QB_API_BASE = QB_ENVIRONMENT === "production"
 
 const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 
-async function getQBToken(sb: any) {
-  const { data: conn } = await sb.from("qb_connection").select("*").limit(1).single();
-  if (!conn) throw new Error("No QuickBooks connection found.");
+async function getQBToken(sb: any, tenantId: string) {
+  const { data: conn } = await sb.from("qb_connection").select("*").eq("tenant_id", tenantId).maybeSingle();
+  if (!conn) throw new Error("No QuickBooks connection found for tenant.");
 
   if (new Date(conn.token_expires_at) < new Date(Date.now() + 5 * 60 * 1000)) {
     const basicAuth = btoa(`${QB_CLIENT_ID}:${QB_CLIENT_SECRET}`);
@@ -66,19 +67,8 @@ serve(async (req) => {
   try {
     const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 401,
-      });
-    }
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authErr } = await sb.auth.getUser(token);
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 401,
-      });
-    }
+    const caller = await authenticateCaller(sb, req, SUPABASE_SERVICE_ROLE_KEY);
+    if (!caller.ok) return unauthorizedResponse(caller.status, corsHeaders);
 
     const { invoiceId, reason, action: voidAction } = await req.json();
     if (!invoiceId) {
@@ -87,8 +77,22 @@ serve(async (req) => {
       });
     }
 
-    // Fetch invoice to get qb_invoice_id + proposal/call_log skip flags
-    const { data: invoice } = await sb.from("invoices").select("qb_invoice_id, proposal_id, job_id").eq("id", invoiceId).single();
+    // Fetch invoice to get qb_invoice_id + proposal/call_log skip flags + tenant
+    const { data: invoice } = await sb
+      .from("invoices")
+      .select("qb_invoice_id, proposal_id, job_id, tenant_id")
+      .eq("id", invoiceId)
+      .maybeSingle();
+    if (!invoice) {
+      return new Response(JSON.stringify({ error: "Invoice not found" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 404,
+      });
+    }
+
+    // Tenant binding: a user JWT may only void invoices in their own tenant.
+    if (!caller.isServiceRole && invoice.tenant_id !== caller.tenantId) {
+      return unauthorizedResponse(403, corsHeaders);
+    }
 
     // Resolve qb_skip_sync via proposal -> call_log (fallback by display_job_number).
     // Note: is_archive_proposal is intentionally NOT a skip reason here. Voiding only
@@ -122,7 +126,7 @@ serve(async (req) => {
       });
     }
 
-    const { accessToken, realmId } = await getQBToken(sb);
+    const { accessToken, realmId } = await getQBToken(sb, invoice.tenant_id);
 
     // Fetch existing invoice to get SyncToken
     const url = `${QB_API_BASE}/v3/company/${realmId}/invoice/${invoice.qb_invoice_id}`;

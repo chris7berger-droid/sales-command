@@ -3,6 +3,20 @@
 -- Tables: proposal_wtc, proposal_recipients, proposal_signatures,
 --         invoice_lines, job_work_types, customer_contacts
 --
+-- HARDENED 2026-05-02 (audit C2/C3, 2026-04-30):
+-- The original seed shipped four anon policies in the documented
+-- 2026-04-26 anti-pattern shape (predicates that just checked the
+-- parent's *_token IS NOT NULL without requiring a header match)
+-- plus a `WITH CHECK (true)` UPDATE on proposal_recipients that
+-- allowed signing-token holders to flip recipient role from
+-- 'viewer' to 'signer'. All four were dropped in production by
+-- migrations
+--   20260427180000_add_token_gated_policies.sql
+--   20260427190000_drop_old_anon_signing_policies.sql
+--   20260502120000_signing_flow_security_definer.sql
+-- Removed from this seed too. Anon access flows exclusively through
+-- those migrations and the SECURITY DEFINER RPCs they install.
+--
 -- Strategy: Add tenant_id, backfill from parent, enable RLS
 -- Edge functions use service_role key — bypass RLS, unaffected
 --
@@ -168,16 +182,10 @@ CREATE POLICY "proposal_wtc_select" ON public.proposal_wtc
   FOR SELECT TO authenticated
   USING (tenant_id = public.get_user_tenant_id());
 
--- Anon: signing page reads WTCs to display scope of work
-CREATE POLICY "proposal_wtc_public_read" ON public.proposal_wtc
-  FOR SELECT TO anon
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.proposals p
-      WHERE p.id::text = proposal_id::text
-        AND p.signing_token IS NOT NULL
-    )
-  );
+-- Anon SELECT on proposal_wtc — provided by proposal_wtc_public_read_token
+-- in 20260427180000_add_token_gated_policies.sql (requires x-signing-token
+-- header match). Removed bare-`signing_token IS NOT NULL` policy —
+-- audit C2 (2026-04-30).
 
 CREATE POLICY "proposal_wtc_insert" ON public.proposal_wtc
   FOR INSERT TO authenticated
@@ -223,17 +231,11 @@ CREATE POLICY "proposal_recipients_delete" ON public.proposal_recipients
   FOR DELETE TO authenticated
   USING (tenant_id = public.get_user_tenant_id());
 
--- Anon: signing page marks viewed_at on recipients
-CREATE POLICY "proposal_recipients_public_update" ON public.proposal_recipients
-  FOR UPDATE TO anon
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.proposals p
-      WHERE p.id::text = proposal_id::text
-        AND p.signing_token IS NOT NULL
-    )
-  )
-  WITH CHECK (true);
+-- Anon access to proposal_recipients is now write-only via the
+-- SECURITY DEFINER RPC mark_recipient_viewed() defined in
+-- 20260502120000_signing_flow_security_definer.sql, which updates
+-- ONLY the viewed_at column. Removed the WITH CHECK (true) anon
+-- UPDATE policy — audit C3 (2026-04-30).
 
 
 -- -------------------------------------------------------
@@ -260,16 +262,12 @@ CREATE POLICY "proposal_signatures_delete" ON public.proposal_signatures
   FOR DELETE TO authenticated
   USING (tenant_id = public.get_user_tenant_id());
 
--- Anon: signing page inserts signature record after customer signs
-CREATE POLICY "proposal_signatures_public_insert" ON public.proposal_signatures
-  FOR INSERT TO anon
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM public.proposals p
-      WHERE p.id::text = proposal_id::text
-        AND p.signing_token IS NOT NULL
-    )
-  );
+-- Anon INSERT on proposal_signatures — provided by
+-- proposal_signatures_public_insert_token in
+-- 20260427180000_add_token_gated_policies.sql (requires x-signing-token
+-- header match). Removed bare-`signing_token IS NOT NULL` policy —
+-- audit C2 (2026-04-30). Future hardening per audit H4: bind
+-- proposal_signatures.tenant_id to the parent proposal in WITH CHECK.
 
 
 -- -------------------------------------------------------
@@ -289,16 +287,10 @@ CREATE POLICY "invoice_lines_select" ON public.invoice_lines
   FOR SELECT TO authenticated
   USING (tenant_id = public.get_user_tenant_id());
 
--- Anon: public invoice page reads lines to show breakdown
-CREATE POLICY "invoice_lines_public_read" ON public.invoice_lines
-  FOR SELECT TO anon
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.invoices i
-      WHERE i.id::text = invoice_id::text
-        AND i.viewing_token IS NOT NULL
-    )
-  );
+-- Anon SELECT on invoice_lines — provided by invoice_lines_public_read_token
+-- in 20260427180000_add_token_gated_policies.sql (requires x-viewing-token
+-- header match). Removed bare-`viewing_token IS NOT NULL` policy —
+-- audit C2 (2026-04-30).
 
 CREATE POLICY "invoice_lines_insert" ON public.invoice_lines
   FOR INSERT TO authenticated

@@ -2,7 +2,22 @@
 -- RLS Phase 3: Identity & config tables
 -- Tables: team_members, tenant_config, qb_connection
 --
--- Run in Supabase SQL Editor with service role, top-to-bottom
+-- Run in Supabase SQL Editor with service role, top-to-bottom.
+--
+-- HARDENED 2026-05-02 (audit C2/H2/H3, 2026-04-30):
+-- The original seed shipped two anon SELECT policies that exposed
+-- every tenant's team and config rows to anyone with the publishable
+-- anon key:
+--   team_members_public_read   USING (active = true)
+--   tenant_config_public_read  USING (true)
+-- Both were dropped in production by migration
+--   20260429190000_drop_public_read_policies.sql
+-- and replaced by column-scoped RPCs:
+--   public.get_rep_contact(rep_name text)
+--   public.get_public_tenant_config()
+-- They have been removed from this seed too, so a fresh deploy will
+-- never re-introduce them. Do NOT add anon SELECT/UPDATE policies on
+-- these tables — anon access flows exclusively through the RPCs above.
 -- ============================================================
 
 
@@ -55,11 +70,10 @@ CREATE POLICY "team_members_delete" ON public.team_members
   FOR DELETE TO authenticated
   USING (tenant_id = public.get_user_tenant_id());
 
--- Anon: signing page + public invoice page look up rep by name
--- Only expose name, email, phone — scoped to active reps
-CREATE POLICY "team_members_public_read" ON public.team_members
-  FOR SELECT TO anon
-  USING (active = true);
+-- Anon access to team_members goes exclusively through the
+-- public.get_rep_contact() RPC. Removed the bare USING (active = true)
+-- policy — it exposed full PII (auth_id, role, every column) across
+-- tenants to any publishable-key holder. Audit H3 (2026-04-30).
 
 
 -- ============================================================
@@ -82,11 +96,11 @@ CREATE POLICY "tenant_config_update" ON public.tenant_config
   USING  (id = public.get_user_tenant_id())
   WITH CHECK (id = public.get_user_tenant_id());
 
--- Anon: public pages need branding (logo, name, phone, etc.)
--- Read-only, no sensitive data exposed (tokens managed by edge fns)
-CREATE POLICY "tenant_config_public_read" ON public.tenant_config
-  FOR SELECT TO anon
-  USING (true);
+-- Anon access to tenant_config goes exclusively through the
+-- public.get_public_tenant_config() RPC, which returns only branding
+-- columns (no stripe IDs, billing goals, license number). Removed the
+-- bare USING (true) policy — it exposed every tenant's full row to
+-- any publishable-key holder. Audit H2 (2026-04-30).
 
 
 -- ============================================================

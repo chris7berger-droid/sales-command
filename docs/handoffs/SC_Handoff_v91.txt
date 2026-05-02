@@ -1,0 +1,283 @@
+SC_Handoff_v91
+Date: 2026-05-01
+Author: Chris Berger (with Claude assistance)
+Topic: Security audit staging test + prod deploy — tenant isolation on
+       edge functions, RLS anti-pattern policy cleanup, SECURITY DEFINER
+       RPCs for signing flow. Both security branches merged to main.
+
+================================================================
+WHAT WAS DONE
+================================================================
+
+Two security-fix branches that were written in prior Claude Code Web
+sessions were staged, tested, and deployed to prod in a single session
+from the CLI.
+
+1. Staging environment setup
+   -------------------------
+   Created a throwaway Supabase project (SC Staging, ref
+   zaeevatlpkrcmivhhrph) because Supabase Branching's GitHub sync
+   was hanging. Replicated prod schema via pg_dump/psql (installed
+   libpq via brew), seeded a test tenant + 3 users (admin, sales,
+   evil cross-tenant attacker) + call_log/proposal/invoice data.
+
+2. Branch 1: claude/security-audit-fixes-2026-04-30 (8 commits)
+   -----------------------------------------------------------
+   Edge function tenant isolation. Fixes: C4-C8, C11, H10.
+
+   New shared helper: _shared/tenantAuth.ts
+     - authenticateCaller() — resolves JWT to tenant_id via team_members
+     - requireAdminOrManager() — same + role gate
+     - unauthorizedResponse() — standard 401/403 JSON
+
+   Functions hardened:
+     - qb-record-payment (C5) — tenant assertion
+     - qb-sync-invoice (C6) — tenant assertion
+     - qb-void-invoice (C7) — tenant assertion
+     - send-invoice (C8 + H10) — tenant binding, DB-sourced email/amount
+     - create-billing-session (C11) — scoped to caller's tenant
+     - qb-auth (C4) — qb_connection scoped per-tenant, exchange/refresh
+       gated to admin/manager
+
+   Migration: 20260501120000_qb_connection_tenant_id.sql
+     - Adds tenant_id column to qb_connection
+     - RLS policy scoped to tenant
+
+   Staging tests (14 total):
+     - Admin user: qb-auth status OK, exchange OK
+     - Sales user: qb-auth exchange rejected (403)
+     - No auth: qb-sync-invoice rejected (401)
+     - Cross-tenant: ALL 5 money functions rejected (403)
+     - Tenant isolation on qb-auth status: evil user sees own empty
+       connection, not tenant A's
+     - create-billing-session: evil user can't see tenant A's Stripe ID
+
+3. Branch 2: claude/security-audit-criticals-2026-05-02 (4 commits)
+   ----------------------------------------------------------------
+   RLS policy hardening. Fixes: C1, C2, C3, C10, C12, H2, H3.
+
+   New SECURITY DEFINER RPCs (migration 20260502120000):
+     - mark_recipient_viewed(p_token text) — sets viewed_at on
+       proposal_recipients matching the signing token
+     - mark_proposal_signed(p_token text) — atomically sets proposal
+       status=Sold + approved_at, call_log stage=Sold. Reads
+       call_log_id from DB (fixes C10 — no longer trusted from
+       request body)
+
+   Updated edge function: proposal-signed/index.ts
+     - Calls mark_proposal_signed RPC instead of separate UPDATEs
+     - proposalId and callLogId read from RPC result, not request body
+
+   Policy cleanup (migration 20260502130000):
+     CREATED (3 new token-matched SELECT policies):
+       - proposals_public_view_token — viewing token path for invoice
+         page (invoices -> proposals)
+       - call_log_public_view_token — viewing token path via
+         invoices.job_id::int (direct, not through proposals)
+       - customers_public_read_token — both signing + viewing token
+         paths (was missing entirely — found during staging test)
+
+     DROPPED (10 policies):
+       Anti-pattern (signing_token IS NOT NULL without matching):
+         - "anon: signing page read" on proposals
+         - "anon: signing page update" on proposals
+         - "anon: signing page read" on call_log
+         - "anon: signing page update" on call_log
+         - "anon: signing page read" on customers
+         - "anon: signing page read" on proposal_wtc
+         - "anon_view_invoice_by_token" on invoices
+
+       Column-unrestricted UPDATE (token-matched but allows any column):
+         - proposals_public_sign_update_token
+         - call_log_public_sign_update_token
+         - proposal_recipients_public_update_token
+
+   Seed script rewrites (C2, H2, H3):
+     - sql/rls_core_tables.sql — removed anti-pattern policies
+     - sql/rls_child_tables.sql — removed anti-pattern policies
+     - sql/rls_identity_tables.sql — removed anti-pattern policies
+
+   Rollback footgun deleted (C12):
+     - sql/rollback_drop_old_anon_signing_policies.sql deleted
+
+   Staging tests (21 total, continuing from branch 1):
+     - RPCs: valid token OK, invalid token INVALID_TOKEN error
+     - proposal-signed edge function: marks Sold via RPC
+     - Policy drops: anon UPDATE on call_log blocked
+     - Policy drops: anon UPDATE on proposals blocked
+     - Signing page query: full join (proposals -> call_log ->
+       customers) returns all data with signing token
+     - Invoice page query: full join (invoices -> proposals ->
+       call_log -> customers) returns all data with viewing token
+     - Both pages: empty without token
+
+   Issues found and fixed during staging test (not in original audit):
+     - 6 legacy anti-pattern policies on prod predating the token-matched
+       replacements — never dropped by prior migrations
+     - anon_view_invoice_by_token on invoices — same anti-pattern
+     - proposals_public_sign_update_token — token-matched but allowed
+       writing total, tenant_id (signer could zero out total)
+     - Missing customers_public_read_token — signing page would lose
+       customer address data after dropping anti-pattern policies
+     - Missing viewing-token SELECT policies on proposals, call_log,
+       customers — invoice page would lose nested join data
+     - invoices.job_id is text, call_log.id is integer with no FK —
+       viewing-token policies use ::int cast
+
+4. Prod deploy (6-step sequence)
+   ----------------------------
+   Critical ordering constraint: Vercel auto-deploys on push to main.
+   Branch 2 changes PublicSigningPage.jsx to call mark_proposal_signed
+   RPC. If that RPC doesn't exist on prod, the signing page breaks.
+
+   Sequence executed:
+     1. Merged branch 1 to main (no frontend changes — safe auto-deploy)
+     2. Applied migration 20260501120000 to prod (supabase db push)
+     3. Deployed 6 edge functions to prod
+     4. Applied migrations 20260502120000 + 20260502130000 to prod
+        (via psql — required before branch 2 merge)
+     5. Merged branch 2 to main (triggers Vercel deploy of new
+        PublicSigningPage.jsx)
+     6. Deployed proposal-signed edge function to prod
+     + Repaired migration ledger (20260502120000, 20260502130000)
+     + Also deployed 3 v87 CORS-fixed functions that were never
+       deployed: stripe-webhook, scc-stripe-webhook, reset-password
+
+5. Prod verification
+   -----------------
+   Policy inventory verified on prod — exactly 9 anon policies remain:
+     call_log: 2 SELECT (signing + viewing)
+     customers: 1 SELECT (signing + viewing)
+     invoice_lines: 1 SELECT (viewing)
+     invoices: 1 SELECT (viewing)
+     proposal_signatures: 1 INSERT (signing)
+     proposal_wtc: 1 SELECT (signing)
+     proposals: 2 SELECT (signing + viewing)
+
+   Zero anon UPDATE policies. Zero anti-pattern policies.
+
+================================================================
+PROD SMOKE TEST NEEDED (not done — do this next session)
+================================================================
+
+The staging tests covered the same queries the public pages make, but
+against staging data. These need to be verified on prod (scmybiz.com)
+with real proposals and invoices:
+
+  1. Open a SENT proposal's signing link in an incognito browser
+     → Signing page should load with customer address, job info, WTC
+       line items, and the signature pad
+     → If customer data is missing (address blank, contact email blank),
+       the customers_public_read_token policy is not working
+     → Sign it → should transition to Sold, call_log.stage should
+       update to Sold
+
+  2. Open a SENT invoice's viewing link in an incognito browser
+     → Invoice page should load with customer billing info, job details,
+       line items, and the payment button
+     → If customer/job data is missing, the viewing-token policies
+       are not working
+
+  3. Quick check: go to Settings → QuickBooks → verify the connection
+     status still shows (confirms qb-auth tenant scoping works with
+     the real qb_connection record)
+
+  If anything is broken, the rollback is:
+     - Re-create the dropped anti-pattern policies (they're in git
+       history at the prior commit)
+     - Redeploy old proposal-signed from the commit before branch 2
+
+================================================================
+CLEANUP
+================================================================
+
+  - Delete SC Staging project (zaeevatlpkrcmivhhrph) from Supabase
+    dashboard — served its purpose, costs nothing but is clutter
+
+  - libpq installed via brew during this session (for pg_dump/psql).
+    Keep it — useful for future DB work from the CLI
+
+  - Local branches can be cleaned up:
+      git branch -d claude/security-audit-fixes-2026-04-30
+      git branch -d claude/security-audit-criticals-2026-05-02
+
+================================================================
+FILES TOUCHED
+================================================================
+
+From branch 1 (merged to main):
+  New:
+    audit-reports/handoff-2026-05-01.md
+    supabase/functions/_shared/tenantAuth.ts
+    supabase/migrations/20260501120000_qb_connection_tenant_id.sql
+  Modified:
+    supabase/functions/create-billing-session/index.ts
+    supabase/functions/qb-auth/index.ts
+    supabase/functions/qb-record-payment/index.ts
+    supabase/functions/qb-sync-invoice/index.ts
+    supabase/functions/qb-void-invoice/index.ts
+    supabase/functions/send-invoice/index.ts
+
+From branch 2 (merged to main):
+  New:
+    supabase/migrations/20260502120000_signing_flow_security_definer.sql
+    supabase/migrations/20260502130000_drop_antipattern_anon_policies.sql
+  Modified:
+    sql/rls_core_tables.sql
+    sql/rls_child_tables.sql
+    sql/rls_identity_tables.sql
+    src/pages/PublicSigningPage.jsx
+    supabase/functions/proposal-signed/index.ts
+  Deleted:
+    sql/rollback_drop_old_anon_signing_policies.sql
+
+================================================================
+SECURITY SCORECARD
+================================================================
+
+  Before this session:
+    D — all 12 Criticals open, no tenant isolation on edge functions,
+    anti-pattern policies live on prod
+
+  After this session:
+    B — all 12 Criticals closed, tenant isolation enforced on all
+    money functions, all anti-pattern anon policies dropped, anon
+    mutations locked to SECURITY DEFINER RPCs only
+
+  Total findings: 68 found across both audits
+  Fixed: 36 (all Critical, some High)
+  Open: 32 (10 High, 13 Medium, 9 Low — none allow cross-tenant access)
+
+  To reach A: close H1/H7 (search_path on security functions),
+  H5 (token expiry/single-use), H6 (public page select("*")),
+  Low #15 (plaintext QB tokens)
+
+================================================================
+NEXT SESSION PICKUP
+================================================================
+
+Priority order:
+
+  1. Prod smoke test (see section above) — verify signing page and
+     invoice page work with real data on scmybiz.com
+
+  2. Delete SC Staging project from Supabase dashboard
+
+  3. Remaining audit findings — start with High:
+     H1/H7: SET search_path on get_user_tenant_id,
+       request_signing_token, request_viewing_token (tiny migration)
+     H4: proposal_signatures anon INSERT must bind tenant_id
+     H5: Token expiry/single-use (signing_token_expires_at)
+     H6: PublicSigningPage select("*") exposing pricing internals
+
+  4. Carry-forward from v90:
+     - send-invoice error surfacing
+     - Customer settings page
+     - Pay app system redesign
+
+How to resume:
+  Open Claude Code in ~/sales-command and say:
+    "Resume v91 — prod smoke test the signing page and invoice page
+    on scmybiz.com, then continue with High audit findings."
+
+================================================================

@@ -45,6 +45,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -135,6 +136,30 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
   }, [payAppId, proposal.call_log_id, proposal.id]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  async function handleUploadCompleted(file) {
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `pay-app-completed/${payAppId}/${Date.now()}-${cleanName}`;
+      const { error: upErr } = await supabase.storage.from("job-attachments").upload(path, file, { contentType: file.type || "application/octet-stream" });
+      if (upErr) throw new Error(upErr.message);
+      const { data: pub } = supabase.storage.from("job-attachments").getPublicUrl(path);
+      const { error: updErr } = await supabase
+        .from("billing_schedule_pay_apps")
+        .update({ pdf_url: pub?.publicUrl })
+        .eq("id", payAppId);
+      if (updErr) throw new Error(updErr.message);
+      setPayApp(prev => ({ ...prev, pdf_url: pub?.publicUrl }));
+      onChanged?.();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   function openSendStep() {
     if (!invoice) { alert("No linked invoice on this pay app."); return; }
@@ -308,8 +333,6 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                     invoiceNumber={invoice?.id}
                     jobNumber={jobNumber}
                     typeOfWork={payApp.type_of_work}
-                    templateUrl={template?.pdf_url}
-                    templateLabel={template?.label ? `Download ${template.label}` : "Download Template"}
                   />
                 ) : (
                   <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>Loading summary…</div>
@@ -321,11 +344,23 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
               <div style={{ background: "#3a1a1a", border: `1px solid #7a2a2a`, color: "#ffbcbc", borderRadius: 6, padding: "8px 12px", fontSize: 12, fontFamily: F.ui, marginBottom: 12 }}>{error}</div>
             )}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
-              <Btn sz="sm" v="ghost" onClick={onClose}>Close</Btn>
-              <Btn sz="sm" onClick={openSendStep} disabled={!invoice || payApp.status === "submitted" || payApp.status === "paid"}>
-                {payApp.status === "submitted" ? "Already Sent" : payApp.status === "paid" ? "Paid" : "Send Pay App"}
-              </Btn>
+            <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+              {payApp.pdf_url && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Completed Pay App:</span>
+                  <a href={payApp.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View Uploaded File</a>
+                </div>
+              )}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <Btn sz="sm" v="ghost" onClick={onClose}>Close</Btn>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", padding: "6px 14px", background: C.linenDeep, border: `1.5px solid ${C.borderStrong}`, borderRadius: 8, cursor: uploading ? "wait" : "pointer" }}>
+                  {uploading ? "Uploading..." : payApp.pdf_url ? "Replace Pay App" : "Upload Completed Pay App"}
+                  <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => handleUploadCompleted(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
+                </label>
+                <Btn sz="sm" onClick={openSendStep} disabled={!invoice || payApp.status === "submitted" || payApp.status === "paid"}>
+                  {payApp.status === "submitted" ? "Already Sent" : payApp.status === "paid" ? "Paid" : "Send Pay App"}
+                </Btn>
+              </div>
             </div>
           </>
         ) : (

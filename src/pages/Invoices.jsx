@@ -113,7 +113,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
       supabase.from("invoice_lines")
         .select("proposal_wtc_id, billing_pct")
         .in("invoice_id",
-          (await supabase.from("invoices").select("id").eq("proposal_id", p.id)).data?.map(i => i.id) || []
+          (await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null)).data?.map(i => i.id) || []
         ),
     ]);
 

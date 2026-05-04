@@ -81,8 +81,10 @@ export default function PayAppCheatSheet({
       {/* Metadata */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
         <MetaField label="Application #" value={appNumber || "—"} />
-        <MetaField label="Period" value={`${formatDate(periodFrom)} – ${formatDate(periodTo)}`} />
+        <MetaField label="Application Date" value={formatDate(periodTo)} />
         <MetaField label="Invoice #" value={invoiceNumber || "—"} />
+        <MetaField label="Period From" value={formatDate(periodFrom)} />
+        <MetaField label="Period To" value={formatDate(periodTo)} />
         <MetaField label="Job / Subcontract #" value={jobNumber || "—"} />
         <MetaField label="Type of Work" value={typeOfWork || "—"} />
       </div>
@@ -141,10 +143,20 @@ export default function PayAppCheatSheet({
 }
 
 function MetaField({ label, value }) {
+  const [copied, setCopied] = useState(false);
+  const handleClick = () => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
   return (
-    <div style={{ background: C.linen, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px" }}>
+    <div onClick={handleClick} style={{ background: C.linen, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", cursor: "pointer", position: "relative" }}>
       <div style={{ fontSize: 9, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 2 }}>{label}</div>
       <div style={{ fontSize: 12, fontWeight: 600, color: C.textHead, fontFamily: F.ui }}>{value}</div>
+      {copied && (
+        <div style={{ position: "absolute", top: 2, right: 6, fontSize: 9, fontWeight: 700, color: C.teal, fontFamily: F.display, letterSpacing: "0.06em" }}>COPIED</div>
+      )}
     </div>
   );
 }

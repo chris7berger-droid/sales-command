@@ -574,24 +574,19 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
         <div style={{ marginTop: 18 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Pay Apps</div>
           <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "60px 1fr 120px 120px 120px 120px 80px", background: C.dark, padding: "8px 12px", gap: 10 }}>
-              {["#", "Period", "This App", "Retention", "Payment Due", "Invoice", "PDF"].map((hh, i) => (
-                <div key={i} style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", textAlign: i === 0 || i === 1 ? "left" : i === 6 ? "center" : "right" }}>{hh}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "60px 1fr 120px 120px 120px 120px", background: C.dark, padding: "8px 12px", gap: 10 }}>
+              {["#", "Period", "This App", "Retention", "Payment Due", "Invoice"].map((hh, i) => (
+                <div key={i} style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", textAlign: i === 0 || i === 1 ? "left" : "right" }}>{hh}</div>
               ))}
             </div>
             {payApps.map(pa => (
-              <div key={pa.id} onClick={() => setDetailPayAppId(pa.id)} style={{ display: "grid", gridTemplateColumns: "60px 1fr 120px 120px 120px 120px 80px", padding: "8px 12px", gap: 10, borderTop: `1px solid ${C.border}`, alignItems: "center", background: C.linenLight, cursor: "pointer" }}>
+              <div key={pa.id} onClick={() => setDetailPayAppId(pa.id)} style={{ display: "grid", gridTemplateColumns: "60px 1fr 120px 120px 120px 120px", padding: "8px 12px", gap: 10, borderTop: `1px solid ${C.border}`, alignItems: "center", background: C.linenLight, cursor: "pointer" }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>#{pa.app_number}</div>
                 <div style={{ fontSize: 12, color: C.textBody, fontFamily: F.ui }}>{pa.period_from || "—"} to {pa.period_to || "—"}</div>
                 <div style={{ fontSize: 12.5, color: C.textBody, fontFamily: F.ui, textAlign: "right" }}>{fmt$(pa.this_app_amount || 0)}</div>
                 <div style={{ fontSize: 12.5, color: C.textFaint, fontFamily: F.ui, textAlign: "right" }}>{fmt$(pa.retainage_withheld || 0)}</div>
                 <div style={{ fontSize: 12.5, color: C.textHead, fontFamily: F.ui, fontWeight: 700, textAlign: "right" }}>{fmt$(pa.current_payment_due || 0)}</div>
                 <div style={{ fontSize: 12, fontFamily: F.ui, textAlign: "right" }}>{pa.invoice_id ? <span style={{ background: C.dark, color: C.teal, fontWeight: 700, fontFamily: F.display, letterSpacing: "0.04em", padding: "3px 10px", borderRadius: 6, fontSize: 11 }}>#{pa.invoice_id}</span> : <span style={{ color: C.textFaint }}>—</span>}</div>
-                <div style={{ textAlign: "center" }} onClick={e => e.stopPropagation()}>
-                  {pa.pdf_url ? (
-                    <a href={pa.pdf_url} target="_blank" rel="noopener noreferrer" style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 10, fontFamily: F.display, letterSpacing: "0.05em", padding: "3px 9px", borderRadius: 4, textDecoration: "none", textTransform: "uppercase" }}>View</a>
-                  ) : <span style={{ fontSize: 11, color: C.textFaint }}>—</span>}
-                </div>
               </div>
             ))}
           </div>

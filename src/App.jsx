@@ -28,6 +28,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import WelcomeScreen from "./components/WelcomeScreen";
 import { TenantConfigProvider } from "./lib/TenantConfigContext";
 import Import from "./pages/Import/Import";
+import UpdateBanner from "./components/UpdateBanner";
 import Archive from "./pages/Archive";
 
 const NAV = [
@@ -196,6 +197,7 @@ function SalesCommandApp() {
 
   return (
     <TenantConfigProvider>
+    <UpdateBanner />
     <BrowserRouter>
       <Routes>
         <Route path="/suite" element={<SubConCommandPage />} />

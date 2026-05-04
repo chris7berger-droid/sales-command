@@ -249,7 +249,7 @@ function PayAppTemplateModal({ customerId, onClose, onSaved }) {
 
     const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const path = `pay-app-templates/${customerId}/${Date.now()}-${cleanName}`;
-    const { error: upErr } = await supabase.storage.from("job-attachments").upload(path, file, { contentType: "application/pdf" });
+    const { error: upErr } = await supabase.storage.from("job-attachments").upload(path, file, { contentType: file.type || "application/octet-stream" });
     if (upErr) { setSaving(false); setError(upErr.message); return; }
 
     const { data: pub } = supabase.storage.from("job-attachments").getPublicUrl(path);
@@ -313,8 +313,8 @@ function PayAppTemplateModal({ customerId, onClose, onSaved }) {
               </select>
             </Field>
           )}
-          <Field label="PDF File">
-            <input type="file" accept="application/pdf" onChange={e => setFile(e.target.files?.[0] || null)} style={{ ...inputStyle, padding: "8px 10px" }} />
+          <Field label="File (PDF, Word, or Excel)">
+            <input type="file" accept="application/pdf,.docx,.xlsx,.xls,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={e => setFile(e.target.files?.[0] || null)} style={{ ...inputStyle, padding: "8px 10px" }} />
           </Field>
           {scope === "customer" && (
             <Field label="Default?">
@@ -402,7 +402,9 @@ function PayAppTemplatesSection({ customerId, canManage }) {
               )}
               {t.is_default && <span style={pill}>Default</span>}
               {t.pdf_url && (
-                <a href={t.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11.5, fontWeight: 700, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", textDecoration: "none" }}>View</a>
+                <a href={t.pdf_url} target="_blank" rel="noopener noreferrer" download style={{ fontSize: 11.5, fontWeight: 700, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", textDecoration: "none" }}>
+                  {/\.(docx?|xlsx?|csv)$/i.test(t.pdf_url) ? "Download" : "View"}
+                </a>
               )}
               {canManage && (
                 <button onClick={() => handleDelete(t)} style={{ background: "none", border: "none", color: C.textFaint, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 4px" }} title="Delete">×</button>

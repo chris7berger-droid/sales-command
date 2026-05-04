@@ -39,6 +39,7 @@ export default function PayAppCheatSheet({
   lessRetention, previousApps, currentPaymentDue,
   appNumber, periodFrom, periodTo, invoiceNumber,
   jobNumber, typeOfWork, coBreakdown,
+  templateUrl, templateLabel,
 }) {
   const formatDate = (iso) => {
     if (!iso) return "—";
@@ -61,13 +62,20 @@ export default function PayAppCheatSheet({
 
   return (
     <div>
-      <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.display }}>
-          G702 Application Summary
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.display }}>
+            G702 Application Summary
+          </div>
+          <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
+            Click any value to copy it, then paste into the GC's pay app.
+          </div>
         </div>
-        <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
-          Click any value to copy it, then paste into the GC's pay app.
-        </div>
+        {templateUrl && (
+          <a href={templateUrl} download style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none", padding: "6px 12px", background: C.dark, borderRadius: 6, whiteSpace: "nowrap" }}>
+            {templateLabel || "Download Template"}
+          </a>
+        )}
       </div>
 
       {/* Metadata */}

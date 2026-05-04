@@ -43,7 +43,7 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
     setSchedule(sch);
 
     if (sch) {
-      const [{ data: lns }, { data: apps }, { count }, { data: appLines }] = await Promise.all([
+      const [{ data: lns }, { data: apps }, { count }] = await Promise.all([
         supabase.from("billing_schedule_lines")
           .select("*")
           .eq("billing_schedule_id", sch.id)
@@ -57,20 +57,21 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
           .select("id", { count: "exact", head: true })
           .eq("proposal_id", proposal.id)
           .is("deleted_at", null),
-        (apps || []).length > 0
-          ? supabase.from("billing_schedule_pay_app_lines")
-              .select("billing_schedule_line_id, billed_amount_this_app")
-              .in("pay_app_id", apps.map(a => a.id))
-          : Promise.resolve({ data: [] }),
       ]);
       setLines(lns || []);
       setPayApps(apps || []);
       setLocked((count || 0) > 0 || sch.status === "locked");
 
       const progress = {};
-      for (const al of (appLines || [])) {
-        const lid = al.billing_schedule_line_id;
-        progress[lid] = (progress[lid] || 0) + (parseFloat(al.billed_amount_this_app) || 0);
+      if ((apps || []).length > 0) {
+        const { data: appLines } = await supabase
+          .from("billing_schedule_pay_app_lines")
+          .select("billing_schedule_line_id, billed_amount_this_app")
+          .in("pay_app_id", apps.map(a => a.id));
+        for (const al of (appLines || [])) {
+          const lid = al.billing_schedule_line_id;
+          progress[lid] = (progress[lid] || 0) + (parseFloat(al.billed_amount_this_app) || 0);
+        }
       }
       setBillingProgress(progress);
     } else {

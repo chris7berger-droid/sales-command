@@ -1,4 +1,8 @@
 
+[functions.qb-auth]
+enabled = true
+verify_jwt = false
+
 [functions.send-proposal]
 enabled = true
 verify_jwt = true

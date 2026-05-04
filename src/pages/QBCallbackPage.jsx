@@ -17,8 +17,20 @@ export default function QBCallbackPage() {
       return;
     }
 
+    async function waitForSession(retries = 10, delay = 500) {
+      for (let i = 0; i < retries; i++) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) return session;
+        await new Promise(r => setTimeout(r, delay));
+      }
+      return null;
+    }
+
     async function exchange() {
       try {
+        const session = await waitForSession();
+        if (!session) throw new Error("Session expired. Please log in and reconnect QuickBooks.");
+
         const { data, error: fnErr } = await supabase.functions.invoke("qb-auth", {
           body: { action: "exchange", code, realmId },
         });

@@ -229,24 +229,7 @@ export default function PublicSigningPage() {
       doc.setLineWidth(0.5);
       doc.line(margin, y, pageW - margin, y); y += 20;
 
-      // --- Introduction ---
-      const introText = (proposal.intro || "").trim();
-      if (introText) {
-        doc.setFontSize(8); doc.setFont("helvetica", "bold");
-        doc.setTextColor(...lightGray);
-        doc.text("INTRODUCTION", margin, y); y += 14;
-        doc.setFontSize(10); doc.setFont("helvetica", "normal");
-        doc.setTextColor(...dark);
-        const introLines = doc.splitTextToSize(introText, contentW);
-        introLines.forEach(line => {
-          if (y > 700) { doc.addPage(); y = 48; }
-          doc.text(line, margin, y); y += 14;
-        });
-        y += 12;
-        doc.setDrawColor(220, 215, 210);
-        doc.setLineWidth(0.5);
-        doc.line(margin, y, pageW - margin, y); y += 20;
-      }
+      // Email intro is no longer printed on the PDF
 
       // --- Scope of Work ---
       doc.setFontSize(8); doc.setFont("helvetica", "bold");
@@ -504,16 +487,6 @@ export default function PublicSigningPage() {
               <button onClick={() => window.print()} style={{ background: "white", border: `1px solid ${T.gray200}`, borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, color: T.gray700, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
                 Save as PDF
               </button>
-            </div>
-          </div>
-        )}
-
-        {/* Introduction */}
-        {(proposal.intro || "").trim() && (
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: T.gray400, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10, marginTop: 8 }}>Introduction</div>
-            <div style={{ background: "white", borderRadius: 14, border: `1px solid ${T.gray200}`, padding: "28px 32px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-              <pre style={{ margin: 0, fontSize: 14, color: T.gray700, lineHeight: 1.75, whiteSpace: "pre-wrap", fontFamily: "'Inter', Arial, sans-serif" }}>{proposal.intro.trim()}</pre>
             </div>
           </div>
         )}

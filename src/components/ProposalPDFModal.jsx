@@ -20,7 +20,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
   const [viewerEmails, setViewerEmails] = useState([]);
 
   useEffect(() => {
-    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url }));
+    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url, proposalEmailIntro: cfg.default_proposal_email_intro || "" }));
     const salesName = proposal.call_log?.sales_name;
     if (salesName) {
       supabase.from("team_members").select("phone, email").eq("name", salesName).maybeSingle().then(({ data }) => {
@@ -76,9 +76,12 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
           repEmail,
           repName: salesName,
           companyName: COMPANY.name,
+          companyTagline: COMPANY.tagline,
+          companyPhone: COMPANY.phone,
           proposalNumber: proposal.proposal_number || proposal.id,
           jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
           signingUrl,
+          emailIntro: proposal.intro || COMPANY.proposalEmailIntro,
         },
       });
       if (fnError) throw new Error(fnError.message || "Send failed.");
@@ -94,9 +97,12 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
             repEmail,
             repName: salesName,
             companyName: COMPANY.name,
+            companyTagline: COMPANY.tagline,
+            companyPhone: COMPANY.phone,
             proposalNumber: proposal.proposal_number || proposal.id,
             jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
             signingUrl,
+            emailIntro: proposal.intro || COMPANY.proposalEmailIntro,
           },
         });
       }
@@ -306,15 +312,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
                 </div>
               </div>
 
-              {/* Introduction */}
-              {(proposal.intro || "").trim() && (
-                <div style={{ marginBottom: 28 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: "#887c6e", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Introduction</div>
-                  <div style={{ border: "1.5px solid rgba(28,24,20,0.2)", borderRadius: 8, padding: "16px 18px", background: "white" }}>
-                    <pre style={{ margin: 0, fontSize: 13, color: "#2d2720", lineHeight: 1.75, whiteSpace: "pre-wrap", fontFamily: "Arial, sans-serif" }}>{(proposal.intro || "").trim()}</pre>
-                  </div>
-                </div>
-              )}
+              {/* Email intro is no longer printed on the PDF — it goes in the email body */}
 
               {/* Scope of Work */}
               <div style={{ marginBottom: 28 }}>

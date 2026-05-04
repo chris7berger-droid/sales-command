@@ -40,7 +40,7 @@ serve(async (req) => {
       });
     }
 
-    const { customerEmail, customerName, repEmail, repName, proposalNumber, jobName, signingUrl, companyName } = await req.json();
+    const { customerEmail, customerName, repEmail, repName, proposalNumber, jobName, signingUrl, companyName, companyTagline, companyPhone, emailIntro } = await req.json();
 
     console.log("send-proposal invoked", { customerEmail, repEmail, proposalNumber, jobName });
 
@@ -80,16 +80,16 @@ serve(async (req) => {
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
             <div style="border-bottom: 4px solid #30cfac; padding-bottom: 16px; margin-bottom: 24px;">
-              <h2 style="margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.02em;">High Desert Surface Prep</h2>
-              <p style="margin: 4px 0 0; color: #4a4238; font-size: 13px;">Industrial & Commercial Concrete Coatings</p>
+              <h2 style="margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.02em;">${companyName || "Sales Command"}</h2>
+              ${companyTagline ? `<p style="margin: 4px 0 0; color: #4a4238; font-size: 13px;">${companyTagline}</p>` : ""}
             </div>
             <p>Hi ${customerName},</p>
-            <p>Your proposal is ready for review. Click the button below to view and sign.</p>
+            ${emailIntro ? emailIntro.split("\n").map((line: string) => `<p>${line}</p>`).join("") : "<p>Your proposal is ready for review. Click the button below to view and sign.</p>"}
             <div style="margin: 32px 0;">
               <a href="${signingUrl}" style="background: #30cfac; color: #1c1814; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 15px;">Review & Sign Proposal →</a>
             </div>
             <p style="color: #887c6e; font-size: 12px;">Proposal #${proposalNumber} · This link is unique to you and expires in 90 days.</p>
-            <p style="color: #887c6e; font-size: 12px;">Questions? Reply to this email or call (775) 300-1900.</p>
+            <p style="color: #887c6e; font-size: 12px;">Questions? Reply to this email${companyPhone ? ` or call ${companyPhone}` : ""}.</p>
           </div>
         `,
       }),

@@ -70,12 +70,12 @@ useEffect(() => {
   }
 }, []);
 
-const [defaultIntro, setDefaultIntro] = useState(`Thank you for the opportunity to provide this proposal for ${p.call_log?.job_name || p.customer || "your project"}. We are pleased to present the following scope of work and pricing for your review.`);
+const [defaultIntro, setDefaultIntro] = useState("");
 
 useEffect(() => {
   getTenantConfig().then(cfg => {
-    if (cfg.default_proposal_intro) {
-      const tmpl = cfg.default_proposal_intro.replace("{job_name}", p.call_log?.job_name || p.customer || "your project");
+    if (cfg.default_proposal_email_intro) {
+      const tmpl = cfg.default_proposal_email_intro.replace("{job_name}", p.call_log?.job_name || p.customer || "your project");
       setDefaultIntro(tmpl);
       if (!introLoaded && !intro) {
         setIntro(tmpl);
@@ -928,7 +928,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           {/* Proposal Introduction */}
           <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Introduction</div>
+              <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Email Introduction</div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 {introSaved && <span style={{ fontSize: 11, color: C.green, fontWeight: 700, fontFamily: F.ui }}>Saved</span>}
                 {!intro && (
@@ -942,7 +942,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             <textarea
               value={intro}
               onChange={e => setIntro(e.target.value)}
-              placeholder="Write an introduction to accompany this proposal..."
+              placeholder="Write the email introduction sent with this proposal..."
               rows={5}
               style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, color: C.textBody, fontSize: 13, fontFamily: F.ui, resize: "vertical", WebkitAppearance: "none", lineHeight: 1.6 }}
             />

@@ -19,6 +19,19 @@ function Field({ label, children, wide, triple }) {
   );
 }
 
+function Section({ title, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <div style={{ ...sectionStyle, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", userSelect: "none" }} onClick={() => setOpen(o => !o)}>
+        <span>{title}</span>
+        <span style={{ fontSize: 11, color: C.textFaint, fontWeight: 600, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}>&#9660;</span>
+      </div>
+      {open && children}
+    </div>
+  );
+}
+
 const STD_TERMS = [5, 15, 30, 45, 60, 90, 120];
 
 function WorkTypesSection() {
@@ -661,121 +674,129 @@ export default function Settings({ userRole }) {
         </div>
       } />
 
-      {/* ─── Company Info ─── */}
-      <div style={sectionStyle}>Company Info</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <Field label="Company Name" wide>
-          <input style={inputStyle} value={form.company_name} onChange={e => set("company_name", e.target.value)} />
-        </Field>
-        <Field label="Tagline" wide>
-          <input style={inputStyle} value={form.tagline} onChange={e => set("tagline", e.target.value)} placeholder="e.g. Industrial & Commercial Concrete Coatings" />
-        </Field>
-        <Field label="Logo URL" wide>
-          <input style={inputStyle} value={form.logo_url || ""} onChange={e => set("logo_url", e.target.value)} placeholder="/hdsp-logo.png or https://..." />
-        </Field>
-        <Field label="License Number">
-          <input style={inputStyle} value={form.license_number} onChange={e => set("license_number", e.target.value)} />
-        </Field>
-        <Field label="Phone">
-          <input style={inputStyle} value={form.phone} onChange={e => set("phone", e.target.value)} />
-        </Field>
-        <Field label="Email">
-          <input style={inputStyle} value={form.email} onChange={e => set("email", e.target.value)} />
-        </Field>
-        <Field label="Website">
-          <input style={inputStyle} value={form.website} onChange={e => set("website", e.target.value)} />
-        </Field>
-        <Field label="Address" wide>
-          <input style={inputStyle} value={form.address} onChange={e => set("address", e.target.value)} />
-        </Field>
-        <Field label="City">
-          <input style={inputStyle} value={form.city} onChange={e => set("city", e.target.value)} />
-        </Field>
+      <Section title="Company Info">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          <Field label="State">
-            <input style={inputStyle} value={form.state} onChange={e => set("state", e.target.value)} maxLength={2} />
+          <Field label="Company Name" wide>
+            <input style={inputStyle} value={form.company_name} onChange={e => set("company_name", e.target.value)} />
           </Field>
-          <Field label="Zip">
-            <input style={inputStyle} value={form.zip} onChange={e => set("zip", e.target.value)} />
+          <Field label="Tagline" wide>
+            <input style={inputStyle} value={form.tagline} onChange={e => set("tagline", e.target.value)} placeholder="e.g. Industrial & Commercial Concrete Coatings" />
           </Field>
-        </div>
-      </div>
-
-      {/* ─── Financial Defaults ─── */}
-      <div style={sectionStyle}>Financial Defaults</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <Field label="Default Burden Rate ($/hr)">
-          <input style={inputStyle} type="number" step="0.01" value={form.default_burden_rate} onChange={e => set("default_burden_rate", e.target.value)} />
-        </Field>
-        <Field label="Default OT Burden Rate ($/hr)">
-          <input style={inputStyle} type="number" step="0.01" value={form.default_ot_burden_rate} onChange={e => set("default_ot_burden_rate", e.target.value)} />
-        </Field>
-        <Field label="Default Tax Rate (%)">
-          <input style={inputStyle} type="number" step="0.01" value={form.default_tax_rate} onChange={e => set("default_tax_rate", e.target.value)} />
-        </Field>
-        <Field label="Default Billing Terms">
-          <select style={inputStyle} value={form.default_billing_terms} onChange={e => set("default_billing_terms", e.target.value)}>
-            {STD_TERMS.map(t => <option key={t} value={t}>Net {t}</option>)}
-          </select>
-        </Field>
-        <Field label="Proposal Validity (days)">
-          <input style={inputStyle} type="number" value={form.proposal_validity_days} onChange={e => set("proposal_validity_days", e.target.value)} />
-        </Field>
-      </div>
-
-      {/* ─── Work Types (Admin/Manager only — RLS blocks Sales writes) ─── */}
-      {canManage && (
-        <>
-          <div style={sectionStyle}>Work Types</div>
-          <WorkTypesSection />
-        </>
-      )}
-
-      {/* ─── Materials Catalog (Admin/Manager only — RLS blocks Sales writes) ─── */}
-      {canManage && (
-        <>
-          <div style={sectionStyle}>Materials Catalog</div>
-          <MaterialsCatalogSection />
-        </>
-      )}
-
-      {/* ─── Sales Goals ─── */}
-      <div style={sectionStyle}>Sales Goals</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <Field label="Monthly Billing Goal ($)">
-          <input style={inputStyle} type="number" value={form.monthly_billing_goal} onChange={e => set("monthly_billing_goal", e.target.value)} />
-        </Field>
-        <Field label="Yearly Billing Goal ($)">
-          <input style={inputStyle} type="number" value={form.yearly_billing_goal} onChange={e => set("yearly_billing_goal", e.target.value)} />
-        </Field>
-        <Field label="Conversion Rate Goal (%)">
-          <input style={inputStyle} type="number" step="1" value={form.conversion_rate_goal} onChange={e => set("conversion_rate_goal", e.target.value)} />
-        </Field>
-        <Field label="Proposals Sent Goal (per month)">
-          <input style={inputStyle} type="number" value={form.proposals_sent_goal} onChange={e => set("proposals_sent_goal", e.target.value)} />
-        </Field>
-      </div>
-
-      {/* ─── Billing (Admin only) ─── */}
-      {userRole === "Admin" && (
-        <>
-          <div style={sectionStyle}>Billing</div>
-          <BillingSection />
-        </>
-      )}
-
-      {/* ─── Integrations ─── */}
-      <div style={sectionStyle}>Integrations</div>
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-        <QBIntegrationCard />
-        <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, padding: "16px 20px", flex: 1, minWidth: 200 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textFaint, fontFamily: F.ui }}>Stripe</div>
-            <span style={{ fontSize: 10, fontWeight: 700, color: C.green, background: C.dark, borderRadius: 4, padding: "2px 8px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Connected</span>
+          <Field label="Logo URL" wide>
+            <input style={inputStyle} value={form.logo_url || ""} onChange={e => set("logo_url", e.target.value)} placeholder="/hdsp-logo.png or https://..." />
+          </Field>
+          <Field label="License Number">
+            <input style={inputStyle} value={form.license_number} onChange={e => set("license_number", e.target.value)} />
+          </Field>
+          <Field label="Phone">
+            <input style={inputStyle} value={form.phone} onChange={e => set("phone", e.target.value)} />
+          </Field>
+          <Field label="Email">
+            <input style={inputStyle} value={form.email} onChange={e => set("email", e.target.value)} />
+          </Field>
+          <Field label="Website">
+            <input style={inputStyle} value={form.website} onChange={e => set("website", e.target.value)} />
+          </Field>
+          <Field label="Address" wide>
+            <input style={inputStyle} value={form.address} onChange={e => set("address", e.target.value)} />
+          </Field>
+          <Field label="City">
+            <input style={inputStyle} value={form.city} onChange={e => set("city", e.target.value)} />
+          </Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <Field label="State">
+              <input style={inputStyle} value={form.state} onChange={e => set("state", e.target.value)} maxLength={2} />
+            </Field>
+            <Field label="Zip">
+              <input style={inputStyle} value={form.zip} onChange={e => set("zip", e.target.value)} />
+            </Field>
           </div>
-          <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textMuted }}>Customers can pay invoices online via Stripe.</div>
         </div>
-      </div>
+      </Section>
+
+      <Section title="Financial Defaults">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <Field label="Default Burden Rate ($/hr)">
+            <input style={inputStyle} type="number" step="0.01" value={form.default_burden_rate} onChange={e => set("default_burden_rate", e.target.value)} />
+          </Field>
+          <Field label="Default OT Burden Rate ($/hr)">
+            <input style={inputStyle} type="number" step="0.01" value={form.default_ot_burden_rate} onChange={e => set("default_ot_burden_rate", e.target.value)} />
+          </Field>
+          <Field label="Default Tax Rate (%)">
+            <input style={inputStyle} type="number" step="0.01" value={form.default_tax_rate} onChange={e => set("default_tax_rate", e.target.value)} />
+          </Field>
+          <Field label="Default Billing Terms">
+            <select style={inputStyle} value={form.default_billing_terms} onChange={e => set("default_billing_terms", e.target.value)}>
+              {STD_TERMS.map(t => <option key={t} value={t}>Net {t}</option>)}
+            </select>
+          </Field>
+          <Field label="Proposal Validity (days)">
+            <input style={inputStyle} type="number" value={form.proposal_validity_days} onChange={e => set("proposal_validity_days", e.target.value)} />
+          </Field>
+        </div>
+      </Section>
+
+      <Section title="Default Templates">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 14 }}>
+          <Field label="Default Proposal Email Introduction" wide>
+            <textarea style={{ ...inputStyle, minHeight: 80, resize: "vertical" }} value={form.default_proposal_email_intro || ""} onChange={e => set("default_proposal_email_intro", e.target.value)} placeholder="Appears in the email when a proposal is sent for signature" />
+          </Field>
+          <Field label="Default Invoice Email Introduction" wide>
+            <textarea style={{ ...inputStyle, minHeight: 80, resize: "vertical" }} value={form.default_invoice_intro || ""} onChange={e => set("default_invoice_intro", e.target.value)} placeholder="Appears in the email above the invoice card. Not printed on the invoice." />
+          </Field>
+          <Field label="Default Invoice Work Description" wide>
+            <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.default_invoice_description || ""} onChange={e => set("default_invoice_description", e.target.value)} placeholder="Default description for the work being billed" />
+          </Field>
+        </div>
+      </Section>
+
+      {canManage && (
+        <Section title="Work Types">
+          <WorkTypesSection />
+        </Section>
+      )}
+
+      {canManage && (
+        <Section title="Materials Catalog">
+          <MaterialsCatalogSection />
+        </Section>
+      )}
+
+      <Section title="Sales Goals">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <Field label="Monthly Billing Goal ($)">
+            <input style={inputStyle} type="number" value={form.monthly_billing_goal} onChange={e => set("monthly_billing_goal", e.target.value)} />
+          </Field>
+          <Field label="Yearly Billing Goal ($)">
+            <input style={inputStyle} type="number" value={form.yearly_billing_goal} onChange={e => set("yearly_billing_goal", e.target.value)} />
+          </Field>
+          <Field label="Conversion Rate Goal (%)">
+            <input style={inputStyle} type="number" step="1" value={form.conversion_rate_goal} onChange={e => set("conversion_rate_goal", e.target.value)} />
+          </Field>
+          <Field label="Proposals Sent Goal (per month)">
+            <input style={inputStyle} type="number" value={form.proposals_sent_goal} onChange={e => set("proposals_sent_goal", e.target.value)} />
+          </Field>
+        </div>
+      </Section>
+
+      {userRole === "Admin" && (
+        <Section title="Billing">
+          <BillingSection />
+        </Section>
+      )}
+
+      <Section title="Integrations">
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          <QBIntegrationCard />
+          <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, padding: "16px 20px", flex: 1, minWidth: 200 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textFaint, fontFamily: F.ui }}>Stripe</div>
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.green, background: C.dark, borderRadius: 4, padding: "2px 8px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Connected</span>
+            </div>
+            <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textMuted }}>Customers can pay invoices online via Stripe.</div>
+          </div>
+        </div>
+      </Section>
 
       <div style={{ height: 40 }} />
     </div>

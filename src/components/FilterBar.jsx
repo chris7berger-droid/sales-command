@@ -13,11 +13,11 @@ const labelStyle = {
   color: C.textFaint, fontFamily: F.display, marginBottom: 3,
 };
 
-export default function FilterBar({ filters, onChange, salesOptions, customerOptions, workTypeOptions }) {
-  const { sales, dateFrom, dateTo, workType, customer, jobNumber } = filters;
+export default function FilterBar({ filters, onChange, salesOptions, customerOptions, workTypeOptions, showInvoiceNumber }) {
+  const { sales, dateFrom, dateTo, workType, customer, jobNumber, invoiceNumber } = filters;
   const set = (k, v) => onChange({ ...filters, [k]: v });
 
-  const hasFilters = sales || dateFrom || dateTo || workType || customer || jobNumber;
+  const hasFilters = sales || dateFrom || dateTo || workType || customer || jobNumber || invoiceNumber;
 
   return (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -55,9 +55,15 @@ export default function FilterBar({ filters, onChange, salesOptions, customerOpt
         <span style={labelStyle}>Job #</span>
         <input placeholder="Filter..." value={jobNumber || ""} onChange={e => set("jobNumber", e.target.value)} style={{ ...inputStyle, width: 110 }} />
       </div>
+      {showInvoiceNumber && (
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <span style={labelStyle}>Invoice #</span>
+          <input placeholder="Filter..." value={invoiceNumber || ""} onChange={e => set("invoiceNumber", e.target.value)} style={{ ...inputStyle, width: 110 }} />
+        </div>
+      )}
       {hasFilters && (
         <button
-          onClick={() => onChange({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" })}
+          onClick={() => onChange({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "", invoiceNumber: "" })}
           style={{
             padding: "7px 14px", borderRadius: 7, border: `1.5px solid ${C.borderStrong}`,
             background: "transparent", color: C.textMuted, fontSize: 11.5, fontWeight: 700,

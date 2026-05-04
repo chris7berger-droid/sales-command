@@ -1506,7 +1506,7 @@ export default function Invoices({ setSubPage, teamMember }) {
   const [showModal, setShowModal] = useState(false);
   const [sel, setSel] = useState(null);
   const [qbConnected, setQbConnected] = useState(null);
-  const [filters, setFilters] = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
+  const [filters, setFilters] = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "", invoiceNumber: "" });
 
   const load = async () => {
     const data = await fetchAll(
@@ -1557,6 +1557,7 @@ export default function Invoices({ setSubPage, teamMember }) {
     if (filters.dateTo && (inv.sent_at || "").slice(0, 10) > filters.dateTo) return false;
     if (filters.customer && !cust.toLowerCase().includes(filters.customer.toLowerCase())) return false;
     if (filters.jobNumber && !jobNum.toLowerCase().includes(filters.jobNumber.toLowerCase())) return false;
+    if (filters.invoiceNumber && !String(inv.id).toLowerCase().includes(filters.invoiceNumber.toLowerCase())) return false;
     return true;
   });
 
@@ -1606,6 +1607,7 @@ export default function Invoices({ setSubPage, teamMember }) {
           filters={filters}
           onChange={setFilters}
           salesOptions={[...new Set(invoices.map(i => i.proposals?.call_log?.sales_name).filter(Boolean))].sort()}
+          showInvoiceNumber
         />
 
         {loading ? (

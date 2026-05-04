@@ -54,9 +54,6 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
   const money = roundInvoice ? fmt$ : fmt$c;
 
   const tenantCfgRef = useRef(null);
-  useEffect(() => {
-    getTenantConfig().then(cfg => { tenantCfgRef.current = cfg; });
-  }, []);
 
   // Step 1: load Sold proposals
   useEffect(() => {

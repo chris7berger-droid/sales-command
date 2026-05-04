@@ -308,7 +308,6 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                     invoiceNumber={invoice?.id}
                     jobNumber={jobNumber}
                     typeOfWork={payApp.type_of_work}
-                    templatePdfUrl={template?.pdf_url}
                   />
                 ) : (
                   <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>Loading summary…</div>

@@ -39,7 +39,6 @@ export default function PayAppCheatSheet({
   lessRetention, previousApps, currentPaymentDue,
   appNumber, periodFrom, periodTo, invoiceNumber,
   jobNumber, typeOfWork, coBreakdown,
-  templatePdfUrl,
 }) {
   const formatDate = (iso) => {
     if (!iso) return "—";
@@ -62,17 +61,12 @@ export default function PayAppCheatSheet({
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+      <div style={{ marginBottom: 8 }}>
         <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.display }}>
           G702 Application Summary
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {templatePdfUrl && (
-            <a href={templatePdfUrl} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none", padding: "4px 10px", background: C.dark, borderRadius: 5 }}>
-              Open Template ↗
-            </a>
-          )}
+        <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
+          Click any value to copy it, then paste into the GC's pay app.
         </div>
       </div>
 

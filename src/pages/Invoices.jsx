@@ -83,7 +83,15 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
   async function selectProposal(p) {
     setSelProposal(p);
     setError(null);
+    setIntro("");
+    setDescription("");
     setRoundInvoice(!p.call_log?.show_cents);
+
+    // Apply template substitutions for intro + description
+    if (!tenantCfgRef.current) tenantCfgRef.current = await getTenantConfig();
+    const cfg = tenantCfgRef.current;
+    const jobNum = (p.call_log?.display_job_number || "").split(" - ")[0];
+    const applySub = (t, workTypes) => t.replace("{job_number}", jobNum).replace("{work_type}", workTypes);
 
     if (p.is_archive_proposal) {
       const { data: priorInv } = await supabase
@@ -95,6 +103,11 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
       const historical = parseFloat(p.historical_billed_amount) || 0;
       setArchiveBilled(inSystem + historical);
       setArchiveAmount("");
+      const djn = p.call_log?.display_job_number || "";
+      const parts = djn.split(" - ");
+      const archiveWorkType = parts.length >= 3 ? parts[parts.length - 1] : p.call_log?.job_name || "";
+      if (cfg.default_invoice_intro) setIntro(applySub(cfg.default_invoice_intro, archiveWorkType));
+      if (cfg.default_invoice_description) setDescription(applySub(cfg.default_invoice_description, archiveWorkType));
       setStep(2);
       return;
     }
@@ -113,12 +126,9 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
     setWtcs(wtcData || []);
     setExistingLines(linesData || []);
 
-    const cfg = tenantCfgRef.current || {};
-    const jobNum = (p.call_log?.display_job_number || "").split(" - ")[0];
     const workTypeNames = (wtcData || []).map(w => w.work_types?.name).filter(Boolean).join(", ");
-    const sub = (t) => t.replace("{job_number}", jobNum).replace("{work_type}", workTypeNames);
-    if (cfg.default_invoice_intro && !intro) setIntro(sub(cfg.default_invoice_intro));
-    if (cfg.default_invoice_description && !description) setDescription(sub(cfg.default_invoice_description));
+    if (cfg.default_invoice_intro) setIntro(applySub(cfg.default_invoice_intro, workTypeNames));
+    if (cfg.default_invoice_description) setDescription(applySub(cfg.default_invoice_description, workTypeNames));
 
     // Init billing pcts to 0
     const pcts = {};

@@ -90,6 +90,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     show_cents:       job.show_cents       || false,
     qb_skip_sync:     job.qb_skip_sync     || false,
   });
+  const [billingContactId, setBillingContactId] = useState(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState(null);
@@ -105,6 +106,26 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [qbToast, setQbToast] = useState(null);
   const [wtDropOpen, setWtDropOpen] = useState(false);
   const wtDropRef = useRef(null);
+
+  useEffect(() => {
+    if (!job.customer_id) return;
+    supabase.from("customer_contacts")
+      .select("id, name, email, phone, is_primary, created_at")
+      .eq("customer_id", job.customer_id)
+      .eq("role", "Billing Contact")
+      .then(({ data }) => {
+        if (!data?.length) return;
+        const bc = data.find(c => c.is_primary) || [...data].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
+        setBillingContactId(bc.id);
+        setForm(f => ({
+          ...f,
+          billing_same: false,
+          billing_name: bc.name || "",
+          billing_email: bc.email || "",
+          billing_phone: bc.phone || "",
+        }));
+      });
+  }, [job.customer_id]);
 
   useEffect(() => {
     function handleClick(e) {
@@ -244,7 +265,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     setSaving(false);
     if (err) { setError(err.message); return; }
 
-    // Save customer contact info
+    // Save customer info (address, terms, main contact — NOT billing contact)
     if (job.customer_id) {
       await supabase.from("customers").update({
         business_address: form.business_address || null,
@@ -254,11 +275,27 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         contact_email: form.contact_email || null,
         contact_phone: form.contact_phone || null,
         billing_terms: parseInt(form.billing_terms) || 30,
-        billing_same: form.billing_same,
-        billing_name: form.billing_same ? null : (form.billing_name || null),
-        billing_phone: form.billing_same ? null : (form.billing_phone || null),
-        billing_email: form.billing_same ? null : (form.billing_email || null),
       }).eq("id", job.customer_id);
+
+      // Billing contact → customer_contacts (canonical store)
+      if (!form.billing_same && (form.billing_name || form.billing_email)) {
+        const row = {
+          customer_id: job.customer_id,
+          name: form.billing_name || null,
+          email: form.billing_email || null,
+          phone: form.billing_phone || null,
+          role: "Billing Contact",
+        };
+        if (billingContactId) {
+          await supabase.from("customer_contacts").update(row).eq("id", billingContactId);
+        } else {
+          const { data: inserted } = await supabase.from("customer_contacts").insert(row).select("id").maybeSingle();
+          if (inserted) setBillingContactId(inserted.id);
+        }
+      } else if (form.billing_same && billingContactId) {
+        await supabase.from("customer_contacts").delete().eq("id", billingContactId);
+        setBillingContactId(null);
+      }
     }
 
     // Save work types — delete existing, re-insert selected

@@ -400,7 +400,6 @@ async function deletePropAttachment(fullName) {
 
   const canDelete = teamMember && (["Admin","Manager"].includes(teamMember.role) || teamMember.name === p.call_log?.sales_name);
   async function handleDelete() {
-    // Check for linked active invoices first
     const { data: invoices } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null);
     if (invoices && invoices.length > 0) {
       alert(`This proposal has ${invoices.length} invoice${invoices.length > 1 ? "s" : ""} linked to it. Please delete the invoice${invoices.length > 1 ? "s" : ""} first.`);
@@ -409,6 +408,17 @@ async function deletePropAttachment(fullName) {
     if (!window.confirm("Delete this proposal? This cannot be undone.")) return;
     const { error } = await supabase.from("proposals").update({ deleted_at: new Date().toISOString() }).eq("id", p.id);
     if (error) { alert(error.message); return; }
+    // Renumber remaining proposals for this job so there are no gaps
+    if (p.call_log_id) {
+      const { data: siblings } = await supabase.from("proposals").select("id, proposal_number").eq("call_log_id", p.call_log_id).is("deleted_at", null).order("proposal_number");
+      if (siblings) {
+        for (let i = 0; i < siblings.length; i++) {
+          if (siblings[i].proposal_number !== i + 1) {
+            await supabase.from("proposals").update({ proposal_number: i + 1 }).eq("id", siblings[i].id);
+          }
+        }
+      }
+    }
     onDeleted && onDeleted();
   }
 

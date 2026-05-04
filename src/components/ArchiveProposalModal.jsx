@@ -87,7 +87,8 @@ export default function ArchiveProposalModal({ onClose, onCreated, preselectedJo
     const { data: existing } = await supabase
       .from("proposals")
       .select("id")
-      .eq("call_log_id", selJob.id);
+      .eq("call_log_id", selJob.id)
+      .is("deleted_at", null);
     const proposalNumber = (existing?.length || 0) + 1;
 
     const { data: newProp, error: pErr } = await supabase

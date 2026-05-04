@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
@@ -53,16 +53,9 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
   const [retentionPct, setRetentionPct] = useState("");
   const money = roundInvoice ? fmt$ : fmt$c;
 
-  // Load tenant defaults for description + intro
+  const tenantCfgRef = useRef(null);
   useEffect(() => {
-    getTenantConfig().then(cfg => {
-      if (cfg.default_invoice_description && !description) {
-        setDescription(cfg.default_invoice_description);
-      }
-      if (cfg.default_invoice_intro && !intro) {
-        setIntro(cfg.default_invoice_intro);
-      }
-    });
+    getTenantConfig().then(cfg => { tenantCfgRef.current = cfg; });
   }, []);
 
   // Step 1: load Sold proposals
@@ -119,6 +112,13 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
 
     setWtcs(wtcData || []);
     setExistingLines(linesData || []);
+
+    const cfg = tenantCfgRef.current || {};
+    const jobNum = (p.call_log?.display_job_number || "").split(" - ")[0];
+    const workTypeNames = (wtcData || []).map(w => w.work_types?.name).filter(Boolean).join(", ");
+    const sub = (t) => t.replace("{job_number}", jobNum).replace("{work_type}", workTypeNames);
+    if (cfg.default_invoice_intro && !intro) setIntro(sub(cfg.default_invoice_intro));
+    if (cfg.default_invoice_description && !description) setDescription(sub(cfg.default_invoice_description));
 
     // Init billing pcts to 0
     const pcts = {};

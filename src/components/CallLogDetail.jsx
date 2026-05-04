@@ -5,7 +5,7 @@ import { fmt$ } from "../lib/utils";
 import Btn from "./Btn";
 import { supabase } from "../lib/supabase";
 import ArchiveProposalModal from "./ArchiveProposalModal";
-import QBLinkModal from "./QBLinkModal";
+import QBActionModal from "./QBActionModal";
 
 const STAGES = ["New Inquiry", "Wants Bid", "Has Bid", "Sold", "Lost"];
 
@@ -101,7 +101,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
-  const [showQBLinkModal, setShowQBLinkModal] = useState(false);
+  const [showQBActionModal, setShowQBActionModal] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
   const [qbToast, setQbToast] = useState(null);
   const [wtDropOpen, setWtDropOpen] = useState(false);
@@ -328,14 +328,20 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         />
       )}
 
-      {showQBLinkModal && (
-        <QBLinkModal
-          callLogId={job.id}
-          currentQbCustomerId={job.qb_customer_id}
-          onClose={() => setShowQBLinkModal(false)}
+      {showQBActionModal && (
+        <QBActionModal
+          job={job}
+          onClose={() => setShowQBActionModal(false)}
           onLinked={(c) => {
-            setShowQBLinkModal(false);
+            setShowQBActionModal(false);
             setQbToast({ kind: "linked", text: `Linked to QuickBooks customer "${c.displayName}" (QB ID ${c.id})` });
+            setTimeout(() => setQbToast(null), 5000);
+            (onJobRefresh || onSaved) && (onJobRefresh || onSaved)();
+          }}
+          onSkipSync={async () => {
+            await supabase.from("call_log").update({ qb_skip_sync: true }).eq("id", job.id);
+            set("qb_skip_sync", true);
+            setQbToast({ kind: "unlinked", text: "QB sync disabled for this job." });
             setTimeout(() => setQbToast(null), 5000);
             (onJobRefresh || onSaved) && (onJobRefresh || onSaved)();
           }}
@@ -500,16 +506,16 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
               </Btn>
             </div>
           ) : (
-            <Btn sz="sm" v="ghost" onClick={() => setShowQBLinkModal(true)}>Link to QB Customer</Btn>
+            <button
+              onClick={() => setShowQBActionModal(true)}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderRadius: 8, border: `1.5px solid #2CA01C`, background: "rgba(44,160,28,0.08)", cursor: "pointer" }}
+            >
+              <div style={{ width: 24, height: 24, borderRadius: 5, background: "#2CA01C", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ color: "#fff", fontSize: 11, fontWeight: 900 }}>QB</span>
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, letterSpacing: "0.03em" }}>Connect to QuickBooks</span>
+            </button>
           )}
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <button onClick={() => editing && set("qb_skip_sync", !form.qb_skip_sync)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: editing ? "pointer" : "default", padding: "4px 0", opacity: editing ? 1 : 0.75 }}>
-            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${form.qb_skip_sync ? C.teal : C.borderStrong}`, background: form.qb_skip_sync ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {form.qb_skip_sync && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
-            </div>
-            <span style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui }}>Skip QuickBooks auto-sync (overrides linking)</span>
-          </button>
         </div>
       </Section>
 

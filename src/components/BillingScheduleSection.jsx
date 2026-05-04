@@ -29,6 +29,7 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
   const [extracting, setExtracting] = useState(false);
   const [review, setReview] = useState(null); // { sourceUrl, lines: [...], contract_sum, retainage_pct, notes }
   const [payApps, setPayApps] = useState([]);
+  const [billingProgress, setBillingProgress] = useState({});
   const [showPayAppModal, setShowPayAppModal] = useState(false);
   const [detailPayAppId, setDetailPayAppId] = useState(null);
 
@@ -42,7 +43,7 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
     setSchedule(sch);
 
     if (sch) {
-      const [{ data: lns }, { data: apps }, { count }] = await Promise.all([
+      const [{ data: lns }, { data: apps }, { count }, { data: appLines }] = await Promise.all([
         supabase.from("billing_schedule_lines")
           .select("*")
           .eq("billing_schedule_id", sch.id)
@@ -56,14 +57,27 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
           .select("id", { count: "exact", head: true })
           .eq("proposal_id", proposal.id)
           .is("deleted_at", null),
+        (apps || []).length > 0
+          ? supabase.from("billing_schedule_pay_app_lines")
+              .select("billing_schedule_line_id, billed_amount_this_app")
+              .in("pay_app_id", apps.map(a => a.id))
+          : Promise.resolve({ data: [] }),
       ]);
       setLines(lns || []);
       setPayApps(apps || []);
       setLocked((count || 0) > 0 || sch.status === "locked");
+
+      const progress = {};
+      for (const al of (appLines || [])) {
+        const lid = al.billing_schedule_line_id;
+        progress[lid] = (progress[lid] || 0) + (parseFloat(al.billed_amount_this_app) || 0);
+      }
+      setBillingProgress(progress);
     } else {
       setLines([]);
       setPayApps([]);
       setLocked(false);
+      setBillingProgress({});
     }
     setLoading(false);
   }, [proposal.id]);
@@ -454,10 +468,21 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
       </div>
 
       {/* Lines table */}
+      {(() => {
+        const hasProgress = locked && payApps.length > 0;
+        const gridCols = hasProgress
+          ? "40px 80px 1fr 110px 80px 100px 70px 100px 80px"
+          : "60px 110px 1fr 140px 90px 90px";
+        const headers = hasProgress
+          ? ["#", "Code", "Description", "Scheduled", "CO", "Billed", "% Done", "Balance", "Retainage"]
+          : ["#", "Code", "Description", "Scheduled Value", "CO", ""];
+        const retPct = parseFloat(schedule?.retainage_pct) || 0;
+
+        return (
       <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "60px 110px 1fr 140px 90px 90px", background: C.dark, padding: "8px 12px", gap: 10 }}>
-          {["#", "Code", "Description", "Scheduled Value", "CO", ""].map((h, i) => (
-            <div key={i} style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>{h}</div>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols, background: C.dark, padding: "8px 12px", gap: 10 }}>
+          {headers.map((h, i) => (
+            <div key={i} style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", textAlign: i >= 3 && hasProgress ? "right" : undefined }}>{h}</div>
           ))}
         </div>
 
@@ -481,16 +506,22 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
               />
             );
           }
+          const sv = parseFloat(l.scheduled_value) || 0;
+          const totalBilled = billingProgress[l.id] || 0;
+          const pctDone = sv > 0 ? (totalBilled / sv) * 100 : 0;
+          const balance = sv - totalBilled;
+          const lineRetainage = totalBilled * (retPct / 100);
+
           return (
             <div key={l.id} style={{
-              display: "grid", gridTemplateColumns: "60px 110px 1fr 140px 90px 90px", padding: "10px 12px", gap: 10, alignItems: "center",
+              display: "grid", gridTemplateColumns: gridCols, padding: "10px 12px", gap: 10, alignItems: "center",
               borderTop: idx > 0 ? `1px solid ${C.border}` : "none",
               background: idx % 2 === 0 ? C.linenLight : C.linen,
             }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.textFaint, fontFamily: F.ui }}>{idx + 1}</div>
               <div style={{ fontSize: 12, color: C.textBody, fontFamily: F.ui }}>{l.line_code || <span style={{ color: C.textFaint }}>—</span>}</div>
               <div style={{ fontSize: 13, color: C.textHead, fontFamily: F.ui }}>{l.description}</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui, textAlign: "right" }}>{fmt$(l.scheduled_value)}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui, textAlign: "right" }}>{fmt$(sv)}</div>
               <div>
                 {l.is_change_order && (
                   <span style={{ background: "rgba(151,71,255,0.12)", color: "#9747ff", fontSize: 10, fontWeight: 700, fontFamily: F.display, letterSpacing: "0.06em", padding: "3px 8px", borderRadius: 5, textTransform: "uppercase" }}>
@@ -498,6 +529,14 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
                   </span>
                 )}
               </div>
+              {hasProgress ? (
+                <>
+                  <div style={{ fontSize: 12.5, color: C.textBody, fontFamily: F.ui, textAlign: "right" }}>{fmt$(totalBilled)}</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: pctDone >= 100 ? C.teal : C.textBody, fontFamily: F.ui, textAlign: "right" }}>{pctDone.toFixed(1)}%</div>
+                  <div style={{ fontSize: 12.5, color: balance <= 0 ? C.textFaint : C.textHead, fontFamily: F.ui, textAlign: "right" }}>{fmt$(balance)}</div>
+                  <div style={{ fontSize: 12.5, color: C.textFaint, fontFamily: F.ui, textAlign: "right" }}>{fmt$(lineRetainage)}</div>
+                </>
+              ) : (
               <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                 {!locked && (
                   <>
@@ -506,6 +545,7 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
                   </>
                 )}
               </div>
+              )}
             </div>
           );
         })}
@@ -522,6 +562,9 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
           />
         )}
       </div>
+
+        );
+      })()}
 
       {/* Add buttons below table */}
       {editingLineId == null && (

@@ -242,7 +242,7 @@ function PayAppTemplateModal({ customerId, onClose, onSaved }) {
 
   const handleSave = async () => {
     if (!label.trim()) { setError("Label is required"); return; }
-    if (!file)         { setError("PDF file is required"); return; }
+    if (!file)         { setError("File is required"); return; }
     if (scope === "job" && !proposalId) { setError("Select a proposal for job-specific templates"); return; }
 
     setSaving(true); setError("");
@@ -314,7 +314,7 @@ function PayAppTemplateModal({ customerId, onClose, onSaved }) {
             </Field>
           )}
           <Field label="File (PDF, Word, or Excel)">
-            <input type="file" accept="application/pdf,.docx,.xlsx,.xls,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={e => setFile(e.target.files?.[0] || null)} style={{ ...inputStyle, padding: "8px 10px" }} />
+            <input type="file" accept="application/pdf,.docx,.xlsx,.xls,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={e => { const f = e.target.files?.[0] || null; setFile(f); if (f && !label.trim()) setLabel(f.name.replace(/\.[^.]+$/, "")); }} style={{ ...inputStyle, padding: "8px 10px" }} />
           </Field>
           {scope === "customer" && (
             <Field label="Default?">

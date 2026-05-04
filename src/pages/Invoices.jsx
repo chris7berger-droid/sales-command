@@ -536,7 +536,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
   const retentionPct = parseFloat(invoice.retention_pct) || 0;
   const netTotal = (invoice.amount || 0) - (invoice.discount || 0) - retentionAmt;
 
-  // Load billing contact from proposal -> call_log -> customer
+  // Load billing contact from customer_contacts (Billing Contact role) → fall back to customers table
   useEffect(() => {
     async function loadContact() {
       if (!invoice.proposal_id) { setLoadingContact(false); return; }
@@ -547,10 +547,29 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
         .maybeSingle();
       const cl = prop?.call_log;
       const cust = cl?.customers;
-      if (cust) {
+      const customerId = cl?.customer_id;
+
+      if (customerId) {
+        const { data: contacts } = await supabase
+          .from("customer_contacts")
+          .select("name, email, phone, role, is_primary, created_at")
+          .eq("customer_id", customerId)
+          .eq("role", "Billing Contact");
+        const bc = contacts?.length
+          ? (contacts.find(c => c.is_primary) || [...contacts].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0])
+          : null;
+        if (bc?.email) {
+          setBillingEmail(bc.email);
+          setBillingName(bc.name || "");
+        } else if (cust) {
+          setBillingEmail(cust.billing_email || cust.contact_email || "");
+          setBillingName(cust.billing_name || [cust.first_name, cust.last_name].filter(Boolean).join(" ") || cust.name || "");
+        }
+      } else if (cust) {
         setBillingEmail(cust.billing_email || cust.contact_email || "");
         setBillingName(cust.billing_name || [cust.first_name, cust.last_name].filter(Boolean).join(" ") || cust.name || "");
       }
+
       if (cl) {
         const parts = [cl.jobsite_address, cl.jobsite_city, cl.jobsite_state, cl.jobsite_zip].filter(Boolean);
         setJobsiteAddress(parts.length > 1 ? `${cl.jobsite_address || ""}\n${[cl.jobsite_city, cl.jobsite_state].filter(Boolean).join(", ")}${cl.jobsite_zip ? " " + cl.jobsite_zip : ""}` : parts.join(""));

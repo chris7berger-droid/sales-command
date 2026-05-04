@@ -1,0 +1,118 @@
+SC Handoff v92 — 2026-05-04
+============================
+
+SESSION SUMMARY
+This session fixed several bugs (WTC read-only after pull-back, proposal
+renumbering, 100% billed after invoice delete) and added configurable email
+templates with placeholder substitution. Also established "make it live" as
+the single deployment command phrase.
+
+COMMITS (oldest → newest)
+─────────────────────────
+1b4d19b  fix(proposals): add error handling to pull-back + fix WTC banner message
+798da55  fix(proposals): renumber siblings on delete + skip deleted when numbering
+c45ab00  fix(invoices): exclude soft-deleted invoices from billing % calculation
+eccf45f  feat(settings): collapsible sections, proposal email intro, dynamic email template
+c451da0  feat(invoices): template substitution for invoice email intro + description
+f09acf1  fix(invoices): ensure tenant config loaded before template substitution
+4ac178d  chore: remove redundant tenant config useEffect
+
+BUG FIXES
+─────────
+1. WTC Read-Only After Pull-Back (Job 7423)
+   - handlePullBack in ProposalDetail.jsx had zero error handling — failures
+     were silent and left proposals in a half-pulled-back state
+   - Added error checks on every DB call (signatures, WTCs, proposal update)
+   - Fixed WTC banner: when proposalSold=true, now shows "Pull back the
+     proposal to enable editing" instead of misleading "click Unlock WTC"
+   - Files: src/components/ProposalDetail.jsx, src/pages/WTCCalculator.jsx
+
+2. Proposal Not Renumbering on Delete
+   - Deleting P1 left remaining proposal as P2 — proposal_number was static
+   - Added renumbering loop in handleDelete: after soft-delete, renumbers
+     all remaining siblings sequentially (P1, P2, P3...)
+   - Also fixed NewProposalModal and ArchiveProposalModal to filter
+     .is("deleted_at", null) when computing next proposal_number
+   - Files: src/components/ProposalDetail.jsx, src/components/NewProposalModal.jsx,
+     src/components/ArchiveProposalModal.jsx
+
+3. "100% Billed" After Invoice Soft-Delete
+   - Billing % query in Invoices.jsx line 116 didn't filter deleted_at
+   - Added .is("deleted_at", null) to the invoices subquery
+   - File: src/pages/Invoices.jsx
+
+FEATURES
+────────
+4. Collapsible Settings Sections
+   - Added Section component with expand/collapse toggle
+   - All 8 settings sections wrapped in collapsible containers
+   - File: src/pages/Settings.jsx
+
+5. Configurable Email Templates
+   - New "Default Templates" section in Settings with three fields:
+     a. Proposal Email Introduction (default_proposal_email_intro)
+     b. Invoice Email Introduction (default_invoice_intro)
+     c. Invoice Work Description (default_invoice_description)
+   - Templates support {job_number} and {work_type} placeholders
+   - Migration: supabase/migrations/20260504120000_proposal_email_intro.sql
+
+6. Proposal "Introduction" → "Email Introduction"
+   - Repurposed the ProposalDetail intro field from PDF content to email body
+   - Removed intro from PDF rendering (ProposalPDFModal) and public signing
+     page (PublicSigningPage)
+   - send-proposal edge function now accepts companyName, companyTagline,
+     companyPhone, emailIntro parameters — fully dynamic, no hardcoded values
+   - Files: src/components/ProposalDetail.jsx, src/components/ProposalPDFModal.jsx,
+     src/pages/PublicSigningPage.jsx, supabase/functions/send-proposal/index.ts
+
+7. Invoice Template Substitution
+   - selectProposal in Invoices.jsx now loads tenant config and applies
+     {job_number} and {work_type} placeholder substitution
+   - Works for both archive and non-archive proposals
+   - Used useRef pattern to avoid stale closure with async function
+   - Resets intro/description on every proposal selection to prevent stale data
+   - File: src/pages/Invoices.jsx
+
+EDGE FUNCTIONS DEPLOYED
+───────────────────────
+- send-proposal (--no-verify-jwt) — dynamic company info + email intro
+
+MIGRATIONS APPLIED
+──────────────────
+- 20260504120000_proposal_email_intro.sql — adds default_proposal_email_intro
+  column to tenant_config
+
+MEMORY UPDATES
+──────────────
+- feedback_make_it_live.md — "make it live" = commit + push + deploy edge
+  functions + run migrations + apply config updates
+
+OPEN BUG — QuickBooks "Connection Failed" (403)
+────────────────────────────────────────────────
+Reported at end of session. QB OAuth callback page (/qb/callback) gets a 403
+when calling qb-auth edge function with action "exchange".
+
+Console evidence:
+  - 403 on qb-auth edge function
+  - gotrue-js lock timeout: auth token refresh stuck for 5s, forcefully recovered
+
+Investigation findings:
+  - Settings handleSave does NOT touch QB data — qb_connection is a separate
+    table, never written by Settings
+  - qb-auth uses requireAdminOrManager() for exchange — 403 comes from
+    tenantAuth.ts (no team membership, inactive, no tenant, or wrong role)
+  - The gotrue-js lock timeout means auth session was stale when user returned
+    from QB's OAuth redirect
+  - qb-auth was last deployed May 2 (security audit) — unclear if deployed
+    with --no-verify-jwt
+  - NOT caused by any changes in this session
+
+Most likely fix:
+  1. Redeploy qb-auth with --no-verify-jwt (gateway rejecting stale JWT)
+  2. May also need retry/await-session logic in QBCallbackPage.jsx
+
+Key files:
+  - supabase/functions/qb-auth/index.ts
+  - supabase/functions/_shared/tenantAuth.ts
+  - src/pages/QBCallbackPage.jsx
+  - src/pages/Settings.jsx (QBIntegrationCard at line 382)

@@ -419,20 +419,19 @@ async function deletePropAttachment(fullName) {
       return;
     }
     if (!window.confirm("Pull back this proposal? It will return to Draft status and WTCs will be unlocked for editing.")) return;
-    // Clear old signatures
-    await supabase.from("proposal_signatures").delete().eq("proposal_id", p.id);
-    // Unlock all WTCs
-    await supabase.from("proposal_wtc").update({ locked: false }).eq("proposal_id", p.id);
-    // Reset proposal
-    await supabase.from("proposals").update({
+    const { error: sigErr } = await supabase.from("proposal_signatures").delete().eq("proposal_id", p.id);
+    if (sigErr) { alert("Pull back failed clearing signatures: " + sigErr.message); return; }
+    const { error: wtcErr } = await supabase.from("proposal_wtc").update({ locked: false }).eq("proposal_id", p.id);
+    if (wtcErr) { alert("Pull back failed unlocking WTCs: " + wtcErr.message); return; }
+    const { error: propErr } = await supabase.from("proposals").update({
       status: "Draft", approved_at: null, sent_at: null, sent_to_email: null,
       internal_approval: false, approved_by: null, approval_reason: null,
     }).eq("id", p.id);
-    // Reset call log stage
+    if (propErr) { alert("Pull back failed resetting proposal: " + propErr.message); return; }
     if (p.call_log_id) {
-      await supabase.from("call_log").update({ stage: "Wants Bid" }).eq("id", p.call_log_id);
+      const { error: clErr } = await supabase.from("call_log").update({ stage: "Wants Bid" }).eq("id", p.call_log_id);
+      if (clErr) { alert("Pull back failed resetting job stage: " + clErr.message); return; }
     }
-    // Refresh
     const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);
     const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true });

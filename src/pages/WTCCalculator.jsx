@@ -1931,7 +1931,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
             <span style={{ fontSize: 20 }}>🔒</span>
             <div>
               <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e" }}>{proposalSold ? "This proposal is Sold — WTC is read-only" : "This WTC is locked"}</div>
-              <div style={{ fontSize: 12, color: "#92400e", marginTop: 2 }}>Go to the Summary tab and click Unlock WTC to make edits.</div>
+              <div style={{ fontSize: 12, color: "#92400e", marginTop: 2 }}>{proposalSold ? "Pull back the proposal to enable editing." : "Go to the Summary tab and click Unlock WTC to make edits."}</div>
             </div>
           </div>
         )}

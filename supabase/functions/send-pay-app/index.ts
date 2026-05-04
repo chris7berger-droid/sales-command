@@ -98,7 +98,6 @@ serve(async (req) => {
     if (!recipientEmail) missing.push("recipientEmail");
     if (!subject) missing.push("subject");
     if (!body) missing.push("body");
-    if (!payAppPdfUrl) missing.push("payAppPdfUrl");
     if (!invoicePdfUrl) missing.push("invoicePdfUrl");
     if (missing.length) {
       return new Response(JSON.stringify({ error: `Missing required field(s): ${missing.join(", ")}` }), {
@@ -127,26 +126,28 @@ serve(async (req) => {
     }
     const appNumber = payAppRow?.app_number ?? payAppId;
 
-    // ── Fetch both PDFs in parallel ───────────────────────────────────
-    let payAppBuf: ArrayBuffer;
+    // ── Fetch PDFs ────────────────────────────────────────────────────
+    let payAppB64: string | null = null;
     let invoiceBuf: ArrayBuffer;
     try {
-      const [payAppRes, invoiceRes] = await Promise.all([
-        fetch(payAppPdfUrl),
-        fetch(invoicePdfUrl),
-      ]);
-      if (!payAppRes.ok || !invoiceRes.ok) {
-        console.error("PDF fetch status:", {
-          payApp: payAppRes.status,
-          invoice: invoiceRes.status,
-        });
-        return new Response(JSON.stringify({ error: "Failed to fetch PDFs" }), {
+      const invoiceRes = await fetch(invoicePdfUrl);
+      if (!invoiceRes.ok) {
+        console.error("Invoice PDF fetch status:", invoiceRes.status);
+        return new Response(JSON.stringify({ error: "Failed to fetch invoice PDF" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
           status: 502,
         });
       }
-      payAppBuf = await payAppRes.arrayBuffer();
       invoiceBuf = await invoiceRes.arrayBuffer();
+
+      if (payAppPdfUrl) {
+        const payAppRes = await fetch(payAppPdfUrl);
+        if (payAppRes.ok) {
+          payAppB64 = arrayBufferToBase64(await payAppRes.arrayBuffer());
+        } else {
+          console.warn("Pay app PDF fetch failed, sending without it:", payAppRes.status);
+        }
+      }
     } catch (e) {
       console.error("PDF fetch threw:", e.message);
       return new Response(JSON.stringify({ error: "Failed to fetch PDFs" }), {
@@ -155,7 +156,6 @@ serve(async (req) => {
       });
     }
 
-    const payAppB64 = arrayBufferToBase64(payAppBuf);
     const invoiceB64 = arrayBufferToBase64(invoiceBuf);
 
     // ── Build From address (verified domains only, same as send-proposal) ──
@@ -197,10 +197,10 @@ serve(async (req) => {
         subject: subject,
         html: html,
         attachments: [
-          {
+          ...(payAppB64 ? [{
             filename: `PayApp-${appNumber}.pdf`,
             content: payAppB64,
-          },
+          }] : []),
           {
             filename: `Invoice-${invoiceId}.pdf`,
             content: invoiceB64,

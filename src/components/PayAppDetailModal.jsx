@@ -2,8 +2,8 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { C, F } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
-import { fillPayAppPdf, DEFAULT_DA_BUILDERS_JOB_FIELD_MAP } from "../lib/payAppPdf";
 import Btn from "./Btn";
+import PayAppCheatSheet from "./PayAppCheatSheet";
 
 const inputStyle = {
   padding: "8px 12px", borderRadius: 6, border: `1.5px solid ${C.borderStrong}`,
@@ -36,8 +36,8 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
   const [jobNumber, setJobNumber] = useState(null);
   const [tenantConfig, setTenantConfig] = useState(null);
   const [template, setTemplate] = useState(null);
-  const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState(null);
+  const [cheatData, setCheatData] = useState(null);
 
   // Send state
   const [recipientEmail, setRecipientEmail] = useState("");
@@ -85,103 +85,58 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
       setTemplate(jobTmpl || custTmpl || null);
     }
 
+    // Compute G702 cheat sheet values
+    const { data: priorApps } = await supabase
+      .from("billing_schedule_pay_apps")
+      .select("this_app_amount")
+      .eq("billing_schedule_id", schedule.id)
+      .lt("app_number", pa.app_number);
+    const priorBillings = (priorApps || []).reduce((s, a) => s + (parseFloat(a.this_app_amount) || 0), 0);
+
+    const { data: sovLines } = await supabase
+      .from("billing_schedule_lines")
+      .select("scheduled_value, is_change_order, co_number, description")
+      .eq("billing_schedule_id", schedule.id)
+      .order("co_number", { ascending: true });
+    const baseLines = (sovLines || []).filter(l => !l.is_change_order);
+    const coLines = (sovLines || []).filter(l => l.is_change_order).sort((a, b) => (a.co_number || 0) - (b.co_number || 0));
+    const originalContract = baseLines.reduce((s, l) => s + (parseFloat(l.scheduled_value) || 0), 0);
+    const changeOrders = coLines.reduce((s, l) => s + (parseFloat(l.scheduled_value) || 0), 0);
+    const contractToDate = originalContract + changeOrders;
+    const thisApp = parseFloat(pa.this_app_amount) || 0;
+    const completedToDate = priorBillings + thisApp;
+    const retainagePct = parseFloat(pa.retainage_pct_snapshot) || 0;
+    const retainageAmount = parseFloat(pa.retainage_withheld) || 0;
+    const lessRetention = completedToDate - retainageAmount;
+    // Previous certs = previous gross billings minus cumulative prior retainage
+    // Simplified: use priorBillings minus prior retainage. Since we don't store prior retainage
+    // cumulatively, approximate: previous payment due = sum of prior apps' current_payment_due
+    const { data: priorPayments } = await supabase
+      .from("billing_schedule_pay_apps")
+      .select("current_payment_due")
+      .eq("billing_schedule_id", schedule.id)
+      .lt("app_number", pa.app_number);
+    const previousCerts = (priorPayments || []).reduce((s, a) => s + (parseFloat(a.current_payment_due) || 0), 0);
+
+    setCheatData({
+      originalContract,
+      changeOrders,
+      contractToDate,
+      completedToDate,
+      retainagePct,
+      retainageAmount,
+      lessRetention,
+      previousApps: previousCerts,
+      currentPaymentDue: parseFloat(pa.current_payment_due) || 0,
+      coBreakdown: coLines.map(l => ({ number: l.co_number, description: l.description, amount: parseFloat(l.scheduled_value) || 0 })),
+    });
+
     setLoading(false);
   }, [payAppId, proposal.call_log_id, proposal.id]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  async function regeneratePdf() {
-    if (!template?.pdf_url) { alert("Upload a pay app template for this customer first."); return; }
-    setRegenerating(true);
-    setError(null);
-    try {
-      const resp = await fetch(template.pdf_url);
-      const templateBytes = await resp.arrayBuffer();
-      // Fetch latest in case user just edited it on Call Log. subcontractor_job_no wins,
-      // fall back to job_number (archive imports store customer's internal # there).
-      const { data: freshCl } = await supabase
-        .from("call_log")
-        .select("subcontractor_job_no, job_number")
-        .eq("id", proposal.call_log_id)
-        .maybeSingle();
-      const freshJobNo = freshCl?.subcontractor_job_no || freshCl?.job_number || jobNumber || "";
-      if (freshJobNo && freshJobNo !== jobNumber) setJobNumber(freshJobNo);
-
-      const tc = tenantConfig || {};
-      const addrLine = [tc.address, [tc.city, tc.state].filter(Boolean).join(" "), tc.zip].filter(Boolean).join(", ").trim();
-      const fromInfo = [tc.company_name, addrLine, tc.phone].filter(Boolean).join("\n");
-
-      const fieldValues = {
-        from_info: fromInfo,
-        subcontractor_job_no: freshJobNo,
-        invoice_number: invoice?.id || "",
-        invoice_date: new Date().toISOString().slice(0, 10),
-        invoice_attached_yes: "X",
-        type_of_work: payApp.type_of_work || "",
-        period_from: payApp.period_from || "",
-        period_to: payApp.period_to || "",
-        gross_completed_to_date: fmt$((parseFloat(payApp.this_app_amount) || 0) + payAppLines.reduce((s, pl) => {
-          // Previous billings for each line = scheduled_value × (prior_pct / 100)
-          // Already stored as billed_amount_this_app; grossCompleted = sum of all past + this.
-          // Simplest: recompute from pay app row's snapshot values since they were saved on create.
-          return s;
-        }, 0)),
-        previous_billings_to_date: fmt$(0), // simplified — see note below
-        gross_this_billing: fmt$(parseFloat(payApp.this_app_amount) || 0),
-        retention_this_period: fmt$(parseFloat(payApp.retainage_withheld) || 0),
-        current_payment_due: fmt$(parseFloat(payApp.current_payment_due) || 0),
-      };
-      // Pull gross_completed + previous_billings from the pay_apps rows prior to this one.
-      const { data: priorApps } = await supabase
-        .from("billing_schedule_pay_apps")
-        .select("this_app_amount")
-        .eq("billing_schedule_id", schedule.id)
-        .lt("app_number", payApp.app_number);
-      const priorBillings = (priorApps || []).reduce((s, a) => s + (parseFloat(a.this_app_amount) || 0), 0);
-      fieldValues.previous_billings_to_date = fmt$(priorBillings);
-      fieldValues.gross_completed_to_date = fmt$(priorBillings + (parseFloat(payApp.this_app_amount) || 0));
-
-      // Contract Summary block — derive from SOV lines on the schedule
-      const { data: sovLines } = await supabase
-        .from("billing_schedule_lines")
-        .select("scheduled_value, is_change_order, co_number")
-        .eq("billing_schedule_id", schedule.id)
-        .order("co_number", { ascending: true });
-      const baseLines = (sovLines || []).filter(l => !l.is_change_order);
-      const coLines = (sovLines || []).filter(l => l.is_change_order).sort((a, b) => (a.co_number || 0) - (b.co_number || 0));
-      const originalSubcontract = baseLines.reduce((s, l) => s + (parseFloat(l.scheduled_value) || 0), 0);
-      const approvedChangesTotal = coLines.reduce((s, l) => s + (parseFloat(l.scheduled_value) || 0), 0);
-      fieldValues.original_subcontract = fmt$(originalSubcontract);
-      fieldValues.approved_changes_total = approvedChangesTotal > 0 ? fmt$(approvedChangesTotal) : "";
-      fieldValues.total_revised_subcontract = fmt$(originalSubcontract + approvedChangesTotal);
-      for (let i = 0; i < 5; i++) {
-        const amt = coLines[i]?.scheduled_value;
-        fieldValues[`co_${i + 1}`] = amt ? fmt$(amt) : "";
-      }
-
-      const filledBytes = await fillPayAppPdf({
-        templateBytes,
-        fieldValues,
-        fieldMap: template.field_mapping || DEFAULT_DA_BUILDERS_JOB_FIELD_MAP,
-      });
-      const path = `${proposal.id}/pay-app-${payApp.app_number}-${Date.now()}.pdf`;
-      const { error: upErr } = await supabase.storage
-        .from("job-attachments")
-        .upload(path, filledBytes, { contentType: "application/pdf" });
-      if (upErr) throw upErr;
-      const { data: urlData } = supabase.storage.from("job-attachments").getPublicUrl(path);
-      await supabase.from("billing_schedule_pay_apps").update({ pdf_url: urlData.publicUrl }).eq("id", payApp.id);
-      setPayApp(prev => ({ ...prev, pdf_url: urlData.publicUrl }));
-      onChanged?.();
-    } catch (e) {
-      setError(e.message || String(e));
-    } finally {
-      setRegenerating(false);
-    }
-  }
-
   function openSendStep() {
-    if (!payApp?.pdf_url) { alert("Generate the pay app PDF first — this customer's email expects it attached."); return; }
     if (!invoice) { alert("No linked invoice on this pay app."); return; }
     const billingEmail = customer?.billing_email || customer?.email || "";
     setRecipientEmail(billingEmail);
@@ -233,7 +188,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
           recipientName: customer?.billing_name || customer?.name || "Customer",
           subject,
           body,
-          payAppPdfUrl: payApp.pdf_url,
+          payAppPdfUrl: payApp.pdf_url || null,
           invoicePdfUrl,
           senderEmail,
         },
@@ -289,7 +244,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
               <MetaCard label="Payment Due" value={fmt$(payApp.current_payment_due)} bold />
             </div>
 
-            {/* Two-column layout: left = lines + invoice, right = PDF preview */}
+            {/* Two-column layout: left = lines + invoice, right = cheat sheet */}
             <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 16, marginBottom: 16 }}>
               {/* Left column */}
               <div>
@@ -342,28 +297,22 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                 </div>
               </div>
 
-              {/* Right column: PDF preview */}
+              {/* Right column: Cheat Sheet */}
               <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                  <div style={labelStyle}>Filled Pay App PDF</div>
-                  {payApp.pdf_url && <a href={payApp.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10.5, color: C.teal, fontWeight: 700, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none" }}>Open ↗</a>}
-                </div>
-                <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden", background: C.linenDeep, height: 520 }}>
-                  {payApp.pdf_url ? (
-                    <iframe src={payApp.pdf_url} title="Pay App PDF" style={{ width: "100%", height: "100%", border: "none" }} />
-                  ) : (
-                    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 10, padding: 20, textAlign: "center" }}>
-                      <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>
-                        {template ? "No PDF generated yet." : `No pay app template set for ${customer?.name || "this customer"}. Upload one in Customers → ${customer?.name || ""} → Pay App Templates.`}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div style={{ marginTop: 6, display: "flex", justifyContent: "flex-end" }}>
-                  <Btn sz="sm" v={payApp.pdf_url ? "ghost" : "primary"} onClick={regeneratePdf} disabled={!template || regenerating}>
-                    {regenerating ? "Generating…" : payApp.pdf_url ? "Regenerate PDF" : "Generate PDF"}
-                  </Btn>
-                </div>
+                {cheatData ? (
+                  <PayAppCheatSheet
+                    {...cheatData}
+                    appNumber={payApp.app_number}
+                    periodFrom={payApp.period_from}
+                    periodTo={payApp.period_to}
+                    invoiceNumber={invoice?.id}
+                    jobNumber={jobNumber}
+                    typeOfWork={payApp.type_of_work}
+                    templatePdfUrl={template?.pdf_url}
+                  />
+                ) : (
+                  <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>Loading summary…</div>
+                )}
               </div>
             </div>
 
@@ -373,7 +322,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
               <Btn sz="sm" v="ghost" onClick={onClose}>Close</Btn>
-              <Btn sz="sm" onClick={openSendStep} disabled={!payApp.pdf_url || !invoice || payApp.status === "submitted" || payApp.status === "paid"}>
+              <Btn sz="sm" onClick={openSendStep} disabled={!invoice || payApp.status === "submitted" || payApp.status === "paid"}>
                 {payApp.status === "submitted" ? "Already Sent" : payApp.status === "paid" ? "Paid" : "Send Pay App"}
               </Btn>
             </div>
@@ -382,7 +331,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
           /* step === "send" */
           <>
             <div style={{ marginBottom: 14, fontSize: 12, color: C.textMuted, fontFamily: F.ui }}>
-              One email will go to the recipient with both the filled pay app PDF and the Sales Command invoice PDF attached.
+              One email will go to the recipient with the Sales Command invoice PDF attached.
               QuickBooks will sync the invoice automatically on success.
             </div>
 
@@ -407,7 +356,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
             </div>
 
             <div style={{ background: C.dark, border: `1px solid ${C.borderStrong}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12, fontFamily: F.ui, color: C.teal }}>
-              Attaching: <b>Pay App #{payApp?.app_number}.pdf</b> + <b>Invoice #{invoice?.id}.pdf</b>
+              Attaching: <b>Invoice #{invoice?.id}.pdf</b>
             </div>
 
             {sendError && (

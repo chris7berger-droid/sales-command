@@ -15,10 +15,10 @@ const numStyle = {
   userSelect: "all",
 };
 
-function CopyField({ value, raw }) {
+function CopyField({ value }) {
   const [copied, setCopied] = useState(false);
   const handleClick = () => {
-    navigator.clipboard.writeText(raw ?? value).then(() => {
+    navigator.clipboard.writeText(value).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     });
@@ -47,14 +47,14 @@ export default function PayAppCheatSheet({
   };
 
   const lines = [
-    { num: "1", label: "Original Contract Sum", value: fmt$(originalContract), raw: originalContract?.toFixed(2) },
-    { num: "2", label: "Net Change by Change Orders", value: fmt$(changeOrders), raw: changeOrders?.toFixed(2) },
-    { num: "3", label: "Contract Sum to Date (1 ± 2)", value: fmt$(contractToDate), raw: contractToDate?.toFixed(2), bold: true },
-    { num: "4", label: "Total Completed & Stored to Date", value: fmt$(completedToDate), raw: completedToDate?.toFixed(2) },
-    { num: "5", label: `Less ${retainagePct}% Retainage`, value: fmt$(retainageAmount), raw: retainageAmount?.toFixed(2) },
-    { num: "6", label: "Total Earned Less Retainage (4 − 5)", value: fmt$(lessRetention), raw: lessRetention?.toFixed(2) },
-    { num: "7", label: "Less Previous Certificates for Payment", value: fmt$(previousApps), raw: previousApps?.toFixed(2) },
-    { num: "8", label: "Current Payment Due", value: fmt$(currentPaymentDue), raw: currentPaymentDue?.toFixed(2), highlight: true },
+    { num: "1", label: "Original Contract Sum", value: fmt$(originalContract) },
+    { num: "2", label: "Net Change by Change Orders", value: fmt$(changeOrders) },
+    { num: "3", label: "Contract Sum to Date (1 ± 2)", value: fmt$(contractToDate), bold: true },
+    { num: "4", label: "Total Completed & Stored to Date", value: fmt$(completedToDate) },
+    { num: "5", label: `Less ${retainagePct}% Retainage`, value: fmt$(retainageAmount) },
+    { num: "6", label: "Total Earned Less Retainage (4 − 5)", value: fmt$(lessRetention) },
+    { num: "7", label: "Less Previous Certificates for Payment", value: fmt$(previousApps) },
+    { num: "8", label: "Current Payment Due", value: fmt$(currentPaymentDue), highlight: true },
   ];
 
   const allText = lines.map(l => `${l.num}. ${l.label}: ${l.value}`).join("\n");
@@ -102,7 +102,7 @@ export default function PayAppCheatSheet({
           }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: l.highlight ? C.teal : C.textFaint, fontFamily: F.display }}>{l.num}</div>
             <div style={{ fontSize: 13, fontWeight: l.bold || l.highlight ? 700 : 500, color: C.textBody, fontFamily: F.ui }}>{l.label}</div>
-            <CopyField value={l.value} raw={l.raw} />
+            <CopyField value={l.value} />
           </div>
         ))}
       </div>

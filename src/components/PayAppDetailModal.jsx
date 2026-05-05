@@ -47,6 +47,8 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
   const [sendError, setSendError] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadingWaiver, setUploadingWaiver] = useState(false);
+  const [editPcts, setEditPcts] = useState({});
+  const [savingLines, setSavingLines] = useState(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -64,7 +66,11 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
       supabase.from("tenant_config").select("*").single(),
     ]);
     setPayApp(pa);
-    setPayAppLines((paLines || []).sort((a, b) => (a.billing_schedule_line?.ordinal ?? 0) - (b.billing_schedule_line?.ordinal ?? 0)));
+    const sorted = (paLines || []).sort((a, b) => (a.billing_schedule_line?.ordinal ?? 0) - (b.billing_schedule_line?.ordinal ?? 0));
+    setPayAppLines(sorted);
+    const initPcts = {};
+    for (const pl of sorted) initPcts[pl.id] = String(parseFloat(pl.billed_pct_this_app) || 0);
+    setEditPcts(initPcts);
     const cust = cl?.customers;
     setJobNumber(cl?.subcontractor_job_no || cl?.job_number || null);
     setTenantConfig(tc);
@@ -200,6 +206,67 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
     }
   }
 
+  function computeEditedLines() {
+    const retPct = parseFloat(payApp?.retainage_pct_snapshot) || 0;
+    const updated = payAppLines.map(pl => {
+      const sv = parseFloat(pl.scheduled_value_snapshot) || 0;
+      const newPct = parseFloat(editPcts[pl.id]) || 0;
+      const amt = Math.round(sv * (newPct / 100) * 100) / 100;
+      return { ...pl, billed_pct_this_app: newPct, billed_amount_this_app: amt };
+    });
+    const gross = updated.reduce((s, l) => s + l.billed_amount_this_app, 0);
+    const ret = Math.round(gross * (retPct / 100) * 100) / 100;
+    return { updated, gross, ret, due: Math.round((gross - ret) * 100) / 100 };
+  }
+
+  async function handleSaveLines() {
+    setSavingLines(true);
+    setError(null);
+    try {
+      const { updated, gross, ret, due } = computeEditedLines();
+      for (const l of updated) {
+        await supabase.from("billing_schedule_pay_app_lines").update({
+          billed_pct_this_app: l.billed_pct_this_app,
+          billed_amount_this_app: l.billed_amount_this_app,
+        }).eq("id", l.id);
+      }
+      await supabase.from("billing_schedule_pay_apps").update({
+        this_app_amount: Math.round(gross * 100) / 100,
+        retainage_withheld: ret,
+        current_payment_due: due,
+      }).eq("id", payAppId);
+      if (payApp?.invoice_id) {
+        await supabase.from("invoices").update({ amount: Math.round(gross * 100) / 100 }).eq("id", payApp.invoice_id);
+      }
+      await loadAll();
+      onChanged?.();
+    } catch (e) {
+      setError(e.message || "Failed to save line edits");
+    } finally {
+      setSavingLines(false);
+    }
+  }
+
+  async function handleDeletePayApp() {
+    const msg = payApp?.invoice_id
+      ? `Delete Pay App #${payApp.app_number} and its linked Invoice #${payApp.invoice_id}? Both will be permanently removed. This cannot be undone.`
+      : `Delete Pay App #${payApp.app_number}? This cannot be undone.`;
+    if (!confirm(msg)) return;
+    setError(null);
+    try {
+      await supabase.from("billing_schedule_pay_app_lines").delete().eq("pay_app_id", payAppId);
+      if (payApp?.invoice_id) {
+        await supabase.from("invoice_lines").delete().eq("invoice_id", payApp.invoice_id);
+        await supabase.from("invoices").delete().eq("id", payApp.invoice_id);
+      }
+      await supabase.from("billing_schedule_pay_apps").delete().eq("id", payAppId);
+      onChanged?.();
+      onClose();
+    } catch (e) {
+      setError(e.message || "Failed to delete pay app");
+    }
+  }
+
   function openSendStep() {
     if (!invoice) { alert("No linked invoice on this pay app."); return; }
     const billingEmail = customer?.billing_email || customer?.email || "";
@@ -329,9 +396,18 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
             {/* Two-column layout: left = lines + invoice, right = cheat sheet (draft only) */}
             {(() => {
               const isSent = payApp.status === "submitted" || payApp.status === "paid";
+              const isDraft = !isSent;
+              const edited = isDraft ? computeEditedLines() : null;
               const lineBreakdown = (
                 <div style={{ marginBottom: 16 }}>
-                  <div style={labelStyle}>Line Breakdown</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <div style={labelStyle}>Line Breakdown</div>
+                    {isDraft && (
+                      <Btn sz="sm" onClick={handleSaveLines} disabled={savingLines}>
+                        {savingLines ? "Saving..." : "Save Changes"}
+                      </Btn>
+                    )}
+                  </div>
                   <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 70px 100px", background: C.dark, padding: "7px 12px", gap: 8 }}>
                       {["Description", "Scheduled", "This App %", "This App $"].map((h, i) => (
@@ -340,6 +416,9 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                     </div>
                     {payAppLines.map(pl => {
                       const bsl = pl.billing_schedule_line;
+                      const sv = parseFloat(pl.scheduled_value_snapshot) || 0;
+                      const pct = isDraft ? (parseFloat(editPcts[pl.id]) || 0) : parseFloat(pl.billed_pct_this_app);
+                      const amt = isDraft ? Math.round(sv * (pct / 100) * 100) / 100 : parseFloat(pl.billed_amount_this_app);
                       return (
                         <div key={pl.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 70px 100px", padding: "7px 12px", gap: 8, borderTop: `1px solid ${C.border}`, alignItems: "center", background: C.linenLight, fontSize: 12, fontFamily: F.ui }}>
                           <div style={{ color: C.textBody }}>
@@ -347,12 +426,29 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                             {bsl?.description || "—"}
                             {bsl?.is_change_order && <span style={{ background: C.dark, color: C.teal, fontSize: 9, padding: "1px 5px", borderRadius: 4, marginLeft: 5, fontFamily: F.display }}>CO{bsl.co_number ?? ""}</span>}
                           </div>
-                          <div style={{ textAlign: "right", color: C.textBody }}>{fmt$(pl.scheduled_value_snapshot)}</div>
-                          <div style={{ textAlign: "right", color: C.textFaint }}>{parseFloat(pl.billed_pct_this_app).toFixed(1)}%</div>
-                          <div style={{ textAlign: "right", color: C.textHead, fontWeight: 700 }}>{fmt$(pl.billed_amount_this_app)}</div>
+                          <div style={{ textAlign: "right", color: C.textBody }}>{fmt$(sv)}</div>
+                          {isDraft ? (
+                            <input
+                              type="number" step="0.1" min="0" max="100"
+                              value={editPcts[pl.id] ?? ""}
+                              onChange={e => setEditPcts(prev => ({ ...prev, [pl.id]: e.target.value }))}
+                              style={{ ...inputStyle, padding: "4px 6px", fontSize: 11, textAlign: "right", width: 60 }}
+                            />
+                          ) : (
+                            <div style={{ textAlign: "right", color: C.textFaint }}>{pct.toFixed(1)}%</div>
+                          )}
+                          <div style={{ textAlign: "right", color: C.textHead, fontWeight: 700 }}>{fmt$(amt)}</div>
                         </div>
                       );
                     })}
+                    {isDraft && edited && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 70px 100px", padding: "7px 12px", gap: 8, borderTop: `2px solid ${C.borderStrong}`, background: C.linen, fontSize: 12, fontFamily: F.display, fontWeight: 700 }}>
+                        <div style={{ color: C.textHead }}>Total This App</div>
+                        <div />
+                        <div />
+                        <div style={{ textAlign: "right", color: C.teal }}>{fmt$(edited.gross)}</div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -477,9 +573,12 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                     )}
                   </div>
                 </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                  <Btn sz="sm" v="ghost" onClick={onClose}>Close</Btn>
-                  <Btn sz="sm" onClick={openSendStep} disabled={!invoice}>Send Pay App</Btn>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <button onClick={handleDeletePayApp} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 6, padding: "6px 12px", fontSize: 10, fontWeight: 700, color: C.red || "#e53935", cursor: "pointer", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>Delete Pay App</button>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <Btn sz="sm" v="ghost" onClick={onClose}>Close</Btn>
+                    <Btn sz="sm" onClick={openSendStep} disabled={!invoice}>Send Pay App</Btn>
+                  </div>
                 </div>
               </div>
             ) : (

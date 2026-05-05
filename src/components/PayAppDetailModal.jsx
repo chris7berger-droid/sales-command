@@ -66,9 +66,23 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
     setPayApp(pa);
     setPayAppLines((paLines || []).sort((a, b) => (a.billing_schedule_line?.ordinal ?? 0) - (b.billing_schedule_line?.ordinal ?? 0)));
     const cust = cl?.customers;
-    setCustomer(cust);
     setJobNumber(cl?.subcontractor_job_no || cl?.job_number || null);
     setTenantConfig(tc);
+
+    if (cust?.id) {
+      const { data: bc } = await supabase
+        .from("customer_contacts")
+        .select("name, email, phone")
+        .eq("customer_id", cust.id)
+        .eq("role", "Billing Contact")
+        .maybeSingle();
+      if (bc) {
+        cust.billing_name = bc.name || cust.billing_name;
+        cust.billing_email = bc.email || cust.billing_email;
+        cust.billing_phone = bc.phone || cust.billing_phone;
+      }
+    }
+    setCustomer(cust);
 
     if (pa?.invoice_id) {
       const { data: inv } = await supabase.from("invoices").select("*").eq("id", pa.invoice_id).maybeSingle();

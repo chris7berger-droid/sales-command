@@ -14,6 +14,7 @@ import Pill from "../components/Pill";
 import Btn from "../components/Btn";
 import FilterBar from "../components/FilterBar";
 import QBLinkModal from "../components/QBLinkModal";
+import PayAppDetailModal from "../components/PayAppDetailModal";
 
 // ── Shared styles ─────────────────────────────────────────────────────────
 const inputStyle = {
@@ -886,6 +887,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [lines, setLines] = useState([]);
   const [wtcMap, setWtcMap] = useState({});
   const [linkedPayApp, setLinkedPayApp] = useState(null);
+  const [showPayAppReview, setShowPayAppReview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showPDF, setShowPDF] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -1364,6 +1366,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         ) : (
           <>
             <Btn sz="sm" onClick={() => setShowPDF(true)}>{linkedPayApp ? "Preview" : "Preview / Send"}</Btn>
+            {linkedPayApp && <Btn sz="sm" v="secondary" onClick={() => setShowPayAppReview(true)}>Review Package</Btn>}
             {isNew && <Btn sz="sm" v="secondary" onClick={startEditing}>Edit Invoice</Btn>}
             {actions.map(a => (
               <Btn key={a.status} sz="sm" v="ghost" onClick={() => updateStatus(a.status)}>{a.label}</Btn>
@@ -1449,6 +1452,16 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             setInv(prev => ({ ...prev, ...updates }));
             onUpdated && onUpdated();
           }}
+        />
+      )}
+
+      {showPayAppReview && linkedPayApp && (
+        <PayAppDetailModal
+          payAppId={linkedPayApp.id}
+          schedule={{ id: linkedPayApp.billing_schedule_id }}
+          proposal={{ call_log_id: inv.proposals?.call_log_id }}
+          onClose={() => setShowPayAppReview(false)}
+          onChanged={() => onUpdated?.()}
         />
       )}
 

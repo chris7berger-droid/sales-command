@@ -211,8 +211,10 @@ export default function NewPayAppModal({ schedule, lines, proposal, onClose, onC
         .update({ invoice_id: inv.id })
         .eq("id", payApp.id);
 
-      // 5. Generate filled PDF if we have a template
-      if (template?.pdf_url) {
+      // 5. Generate filled PDF only for fillable PDF templates.
+      // Word/Excel/non-fillable templates are handled by the cheat-sheet
+      // manual workflow on PayAppDetailModal (Upload Completed).
+      if (template?.pdf_url && template?.is_fillable) {
         try {
           // Extract storage path from public URL and download with auth
           const storageBase = "/storage/v1/object/public/job-attachments/";

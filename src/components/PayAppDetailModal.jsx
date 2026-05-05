@@ -27,7 +27,7 @@ function formatDate(iso) {
 }
 
 export default function PayAppDetailModal({ payAppId, schedule, proposal, onClose, onChanged }) {
-  const [step, setStep] = useState("view"); // 'view' | 'send'
+  const [step, setStep] = useState("view"); // 'view' | 'send' | 'sent'
   const [loading, setLoading] = useState(true);
   const [payApp, setPayApp] = useState(null);
   const [payAppLines, setPayAppLines] = useState([]);
@@ -264,7 +264,8 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
 
       setSending(false);
       onChanged?.();
-      onClose();
+      setPayApp(prev => ({ ...prev, status: "submitted", submitted_at: new Date().toISOString() }));
+      setStep("sent");
     } catch (e) {
       setSending(false);
       setSendError(e.message || String(e));
@@ -302,6 +303,21 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
           <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>Loading…</div>
         ) : step === "view" ? (
           <>
+            {/* Sent banner */}
+            {(payApp.status === "submitted" || payApp.status === "paid") && payApp.submitted_at && (
+              <div style={{ background: C.dark, borderRadius: 8, padding: "8px 14px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ color: C.teal, fontSize: 11, fontWeight: 700, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  Sent {new Date(payApp.submitted_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                </span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {payApp.pdf_url && <a href={payApp.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: "rgba(48,207,172,0.12)", padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>Pay App</a>}
+                  {payApp.sov_pdf_url && <a href={payApp.sov_pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: "rgba(48,207,172,0.12)", padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>SOV</a>}
+                  {payApp.release_waiver_url && <a href={payApp.release_waiver_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: "rgba(48,207,172,0.12)", padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>Waiver</a>}
+                  {invoice?.pdf_url && <a href={invoice.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: "rgba(48,207,172,0.12)", padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>Invoice</a>}
+                </div>
+              </div>
+            )}
+
             {/* Meta row */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
               <MetaCard label="Period" value={`${formatDate(payApp.period_from)} – ${formatDate(payApp.period_to)}`} />
@@ -310,11 +326,10 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
               <MetaCard label="Payment Due" value={fmt$(payApp.current_payment_due)} bold />
             </div>
 
-            {/* Two-column layout: left = lines + invoice, right = cheat sheet */}
-            <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 16, marginBottom: 16 }}>
-              {/* Left column */}
-              <div>
-                {/* SOV line breakdown */}
+            {/* Two-column layout: left = lines + invoice, right = cheat sheet (draft only) */}
+            {(() => {
+              const isSent = payApp.status === "submitted" || payApp.status === "paid";
+              const lineBreakdown = (
                 <div style={{ marginBottom: 16 }}>
                   <div style={labelStyle}>Line Breakdown</div>
                   <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
@@ -340,8 +355,8 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                     })}
                   </div>
                 </div>
-
-                {/* Linked invoice summary */}
+              );
+              const invoiceCard = (
                 <div>
                   <div style={labelStyle}>Linked Sales Command Invoice</div>
                   {invoice ? (
@@ -361,100 +376,119 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                     <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, padding: 10, background: C.linen, borderRadius: 8, border: `1px solid ${C.border}` }}>No linked invoice</div>
                   )}
                 </div>
-              </div>
+              );
 
-              {/* Right column: Cheat Sheet */}
-              <div>
-                {cheatData ? (
-                  <PayAppCheatSheet
-                    {...cheatData}
-                    appNumber={payApp.app_number}
-                    periodFrom={payApp.period_from}
-                    periodTo={payApp.period_to}
-                    invoiceNumber={invoice?.id}
-                    jobNumber={jobNumber}
-                    typeOfWork={payApp.type_of_work}
-                  />
-                ) : (
-                  <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>Loading summary…</div>
-                )}
-              </div>
-            </div>
+              if (isSent) {
+                return (
+                  <div style={{ marginBottom: 16 }}>
+                    {lineBreakdown}
+                    {invoiceCard}
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 16, marginBottom: 16 }}>
+                  <div>
+                    {lineBreakdown}
+                    {invoiceCard}
+                  </div>
+                  <div>
+                    {cheatData ? (
+                      <PayAppCheatSheet
+                        {...cheatData}
+                        appNumber={payApp.app_number}
+                        periodFrom={payApp.period_from}
+                        periodTo={payApp.period_to}
+                        invoiceNumber={invoice?.id}
+                        jobNumber={jobNumber}
+                        typeOfWork={payApp.type_of_work}
+                      />
+                    ) : (
+                      <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>Loading summary…</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {error && (
               <div style={{ background: "#3a1a1a", border: `1px solid #7a2a2a`, color: "#ffbcbc", borderRadius: 6, padding: "8px 12px", fontSize: 12, fontFamily: F.ui, marginBottom: 12 }}>{error}</div>
             )}
 
-            <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.display, marginBottom: 10 }}>
-                Attachments (sent with pay app)
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-                {/* Completed Pay App */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 140 }}>Completed Pay App</span>
-                  {payApp.pdf_url ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-                      <a href={payApp.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View</a>
-                      <label style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", cursor: uploading ? "wait" : "pointer", textDecoration: "underline" }}>
-                        {uploading ? "Uploading..." : "Replace"}
+            {payApp.status !== "submitted" && payApp.status !== "paid" ? (
+              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.display, marginBottom: 10 }}>
+                  Attachments (sent with pay app)
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                  {/* Completed Pay App */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 140 }}>Completed Pay App</span>
+                    {payApp.pdf_url ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                        <a href={payApp.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View</a>
+                        <label style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", cursor: uploading ? "wait" : "pointer", textDecoration: "underline" }}>
+                          {uploading ? "Uploading..." : "Replace"}
+                          <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => handleUploadCompleted(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
+                        </label>
+                      </div>
+                    ) : (
+                      <label style={{ fontSize: 11, fontWeight: 700, color: C.dark, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", padding: "4px 12px", background: C.teal, borderRadius: 6, cursor: uploading ? "wait" : "pointer" }}>
+                        {uploading ? "Uploading..." : "Upload Completed Pay App"}
                         <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => handleUploadCompleted(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
                       </label>
-                    </div>
-                  ) : (
-                    <label style={{ fontSize: 11, fontWeight: 700, color: C.dark, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", padding: "4px 12px", background: C.teal, borderRadius: 6, cursor: uploading ? "wait" : "pointer" }}>
-                      {uploading ? "Uploading..." : "Upload Completed Pay App"}
-                      <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => handleUploadCompleted(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
-                    </label>
-                  )}
-                </div>
-                {/* Schedule of Values */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 140 }}>Schedule of Values</span>
-                  {payApp.sov_pdf_url ? (
-                    <a href={payApp.sov_pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View SOV</a>
-                  ) : (
-                    <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>Not generated — use "Add SOV to Pay App" on the billing schedule</span>
-                  )}
-                </div>
-                {/* Release Waiver */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 140 }}>Release Waiver</span>
-                  {payApp.release_waiver_url ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-                      <a href={payApp.release_waiver_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View</a>
-                      <label style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", cursor: uploadingWaiver ? "wait" : "pointer", textDecoration: "underline" }}>
-                        {uploadingWaiver ? "Uploading..." : "Replace"}
+                    )}
+                  </div>
+                  {/* Schedule of Values */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 140 }}>Schedule of Values</span>
+                    {payApp.sov_pdf_url ? (
+                      <a href={payApp.sov_pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View SOV</a>
+                    ) : (
+                      <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>Not generated — use "Add SOV to Pay App" on the billing schedule</span>
+                    )}
+                  </div>
+                  {/* Release Waiver */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 140 }}>Release Waiver</span>
+                    {payApp.release_waiver_url ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                        <a href={payApp.release_waiver_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View</a>
+                        <label style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", cursor: uploadingWaiver ? "wait" : "pointer", textDecoration: "underline" }}>
+                          {uploadingWaiver ? "Uploading..." : "Replace"}
+                          <input type="file" accept="application/pdf,image/*" onChange={e => handleUploadWaiver(e.target.files?.[0])} style={{ display: "none" }} disabled={uploadingWaiver} />
+                        </label>
+                      </div>
+                    ) : (
+                      <label style={{ fontSize: 11, fontWeight: 700, color: C.dark, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", padding: "4px 12px", background: C.teal, borderRadius: 6, cursor: uploadingWaiver ? "wait" : "pointer" }}>
+                        {uploadingWaiver ? "Uploading..." : "Upload Release Waiver"}
                         <input type="file" accept="application/pdf,image/*" onChange={e => handleUploadWaiver(e.target.files?.[0])} style={{ display: "none" }} disabled={uploadingWaiver} />
                       </label>
-                    </div>
-                  ) : (
-                    <label style={{ fontSize: 11, fontWeight: 700, color: C.dark, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", padding: "4px 12px", background: C.teal, borderRadius: 6, cursor: uploadingWaiver ? "wait" : "pointer" }}>
-                      {uploadingWaiver ? "Uploading..." : "Upload Release Waiver"}
-                      <input type="file" accept="application/pdf,image/*" onChange={e => handleUploadWaiver(e.target.files?.[0])} style={{ display: "none" }} disabled={uploadingWaiver} />
-                    </label>
-                  )}
+                    )}
+                  </div>
+                  {/* Invoice */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 140 }}>Invoice</span>
+                    {invoice ? (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, letterSpacing: "0.04em" }}>#{invoice.id}</span>
+                    ) : (
+                      <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>No linked invoice</span>
+                    )}
+                  </div>
                 </div>
-                {/* Invoice */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 140 }}>Invoice</span>
-                  {invoice ? (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, letterSpacing: "0.04em" }}>#{invoice.id}</span>
-                  ) : (
-                    <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>No linked invoice</span>
-                  )}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                  <Btn sz="sm" v="ghost" onClick={onClose}>Close</Btn>
+                  <Btn sz="sm" onClick={openSendStep} disabled={!invoice}>Send Pay App</Btn>
                 </div>
               </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            ) : (
+              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14, display: "flex", justifyContent: "flex-end" }}>
                 <Btn sz="sm" v="ghost" onClick={onClose}>Close</Btn>
-                <Btn sz="sm" onClick={openSendStep} disabled={!invoice || payApp.status === "submitted" || payApp.status === "paid"}>
-                  {payApp.status === "submitted" ? "Already Sent" : payApp.status === "paid" ? "Paid" : "Send Pay App"}
-                </Btn>
               </div>
-            </div>
+            )}
           </>
-        ) : (
-          /* step === "send" */
+        ) : step === "send" ? (
           <>
             <div style={{ marginBottom: 14, fontSize: 12, color: C.textMuted, fontFamily: F.ui }}>
               One email will go to the recipient with the Sales Command invoice PDF attached.
@@ -482,7 +516,11 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
             </div>
 
             <div style={{ background: C.dark, border: `1px solid ${C.borderStrong}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12, fontFamily: F.ui, color: C.teal }}>
-              Attaching: <b>Invoice #{invoice?.id}.pdf</b>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>Attachments:</div>
+              {payApp?.pdf_url && <div>• Completed Pay App (PDF)</div>}
+              {payApp?.sov_pdf_url && <div>• Schedule of Values (PDF)</div>}
+              {payApp?.release_waiver_url && <div>• Release Waiver (PDF)</div>}
+              <div>• Invoice #{invoice?.id} (PDF)</div>
             </div>
 
             {sendError && (
@@ -496,7 +534,41 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
               </Btn>
             </div>
           </>
-        )}
+        ) : step === "sent" ? (
+          <>
+            <div style={{ textAlign: "center", padding: "30px 0" }}>
+              <div style={{ background: C.dark, display: "inline-block", padding: "10px 24px", borderRadius: 8, marginBottom: 16 }}>
+                <span style={{ color: C.teal, fontSize: 15, fontWeight: 800, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>Pay App Sent</span>
+              </div>
+              <div style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui, marginBottom: 6 }}>
+                Sent to <b>{recipientEmail}</b>
+              </div>
+              <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginBottom: 24 }}>
+                {new Date(payApp.submitted_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+              </div>
+
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.display, marginBottom: 10 }}>
+                Package Contents
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center", marginBottom: 24 }}>
+                {payApp.pdf_url && (
+                  <a href={payApp.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "4px 14px", borderRadius: 6, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View Completed Pay App</a>
+                )}
+                {payApp.sov_pdf_url && (
+                  <a href={payApp.sov_pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "4px 14px", borderRadius: 6, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View Schedule of Values</a>
+                )}
+                {payApp.release_waiver_url && (
+                  <a href={payApp.release_waiver_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "4px 14px", borderRadius: 6, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View Release Waiver</a>
+                )}
+                {invoice && (
+                  <a href={invoice.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "4px 14px", borderRadius: 6, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View Invoice #{invoice.id}</a>
+                )}
+              </div>
+
+              <Btn sz="sm" onClick={onClose}>Done</Btn>
+            </div>
+          </>
+        ) : null}
       </div>
     </div>
   );

@@ -220,20 +220,44 @@ serve(async (req) => {
       });
     }
 
-    // Add retention as a held-back discount line so QB net matches what's billed now.
-    // QB doesn't natively track retainage without QBO Plus, so we represent it as a
-    // descriptive discount line. Release happens via a separate invoice later.
+    // Retention: push as a negative-amount item line mapped to the tenant's
+    // "Retention" service item (which itself is mapped to an Other Current
+    // Asset account like Construction in Progress-Retent or Retention
+    // Receivable). This routes the held-back $ out of regular A/R, so the
+    // customer's open balance reflects only the net Payment Due. Falls back
+    // to a DiscountLineDetail if the retention item isn't configured — works
+    // mathematically but parks the $ in QB's default discount account.
+    // TODO: tenant_config.qb_retention_item_name for onboarding other subs.
     const retentionAmt = parseFloat(invoice.retention_amount) || 0;
     const retentionPct = parseFloat(invoice.retention_pct) || 0;
     if (retentionAmt > 0) {
-      qbLines.push({
-        DetailType: "DiscountLineDetail",
-        Amount: retentionAmt,
-        Description: `Retention${retentionPct > 0 ? ` (${retentionPct}%)` : ""} — held back`,
-        DiscountLineDetail: {
-          PercentBased: false,
-        },
-      });
+      const retentionItem =
+        (await findItemExact("1121- Retention %", accessToken, realmId)) ||
+        (await findItemExact("Retention", accessToken, realmId)) ||
+        (await findItemExact("Retainage", accessToken, realmId));
+      if (retentionItem) {
+        qbLines.push({
+          DetailType: "SalesItemLineDetail",
+          Amount: -retentionAmt,
+          Description: `Retention${retentionPct > 0 ? ` (${retentionPct}%)` : ""} — held back`,
+          SalesItemLineDetail: {
+            ItemRef: { value: retentionItem.Id, name: retentionItem.Name },
+            Qty: 1,
+            UnitPrice: -retentionAmt,
+          },
+        });
+        console.log("qb-sync-invoice: retention as negative item line", { item: retentionItem.Name, amount: -retentionAmt });
+      } else {
+        console.warn("qb-sync-invoice: no retention item found in QB — falling back to DiscountLineDetail (retention will land in default discount account, not Retention Receivable). Configure a 'Retention' service item mapped to an Other Current Asset account.");
+        qbLines.push({
+          DetailType: "DiscountLineDetail",
+          Amount: retentionAmt,
+          Description: `Retention${retentionPct > 0 ? ` (${retentionPct}%)` : ""} — held back`,
+          DiscountLineDetail: {
+            PercentBased: false,
+          },
+        });
+      }
     }
 
     // ── Determine location from jobsite state ──────────────────────────

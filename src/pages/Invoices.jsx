@@ -16,6 +16,7 @@ import FilterBar from "../components/FilterBar";
 import QBLinkModal from "../components/QBLinkModal";
 import PayAppDetailModal from "../components/PayAppDetailModal";
 import BillingScheduleSection from "../components/BillingScheduleSection";
+import NewPayAppModal from "../components/NewPayAppModal";
 
 // ── Shared styles ─────────────────────────────────────────────────────────
 const inputStyle = {
@@ -35,7 +36,7 @@ const labelStyle = {
 };
 
 // ── New Invoice Modal ─────────────────────────────────────────────────────
-export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
+export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpenPayApp }) {
   const navigate = useNavigate();
   const [step, setStep] = useState(preselectedProposal ? 2 : 1); // 1=select proposal, 2=billing %
   const [proposals, setProposals] = useState([]);
@@ -57,6 +58,8 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
 
   const tenantCfgRef = useRef(null);
 
+  const [sovProposalIds, setSovProposalIds] = useState(new Set());
+
   // Step 1: load Sold proposals
   useEffect(() => {
     async function loadProposals() {
@@ -67,6 +70,10 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
         .is("deleted_at", null)
         .order("created_at", { ascending: false });
       setProposals(data || []);
+      const { data: scheds } = await supabase
+        .from("billing_schedule")
+        .select("proposal_id");
+      if (scheds) setSovProposalIds(new Set(scheds.map(s => s.proposal_id)));
     }
     loadProposals();
   }, []);
@@ -80,6 +87,19 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
 
   // Step 2: load WTCs + existing invoice lines for selected proposal
   async function selectProposal(p) {
+    // If proposal has a billing schedule, route to pay app flow instead
+    if (onOpenPayApp) {
+      const { data: sch } = await supabase
+        .from("billing_schedule")
+        .select("id")
+        .eq("proposal_id", p.id)
+        .maybeSingle();
+      if (sch) {
+        onOpenPayApp(p);
+        return;
+      }
+    }
+
     setSelProposal(p);
     setError(null);
     setIntro("");
@@ -288,8 +308,11 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                 >
                   <div>
-                    <div style={{ fontWeight: 800, fontSize: 14, color: C.textHead, fontFamily: F.display }}>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: C.textHead, fontFamily: F.display, display: "flex", alignItems: "center", gap: 8 }}>
                       {p.call_log?.display_job_number || `Proposal #${p.id}`} P{p.proposal_number || 1}
+                      {sovProposalIds.has(p.id) && (
+                        <span style={{ background: C.dark, color: C.teal, fontSize: 9, fontWeight: 700, fontFamily: F.display, letterSpacing: "0.06em", padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" }}>Pay App</span>
+                      )}
                     </div>
                     <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>{p.call_log?.customer_name || p.customer}</div>
                   </div>
@@ -1580,6 +1603,7 @@ export default function Invoices({ setSubPage, teamMember }) {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [payAppContext, setPayAppContext] = useState(null); // { schedule, lines, proposal }
   const [sel, setSel] = useState(null);
   const [qbConnected, setQbConnected] = useState(null);
   const [filters, setFilters] = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "", invoiceNumber: "" });
@@ -1658,6 +1682,30 @@ export default function Invoices({ setSubPage, teamMember }) {
         <NewInvoiceModal
           onClose={() => setShowModal(false)}
           onCreated={(inv) => { setShowModal(false); navigate(`/invoices/${inv.id}`); load(); }}
+          onOpenPayApp={async (p) => {
+            setShowModal(false);
+            const { data: sch } = await supabase
+              .from("billing_schedule")
+              .select("*")
+              .eq("proposal_id", p.id)
+              .maybeSingle();
+            if (!sch) return;
+            const { data: lns } = await supabase
+              .from("billing_schedule_lines")
+              .select("*")
+              .eq("billing_schedule_id", sch.id)
+              .order("ordinal", { ascending: true });
+            setPayAppContext({ schedule: sch, lines: lns || [], proposal: p });
+          }}
+        />
+      )}
+      {payAppContext && (
+        <NewPayAppModal
+          schedule={payAppContext.schedule}
+          lines={payAppContext.lines}
+          proposal={payAppContext.proposal}
+          onClose={() => setPayAppContext(null)}
+          onCreated={() => { setPayAppContext(null); load(); }}
         />
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>

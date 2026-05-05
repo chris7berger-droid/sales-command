@@ -211,8 +211,20 @@ export default function NewPayAppModal({ schedule, lines, proposal, onClose, onC
       // 5. Generate filled PDF if we have a template
       if (template?.pdf_url) {
         try {
-          const resp = await fetch(template.pdf_url);
-          const templateBytes = await resp.arrayBuffer();
+          // Extract storage path from public URL and download with auth
+          const storageBase = "/storage/v1/object/public/job-attachments/";
+          const idx = (template.pdf_url || "").indexOf(storageBase);
+          let templateBytes;
+          if (idx !== -1) {
+            const storagePath = decodeURIComponent(template.pdf_url.slice(idx + storageBase.length));
+            const { data: blob, error: dlErr } = await supabase.storage.from("job-attachments").download(storagePath);
+            if (dlErr || !blob) throw new Error(`Template download failed: ${dlErr?.message || "empty response"}`);
+            templateBytes = await blob.arrayBuffer();
+          } else {
+            const resp = await fetch(template.pdf_url);
+            if (!resp.ok) throw new Error(`Template fetch failed (${resp.status})`);
+            templateBytes = await resp.arrayBuffer();
+          }
           // Contract Summary (derived from SOV lines on the schedule)
           const baseLines = lines.filter(l => !l.is_change_order);
           const coLines = lines.filter(l => l.is_change_order).sort((a, b) => (a.co_number || 0) - (b.co_number || 0));

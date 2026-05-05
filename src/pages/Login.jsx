@@ -7,7 +7,7 @@ import { getTenantConfig, DEFAULTS } from '../lib/config'
 const C = { ..._C, linenCard: _C.linenLight, danger: _C.red }
 
 export default function Login() {
-  const [email,    setEmail]    = useState("")
+  const [email,    setEmail]    = useState(() => localStorage.getItem("sc_last_email") || "")
   const [password, setPassword] = useState("")
   const [companyName, setCompanyName] = useState(DEFAULTS.company_name)
 
@@ -34,6 +34,7 @@ export default function Login() {
     setLoading(true)
     try {
       localStorage.setItem("sc_remember", remember ? "true" : "false")
+      localStorage.setItem("sc_last_email", email.trim())
       await signIn(email.trim(), password)
       if (!remember) {
         // Mark session as "forget on close" — App.jsx will clear on tab close

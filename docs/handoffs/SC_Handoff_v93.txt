@@ -1,0 +1,185 @@
+SC Handoff v93 — 2026-05-05
+============================
+
+SESSION SUMMARY
+This session fixed pay app delete cascade gaps, established and shipped the
+QuickBooks retention strategy (gross + negative-line item routed to Other
+Current Asset, not A/R), and added a Retention list view inside Sales
+Command. Tested live with AGRU America Inv #10024 — confirmed end-to-end
+in QB.
+
+Branch feature/pay-app-workflow-fixes was merged to main and deleted along
+with two other already-merged branches (feat/pay-app-cheat-sheet,
+feature/billing-schedule-to-invoices), cleaning up Vercel preview
+deployments.
+
+COMMITS (oldest → newest, on feature/pay-app-workflow-fixes)
+────────────────────────────────────────────────────────────
+dcbee9f  fix: pay app delete cascade — soft-delete invoice + unlock schedule
+e98131c  fix: route Create Invoice to pay app flow on proposals with billing schedule  ← REVERTED
+0e8ef57  revert e98131c + redirect Create Invoice to /invoices
+f6fa44d  fix: skip auto-fill PDF when template isn't fillable
+f83ed4d  fix: write pay app retention to invoice + relabel cards
+1b7c9b3  fix: route QB retention to Other Current Asset via item line
+da47f00  fix: expose Sync to QB on Invoice Detail for pay app invoices
+78b6c8f  feat: retention list view on Invoices page
+5533993  Merge feature/pay-app-workflow-fixes into main
+
+BUG FIXES
+─────────
+1. Pay App Delete Cascade Gap
+   - Hit on AGRU job 6458 — delete left orphaned invoice + locked schedule
+   - Soft-delete linked invoice (deleted_at) instead of hard-delete; matches
+     Invoices.handleDelete pattern. RLS likely blocked hard-delete silently.
+   - Drop redundant explicit pay_app_lines delete (FK cascade handles it).
+   - Verify row count + surface RLS no-ops as errors instead of swallowing.
+   - When last pay app on schedule is removed, reset billing_schedule.status
+     to 'draft' so the schedule unlocks for editing.
+   - Block delete when linked invoice is QB-synced; force void first.
+   - File: src/components/PayAppDetailModal.jsx
+
+2. Create Invoice on Proposal Detail
+   - Modal opened in-page instead of routing to the moved Invoices flow.
+   - Stay-scoped feedback: shouldn't host new-invoice modal here anymore.
+   - Removed in-page NewInvoiceModal/NewPayAppModal wiring; button now
+     navigate("/invoices") so the existing flow there handles pay-app
+     vs regular routing.
+   - File: src/components/ProposalDetail.jsx
+
+3. PDF Auto-Fill on Word/Excel Templates
+   - Plenium template is a Word doc; fillPayAppPdf was crashing with
+     "No PDF header found" because the upload picker accepts .docx/.xlsx.
+   - Customers.jsx always inserts is_fillable=false — gate auto-fill on it
+     so the cheat-sheet manual workflow takes over for non-PDF templates
+     (matches the redesign where users fill the GC form themselves and
+     upload the completed version).
+   - File: src/components/NewPayAppModal.jsx
+
+4. Pay App Retention Not Reaching Invoice
+   - NewPayAppModal wrote retainage_pct/retainage_amount, which don't exist
+     on the invoices table — actual columns are retention_pct/retention_amount.
+     Values silently dropped, retention card never appeared.
+   - Fixed insert + handleSaveLines (also updates retention_amount on % edit)
+     + read of retainage_amount → retention_amount in detail modal.
+   - Files: src/components/NewPayAppModal.jsx, src/components/PayAppDetailModal.jsx
+
+5. QB Sync Routed Retention to Discount Account
+   - qb-sync-invoice was using DiscountLineDetail for retention — math was
+     right (net = gross - retention), but $ landed in QB's default discount
+     account, not the construction-standard Other Current Asset bucket.
+   - Replaced with negative SalesItemLineDetail using the tenant's existing
+     "1121- Retention %" service item (mapped to Construction in
+     Progress-Retent in HDSP's books).
+   - Lookup tries "1121- Retention %" → "Retention" → "Retainage". Falls
+     back to DiscountLineDetail with warning if none exist.
+   - File: supabase/functions/qb-sync-invoice/index.ts (deployed)
+
+6. No Sync to QB Path on Pay App Invoice Detail
+   - Existing Sync button gated on inv.status !== "New". For regular
+     invoices the send-invoice flow handles QB sync as part of sending —
+     pay app invoices have a separate send path (Review Package), so
+     status stayed "New" with no QB sync option.
+   - Drop New-status gate when linkedPayApp present; relabel "Sync to QB"
+     (no "and Send" — pay app email goes through Review Package).
+   - File: src/pages/Invoices.jsx
+
+FEATURES
+────────
+7. Invoice Detail Retention Header Cards
+   - When inv.retention_amount > 0: cards relabel as Gross Billed / Discount
+     / Retainage Held / Payment Due (4-card layout). Non-pay-app invoices
+     keep Invoice Amount / Net Total.
+   - File: src/pages/Invoices.jsx
+
+8. Retention List View
+   - "Retention" button next to + New Invoice on /invoices. Click → URL
+     becomes /invoices?view=retention.
+   - Title: Retention. StatCards: Total Retention Held / Open Pay Apps with
+     Retention / Avg per Invoice.
+   - Filtered list: invoices where retention_amount > 0 AND status != Paid,
+     sorted by retention size desc.
+   - Discount column swapped for bold-teal-on-dark Retainage Held column.
+   - File: src/pages/Invoices.jsx
+
+QB RETENTION STRATEGY (decision + implementation)
+─────────────────────────────────────────────────
+Sales Command pushes pay-app invoices as **gross + negative retainage line**.
+
+For HDSP today:
+- Retention item: "1121- Retention %" (Service) → Construction in
+  Progress-Retent (Other Current Asset).
+- Result in QB: A/R balance = net Payment Due ($40,936 on AGRU Inv #10024,
+  not $43,091). Held retention ($2,154.53) accrues to Construction in
+  Progress-Retent.
+- A/R Aging won't show retention as delinquent.
+
+Open architectural pieces (NOT shipped this session):
+- C2: Reminders + scheduled emails on retention rows (Chris asked for this;
+  needs new table, datepicker UI, cron edge function, Resend wiring,
+  dedupe + state-change skip logic). Half day to a day.
+- D: Retainage Release flow — cumulative-release invoice when job
+  substantially complete. Was Phase 5 of original SOV plan.
+- E: Multi-tenant onboarding auto-provision — when a new tenant connects
+  QB, ensure a "Retention" service item + Other Current Asset account
+  exist. Without this, other subs (Essentials/Plus) won't have the right
+  routing on first connect.
+
+HDSP-specific cleanup (not a code task):
+- $41,734.78 currently sits in "AR Retention" (Accounts Receivable type).
+  Bookkeeper journal entry needed to move it to Construction in
+  Progress-Retent or Retention Receivable, then deactivate AR Retention.
+  Three retention accounts exist; bookkeeper context unclear (likely an
+  intentional split between in-progress vs ready-to-release retention).
+
+EDGE FUNCTIONS DEPLOYED
+───────────────────────
+- qb-sync-invoice (--no-verify-jwt) — negative SalesItemLineDetail for
+  retention via "1121- Retention %" item lookup
+
+MIGRATIONS APPLIED
+──────────────────
+- 20260505140000_backfill_pay_app_invoice_retention.sql — copies
+  retainage_withheld from pay app rows onto their linked invoices for
+  existing pay apps where retention_amount = 0. Idempotent.
+
+VERCEL CLEANUP
+──────────────
+Three merged branches deleted (local + origin):
+- feat/pay-app-cheat-sheet (merged 2026-05-04)
+- feature/billing-schedule-to-invoices (merged 2026-05-04)
+- feature/pay-app-workflow-fixes (merged 2026-05-05)
+
+Vercel will drop the corresponding preview deployments.
+
+MEMORY UPDATES
+──────────────
+New entries:
+- project_qb_retention_strategy.md — gross + negative item line; routes
+  to Other Current Asset via "1121- Retention %"
+- project_bookkeeping_model.md — CPA firm for support only; daily QB work
+  on Chris's team — design QB integration for non-bookkeepers
+
+NEXT SESSION CARRY-FORWARD
+──────────────────────────
+1. C2: Retention reminders + scheduled emails per invoice
+2. D: Retainage Release flow (Phase 5 of original SOV plan)
+3. E: Onboarding auto-provision of QB retention item + account
+4. Carryover from v92:
+   - Remaining security audit: H1/H7 (search_path), H4
+     (proposal_signatures tenant_id), H5 (token expiry), H6 (select("*")
+     on public pages)
+   - Customer settings page — invoice numbering still needed
+   - send-invoice error surfacing (apply fnErr.context.json() pattern)
+   - qb_connection plaintext refresh tokens (Low #15)
+   - Go-backs flow (re-scheduling invoiced work)
+   - Page remount on list↔detail
+   - QB fan-out sweep
+   - Multi-invoice header link
+   - History Locker pagination
+   - importApi.js (bulk CSV) does NOT honor virtual qb_skip_sync
+   - Work Types Phase 2 (Smart Field SOW suggestion)
+   - Call Log Archiver, Sales Rep Reminders, PandaDoc PDF attachment,
+     Contacts import from Glide (1,612 records)
+   - Invoices.jsx (~1,200 lines) and WTCCalculator.jsx (~2,100 lines)
+     extraction
+   - RLS simplification to use tenant_id directly (currently JOIN-based)

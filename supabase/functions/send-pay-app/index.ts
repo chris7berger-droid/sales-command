@@ -86,6 +86,7 @@ serve(async (req) => {
       body,
       payAppPdfUrl,
       sovPdfUrl,
+      releaseWaiverUrl,
       invoicePdfUrl,
       senderEmail,
     } = await req.json();
@@ -130,6 +131,7 @@ serve(async (req) => {
     // ── Fetch PDFs ────────────────────────────────────────────────────
     let payAppB64: string | null = null;
     let sovB64: string | null = null;
+    let waiverB64: string | null = null;
     let invoiceBuf: ArrayBuffer;
     try {
       const invoiceRes = await fetch(invoicePdfUrl);
@@ -157,6 +159,15 @@ serve(async (req) => {
           sovB64 = arrayBufferToBase64(await sovRes.arrayBuffer());
         } else {
           console.warn("SOV PDF fetch failed, sending without it:", sovRes.status);
+        }
+      }
+
+      if (releaseWaiverUrl) {
+        const waiverRes = await fetch(releaseWaiverUrl);
+        if (waiverRes.ok) {
+          waiverB64 = arrayBufferToBase64(await waiverRes.arrayBuffer());
+        } else {
+          console.warn("Release waiver fetch failed, sending without it:", waiverRes.status);
         }
       }
     } catch (e) {
@@ -215,6 +226,10 @@ serve(async (req) => {
           ...(sovB64 ? [{
             filename: `SOV-${appNumber}.pdf`,
             content: sovB64,
+          }] : []),
+          ...(waiverB64 ? [{
+            filename: `ReleaseWaiver-${appNumber}.pdf`,
+            content: waiverB64,
           }] : []),
           {
             filename: `Invoice-${invoiceId}.pdf`,

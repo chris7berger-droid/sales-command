@@ -46,6 +46,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadingWaiver, setUploadingWaiver] = useState(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -161,6 +162,30 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
     }
   }
 
+  async function handleUploadWaiver(file) {
+    if (!file) return;
+    setUploadingWaiver(true);
+    setError(null);
+    try {
+      const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `pay-app-waivers/${payAppId}/${Date.now()}-${cleanName}`;
+      const { error: upErr } = await supabase.storage.from("job-attachments").upload(path, file, { contentType: file.type || "application/octet-stream" });
+      if (upErr) throw new Error(upErr.message);
+      const { data: pub } = supabase.storage.from("job-attachments").getPublicUrl(path);
+      const { error: updErr } = await supabase
+        .from("billing_schedule_pay_apps")
+        .update({ release_waiver_url: pub?.publicUrl })
+        .eq("id", payAppId);
+      if (updErr) throw new Error(updErr.message);
+      setPayApp(prev => ({ ...prev, release_waiver_url: pub?.publicUrl }));
+      onChanged?.();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setUploadingWaiver(false);
+    }
+  }
+
   function openSendStep() {
     if (!invoice) { alert("No linked invoice on this pay app."); return; }
     const billingEmail = customer?.billing_email || customer?.email || "";
@@ -215,6 +240,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
           body,
           payAppPdfUrl: payApp.pdf_url || null,
           sovPdfUrl: payApp.sov_pdf_url || null,
+          releaseWaiverUrl: payApp.release_waiver_url || null,
           invoicePdfUrl,
           senderEmail,
         },
@@ -375,6 +401,24 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                     <a href={payApp.sov_pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View SOV</a>
                   ) : (
                     <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>Not generated — use "Add SOV to Pay App" on the billing schedule</span>
+                  )}
+                </div>
+                {/* Release Waiver */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 140 }}>Release Waiver</span>
+                  {payApp.release_waiver_url ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                      <a href={payApp.release_waiver_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View</a>
+                      <label style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", cursor: uploadingWaiver ? "wait" : "pointer", textDecoration: "underline" }}>
+                        {uploadingWaiver ? "Uploading..." : "Replace"}
+                        <input type="file" accept="application/pdf,image/*" onChange={e => handleUploadWaiver(e.target.files?.[0])} style={{ display: "none" }} disabled={uploadingWaiver} />
+                      </label>
+                    </div>
+                  ) : (
+                    <label style={{ fontSize: 11, fontWeight: 700, color: C.dark, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", padding: "4px 12px", background: C.teal, borderRadius: 6, cursor: uploadingWaiver ? "wait" : "pointer" }}>
+                      {uploadingWaiver ? "Uploading..." : "Upload Release Waiver"}
+                      <input type="file" accept="application/pdf,image/*" onChange={e => handleUploadWaiver(e.target.files?.[0])} style={{ display: "none" }} disabled={uploadingWaiver} />
+                    </label>
                   )}
                 </div>
                 {/* Invoice */}

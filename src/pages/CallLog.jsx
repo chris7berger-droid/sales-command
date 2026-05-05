@@ -81,7 +81,7 @@ export default function CallLog({ teamMember, setSubPage }) {
     while (true) {
       const { data } = await supabase
         .from("call_log")
-        .select("*, job_work_types(*), customers(id, contact_email, contact_phone, first_name, last_name, business_address, business_city, business_state, business_zip, billing_terms, billing_same, billing_name, billing_phone, billing_email)")
+        .select("*, job_work_types(*), customers(id, contact_email, contact_phone, first_name, last_name, business_address, business_city, business_state, business_zip, billing_terms, billing_same, billing_name, billing_phone, billing_email, requires_pay_app)")
         .order("id", { ascending: false })
         .range(from, from + PAGE - 1);
       if (!data || data.length === 0) break;

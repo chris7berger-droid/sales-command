@@ -39,6 +39,7 @@ function CustomerModal({ customer, onClose, onSaved }) {
     billing_phone:    customer?.billing_phone      || "",
     billing_email:    customer?.billing_email      || "",
     billing_terms:    customer?.billing_terms != null ? String(customer.billing_terms) : "30",
+    requires_pay_app: customer?.requires_pay_app ?? false,
     business_address: customer?.business_address   || "",
     business_city:    customer?.business_city       || "",
     business_state:   customer?.business_state      || "",
@@ -59,7 +60,8 @@ function CustomerModal({ customer, onClose, onSaved }) {
       phone: form.phone || null, email: form.email || null,
       billing_same: form.billing_same, billing_name: form.billing_same ? null : (form.billing_name || null),
       billing_phone: form.billing_same ? null : (form.billing_phone || null), billing_email: form.billing_same ? null : (form.billing_email || null),
-      billing_terms: billingTerms, business_address: form.business_address || null,
+      billing_terms: billingTerms, requires_pay_app: form.requires_pay_app,
+      business_address: form.business_address || null,
       business_city: form.business_city || null, business_state: form.business_state || null, business_zip: form.business_zip || null,
     };
     let err;
@@ -114,6 +116,15 @@ function CustomerModal({ customer, onClose, onSaved }) {
             {termsVal === "custom" && (
               <input type="number" placeholder="Days" value={!STD_TERMS.includes(Number(form.billing_terms)) && form.billing_terms !== "custom" ? form.billing_terms : ""} onChange={e => set("billing_terms", e.target.value)} style={{ ...inputStyle, marginTop: 8 }} />
             )}
+          </Field>
+          <Field label="" wide>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${form.requires_pay_app ? C.teal : C.borderStrong}`, background: form.requires_pay_app ? C.dark : C.linen, transition: "all 0.12s" }}>
+              <input type="checkbox" checked={form.requires_pay_app} onChange={e => set("requires_pay_app", e.target.checked)} style={{ accentColor: C.teal, width: 18, height: 18, cursor: "pointer" }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: form.requires_pay_app ? C.teal : C.textHead, fontFamily: F.display, letterSpacing: "0.04em" }}>Customer Requires Payment Application</div>
+                <div style={{ fontSize: 11, color: form.requires_pay_app ? "rgba(255,255,255,0.4)" : C.textFaint, fontFamily: F.ui, marginTop: 2 }}>Invoices will use G702/G703 pay app format</div>
+              </div>
+            </label>
           </Field>
           <Field label="Business Address" wide>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -551,6 +562,7 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
         {customer.email && <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textBody }}><span style={{ color: C.textFaint, fontWeight: 700 }}>Email:</span> {customer.email}</div>}
         <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textBody }}><span style={{ color: C.textFaint, fontWeight: 700 }}>Terms:</span> {termsLabel}</div>
         {addr && <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textBody }}><span style={{ color: C.textFaint, fontWeight: 700 }}>Address:</span> {addr}</div>}
+        {customer.requires_pay_app && <span style={{ fontSize: 10.5, fontWeight: 800, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", background: C.dark, color: C.teal, padding: "3px 10px", borderRadius: 6 }}>Pay App Required</span>}
       </div>
 
       {/* Contacts */}

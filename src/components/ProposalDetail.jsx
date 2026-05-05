@@ -97,7 +97,7 @@ useEffect(() => {
   const interval = setInterval(async () => {
     const { data } = await supabase
       .from("proposals")
-      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))")
+      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip, requires_pay_app))")
       .eq("id", p.id)
       .single();
     if (data && data.status !== p.status) setP(data);
@@ -233,9 +233,31 @@ async function deletePropAttachment(fullName) {
     await supabase.from("proposal_wtc").update({ locked: newLocked }).eq("id", wtcId);
     setWtcs(prev => prev.map(w => w.id === wtcId ? { ...w, locked: newLocked } : w));
     // Sync proposals.total
-    const { data: allWtcs } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", p.id);
+    const { data: allWtcs } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id);
     const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcPrice(w), 0);
     await supabase.from("proposals").update({ total: proposalTotal }).eq("id", p.id);
+
+    // Auto-create billing schedule when all WTCs locked and customer requires pay app
+    if (newLocked && allWtcs?.length && allWtcs.every(w => w.locked)) {
+      const requiresPayApp = p.call_log?.customers?.requires_pay_app;
+      if (requiresPayApp) {
+        const { data: existing } = await supabase.from("billing_schedule").select("id").eq("proposal_id", p.id).maybeSingle();
+        if (!existing) {
+          const { data: sch } = await supabase.from("billing_schedule").insert({
+            proposal_id: p.id, contract_sum: proposalTotal, retainage_pct: 5, status: "active",
+          }).select().single();
+          if (sch) {
+            const lines = allWtcs.map((w, i) => ({
+              billing_schedule_id: sch.id,
+              description: w.work_types?.name || `Work Type ${i + 1}`,
+              scheduled_value: calcWtcPrice(w),
+              ordinal: i,
+            }));
+            await supabase.from("billing_schedule_lines").insert(lines);
+          }
+        }
+      }
+    }
   }
 
   function openWtcTab(wtcId, tab) {

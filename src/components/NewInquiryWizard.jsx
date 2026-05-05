@@ -117,6 +117,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     billingEmail: "",
     billingTerms: "30",
     billingTermsCustom: "",
+    requiresPayApp: false,
     billingSourceContactId: null,
     businessAddress: "", businessCity: "", businessState: "", businessZip: "",
     jobsiteAddress: "", jobsiteCity: "", jobsiteState: "", jobsiteZip: "", newSiteBuild: false, jobsiteSame: false,
@@ -237,6 +238,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
         contact_email: data.contactEmail || null,
         contact_phone: data.contactPhone || null,
         billing_terms: billingTermsNum,
+        requires_pay_app: data.requiresPayApp,
       };
       if (!data.billingSourceContactId) {
         update.billing_same = data.billingSame;
@@ -259,6 +261,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
         billing_terms: billingTermsNum,
         business_address: data.businessAddress, business_city: data.businessCity,
         business_state: data.businessState, business_zip: data.businessZip,
+        requires_pay_app: data.requiresPayApp,
       }]).select().single();
       if (custErr) { setError("Failed to create customer: " + custErr.message); setSaving(false); return; }
       if (nc) customerId = nc.id;
@@ -417,6 +420,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
                   set("billingName",  chosen.billing_name  || "");
                   set("billingPhone", chosen.billing_phone || "");
                   set("billingEmail", chosen.billing_email || "");
+                  set("requiresPayApp", !!chosen.requires_pay_app);
                   set("billingSourceContactId", null);
                   set("additionalContacts", []);
                 }
@@ -514,6 +518,14 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
               <input type="number" placeholder="Days" value={data.billingTermsCustom || ""} onChange={e => set("billingTermsCustom", e.target.value)} style={{ ...inputStyle, marginTop: 8 }} />
             )}
           </div>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, cursor: "pointer", padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${data.requiresPayApp ? C.teal : C.borderStrong}`, background: data.requiresPayApp ? C.dark : C.linen, transition: "all 0.12s" }}>
+            <input type="checkbox" checked={data.requiresPayApp} onChange={e => set("requiresPayApp", e.target.checked)} style={{ accentColor: C.teal, width: 18, height: 18, cursor: "pointer" }} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: data.requiresPayApp ? C.teal : C.textHead, fontFamily: F.display, letterSpacing: "0.04em" }}>Customer Requires Payment Application</div>
+              <div style={{ fontSize: 11, color: data.requiresPayApp ? "rgba(255,255,255,0.4)" : C.textFaint, fontFamily: F.ui, marginTop: 2 }}>Invoices will use G702/G703 pay app format with schedule of values</div>
+            </div>
+          </label>
 
           {/* Additional Contacts */}
           <div style={{ marginTop: 16 }}>

@@ -214,6 +214,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
           subject,
           body,
           payAppPdfUrl: payApp.pdf_url || null,
+          sovPdfUrl: payApp.sov_pdf_url || null,
           invoicePdfUrl,
           senderEmail,
         },

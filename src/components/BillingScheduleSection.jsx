@@ -30,6 +30,8 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
   const [review, setReview] = useState(null); // { sourceUrl, lines: [...], contract_sum, retainage_pct, notes }
   const [payApps, setPayApps] = useState([]);
   const [billingProgress, setBillingProgress] = useState({});
+  const [lineInvoices, setLineInvoices] = useState({});
+  const [generatingSov, setGeneratingSov] = useState(false);
   const [showPayAppModal, setShowPayAppModal] = useState(false);
   const [detailPayAppId, setDetailPayAppId] = useState(null);
 
@@ -50,7 +52,7 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
           .order("ordinal", { ascending: true })
           .order("created_at", { ascending: true }),
         supabase.from("billing_schedule_pay_apps")
-          .select("id, app_number, period_from, period_to, this_app_amount, retainage_withheld, current_payment_due, status, pdf_url, invoice_id, created_at")
+          .select("id, app_number, period_from, period_to, this_app_amount, retainage_withheld, current_payment_due, status, pdf_url, sov_pdf_url, invoice_id, created_at")
           .eq("billing_schedule_id", sch.id)
           .order("app_number", { ascending: true }),
         supabase.from("invoices")
@@ -63,17 +65,26 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
       setLocked((count || 0) > 0 || sch.status === "locked");
 
       const progress = {};
+      const invMap = {};
       if ((apps || []).length > 0) {
         const { data: appLines } = await supabase
           .from("billing_schedule_pay_app_lines")
-          .select("billing_schedule_line_id, billed_amount_this_app")
+          .select("billing_schedule_line_id, billed_amount_this_app, pay_app_id")
           .in("pay_app_id", apps.map(a => a.id));
+        const appById = {};
+        for (const a of apps) appById[a.id] = a;
         for (const al of (appLines || [])) {
           const lid = al.billing_schedule_line_id;
           progress[lid] = (progress[lid] || 0) + (parseFloat(al.billed_amount_this_app) || 0);
+          const invId = appById[al.pay_app_id]?.invoice_id;
+          if (invId) {
+            if (!invMap[lid]) invMap[lid] = new Set();
+            invMap[lid].add(invId);
+          }
         }
       }
       setBillingProgress(progress);
+      setLineInvoices(invMap);
     } else {
       setLines([]);
       setPayApps([]);
@@ -157,6 +168,32 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
     if (isNaN(pct) || pct < 0 || pct > 100) return;
     await supabase.from("billing_schedule").update({ retainage_pct: pct }).eq("id", schedule.id);
     setSchedule(prev => prev ? { ...prev, retainage_pct: pct } : prev);
+  }
+
+  async function generateSov(payApp) {
+    setGeneratingSov(true);
+    try {
+      const { generateSovPdf } = await import("../lib/sovPdf");
+      const { data: tc } = await supabase.from("tenant_config").select("*").single();
+      const { pdfUrl } = await generateSovPdf({
+        lines,
+        billingProgress,
+        retainagePct: parseFloat(schedule.retainage_pct) || 0,
+        tenantConfig: tc || {},
+        customerName: proposal.customer || proposal.call_log?.customer_name || "",
+        jobName: proposal.call_log?.job_name || "",
+        jobNumber: proposal.call_log?.display_job_number || "",
+        invoiceId: payApp.invoice_id || "",
+        appNumber: payApp.app_number || "",
+      });
+      await supabase.from("billing_schedule_pay_apps").update({ sov_pdf_url: pdfUrl }).eq("id", payApp.id);
+      setPayApps(prev => prev.map(pa => pa.id === payApp.id ? { ...pa, sov_pdf_url: pdfUrl } : pa));
+      alert("SOV generated and attached to Pay App #" + payApp.app_number);
+    } catch (e) {
+      alert("Failed to generate SOV: " + e.message);
+    } finally {
+      setGeneratingSov(false);
+    }
   }
 
   async function lockSchedule() {
@@ -472,10 +509,10 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
       {(() => {
         const hasProgress = locked && payApps.length > 0;
         const gridCols = hasProgress
-          ? "40px 80px 1fr 110px 80px 100px 70px 100px 80px"
+          ? "40px 70px 1fr 100px 60px 90px 60px 90px 70px 80px"
           : "60px 110px 1fr 140px 90px 90px";
         const headers = hasProgress
-          ? ["#", "Code", "Description", "Scheduled", "CO", "Billed", "% Done", "Balance", "Retainage"]
+          ? ["#", "Code", "Description", "Scheduled", "CO", "Billed", "% Done", "Balance", "Retainage", "Invoice"]
           : ["#", "Code", "Description", "Scheduled Value", "CO", ""];
         const retPct = parseFloat(schedule?.retainage_pct) || 0;
 
@@ -532,10 +569,15 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
               </div>
               {hasProgress ? (
                 <>
-                  <div style={{ fontSize: 12.5, color: C.textBody, fontFamily: F.ui, textAlign: "right" }}>{fmt$(totalBilled)}</div>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: pctDone >= 100 ? C.teal : C.textBody, fontFamily: F.ui, textAlign: "right" }}>{pctDone.toFixed(1)}%</div>
-                  <div style={{ fontSize: 12.5, color: balance <= 0 ? C.textFaint : C.textHead, fontFamily: F.ui, textAlign: "right" }}>{fmt$(balance)}</div>
-                  <div style={{ fontSize: 12.5, color: C.textFaint, fontFamily: F.ui, textAlign: "right" }}>{fmt$(lineRetainage)}</div>
+                  <div style={{ fontSize: 12, color: C.textBody, fontFamily: F.ui, textAlign: "right" }}>{fmt$(totalBilled)}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: pctDone >= 100 ? C.teal : C.textBody, fontFamily: F.ui, textAlign: "right" }}>{pctDone.toFixed(1)}%</div>
+                  <div style={{ fontSize: 12, color: balance <= 0 ? C.textFaint : C.textHead, fontFamily: F.ui, textAlign: "right" }}>{fmt$(balance)}</div>
+                  <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, textAlign: "right" }}>{fmt$(lineRetainage)}</div>
+                  <div style={{ textAlign: "right" }}>
+                    {lineInvoices[l.id] ? [...lineInvoices[l.id]].map(inv => (
+                      <span key={inv} style={{ background: C.dark, color: C.teal, fontWeight: 700, fontFamily: F.display, letterSpacing: "0.04em", padding: "2px 7px", borderRadius: 5, fontSize: 10 }}>#{inv}</span>
+                    )) : <span style={{ color: C.textFaint, fontSize: 11 }}>—</span>}
+                  </div>
                 </>
               ) : (
               <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
@@ -570,6 +612,11 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
       {/* Add buttons below table */}
       {editingLineId == null && (
         <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
+          {locked && payApps.length > 0 && (
+            <Btn sz="sm" v="ghost" onClick={() => generateSov(payApps[payApps.length - 1])} disabled={generatingSov}>
+              {generatingSov ? "Generating..." : "Add SOV to Pay App"}
+            </Btn>
+          )}
           {locked ? (
             <Btn sz="sm" v="ghost" onClick={() => { setDraft({ ...EMPTY_DRAFT, is_change_order: true, co_number: String((Math.max(0, ...coLines.map(c => c.co_number || 0))) + 1) }); setAddingCo(true); }}>
               + Add Change Order Line

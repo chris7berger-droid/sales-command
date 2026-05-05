@@ -85,11 +85,12 @@ serve(async (req) => {
       subject,
       body,
       payAppPdfUrl,
+      sovPdfUrl,
       invoicePdfUrl,
       senderEmail,
     } = await req.json();
 
-    console.log("send-pay-app invoked", { payAppId, invoiceId, recipientEmail, hasPayAppPdf: !!payAppPdfUrl, hasInvoicePdf: !!invoicePdfUrl });
+    console.log("send-pay-app invoked", { payAppId, invoiceId, recipientEmail, hasPayAppPdf: !!payAppPdfUrl, hasSovPdf: !!sovPdfUrl, hasInvoicePdf: !!invoicePdfUrl });
 
     // ── Validate required fields ──────────────────────────────────────
     const missing: string[] = [];
@@ -128,6 +129,7 @@ serve(async (req) => {
 
     // ── Fetch PDFs ────────────────────────────────────────────────────
     let payAppB64: string | null = null;
+    let sovB64: string | null = null;
     let invoiceBuf: ArrayBuffer;
     try {
       const invoiceRes = await fetch(invoicePdfUrl);
@@ -146,6 +148,15 @@ serve(async (req) => {
           payAppB64 = arrayBufferToBase64(await payAppRes.arrayBuffer());
         } else {
           console.warn("Pay app PDF fetch failed, sending without it:", payAppRes.status);
+        }
+      }
+
+      if (sovPdfUrl) {
+        const sovRes = await fetch(sovPdfUrl);
+        if (sovRes.ok) {
+          sovB64 = arrayBufferToBase64(await sovRes.arrayBuffer());
+        } else {
+          console.warn("SOV PDF fetch failed, sending without it:", sovRes.status);
         }
       }
     } catch (e) {
@@ -200,6 +211,10 @@ serve(async (req) => {
           ...(payAppB64 ? [{
             filename: `PayApp-${appNumber}.pdf`,
             content: payAppB64,
+          }] : []),
+          ...(sovB64 ? [{
+            filename: `SOV-${appNumber}.pdf`,
+            content: sovB64,
           }] : []),
           {
             filename: `Invoice-${invoiceId}.pdf`,

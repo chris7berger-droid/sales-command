@@ -503,7 +503,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal }) {
 }
 
 // ── Invoice PDF Modal ─────────────────────────────────────────────────────
-function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) {
+function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false, teamMember }) {
   const money = invoice.show_cents ? fmt$c : fmt$;
   const fmtPct = (n) => {
     const v = parseFloat(n) || 0;
@@ -524,12 +524,8 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
 
   useEffect(() => {
     getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url }));
-    // Load sales rep contact info
-    const salesName = invoice.proposals?.call_log?.sales_name;
-    if (salesName) {
-      supabase.from("team_members").select("phone, email").eq("name", salesName).maybeSingle().then(({ data }) => {
-        if (data) setRepContact({ phone: data.phone || "", email: data.email || "" });
-      });
+    if (teamMember) {
+      setRepContact({ phone: teamMember.phone || "", email: teamMember.email || "" });
     }
   }, []);
 
@@ -881,7 +877,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false }) 
 }
 
 // ── Invoice Detail ────────────────────────────────────────────────────────
-function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, onNavigateProposal }) {
+function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, onNavigateProposal, teamMember }) {
   const money = fmt$c;
   const [inv, setInv] = useState(invoice);
   const [lines, setLines] = useState([]);
@@ -1435,7 +1431,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         <InvoicePDFModal
           invoice={inv}
           lines={lines}
-
+          teamMember={teamMember}
           onClose={() => setShowPaidPDF(false)}
         />
       )}
@@ -1444,6 +1440,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         <InvoicePDFModal
           invoice={inv}
           lines={lines}
+          teamMember={teamMember}
           hideSend={!!linkedPayApp}
           onClose={() => setShowPDF(false)}
           onSent={async (responseData) => {
@@ -1581,6 +1578,7 @@ export default function Invoices({ setSubPage, teamMember }) {
 
   if (sel) return <InvoiceDetail
     invoice={sel}
+    teamMember={teamMember}
     onBack={() => { navigate("/invoices"); load(); }}
     onUpdated={async () => { const data = await load(); const fresh = (data || []).find(i => i.id === sel.id); if (fresh) setSel(fresh); }}
     onDeleted={() => { navigate("/invoices"); load(); }}

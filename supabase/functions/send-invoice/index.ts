@@ -44,7 +44,7 @@ serve(async (req) => {
     // or redirect invoices to attacker-controlled inboxes.
     const { data: invoice } = await supabase
       .from("invoices")
-      .select("tenant_id, amount, viewing_token, proposal_id, job_id, proposals(call_log_id, call_log(customer_id, customers(email, contact_email)))")
+      .select("tenant_id, amount, viewing_token, proposal_id, job_id, proposals(call_log_id, call_log(customer_id, customers(email, contact_email, billing_email)))")
       .eq("id", invoiceId)
       .maybeSingle();
 
@@ -67,8 +67,27 @@ serve(async (req) => {
       });
     }
 
+    // Resolve billing email: customer_contacts (Billing Contact) first,
+    // then customers table fields — matches frontend resolution order.
     const customer = invoice.proposals?.call_log?.customers;
-    const customerEmail = customer?.contact_email || customer?.email;
+    const customerId = invoice.proposals?.call_log?.customer_id;
+    let customerEmail: string | null = null;
+
+    if (customerId) {
+      const { data: contacts } = await supabase
+        .from("customer_contacts")
+        .select("name, email, is_primary, created_at")
+        .eq("customer_id", customerId)
+        .eq("role", "Billing Contact");
+      const bc = contacts?.length
+        ? (contacts.find((c: any) => c.is_primary) || [...contacts].sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))[0])
+        : null;
+      if (bc?.email) customerEmail = bc.email;
+    }
+    if (!customerEmail && customer) {
+      customerEmail = customer.billing_email || customer.contact_email || customer.email || null;
+    }
+
     if (!customerEmail) {
       return new Response(JSON.stringify({ error: "No customer email on file for this invoice" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

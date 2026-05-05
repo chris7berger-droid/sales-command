@@ -49,6 +49,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
   const [uploadingWaiver, setUploadingWaiver] = useState(false);
   const [editPcts, setEditPcts] = useState({});
   const [savingLines, setSavingLines] = useState(false);
+  const [contractDocs, setContractDocs] = useState([]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -152,6 +153,13 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
       currentPaymentDue: parseFloat(pa.current_payment_due) || 0,
       coBreakdown: coLines.map(l => ({ number: l.co_number, description: l.description, amount: parseFloat(l.scheduled_value) || 0 })),
     });
+
+    // Load contract docs from billing schedule
+    const { data: schRow } = await supabase.from("billing_schedule").select("contract_pdf_url, contract_pdf_urls").eq("id", schedule.id).maybeSingle();
+    if (schRow) {
+      const docs = Array.isArray(schRow.contract_pdf_urls) && schRow.contract_pdf_urls.length ? schRow.contract_pdf_urls : schRow.contract_pdf_url ? [schRow.contract_pdf_url] : [];
+      setContractDocs(docs);
+    }
 
     setLoading(false);
   }, [payAppId, proposal.call_log_id, proposal.id]);
@@ -362,6 +370,11 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                 {statusBadge.label}
               </span>
             )}
+            {contractDocs.length > 0 && contractDocs.map((url, i) => (
+              <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10.5, fontWeight: 700, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", color: C.teal, background: C.dark, padding: "4px 12px", borderRadius: 6, textDecoration: "none" }}>
+                {contractDocs.length === 1 ? "View Contract" : `Contract ${i + 1}`}
+              </a>
+            ))}
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: C.textFaint, lineHeight: 1 }}>×</button>
         </div>

@@ -15,6 +15,7 @@ import Btn from "../components/Btn";
 import FilterBar from "../components/FilterBar";
 import QBLinkModal from "../components/QBLinkModal";
 import PayAppDetailModal from "../components/PayAppDetailModal";
+import BillingScheduleSection from "../components/BillingScheduleSection";
 
 // ── Shared styles ─────────────────────────────────────────────────────────
 const inputStyle = {
@@ -883,6 +884,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [lines, setLines] = useState([]);
   const [wtcMap, setWtcMap] = useState({});
   const [linkedPayApp, setLinkedPayApp] = useState(null);
+  const [billingProposal, setBillingProposal] = useState(null);
+  const [billingSummary, setBillingSummary] = useState(null);
   const [showPayAppReview, setShowPayAppReview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showPDF, setShowPDF] = useState(false);
@@ -956,6 +959,41 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         .eq("invoice_id", inv.id)
         .maybeSingle();
       setLinkedPayApp(payApp || null);
+
+      // Load proposal + billing summary for billing schedule section
+      const proposalId = payApp?.billing_schedule?.proposal_id || inv.proposal_id;
+      if (proposalId) {
+        const { data: sch } = await supabase
+          .from("billing_schedule")
+          .select("id, contract_sum, retainage_pct, status")
+          .eq("proposal_id", proposalId)
+          .maybeSingle();
+        if (sch) {
+          const { data: prop } = await supabase
+            .from("proposals")
+            .select("id, customer, call_log_id, call_log(customer_name, job_name, display_job_number)")
+            .eq("id", proposalId)
+            .maybeSingle();
+          setBillingProposal(prop || null);
+
+          const { data: apps } = await supabase
+            .from("billing_schedule_pay_apps")
+            .select("id, this_app_amount, retainage_withheld, status")
+            .eq("billing_schedule_id", sch.id)
+            .order("app_number", { ascending: true });
+          const totalBilled = (apps || []).reduce((s, a) => s + (parseFloat(a.this_app_amount) || 0), 0);
+          const totalRetainage = (apps || []).reduce((s, a) => s + (parseFloat(a.retainage_withheld) || 0), 0);
+          const contractSum = parseFloat(sch.contract_sum) || 0;
+          setBillingSummary({
+            contractSum,
+            retainagePct: parseFloat(sch.retainage_pct) || 0,
+            totalBilled,
+            totalRetainage,
+            balance: contractSum - totalBilled,
+            payAppCount: (apps || []).length,
+          });
+        }
+      }
 
       setLoading(false);
     }
@@ -1141,6 +1179,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     const updates = { status: "New", sent_at: null, stripe_checkout_id: null, stripe_checkout_url: null, stripe_payment_id: null, paid_at: null };
     const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
     if (error) { alert(error.message); return; }
+    if (linkedPayApp) {
+      await supabase.from("billing_schedule_pay_apps").update({ status: "draft", submitted_at: null }).eq("id", linkedPayApp.id);
+      setLinkedPayApp(prev => prev ? { ...prev, status: "draft", submitted_at: null } : prev);
+    }
     setInv(prev => ({ ...prev, ...updates }));
     onUpdated && onUpdated();
   }
@@ -1168,6 +1210,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       const updates = { status: "New", sent_at: null, stripe_checkout_id: null, stripe_checkout_url: null, stripe_payment_id: null, paid_at: null, qb_invoice_id: null };
       const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
       if (error) { alert(error.message); setSaving(false); return; }
+      if (linkedPayApp) {
+        await supabase.from("billing_schedule_pay_apps").update({ status: "draft", submitted_at: null }).eq("id", linkedPayApp.id);
+        setLinkedPayApp(prev => prev ? { ...prev, status: "draft", submitted_at: null } : prev);
+      }
       setInv(prev => ({ ...prev, ...updates }));
       setSaving(false);
       setShowVoidModal(null);
@@ -1193,6 +1239,29 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           </button>
         )}
       </div>
+
+      {/* Job Billing Progress Scoreboard */}
+      {billingSummary && (
+        <div style={{ background: C.dark, borderRadius: 10, padding: "14px 20px", marginBottom: 16, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 16, alignItems: "center" }}>
+          {[
+            { label: "Contract Sum", value: fmt$(billingSummary.contractSum) },
+            { label: "Billed to Date", value: fmt$(billingSummary.totalBilled) },
+            { label: "Balance", value: fmt$(billingSummary.balance) },
+            { label: "Retainage Held", value: fmt$(billingSummary.totalRetainage) },
+            { label: "Pay Apps", value: `${billingSummary.payAppCount}` },
+          ].map((s, i) => (
+            <div key={i}>
+              <div style={{ fontSize: 9.5, fontWeight: 700, color: "rgba(255,255,255,0.4)", fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: C.teal, fontFamily: F.display }}>{s.value}</div>
+            </div>
+          ))}
+          {billingSummary.contractSum > 0 && (
+            <div style={{ gridColumn: "1 / -1", height: 6, background: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${Math.min(100, (billingSummary.totalBilled / billingSummary.contractSum) * 100)}%`, background: C.teal, borderRadius: 3, transition: "width 0.3s ease" }} />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 4 }}>
@@ -1288,8 +1357,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         </>
       )}
 
-      {/* Line items */}
-      <div style={{ marginBottom: 24 }}>
+      {/* Line items — hidden for pay app invoices (managed via billing schedule) */}
+      {!linkedPayApp && <div style={{ marginBottom: 24 }}>
         <div style={labelStyle}>Line Items</div>
         {loading ? (
           <div style={{ color: C.textFaint, fontFamily: F.ui, fontSize: 13 }}>Loading…</div>
@@ -1339,18 +1408,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             </table>
           </div>
         )}
-      </div>
+      </div>}
 
-      {/* Pay App linkage banner — gates standalone send flow */}
-      {linkedPayApp && !editing && (
-        <div style={{ background: C.dark, border: `1px solid ${C.borderStrong}`, borderRadius: 8, padding: "12px 16px", marginBottom: 14, color: C.teal, fontFamily: F.ui, fontSize: 13 }}>
-          <div style={{ fontWeight: 700, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 11, marginBottom: 4 }}>Part of Pay App #{linkedPayApp.app_number}</div>
-          <div>This invoice is tied to a pay app. Send + manage from the pay app view — opening the proposal will take you to the schedule.</div>
-          {linkedPayApp.billing_schedule?.proposal_id && (
-            <a href={`/proposals?open=${linkedPayApp.billing_schedule.proposal_id}`} style={{ color: C.teal, fontWeight: 700, marginTop: 6, display: "inline-block" }}>Open Proposal →</a>
-          )}
-        </div>
-      )}
 
       {/* Action buttons */}
       <div style={{ display: "flex", gap: 10 }}>
@@ -1397,6 +1456,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(67,160,71,0.14)", border: `1px solid ${C.green}`, borderRadius: 8, fontSize: 13, color: C.green, fontFamily: F.ui, display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ flex: 1 }}>{syncToast}</span>
           <button onClick={() => setSyncToast(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", fontSize: 14, fontWeight: 700, opacity: 0.6 }}>✕</button>
+        </div>
+      )}
+
+      {/* Customer Billing Schedule (SOV / G702-G703) */}
+      {billingProposal && inv.proposal_id && (
+        <div style={{ marginTop: 18 }}>
+          <BillingScheduleSection proposal={billingProposal} teamMember={teamMember} />
         </div>
       )}
 

@@ -9,7 +9,6 @@ import WTCCalculator from "../pages/WTCCalculator";
 import Btn from "./Btn";
 import Pill from "./Pill";
 import ProposalPDFModal from "./ProposalPDFModal";
-import BillingScheduleSection from "./BillingScheduleSection";
 import { NewInvoiceModal } from "../pages/Invoices";
 
 function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember, onNavigateJob, onNavigateInvoice }) {
@@ -1132,11 +1131,6 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             )}
           </div>
         </div>
-      </div>
-
-      {/* Customer Billing Schedule (SOV / G702-G703) */}
-      <div style={{ marginTop: 18 }}>
-        <BillingScheduleSection proposal={p} teamMember={teamMember} />
       </div>
 
       {/* Internal Approve Modal */}

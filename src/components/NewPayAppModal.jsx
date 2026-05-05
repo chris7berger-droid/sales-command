@@ -163,9 +163,12 @@ export default function NewPayAppModal({ schedule, lines, proposal, onClose, onC
       }
 
       // 3. Create linked SC invoice (amount = gross this billing; retainage captured separately)
-      const { data: latest } = await supabase
-        .from("invoices").select("id").order("id", { ascending: false }).limit(1);
-      const lastNum = Math.max(latest?.length ? parseInt(latest[0].id, 10) : 0, 9999);
+      const { data: recent } = await supabase
+        .from("invoices").select("id").order("created_at", { ascending: false }).limit(50);
+      const nums = (recent || []).map(r => parseInt(r.id, 10)).filter(n => !isNaN(n)).sort((a, b) => a - b);
+      const median = nums.length ? nums[Math.floor(nums.length / 2)] : 10000;
+      const seqNums = nums.filter(n => n <= median * 2);
+      const lastNum = Math.max(seqNums.length ? seqNums[seqNums.length - 1] : 0, 9999);
       const nextId = String(lastNum + 1).padStart(5, "0");
 
       const jobNum = proposal.call_log?.display_job_number || "";

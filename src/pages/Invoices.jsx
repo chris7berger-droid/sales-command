@@ -204,13 +204,18 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
     const grossForRetention = isArchive ? archiveAmt : invoiceTotal;
     const retAmt = Math.round(grossForRetention * (retPct / 100) * 100) / 100;
 
-    // Generate next invoice ID (zero-padded 5-digit)
-    const { data: latest } = await supabase
+    // Generate next invoice ID — find the highest ID in the main sequence,
+    // ignoring manually-renumbered outliers (e.g. 90360 matching a customer PO).
+    const { data: recent } = await supabase
       .from("invoices")
       .select("id")
-      .order("id", { ascending: false })
-      .limit(1);
-    const lastNum = Math.max(latest?.length ? parseInt(latest[0].id, 10) : 0, 9999);
+      .order("created_at", { ascending: false })
+      .limit(50);
+    const nums = (recent || []).map(r => parseInt(r.id, 10)).filter(n => !isNaN(n)).sort((a, b) => a - b);
+    // Find the main cluster: use the median to identify the sequence, then take the max within 2x of median
+    const median = nums.length ? nums[Math.floor(nums.length / 2)] : 10000;
+    const seqNums = nums.filter(n => n <= median * 2);
+    const lastNum = Math.max(seqNums.length ? seqNums[seqNums.length - 1] : 0, 9999);
     const nextId = String(lastNum + 1).padStart(5, "0");
 
     const jobNum = selProposal.call_log?.display_job_number || selProposal.call_log?.job_name || "";

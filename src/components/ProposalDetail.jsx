@@ -10,6 +10,7 @@ import Btn from "./Btn";
 import Pill from "./Pill";
 import ProposalPDFModal from "./ProposalPDFModal";
 import { NewInvoiceModal } from "../pages/Invoices";
+import NewPayAppModal from "./NewPayAppModal";
 
 function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember, onNavigateJob, onNavigateInvoice }) {
   const [p, setP] = useState(pInit);
@@ -48,6 +49,7 @@ const [editingPrimary, setEditingPrimary] = useState(false);
 const [primaryDraft, setPrimaryDraft] = useState("");
 const [linkedInvoices, setLinkedInvoices] = useState([]);
 const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+const [payAppContext, setPayAppContext] = useState(null);
 
 useEffect(() => {
   (async () => {
@@ -617,6 +619,31 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             setShowInvoiceModal(false);
             if (onNavigateInvoice) onNavigateInvoice(inv.id);
           }}
+          onOpenPayApp={async (prop) => {
+            setShowInvoiceModal(false);
+            const { data: sch } = await supabase
+              .from("billing_schedule")
+              .select("*")
+              .eq("proposal_id", prop.id)
+              .maybeSingle();
+            if (!sch) { alert("No billing schedule found for this proposal."); return; }
+            const { data: lns } = await supabase
+              .from("billing_schedule_lines")
+              .select("*")
+              .eq("billing_schedule_id", sch.id)
+              .order("ordinal", { ascending: true });
+            setPayAppContext({ schedule: sch, lines: lns || [], proposal: prop });
+          }}
+        />
+      )}
+
+      {payAppContext && (
+        <NewPayAppModal
+          schedule={payAppContext.schedule}
+          lines={payAppContext.lines}
+          proposal={payAppContext.proposal}
+          onClose={() => setPayAppContext(null)}
+          onCreated={() => setPayAppContext(null)}
         />
       )}
 

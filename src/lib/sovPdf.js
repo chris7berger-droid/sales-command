@@ -52,30 +52,41 @@ export async function generateSovPdf({ lines, billingProgress, retainagePct, ten
   doc.text("SCHEDULE OF VALUES", margin, y);
   y += 18;
 
-  // Meta grid — two rows of label/value pairs
-  const metaFields = [
-    { label: "Customer", value: customerName },
-    { label: "Job", value: jobName },
-    { label: "Job #", value: jobNumber },
-    { label: "Invoice #", value: invoiceId },
-    { label: "Pay App #", value: appNumber },
-    { label: "Date", value: periodTo ? new Date(periodTo + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) },
-    { label: "Retainage", value: `${retainagePct}%` },
-  ].filter(f => f.value);
+  // Meta grid — structured rows with defined widths
+  const dateStr = periodTo
+    ? new Date(periodTo + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-  const metaColW = contentW / 4;
-  for (let i = 0; i < metaFields.length; i++) {
-    const col = i % 4;
-    const mx = margin + col * metaColW;
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...lightGray);
-    doc.text(metaFields[i].label.toUpperCase(), mx, y);
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...dark);
-    doc.text(String(metaFields[i].value), mx, y + 11);
-    if (col === 3 || i === metaFields.length - 1) y += 24;
+  const metaRows = [
+    [
+      { label: "Customer", value: customerName, w: contentW * 0.3 },
+      { label: "Job #", value: jobNumber, w: contentW * 0.12 },
+      { label: "Invoice #", value: invoiceId, w: contentW * 0.12 },
+      { label: "Pay App #", value: appNumber, w: contentW * 0.12 },
+      { label: "Date", value: dateStr, w: contentW * 0.17 },
+      { label: "Retainage", value: `${retainagePct}%`, w: contentW * 0.17 },
+    ],
+    [
+      { label: "Job Name", value: jobName, w: contentW },
+    ],
+  ];
+
+  for (const row of metaRows) {
+    let mx = margin;
+    for (const field of row) {
+      if (!field.value) { mx += field.w; continue; }
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...lightGray);
+      doc.text(field.label.toUpperCase(), mx, y);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...dark);
+      const truncated = doc.splitTextToSize(String(field.value), field.w - 8)[0] || "";
+      doc.text(truncated, mx, y + 11);
+      mx += field.w;
+    }
+    y += 24;
   }
   y += 4;
 

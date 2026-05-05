@@ -182,7 +182,7 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
         tenantConfig: tc || {},
         customerName: proposal.customer || proposal.call_log?.customer_name || "",
         jobName: proposal.call_log?.job_name || "",
-        jobNumber: proposal.call_log?.display_job_number || "",
+        jobNumber: (proposal.call_log?.display_job_number || "").split(" - ")[0] || "",
         invoiceId: payApp.invoice_id || "",
         appNumber: payApp.app_number || "",
         periodTo: payApp.period_to || "",

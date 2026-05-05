@@ -311,33 +311,16 @@ export default function LandingPage() {
           <div style={{ maxWidth: 600, margin: "0 auto", textAlign: "center" }}>
             <div style={{ fontFamily: F.display, fontSize: 11, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: C.teal, background: C.dark, display: "inline-block", padding: "6px 16px", borderRadius: 20, marginBottom: 12 }}>Pricing</div>
             <h2 style={{ fontFamily: F.display, fontSize: 38, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.03em", margin: "0 0 20px", color: C.textHead }}>
-              Simple, <span style={{ color: C.teal, WebkitTextStroke: `1px ${C.dark}` }}>Honest</span> Pricing
+              Coming <span style={{ color: C.teal, WebkitTextStroke: `1px ${C.dark}` }}>Soon</span>
             </h2>
             <div style={{
               background: C.dark, borderRadius: 16, padding: "48px 40px",
               border: `1px solid ${C.darkBorder}`, boxShadow: "0 8px 40px rgba(28,24,20,0.25)",
             }}>
-              <div style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: C.teal, marginBottom: 8 }}>Pro Plan</div>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 4, marginBottom: 20 }}>
-                <span style={{ fontFamily: F.display, fontSize: 52, fontWeight: 800, color: "#fff" }}>$99</span>
-                <span style={{ fontFamily: F.ui, fontSize: 14, color: "rgba(255,255,255,0.4)" }}>/month</span>
+              <div style={{ fontFamily: F.body, fontSize: 16, lineHeight: 1.8, color: "rgba(255,255,255,0.6)", marginBottom: 0 }}>
+                We're putting the finishing touches on our plans.<br />
+                Stay tuned for simple, honest pricing.
               </div>
-              <div style={{ fontFamily: F.body, fontSize: 14, lineHeight: 1.8, color: "rgba(255,255,255,0.5)", marginBottom: 28 }}>
-                Unlimited users, proposals, invoices, QuickBooks sync,<br />
-                Stripe payments, and e-signatures. Everything included.
-              </div>
-              <button
-                onClick={() => navigate("/checkout")}
-                className="lp-btn"
-                style={{
-                  fontFamily: F.display, fontSize: 15, fontWeight: 700, letterSpacing: "0.06em",
-                  textTransform: "uppercase", padding: "14px 48px", borderRadius: 10,
-                  background: C.teal, color: C.dark, border: "none", cursor: "pointer",
-                  transition: "all 0.25s",
-                }}
-              >
-                Start Now
-              </button>
             </div>
           </div>
         </section>

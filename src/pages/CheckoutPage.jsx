@@ -36,39 +36,20 @@ export default function CheckoutPage() {
               border: `2px solid ${C.teal}`, boxShadow: "0 8px 40px rgba(28,24,20,0.25)",
               marginBottom: 32,
             }}>
-              <div style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: C.teal, marginBottom: 8 }}>Pro Plan</div>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 4, marginBottom: 12 }}>
-                <span style={{ fontFamily: F.display, fontSize: 52, fontWeight: 800, color: "#fff" }}>$99</span>
-                <span style={{ fontFamily: F.ui, fontSize: 14, color: "rgba(255,255,255,0.4)" }}>/month</span>
-              </div>
-              <div style={{ fontFamily: F.body, fontSize: 14, lineHeight: 1.8, color: "rgba(255,255,255,0.5)", marginBottom: 32 }}>
-                Unlimited users, proposals, invoices, QuickBooks sync,
-                Stripe payments, and e-signatures. Everything included.
-              </div>
-
               <div style={{
-                height: 1, background: "rgba(255,255,255,0.1)", margin: "0 0 32px",
-              }} />
-
-              <div style={{
-                background: "rgba(48,207,172,0.08)", border: `1px solid ${C.tealBorder}`,
-                borderRadius: 12, padding: "24px 20px",
+                fontFamily: F.display, fontSize: 18, fontWeight: 800,
+                textTransform: "uppercase", letterSpacing: "0.04em",
+                color: C.teal, marginBottom: 12,
               }}>
-                <div style={{ fontSize: 36, marginBottom: 12 }}>🚧</div>
-                <div style={{
-                  fontFamily: F.display, fontSize: 18, fontWeight: 800,
-                  textTransform: "uppercase", letterSpacing: "0.04em",
-                  color: "#fff", marginBottom: 8,
-                }}>
-                  Coming Soon
-                </div>
-                <p style={{
-                  fontFamily: F.body, fontSize: 14, lineHeight: 1.6,
-                  color: "rgba(255,255,255,0.5)", margin: 0,
-                }}>
-                  Online checkout is being set up. Contact us directly to get started today.
-                </p>
+                Coming Soon
               </div>
+              <p style={{
+                fontFamily: F.body, fontSize: 15, lineHeight: 1.7,
+                color: "rgba(255,255,255,0.6)", margin: 0,
+              }}>
+                We're putting the finishing touches on our plans.<br />
+                Reach out and we'll get you set up today.
+              </p>
             </div>
 
             <p style={{ fontFamily: F.body, fontSize: 15, color: C.textMuted, marginBottom: 24 }}>

@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import { supabase } from "./supabase";
 import { fmt$ } from "./utils";
 
-export async function generateSovPdf({ lines, billingProgress, retainagePct, tenantConfig = {}, customerName, jobName, jobNumber, invoiceId, appNumber }) {
+export async function generateSovPdf({ lines, billingProgress, retainagePct, tenantConfig = {}, customerName, jobName, jobNumber, invoiceId, appNumber, periodTo }) {
   const doc = new jsPDF({ unit: "pt", format: "letter", orientation: "landscape" });
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 40;
@@ -52,20 +52,32 @@ export async function generateSovPdf({ lines, billingProgress, retainagePct, ten
   doc.text("SCHEDULE OF VALUES", margin, y);
   y += 18;
 
-  // Meta row
-  doc.setFontSize(9);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(...gray);
-  const metaParts = [
-    customerName && `Customer: ${customerName}`,
-    jobName && `Job: ${jobName}`,
-    jobNumber && `Job #: ${jobNumber}`,
-    invoiceId && `Invoice #: ${invoiceId}`,
-    appNumber && `Pay App #: ${appNumber}`,
-    `Retainage: ${retainagePct}%`,
-  ].filter(Boolean);
-  doc.text(metaParts.join("    |    "), margin, y);
-  y += 20;
+  // Meta grid — two rows of label/value pairs
+  const metaFields = [
+    { label: "Customer", value: customerName },
+    { label: "Job", value: jobName },
+    { label: "Job #", value: jobNumber },
+    { label: "Invoice #", value: invoiceId },
+    { label: "Pay App #", value: appNumber },
+    { label: "Date", value: periodTo ? new Date(periodTo + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) },
+    { label: "Retainage", value: `${retainagePct}%` },
+  ].filter(f => f.value);
+
+  const metaColW = contentW / 4;
+  for (let i = 0; i < metaFields.length; i++) {
+    const col = i % 4;
+    const mx = margin + col * metaColW;
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...lightGray);
+    doc.text(metaFields[i].label.toUpperCase(), mx, y);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...dark);
+    doc.text(String(metaFields[i].value), mx, y + 11);
+    if (col === 3 || i === metaFields.length - 1) y += 24;
+  }
+  y += 4;
 
   // Table
   const cols = [

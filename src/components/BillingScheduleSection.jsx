@@ -185,6 +185,7 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
         jobNumber: proposal.call_log?.display_job_number || "",
         invoiceId: payApp.invoice_id || "",
         appNumber: payApp.app_number || "",
+        periodTo: payApp.period_to || "",
       });
       await supabase.from("billing_schedule_pay_apps").update({ sov_pdf_url: pdfUrl }).eq("id", payApp.id);
       setPayApps(prev => prev.map(pa => pa.id === payApp.id ? { ...pa, sov_pdf_url: pdfUrl } : pa));

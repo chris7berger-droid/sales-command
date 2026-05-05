@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
@@ -1375,12 +1375,12 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             </div>
           )}
           <div style={{ display: "grid", gridTemplateColumns: inv.retention_amount > 0 ? "repeat(4,1fr)" : "repeat(3,1fr)", gap: 12, marginBottom: 24 }}>
-            <StatCard label="Invoice Amount" value={money(inv.amount)} accent={C.teal} />
+            <StatCard label={inv.retention_amount > 0 ? "Gross Billed" : "Invoice Amount"} value={money(inv.amount)} accent={C.teal} />
             <StatCard label="Discount" value={inv.discount > 0 ? money(inv.discount) : "—"} accent={C.amber} />
             {inv.retention_amount > 0 && (
-              <StatCard label={`Retention${inv.retention_pct > 0 ? ` (${inv.retention_pct}%)` : ""}`} value={money(inv.retention_amount)} accent={C.amber} />
+              <StatCard label={`Retainage Held${inv.retention_pct > 0 ? ` (${inv.retention_pct}%)` : ""}`} value={money(inv.retention_amount)} accent={C.amber} />
             )}
-            <StatCard label="Net Total" value={money((inv.amount || 0) - (inv.discount || 0) - (inv.retention_amount || 0))} accent={C.green} />
+            <StatCard label={inv.retention_amount > 0 ? "Payment Due" : "Net Total"} value={money((inv.amount || 0) - (inv.discount || 0) - (inv.retention_amount || 0))} accent={C.green} />
           </div>
         </>
       )}
@@ -1457,9 +1457,9 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             {!inv.qb_invoice_id
               && !inv.proposals?.call_log?.qb_skip_sync
               && inv.proposals?.call_log?.qb_customer_id
-              && inv.status !== "New" && (
+              && (inv.status !== "New" || linkedPayApp) && (
               <Btn sz="sm" v="secondary" onClick={handleQBSync} disabled={syncing}>
-                {syncing ? "Syncing…" : "Sync and Send"}
+                {syncing ? "Syncing…" : linkedPayApp ? "Sync to QB" : "Sync and Send"}
               </Btn>
             )}
             {canPullBack && (
@@ -1605,6 +1605,8 @@ const QB_AUTH_URL = `https://appcenter.intuit.com/connect/oauth2?client_id=${QB_
 export default function Invoices({ setSubPage, teamMember }) {
   const navigate = useNavigate();
   const { id: routeInvoiceId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isRetentionView = searchParams.get("view") === "retention";
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -1648,12 +1650,16 @@ export default function Invoices({ setSubPage, teamMember }) {
   const pending = invoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);
   const paid    = invoices.filter(i => i.status === "Paid").reduce((a, i) => a + (i.amount || 0), 0);
 
+  const retentionInvoices = invoices.filter(i => parseFloat(i.retention_amount) > 0 && i.status !== "Paid");
+  const totalRetentionHeld = retentionInvoices.reduce((a, i) => a + (parseFloat(i.retention_amount) || 0), 0);
+
   const aging = (inv) => {
     if (!inv.due_date || inv.status === "Paid") return null;
     return Math.round((new Date() - new Date(inv.due_date)) / 86400000);
   };
 
-  const filteredInvoices = invoices.filter(inv => {
+  const baseList = isRetentionView ? retentionInvoices : invoices;
+  const filteredInvoices = baseList.filter(inv => {
     const sales = inv.proposals?.call_log?.sales_name || "";
     const cust = inv.proposals?.call_log?.customer_name || inv.job_name || "";
     const jobNum = inv.proposals?.call_log?.display_job_number || inv.job_id || "";
@@ -1714,8 +1720,15 @@ export default function Invoices({ setSubPage, teamMember }) {
         />
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-        <SectionHeader title="Invoices" action={
-          <Btn sz="sm" onClick={() => setShowModal(true)}>+ New Invoice</Btn>
+        <SectionHeader title={isRetentionView ? "Retention" : "Invoices"} action={
+          <div style={{ display: "flex", gap: 8 }}>
+            {isRetentionView ? (
+              <Btn sz="sm" v="ghost" onClick={() => setSearchParams({})}>← All Invoices</Btn>
+            ) : (
+              <Btn sz="sm" v="secondary" onClick={() => setSearchParams({ view: "retention" })}>Retention</Btn>
+            )}
+            {!isRetentionView && <Btn sz="sm" onClick={() => setShowModal(true)}>+ New Invoice</Btn>}
+          </div>
         } />
         {qbConnected === false && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", background: "rgba(249,168,37,0.12)", border: "1px solid rgba(249,168,37,0.3)", borderRadius: 8 }}>
@@ -1728,9 +1741,19 @@ export default function Invoices({ setSubPage, teamMember }) {
         )}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
-          <StatCard label="Total Drafted" value={fmt$c(drafted)} accent={C.teal} />
-          <StatCard label="Total Pending" value={fmt$c(pending)} accent={C.amber} />
-          <StatCard label="Total Paid"    value={fmt$c(paid)}    accent={C.green} />
+          {isRetentionView ? (
+            <>
+              <StatCard label="Total Retention Held" value={fmt$c(totalRetentionHeld)} accent={C.teal} />
+              <StatCard label="Open Pay Apps with Retention" value={String(retentionInvoices.length)} accent={C.amber} />
+              <StatCard label="Avg per Invoice" value={fmt$c(retentionInvoices.length ? totalRetentionHeld / retentionInvoices.length : 0)} accent={C.green} />
+            </>
+          ) : (
+            <>
+              <StatCard label="Total Drafted" value={fmt$c(drafted)} accent={C.teal} />
+              <StatCard label="Total Pending" value={fmt$c(pending)} accent={C.amber} />
+              <StatCard label="Total Paid"    value={fmt$c(paid)}    accent={C.green} />
+            </>
+          )}
         </div>
 
         <FilterBar
@@ -1749,8 +1772,16 @@ export default function Invoices({ setSubPage, teamMember }) {
               { k: "job_id",   l: "Job #",     r: v => <span style={{ fontWeight: 600, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{v}</span> },
               { k: "job_name", l: "Job Name",  r: v => <span style={{ fontWeight: 500, color: C.textMuted, fontFamily: F.display, maxWidth: 200, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span> },
               { k: "status",   l: "Status",    r: v => <Pill label={v} cm={{ ...PROP_C, ...INV_C }} /> },
-              { k: "amount",   l: "Amount",    r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$c(v)}</span> },
-              { k: "discount", l: "Discount",  r: v => v > 0 ? <span style={{ color: C.red, fontWeight: 700 }}>−{fmt$c(v)}</span> : <span style={{ color: C.textFaint }}>—</span> },
+              { k: "amount",   l: isRetentionView ? "Gross Billed" : "Amount", r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$c(v)}</span> },
+              isRetentionView
+                ? { k: "retention_amount", l: "Retention Held",
+                    sortVal: row => parseFloat(row.retention_amount) || 0,
+                    r: v => {
+                      const n = parseFloat(v) || 0;
+                      if (!n) return <span style={{ color: C.textFaint }}>—</span>;
+                      return <span style={{ fontWeight: 900, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontFamily: F.display, fontVariantNumeric: "tabular-nums", letterSpacing: "0.04em" }}>{fmt$c(n)}</span>;
+                    }}
+                : { k: "discount", l: "Discount",  r: v => v > 0 ? <span style={{ color: C.red, fontWeight: 700 }}>−{fmt$c(v)}</span> : <span style={{ color: C.textFaint }}>—</span> },
               { k: "sent_at",  l: "Sent",      r: v => fmtD(v) },
               { k: "due_date", l: "Due",       r: v => fmtD(v) },
               { k: "_aging",   l: "Aging",
@@ -1768,7 +1799,7 @@ export default function Invoices({ setSubPage, teamMember }) {
             ]}
             rows={filteredInvoices}
             onRow={row => navigate(`/invoices/${row.id}`)}
-            defaultSort={{ key: "sent_at", dir: "desc" }}
+            defaultSort={isRetentionView ? { key: "retention_amount", dir: "desc" } : { key: "sent_at", dir: "desc" }}
           />
         )}
       </div>

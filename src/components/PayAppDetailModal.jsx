@@ -244,7 +244,10 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
         current_payment_due: due,
       }).eq("id", payAppId);
       if (payApp?.invoice_id) {
-        await supabase.from("invoices").update({ amount: Math.round(gross * 100) / 100 }).eq("id", payApp.invoice_id);
+        await supabase.from("invoices").update({
+          amount: Math.round(gross * 100) / 100,
+          retention_amount: ret,
+        }).eq("id", payApp.invoice_id);
       }
       await loadAll();
       onChanged?.();
@@ -256,18 +259,41 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
   }
 
   async function handleDeletePayApp() {
+    if (invoice?.qb_invoice_id) {
+      alert(`Invoice #${invoice.id} is synced to QuickBooks. Void the invoice first, then delete the pay app.`);
+      return;
+    }
     const msg = payApp?.invoice_id
-      ? `Delete Pay App #${payApp.app_number} and its linked Invoice #${payApp.invoice_id}? Both will be permanently removed. This cannot be undone.`
+      ? `Delete Pay App #${payApp.app_number} and its linked Invoice #${payApp.invoice_id}? The pay app is permanently removed; the invoice is soft-deleted. This cannot be undone.`
       : `Delete Pay App #${payApp.app_number}? This cannot be undone.`;
     if (!confirm(msg)) return;
     setError(null);
     try {
-      await supabase.from("billing_schedule_pay_app_lines").delete().eq("pay_app_id", payAppId);
       if (payApp?.invoice_id) {
-        await supabase.from("invoice_lines").delete().eq("invoice_id", payApp.invoice_id);
-        await supabase.from("invoices").delete().eq("id", payApp.invoice_id);
+        const { error: invErr } = await supabase
+          .from("invoices")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("id", payApp.invoice_id)
+          .is("deleted_at", null);
+        if (invErr) throw new Error(`Failed to delete invoice: ${invErr.message}`);
       }
-      await supabase.from("billing_schedule_pay_apps").delete().eq("id", payAppId);
+      const { error: paErr, count: paCount } = await supabase
+        .from("billing_schedule_pay_apps")
+        .delete({ count: "exact" })
+        .eq("id", payAppId);
+      if (paErr) throw new Error(`Failed to delete pay app: ${paErr.message}`);
+      if (!paCount) throw new Error("Pay app delete returned 0 rows — likely blocked by RLS.");
+      const { count: remaining } = await supabase
+        .from("billing_schedule_pay_apps")
+        .select("id", { count: "exact", head: true })
+        .eq("billing_schedule_id", schedule.id);
+      if (!remaining) {
+        const { error: schErr } = await supabase
+          .from("billing_schedule")
+          .update({ status: "draft" })
+          .eq("id", schedule.id);
+        if (schErr) throw new Error(`Failed to unlock schedule: ${schErr.message}`);
+      }
       onChanged?.();
       onClose();
     } catch (e) {
@@ -477,7 +503,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                       <div style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui, marginBottom: 3 }}>{invoice.description || "—"}</div>
                       <div style={{ display: "flex", gap: 18, fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>
                         <span>Amount: <b style={{ color: C.textHead }}>{fmt$(invoice.amount)}</b></span>
-                        {invoice.retainage_amount > 0 && <span>Retainage held: <b style={{ color: C.textHead }}>{fmt$(invoice.retainage_amount)}</b></span>}
+                        {invoice.retention_amount > 0 && <span>Retainage held: <b style={{ color: C.textHead }}>{fmt$(invoice.retention_amount)}</b></span>}
                         {invoice.sent_at && <span>Sent: {new Date(invoice.sent_at).toLocaleDateString()}</span>}
                       </div>
                     </div>

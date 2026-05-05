@@ -258,6 +258,50 @@ serve(async (req) => {
       // Resend normally returns JSON; ignore parse failures
     }
 
+    // ── Send confirmation to sender (fire-and-forget) ──────────────────
+    if (senderEmail) {
+      const attachmentList = [
+        payAppB64 ? "Completed Pay App" : null,
+        sovB64 ? "Schedule of Values" : null,
+        waiverB64 ? "Release Waiver" : null,
+        "Invoice #" + invoiceId,
+      ].filter(Boolean);
+
+      const confirmHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
+          <div style="border-bottom: 4px solid #30cfac; padding-bottom: 16px; margin-bottom: 24px;">
+            <h2 style="margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.02em;">Payment Application Sent</h2>
+          </div>
+          <p>Your payment application package was successfully sent to <b>${escapeHtml(recipientName || recipientEmail)}</b>${recipientName ? ` (${escapeHtml(recipientEmail)})` : ""}.</p>
+          <p style="margin: 16px 0 8px; font-weight: 700; font-size: 14px;">Package Contents:</p>
+          <ul style="margin: 0; padding-left: 20px;">
+            ${attachmentList.map(a => `<li>${escapeHtml(a!)}</li>`).join("")}
+          </ul>
+          <p style="color: #887c6e; font-size: 12px; margin-top: 32px;">This is a confirmation from Sales Command. The recipient received the full package with all attachments.</p>
+        </div>
+      `;
+
+      fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: "noreply@salescommand.app",
+          to: senderEmail,
+          subject: `✓ Payment Application Package Sent — ${escapeHtml(recipientName || recipientEmail)}`,
+          html: confirmHtml,
+        }),
+      })
+        .then(async (r) => {
+          console.log("Sender confirmation email:", r.status);
+        })
+        .catch((e) => {
+          console.warn("Sender confirmation email failed (non-fatal):", e.message);
+        });
+    }
+
     // ── Mark pay app submitted ────────────────────────────────────────
     const nowIso = new Date().toISOString();
     const { error: payAppUpdErr } = await supabase

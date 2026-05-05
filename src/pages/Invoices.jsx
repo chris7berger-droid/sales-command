@@ -1375,12 +1375,12 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             </div>
           )}
           <div style={{ display: "grid", gridTemplateColumns: inv.retention_amount > 0 ? "repeat(4,1fr)" : "repeat(3,1fr)", gap: 12, marginBottom: 24 }}>
-            <StatCard label="Invoice Amount" value={money(inv.amount)} accent={C.teal} />
+            <StatCard label={inv.retention_amount > 0 ? "Gross Billed" : "Invoice Amount"} value={money(inv.amount)} accent={C.teal} />
             <StatCard label="Discount" value={inv.discount > 0 ? money(inv.discount) : "—"} accent={C.amber} />
             {inv.retention_amount > 0 && (
-              <StatCard label={`Retention${inv.retention_pct > 0 ? ` (${inv.retention_pct}%)` : ""}`} value={money(inv.retention_amount)} accent={C.amber} />
+              <StatCard label={`Retainage Held${inv.retention_pct > 0 ? ` (${inv.retention_pct}%)` : ""}`} value={money(inv.retention_amount)} accent={C.amber} />
             )}
-            <StatCard label="Net Total" value={money((inv.amount || 0) - (inv.discount || 0) - (inv.retention_amount || 0))} accent={C.green} />
+            <StatCard label={inv.retention_amount > 0 ? "Payment Due" : "Net Total"} value={money((inv.amount || 0) - (inv.discount || 0) - (inv.retention_amount || 0))} accent={C.green} />
           </div>
         </>
       )}

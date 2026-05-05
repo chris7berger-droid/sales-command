@@ -184,8 +184,8 @@ export default function NewPayAppModal({ schedule, lines, proposal, onClose, onC
           discount: 0,
           proposal_id: proposal.id,
           description: `Pay App #${nextAppNumber} (${periodFrom} to ${periodTo})`,
-          retainage_pct: retainagePct,
-          retainage_amount: Math.round(retentionThisPeriod * 100) / 100,
+          retention_pct: retainagePct,
+          retention_amount: Math.round(retentionThisPeriod * 100) / 100,
         }])
         .select()
         .single();

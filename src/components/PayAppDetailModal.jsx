@@ -244,7 +244,10 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
         current_payment_due: due,
       }).eq("id", payAppId);
       if (payApp?.invoice_id) {
-        await supabase.from("invoices").update({ amount: Math.round(gross * 100) / 100 }).eq("id", payApp.invoice_id);
+        await supabase.from("invoices").update({
+          amount: Math.round(gross * 100) / 100,
+          retention_amount: ret,
+        }).eq("id", payApp.invoice_id);
       }
       await loadAll();
       onChanged?.();
@@ -500,7 +503,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                       <div style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui, marginBottom: 3 }}>{invoice.description || "—"}</div>
                       <div style={{ display: "flex", gap: 18, fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>
                         <span>Amount: <b style={{ color: C.textHead }}>{fmt$(invoice.amount)}</b></span>
-                        {invoice.retainage_amount > 0 && <span>Retainage held: <b style={{ color: C.textHead }}>{fmt$(invoice.retainage_amount)}</b></span>}
+                        {invoice.retention_amount > 0 && <span>Retainage held: <b style={{ color: C.textHead }}>{fmt$(invoice.retention_amount)}</b></span>}
                         {invoice.sent_at && <span>Sent: {new Date(invoice.sent_at).toLocaleDateString()}</span>}
                       </div>
                     </div>

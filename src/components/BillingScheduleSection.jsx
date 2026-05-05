@@ -373,37 +373,6 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
     );
   }
 
-  // Sales (non-manage) view: upload + view contract docs only. No delete.
-  if (!canManage) {
-    const docs = getDocs();
-    return (
-      <div style={card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div style={h}>Customer Billing Schedule</div>
-          <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Contract Documents</span>
-        </div>
-        {docs.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-            {docs.map(url => (
-              <a key={url} href={url} target="_blank" rel="noopener noreferrer" style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 11, fontFamily: F.display, letterSpacing: "0.04em", padding: "5px 12px", borderRadius: 6, textDecoration: "none" }}>
-                {fileNameFromUrl(url)}
-              </a>
-            ))}
-          </div>
-        )}
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <label style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", padding: "6px 14px", borderRadius: 6, cursor: "pointer", textTransform: "uppercase" }}>
-            {uploading ? "Uploading…" : docs.length ? "+ Add Another Document" : "+ Upload Contract"}
-            <input type="file" accept="application/pdf,image/*" onChange={e => uploadContract(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
-          </label>
-          {docs.length === 0 && (
-            <span style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>Upload the signed customer contract and any addenda.</span>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   const contractSum = parseFloat(schedule.contract_sum) || 0;
   const coLines = lines.filter(l => l.is_change_order);
   const baseLines = lines.filter(l => !l.is_change_order);
@@ -425,10 +394,10 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
           <span style={{ background: statusBadge.bg, color: statusBadge.color, fontSize: 10.5, fontWeight: 700, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", padding: "3px 10px", borderRadius: 6 }}>{statusBadge.label}</span>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          {schedule.status === "draft" && (
+          {canManage && schedule.status === "draft" && (
             <Btn sz="sm" v="secondary" onClick={lockSchedule} disabled={lines.length === 0}>Lock Schedule</Btn>
           )}
-          {(schedule.status === "locked" || locked) && (
+          {canManage && (schedule.status === "locked" || locked) && (
             <Btn sz="sm" onClick={() => setShowPayAppModal(true)}>+ New Pay App</Btn>
           )}
         </div>
@@ -457,17 +426,17 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
                     <a href={url} target="_blank" rel="noopener noreferrer" style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 10.5, fontFamily: F.display, letterSpacing: "0.03em", padding: "3px 9px", borderRadius: 5, textDecoration: "none", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 140 }} title={fileNameFromUrl(url)}>
                       {fileNameFromUrl(url)}
                     </a>
-                    {!locked && (
+                    {canManage && !locked && (
                       <button onClick={() => runExtraction(url)} disabled={extracting} title="Extract SOV from this document" style={{ background: C.teal, color: C.dark, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 9.5, fontWeight: 800, cursor: extracting ? "default" : "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", opacity: extracting ? 0.5 : 1 }}>
                         {extracting && review?.sourceUrl === url ? "…" : "Extract"}
                       </button>
                     )}
-                    {!locked && (
+                    {canManage && !locked && (
                       <button onClick={() => removeContractDoc(url)} title="Remove" style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 4, padding: "2px 7px", fontSize: 11, fontWeight: 700, color: C.red || "#e53935", cursor: "pointer", fontFamily: F.display, lineHeight: 1 }}>×</button>
                     )}
                   </div>
                 ))}
-                {!locked && (
+                {(!locked || !canManage) && (
                   <label style={{ background: C.dark, color: C.teal, fontWeight: 700, fontSize: 10.5, fontFamily: F.display, letterSpacing: "0.05em", padding: "4px 10px", borderRadius: 5, cursor: "pointer", textTransform: "uppercase", display: "inline-block", textAlign: "center", marginTop: docs.length ? 3 : 0 }}>
                     {uploading ? "Uploading…" : docs.length ? "+ Add Another" : "+ Upload PDF"}
                     <input type="file" accept="application/pdf,image/*" onChange={e => uploadContract(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
@@ -582,7 +551,7 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
                 </>
               ) : (
               <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                {!locked && (
+                {canManage && !locked && (
                   <>
                     <button onClick={() => startEdit(l)} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>Edit</button>
                     <button onClick={() => deleteLine(l.id)} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.red || "#e53935", cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>×</button>
@@ -595,7 +564,7 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
         })}
 
         {/* Inline add row */}
-        {editingLineId == null && (addingCo || !locked) && (
+        {canManage && editingLineId == null && (addingCo || !locked) && (
           <LineEditRow
             ordinal={lines.length + 1}
             draft={draft}
@@ -613,12 +582,12 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
       {/* Add buttons below table */}
       {editingLineId == null && (
         <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
-          {locked && payApps.length > 0 && (
+          {canManage && locked && payApps.length > 0 && (
             <Btn sz="sm" v="ghost" onClick={() => generateSov(payApps[payApps.length - 1])} disabled={generatingSov}>
               {generatingSov ? "Generating..." : "Add SOV to Pay App"}
             </Btn>
           )}
-          {locked ? (
+          {canManage && locked ? (
             <Btn sz="sm" v="ghost" onClick={() => { setDraft({ ...EMPTY_DRAFT, is_change_order: true, co_number: String((Math.max(0, ...coLines.map(c => c.co_number || 0))) + 1) }); setAddingCo(true); }}>
               + Add Change Order Line
             </Btn>

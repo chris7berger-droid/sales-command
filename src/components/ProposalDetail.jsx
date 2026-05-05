@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
@@ -9,8 +10,6 @@ import WTCCalculator from "../pages/WTCCalculator";
 import Btn from "./Btn";
 import Pill from "./Pill";
 import ProposalPDFModal from "./ProposalPDFModal";
-import { NewInvoiceModal } from "../pages/Invoices";
-import NewPayAppModal from "./NewPayAppModal";
 
 function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember, onNavigateJob, onNavigateInvoice }) {
   const [p, setP] = useState(pInit);
@@ -48,8 +47,7 @@ const [newContactOpen, setNewContactOpen] = useState(false);
 const [editingPrimary, setEditingPrimary] = useState(false);
 const [primaryDraft, setPrimaryDraft] = useState("");
 const [linkedInvoices, setLinkedInvoices] = useState([]);
-const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-const [payAppContext, setPayAppContext] = useState(null);
+const navigate = useNavigate();
 
 useEffect(() => {
   (async () => {
@@ -611,42 +609,6 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
 
-      {showInvoiceModal && (
-        <NewInvoiceModal
-          preselectedProposal={p}
-          onClose={() => setShowInvoiceModal(false)}
-          onCreated={(inv) => {
-            setShowInvoiceModal(false);
-            if (onNavigateInvoice) onNavigateInvoice(inv.id);
-          }}
-          onOpenPayApp={async (prop) => {
-            setShowInvoiceModal(false);
-            const { data: sch } = await supabase
-              .from("billing_schedule")
-              .select("*")
-              .eq("proposal_id", prop.id)
-              .maybeSingle();
-            if (!sch) { alert("No billing schedule found for this proposal."); return; }
-            const { data: lns } = await supabase
-              .from("billing_schedule_lines")
-              .select("*")
-              .eq("billing_schedule_id", sch.id)
-              .order("ordinal", { ascending: true });
-            setPayAppContext({ schedule: sch, lines: lns || [], proposal: prop });
-          }}
-        />
-      )}
-
-      {payAppContext && (
-        <NewPayAppModal
-          schedule={payAppContext.schedule}
-          lines={payAppContext.lines}
-          proposal={payAppContext.proposal}
-          onClose={() => setPayAppContext(null)}
-          onCreated={() => setPayAppContext(null)}
-        />
-      )}
-
       {missingJobsite && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", background: "rgba(230,168,0,0.1)", border: "1.5px solid rgba(230,168,0,0.35)", borderRadius: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -708,7 +670,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             </Btn>
           )}
           {p.status === "Sold" && (
-            <Btn sz="sm" onClick={() => setShowInvoiceModal(true)}>+ Create Invoice</Btn>
+            <Btn sz="sm" onClick={() => navigate("/invoices")}>+ Create Invoice</Btn>
           )}
           {p.status !== "Sold" && (
             <Btn sz="sm" v="ghost" onClick={() => setShowApproveModal(true)} style={{ color: C.green, borderColor: C.green }}>✓ Internal Approve</Btn>

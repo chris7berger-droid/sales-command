@@ -346,18 +346,49 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
             )}
 
             <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
-              {payApp.pdf_url && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Completed Pay App:</span>
-                  <a href={payApp.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View Uploaded File</a>
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.display, marginBottom: 10 }}>
+                Attachments (sent with pay app)
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                {/* Completed Pay App */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 140 }}>Completed Pay App</span>
+                  {payApp.pdf_url ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                      <a href={payApp.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View</a>
+                      <label style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", cursor: uploading ? "wait" : "pointer", textDecoration: "underline" }}>
+                        {uploading ? "Uploading..." : "Replace"}
+                        <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => handleUploadCompleted(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
+                      </label>
+                    </div>
+                  ) : (
+                    <label style={{ fontSize: 11, fontWeight: 700, color: C.dark, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", padding: "4px 12px", background: C.teal, borderRadius: 6, cursor: uploading ? "wait" : "pointer" }}>
+                      {uploading ? "Uploading..." : "Upload Completed Pay App"}
+                      <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => handleUploadCompleted(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
+                    </label>
+                  )}
                 </div>
-              )}
+                {/* Schedule of Values */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 140 }}>Schedule of Values</span>
+                  {payApp.sov_pdf_url ? (
+                    <a href={payApp.sov_pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, textDecoration: "none", letterSpacing: "0.04em", textTransform: "uppercase" }}>View SOV</a>
+                  ) : (
+                    <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>Not generated — use "Add SOV to Pay App" on the billing schedule</span>
+                  )}
+                </div>
+                {/* Invoice */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 140 }}>Invoice</span>
+                  {invoice ? (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 5, letterSpacing: "0.04em" }}>#{invoice.id}</span>
+                  ) : (
+                    <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>No linked invoice</span>
+                  )}
+                </div>
+              </div>
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
                 <Btn sz="sm" v="ghost" onClick={onClose}>Close</Btn>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", padding: "6px 14px", background: C.linenDeep, border: `1.5px solid ${C.borderStrong}`, borderRadius: 8, cursor: uploading ? "wait" : "pointer" }}>
-                  {uploading ? "Uploading..." : payApp.pdf_url ? "Replace Pay App" : "Upload Completed Pay App"}
-                  <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => handleUploadCompleted(e.target.files?.[0])} style={{ display: "none" }} disabled={uploading} />
-                </label>
                 <Btn sz="sm" onClick={openSendStep} disabled={!invoice || payApp.status === "submitted" || payApp.status === "paid"}>
                   {payApp.status === "submitted" ? "Already Sent" : payApp.status === "paid" ? "Paid" : "Send Pay App"}
                 </Btn>

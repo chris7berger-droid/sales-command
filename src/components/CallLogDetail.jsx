@@ -779,6 +779,32 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                 })}
               </div>
             )}
+            {(() => {
+              const archiveBilled = linkedProposals.filter(p => parseFloat(p.historical_billed_amount) > 0);
+              if (archiveBilled.length === 0) return null;
+              return (
+                <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, overflow: "hidden" }}>
+                  <div style={{ padding: "8px 14px", background: C.dark, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.45)", fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase" }}>Previously Invoiced From Archive Job Setup</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.ui }}>{archiveBilled.length}</span>
+                  </div>
+                  {archiveBilled.map((p, i) => {
+                    const label = `${p.call_log?.display_job_number || job.display_job_number || "P"} P${p.proposal_number || 1}`;
+                    return (
+                      <button key={`ab-${p.id}`} onClick={() => onNavigateProposal && onNavigateProposal(p.id)}
+                        style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", background: i % 2 === 0 ? C.linenLight : C.linen, border: "none", borderBottom: `1px solid ${C.border}`, cursor: onNavigateProposal ? "pointer" : "default", textAlign: "left" }}
+                        onMouseEnter={e => e.currentTarget.style.background = C.tealGlow}
+                        onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? C.linenLight : C.linen}
+                      >
+                        <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.03em", minWidth: 140 }}>{label}</span>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>Archive</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>{fmt$(parseFloat(p.historical_billed_amount) || 0)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
             {linkedInvoices.length > 0 && (
               <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, overflow: "hidden" }}>
                 <div style={{ padding: "8px 14px", background: C.dark, display: "flex", alignItems: "center", gap: 8 }}>

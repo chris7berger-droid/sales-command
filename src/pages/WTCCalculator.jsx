@@ -684,7 +684,11 @@ function DiscountTab({ data, onChange }) {
           style={{ background: "none", border: `1.5px dashed rgba(28,24,20,0.3)`, borderRadius: 6, padding: "5px 14px", fontSize: 11, fontWeight: 700, color: T.gray800, cursor: available.length === 0 ? "default" : "pointer", fontFamily: "inherit", opacity: available.length === 0 ? 0.4 : 1 }}
           onMouseEnter={e => { if (available.length > 0) e.currentTarget.style.background = "rgba(28,24,20,0.04)"; }}
           onMouseLeave={e => e.currentTarget.style.background = "none"}>
-          {available.length === 0 ? "✓ All Tab 3 materials added" : "＋ Add material from this WTC"}
+          {safeMaterials.length === 0
+            ? "No materials yet — add them in Step 3 · Materials"
+            : available.length === 0
+              ? "✓ All materials added"
+              : "＋ Add material from this WTC"}
         </button>
         {open && available.length > 0 && (
           <div style={{

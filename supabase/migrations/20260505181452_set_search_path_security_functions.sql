@@ -93,3 +93,53 @@ ALTER FUNCTION public.request_viewing_token()   SET search_path = public;
 -- Authenticated path: log in to scmybiz.com, observe the dashboard
 -- loads (RLS-scoped queries via get_user_tenant_id() still work).
 -- ============================================================
+
+
+-- ============================================================
+-- PROD STATE AT TIME OF AUTHORING (2026-05-05, via Studio SQL editor
+-- against project pbgvgjjuhnpsumnowuym, before this migration was
+-- applied)
+--
+-- Query 1 — get_user_tenant_id only:
+--   SELECT prosrc, proconfig FROM pg_proc
+--    WHERE proname = 'get_user_tenant_id'
+--      AND pronamespace = 'public'::regnamespace;
+--
+-- Result:
+--   prosrc:
+--     SELECT COALESCE(
+--       (SELECT tenant_id FROM public.team_members WHERE auth_id = auth.uid() LIMIT 1),
+--       (SELECT id FROM public.tenant_config LIMIT 1)
+--     );
+--   proconfig: ["search_path=public"]
+--
+-- Query 2 — all three functions:
+--   SELECT proname, prosrc, proconfig FROM pg_proc
+--    WHERE pronamespace = 'public'::regnamespace
+--      AND proname IN ('get_user_tenant_id',
+--                      'request_signing_token',
+--                      'request_viewing_token')
+--    ORDER BY proname;
+--
+-- Result:
+--   proname                | prosrc body                                | proconfig
+--   ---------------------- | ------------------------------------------ | --------------------------
+--   get_user_tenant_id     | (COALESCE w/ team_members per Query 1)     | ["search_path=public"]
+--   request_signing_token  | SELECT NULLIF(current_setting(...
+--                          |   ->> 'x-signing-token', '');              | null
+--   request_viewing_token  | SELECT NULLIF(current_setting(...
+--                          |   ->> 'x-viewing-token', '');              | null
+--
+-- Implication for this migration:
+--   - get_user_tenant_id ALTER is a no-op (proconfig already has the
+--     value). Kept in the migration for completeness and idempotence.
+--   - request_signing_token + request_viewing_token are the actual
+--     state changes — both go from proconfig=null to
+--     proconfig={search_path=public}.
+--
+-- The COALESCE body of get_user_tenant_id (which is what's actually
+-- live on prod, contradicting the oldest seed at sql/db_hardening_phase1.sql:12)
+-- means the body-fix concern is L severity, not M — the fallback only
+-- fires for an authenticated user with no team_members row. Tracked
+-- as S1 in docs/BACKLOG.md.
+-- ============================================================

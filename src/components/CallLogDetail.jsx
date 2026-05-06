@@ -6,6 +6,7 @@ import Btn from "./Btn";
 import { supabase } from "../lib/supabase";
 import ArchiveProposalModal from "./ArchiveProposalModal";
 import QBActionModal from "./QBActionModal";
+import MergeJobModal from "./MergeJobModal";
 
 const STAGES = ["New Inquiry", "Wants Bid", "Has Bid", "Sold", "Lost"];
 
@@ -62,6 +63,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const cust = job.customers || {};
   const [linkedProposals, setLinkedProposals] = useState([]);
   const [linkedInvoices, setLinkedInvoices] = useState([]);
+  const [showMergeModal, setShowMergeModal] = useState(false);
   const [form, setForm] = useState({
     stage:            job.stage            || "",
     customer_name:    job.customer_name    || "",
@@ -328,6 +330,18 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         />
       )}
 
+      {showMergeModal && (
+        <MergeJobModal
+          loserJob={job}
+          onClose={() => setShowMergeModal(false)}
+          onMerged={(survivorId) => {
+            setShowMergeModal(false);
+            if (onBack) onBack();
+            if (onSaved) onSaved();
+          }}
+        />
+      )}
+
       {showQBActionModal && (
         <QBActionModal
           job={job}
@@ -409,6 +423,9 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           )}
           {editing && canDelete && (
             <Btn sz="sm" v="ghost" onClick={handleDelete} style={{ color: C.red, borderColor: C.red }}>Delete</Btn>
+          )}
+          {teamMember && ["Admin", "Manager"].includes(teamMember.role) && !job.is_change_order && !job.archived && !editing && (
+            <Btn sz="sm" v="ghost" onClick={() => setShowMergeModal(true)} style={{ color: C.red, borderColor: C.red }}>Merge Job</Btn>
           )}
           <Btn sz="sm" v="ghost" onClick={async () => {
             await supabase.from("call_log").update({ archived: !job.archived }).eq("id", job.id);

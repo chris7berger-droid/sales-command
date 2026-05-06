@@ -275,10 +275,27 @@ export default function MergeJobModal({ loserJob, onClose, onMerged }) {
         {step === 2 && survivor && (
           <>
             <div style={{ background: C.linenDeep, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: "14px 18px", marginBottom: 14 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, marginBottom: 8 }}>What will happen</div>
-              {noteRow("Loser (will be archived)", `${loserJob.display_job_number}  ·  ${fmt$(loserSold)}`)}
-              {noteRow("Survivor (receives everything)", `${survivor.display_job_number}  ·  ${fmt$(soldByJob[survivor.id] || 0)}`)}
-              <div style={{ height: 1, background: C.border, margin: "8px 0" }} />
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textHead, fontFamily: F.display, marginBottom: 12, paddingBottom: 8, borderBottom: `2px solid ${C.borderStrong}` }}>What will happen</div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+                <div style={{ background: C.dark, borderRadius: 8, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: C.teal, fontFamily: F.display }}>
+                    Survivor (receives everything)
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: C.teal, fontFamily: F.display, textAlign: "right" }}>
+                    {survivor.display_job_number} · {fmt$(soldByJob[survivor.id] || 0)}
+                  </div>
+                </div>
+                <div style={{ background: C.dark, borderRadius: 8, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: C.amber, fontFamily: F.display }}>
+                    Loser (will be archived)
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: C.amber, fontFamily: F.display, textAlign: "right" }}>
+                    {loserJob.display_job_number} · {fmt$(loserSold)}
+                  </div>
+                </div>
+              </div>
+
               {loadingCounts ? (
                 <div style={{ padding: "6px 0", fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>Counting…</div>
               ) : (

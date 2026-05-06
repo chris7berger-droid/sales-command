@@ -5,7 +5,7 @@ that completes, defers, or discovers an item. Status values: `Open`,
 `In Progress`, `Blocked`, `Done` (move Done items to the Completed Log
 at the bottom and out of the active table within a session or two).
 
-Last updated: 2026-05-06
+Last updated: 2026-05-06 (B8 added)
 
 ---
 
@@ -32,6 +32,7 @@ Last updated: 2026-05-06
 | B5  | L   | Open   | `importApi.js` bulk CSV does NOT honor virtual `qb_skip_sync`                 | v90 carryforward |                                                                                                                                                             |
 | B6  | H   | Open   | QuickBooks "Connection Failed" 403 on `/qb/callback`                          | v92 open bug     | qb-auth `exchange` returning 403; gotrue lock timeout on stale session. **Hypothesis**, not a recipe: try redeploying qb-auth with `--no-verify-jwt` + retry/await-session in QBCallbackPage.jsx. Verify the auth surface before shipping — `--no-verify-jwt` makes the function callable without auth, which may be appropriate for an OAuth callback mid-dance but is not a no-brainer (the function still uses `requireAdminOrManager()` internally, so caller-tenant isolation must be re-confirmed). Files: `supabase/functions/qb-auth/index.ts`, `_shared/tenantAuth.ts`, `src/pages/QBCallbackPage.jsx`, `src/pages/Settings.jsx:382`. |
 | B7  | L   | Open   | Archive imports were landing `archived=true` (root cause unknown)              | Found 2026-05-06 | Defensive fix shipped (explicit `archived: false` in ImportToLiveWizard call_log insert, commit `eb0b94f`). DB column default is `false`, no INSERT triggers, auto-archive doesn't match Sold + fresh rows. Suspect: accidental "Move to Old Jobs" click on CallLogDetail (`CallLogDetail.jsx:414`) during testing, OR an unfound code path. Reproducible test on prod will tell us if defensive fix alone is enough. |
+| B8  | M   | Open   | NewPayAppModal: negative `Gross This Billing` / `Current Payment Due` + misleading "Less Previous Billings" placement | Found 2026-05-06 | When `THIS APP $` inputs are empty, Line 5 (Less Previous Billings) shows the prior-billed sum and Line 6 (Gross This Billing) goes negative (e.g. `-$43,091`); Line 8 follows. Math should clamp Line 6 ≥ 0 when nothing entered, OR Line 5 should be visually de-emphasized so it doesn't read as "you are about to bill this." File: `src/components/NewPayAppModal.jsx`. Repro: Plenium AGRU pay app on preview deploy `fix/restore-create-invoice-flow`. |
 
 ### Features
 

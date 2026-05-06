@@ -306,7 +306,7 @@ export default function MergeJobModal({ loserJob, onClose, onMerged }) {
 
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, marginBottom: 6 }}>
-                Type <span style={{ color: C.red, fontWeight: 900 }}>{expectedConfirm}</span> to confirm
+                Type <span style={{ color: C.red, fontWeight: 900, textTransform: "none", letterSpacing: 0 }}>{expectedConfirm}</span> to confirm
               </div>
               <input
                 value={confirmText}

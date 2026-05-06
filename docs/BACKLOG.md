@@ -5,7 +5,7 @@ that completes, defers, or discovers an item. Status values: `Open`,
 `In Progress`, `Blocked`, `Done` (move Done items to the Completed Log
 at the bottom and out of the active table within a session or two).
 
-Last updated: 2026-05-05 (reconciled against v91/v92/v93 handoffs)
+Last updated: 2026-05-06
 
 ---
 
@@ -31,6 +31,7 @@ Last updated: 2026-05-05 (reconciled against v91/v92/v93 handoffs)
 | B4  | L   | Open   | History Locker pagination — `DataTable` sorts only the visible page           | v90 carryforward |                                                                                                                                                             |
 | B5  | L   | Open   | `importApi.js` bulk CSV does NOT honor virtual `qb_skip_sync`                 | v90 carryforward |                                                                                                                                                             |
 | B6  | H   | Open   | QuickBooks "Connection Failed" 403 on `/qb/callback`                          | v92 open bug     | qb-auth `exchange` returning 403; gotrue lock timeout on stale session. **Hypothesis**, not a recipe: try redeploying qb-auth with `--no-verify-jwt` + retry/await-session in QBCallbackPage.jsx. Verify the auth surface before shipping — `--no-verify-jwt` makes the function callable without auth, which may be appropriate for an OAuth callback mid-dance but is not a no-brainer (the function still uses `requireAdminOrManager()` internally, so caller-tenant isolation must be re-confirmed). Files: `supabase/functions/qb-auth/index.ts`, `_shared/tenantAuth.ts`, `src/pages/QBCallbackPage.jsx`, `src/pages/Settings.jsx:382`. |
+| B7  | L   | Open   | Archive imports were landing `archived=true` (root cause unknown)              | Found 2026-05-06 | Defensive fix shipped (explicit `archived: false` in ImportToLiveWizard call_log insert, commit `eb0b94f`). DB column default is `false`, no INSERT triggers, auto-archive doesn't match Sold + fresh rows. Suspect: accidental "Move to Old Jobs" click on CallLogDetail (`CallLogDetail.jsx:414`) during testing, OR an unfound code path. Reproducible test on prod will tell us if defensive fix alone is enough. |
 
 ### Features
 
@@ -88,6 +89,9 @@ older entries to a per-version handoff and trim here.
 
 | Date       | ID  | Item                                                                                                                          | Where done         |
 |------------|-----|-------------------------------------------------------------------------------------------------------------------------------|--------------------|
+| 2026-05-06 | —   | Import to Live wizard re-import handling — when an archive collides with its own prior import, Step 7 offers Open Existing Job (navigate) or Replace Existing Import (typed `REPLACE NNNN` confirm, only when existing call_log has zero proposals/invoices). | `feat/billing-contact-flag` → main (`c8af84e`) |
+| 2026-05-06 | —   | `is_billing_contact` flag on customer_contacts decouples billing from role. Migration `20260506100000` adds column + backfills role='Billing Contact' rows. New "Use as billing contact" checkbox in Edit Contact modal, BILLING badge on cards, back-compat resolution everywhere (ContactBillingPicker, Invoices.loadContact, PayAppDetailModal, send-invoice edge fn). | `feat/billing-contact-flag` → main (`c8af84e`); send-invoice deployed |
+| 2026-05-06 | —   | Smarter customer auto-match in Import to Live wizard — exact → acronym (IVGID ↔ Incline Village General Improvement District) → token-overlap with stopword filter. SearchSelect replaces native `<select>` for the Use Existing dropdown. | PR not opened, merged via `34f926a` |
 | 2026-05-06 | —   | Field SOW materials picker empty state — split misleading "✓ All Tab 3 materials added" into two distinct empty messages so zero-materials WTCs point users at Step 3. Copy-only change to src/pages/WTCCalculator.jsx (~line 687). | PR #9 (`d5a72f6`), branch `fix/field-sow-empty-materials-copy` (deleted) |
 | 2026-05-05 | H6  | PublicSigningPage no longer exposes pricing internals. Migrations 20260505190200 (proposal_wtc.locked_line_total column) + 20260505190300 (get_public_proposal_view RPC) applied to prod; backfill ran (127 rows written, 0 failed); Vercel preview smoke test passed; PR #8 merged. handleLock writes per-WTC totals at lock time (no SQL recompute, no calc.js drift surface). | PR #8, branch `fix/h6-public-signing-locked-totals` |
 | 2026-05-05 | H1/H7 | `SET search_path = public` on get_user_tenant_id, request_signing_token, request_viewing_token. Migration applied via `supabase db push --linked`; verified all 3 proconfig=["search_path=public"] on prod. | Migration `20260505181452`, branch `fix/h1-h7-search-path` |

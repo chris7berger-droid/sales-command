@@ -576,12 +576,13 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false, te
       const customerId = cl?.customer_id;
 
       if (customerId) {
-        const { data: contacts } = await supabase
+        const { data: contactsAll } = await supabase
           .from("customer_contacts")
-          .select("name, email, phone, role, is_primary, created_at")
+          .select("name, email, phone, role, is_primary, is_billing_contact, created_at")
           .eq("customer_id", customerId)
-          .eq("role", "Billing Contact");
-        const bc = contacts?.length
+          .or("is_billing_contact.eq.true,role.eq.Billing Contact");
+        const contacts = contactsAll || [];
+        const bc = contacts.length
           ? (contacts.find(c => c.is_primary) || [...contacts].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0])
           : null;
         if (bc?.email) {

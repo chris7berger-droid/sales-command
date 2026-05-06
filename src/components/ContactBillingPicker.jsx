@@ -16,8 +16,12 @@ const labelStyle = {
   color: C.textFaint, fontFamily: F.ui, marginBottom: 6,
 };
 
+function isBilling(c) {
+  return c?.is_billing_contact || c?.role === "Billing Contact";
+}
+
 function pickBillingContact(contacts) {
-  const billing = contacts.filter(c => c.role === "Billing Contact");
+  const billing = contacts.filter(isBilling);
   if (billing.length === 0) return null;
   const primary = billing.find(c => c.is_primary);
   if (primary) return primary;
@@ -60,7 +64,7 @@ export default function ContactBillingPicker({
     setLoading(true);
     setLoadError(null);
     supabase.from("customer_contacts")
-      .select("id, name, phone, email, role, is_primary, created_at")
+      .select("id, name, phone, email, role, is_primary, is_billing_contact, created_at")
       .eq("customer_id", customerId)
       .order("is_primary", { ascending: false })
       .order("created_at")
@@ -94,7 +98,7 @@ export default function ContactBillingPicker({
 
   const billingContact = pickBillingContact(contacts);
   const billingLocked = !!billingContact;
-  const multipleBilling = contacts.filter(c => c.role === "Billing Contact").length > 1;
+  const multipleBilling = contacts.filter(isBilling).length > 1;
 
   const pickPrimary = (id) => {
     setSelectedPrimaryId(id);
@@ -293,7 +297,7 @@ export default function ContactBillingPicker({
 }
 
 export function billingContactIdFor(contacts) {
-  const billing = contacts?.filter(c => c.role === "Billing Contact") || [];
+  const billing = contacts?.filter(isBilling) || [];
   if (billing.length === 0) return null;
   const primary = billing.find(c => c.is_primary);
   if (primary) return primary.id;

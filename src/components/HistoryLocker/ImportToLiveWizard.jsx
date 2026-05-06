@@ -146,7 +146,10 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
   const [workTypes, setWorkTypes] = useState([]);
   const [defaultTerms, setDefaultTerms] = useState(30);
   const [nextAutoJobNum, setNextAutoJobNum] = useState(null);
-  const [legacyTakenBy, setLegacyTakenBy] = useState(null); // { id, display_job_number } | null
+  const [legacyTakenBy, setLegacyTakenBy] = useState(null); // { id, display_job_number, archive_record_id, proposalCount, invoiceCount } | null
+  const [replaceConfirmOpen, setReplaceConfirmOpen] = useState(false);
+  const [replaceConfirmText, setReplaceConfirmText] = useState("");
+  const [replaceMode, setReplaceMode] = useState(false); // user committed to Replace; deletion runs at final import
 
   // Parse legacy job number once (e.g., "7210" or "7210 - Foo" → 7210)
   const legacyJobNumParsed = (() => {
@@ -217,18 +220,31 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         supabase.from("tenant_config").select("default_billing_terms").limit(1).maybeSingle(),
         supabase.from("call_log").select("job_number").order("job_number", { ascending: false }).limit(1),
         legacyJobNumParsed
-          ? supabase.from("call_log").select("id, display_job_number").eq("job_number", legacyJobNumParsed).maybeSingle()
+          ? supabase.from("call_log").select("id, display_job_number, archive_record_id").eq("job_number", legacyJobNumParsed).maybeSingle()
           : Promise.resolve({ data: null }),
       ]);
+      // If the legacy holder is this same archive, also fetch child counts so we can decide if Replace is safe.
+      let legacyHolder = legacyCheckRes.data;
+      if (legacyHolder && legacyHolder.archive_record_id === record.id) {
+        const [{ count: pCount }, { count: iCount }] = await Promise.all([
+          supabase.from("proposals").select("id", { count: "exact", head: true }).eq("call_log_id", legacyHolder.id).is("deleted_at", null),
+          supabase.from("invoices").select("id", { count: "exact", head: true }).eq("job_id", legacyHolder.id).is("deleted_at", null),
+        ]);
+        legacyHolder = { ...legacyHolder, proposalCount: pCount || 0, invoiceCount: iCount || 0 };
+      }
       setCustomers(cAll || []);
       setTeam(tRes.data || []);
       setWorkTypes(wRes.data || []);
       if (tcRes.data?.default_billing_terms) setDefaultTerms(tcRes.data.default_billing_terms);
       const lastNum = lastJobRes.data?.[0]?.job_number;
       setNextAutoJobNum(lastNum ? lastNum + 1 : 10000);
-      if (legacyCheckRes.data) {
-        setLegacyTakenBy(legacyCheckRes.data);
-        setForm(f => ({ ...f, useLegacyJobNum: false }));
+      if (legacyHolder) {
+        setLegacyTakenBy(legacyHolder);
+        // Same-archive collision → default Open existing (don't auto-flip to Assign New).
+        // Cross-archive collision → keep prior behavior (force Assign New).
+        if (legacyHolder.archive_record_id !== record.id) {
+          setForm(f => ({ ...f, useLegacyJobNum: false }));
+        }
       } else if (!legacyJobNumParsed) {
         setForm(f => ({ ...f, useLegacyJobNum: false }));
       }
@@ -326,12 +342,18 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
       case "workTypes":
         if (!form.selectedWorkTypeIds.length) { setError("Select at least one work type"); return false; }
         return true;
-      case "jobNumber":
-        if (form.useLegacyJobNum && (!legacyJobNumParsed || legacyTakenBy)) {
+      case "jobNumber": {
+        const sameArchive = !!legacyTakenBy && legacyTakenBy.archive_record_id === record.id;
+        if (sameArchive && !replaceMode) {
+          setError("This archive was already imported — pick Open Existing Job or Replace Existing Import.");
+          return false;
+        }
+        if (form.useLegacyJobNum && (!legacyJobNumParsed || (legacyTakenBy && !replaceMode))) {
           setError("Legacy number unavailable — pick Assign New");
           return false;
         }
         return true;
+      }
       default:
         return true;
     }
@@ -356,6 +378,22 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
     setSaving(true);
     setError(null);
     try {
+      // 0. Replace path — delete the prior import so the legacy number frees up.
+      // Re-check child counts now in case another tab added work since the wizard loaded.
+      if (replaceMode && legacyTakenBy) {
+        const [{ count: pNow }, { count: iNow }] = await Promise.all([
+          supabase.from("proposals").select("id", { count: "exact", head: true }).eq("call_log_id", legacyTakenBy.id).is("deleted_at", null),
+          supabase.from("invoices").select("id", { count: "exact", head: true }).eq("job_id", legacyTakenBy.id).is("deleted_at", null),
+        ]);
+        if ((pNow || 0) + (iNow || 0) > 0) {
+          throw new Error(`Cannot replace — Job #${legacyTakenBy.display_job_number || legacyJobNumParsed} now has ${pNow || 0} proposal(s) and ${iNow || 0} invoice(s). Open it and remove them first.`);
+        }
+        const { error: wtErr } = await supabase.from("job_work_types").delete().eq("call_log_id", legacyTakenBy.id);
+        if (wtErr) throw new Error("Replace cleanup (work types): " + wtErr.message);
+        const { error: clErr } = await supabase.from("call_log").delete().eq("id", legacyTakenBy.id);
+        if (clErr) throw new Error("Replace cleanup (call log): " + clErr.message);
+      }
+
       // 1. Customer
       let customerId = form.customerMode === "existing" ? form.customerId : null;
       if (form.customerMode === "new") {
@@ -438,6 +476,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         billing_address_same: form.billingSame,
         archive_record_id: record.id,
         qb_skip_sync: true,
+        archived: false,
       }]).select().single();
       if (jErr) throw new Error("Call log: " + jErr.message);
 
@@ -649,7 +688,8 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
       );
 
       case "jobNumber": {
-        const legacyDisabled = !legacyJobNumParsed || !!legacyTakenBy;
+        const sameArchiveCollision = !!legacyTakenBy && legacyTakenBy.archive_record_id === record.id;
+        const legacyDisabled = !legacyJobNumParsed || (!!legacyTakenBy && !sameArchiveCollision);
         const Radio = ({ selected, disabled, onClick, primary, sub, hint }) => (
           <div
             onClick={disabled ? undefined : onClick}
@@ -677,6 +717,63 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
             </div>
           </div>
         );
+
+        if (sameArchiveCollision) {
+          const childTotal = (legacyTakenBy.proposalCount || 0) + (legacyTakenBy.invoiceCount || 0);
+          const isClean = childTotal === 0;
+          return (
+            <div>
+              <StepLabel n={7} label="Job Number" />
+              <div style={{ padding: 14, background: C.dark, borderRadius: 10, border: `1px solid ${C.tealBorder}`, marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.45)", letterSpacing: "0.12em", fontFamily: F.ui, textTransform: "uppercase" }}>Already Imported</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: C.teal, fontFamily: F.display, marginTop: 6 }}>
+                  This archive was already imported as Job #{legacyTakenBy.display_job_number || legacyJobNumParsed}.
+                </div>
+                {!isClean && (
+                  <div style={{ fontSize: 12, color: "#f9a825", fontFamily: F.ui, marginTop: 8 }}>
+                    Existing job has {legacyTakenBy.proposalCount} proposal(s) and {legacyTakenBy.invoiceCount} invoice(s).
+                    Replace is disabled — open the existing job and clean those up first if you want a fresh import.
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => onSaved?.({ jobId: legacyTakenBy.id })}
+                  style={{
+                    padding: "12px 16px", borderRadius: 10, border: `1.5px solid ${C.teal}`,
+                    background: C.teal, color: C.dark, cursor: "pointer",
+                    fontFamily: F.display, fontSize: 13, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase",
+                  }}
+                >
+                  Open Existing Job #{legacyTakenBy.display_job_number || legacyJobNumParsed}
+                </button>
+                <button
+                  type="button"
+                  disabled={!isClean}
+                  onClick={() => { setReplaceConfirmText(""); setReplaceConfirmOpen(true); }}
+                  style={{
+                    padding: "12px 16px", borderRadius: 10,
+                    border: `1.5px solid ${isClean ? C.amber : C.border}`,
+                    background: C.dark,
+                    color: isClean ? C.amber : "rgba(255,255,255,0.45)",
+                    cursor: isClean ? "pointer" : "not-allowed",
+                    fontFamily: F.display, fontSize: 13, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase",
+                    opacity: isClean ? 1 : 0.7,
+                  }}
+                >
+                  Replace Existing Import
+                </button>
+                {replaceMode && (
+                  <div style={{ fontSize: 12, color: C.amber, fontFamily: F.ui, marginTop: 4 }}>
+                    Replace queued: existing Job #{legacyJobNumParsed} will be deleted when you finish the wizard. Continue to Review.
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        }
+
         return (
           <div>
             <StepLabel n={7} label="Job Number" />
@@ -759,6 +856,48 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, letterSpacing: "0.08em", textTransform: "uppercase", textAlign: "center", marginTop: 16 }}>
           {step + 1} / {STEPS.length} · {STEPS[step].label}
         </div>
+        {replaceConfirmOpen && legacyTakenBy && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100 }} onClick={() => setReplaceConfirmOpen(false)}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: C.linenCard, borderRadius: 14, padding: 28, width: 460, border: `1.5px solid ${C.amber}`, boxShadow: "0 24px 64px rgba(0,0,0,0.55)" }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.amber, fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 10 }}>Replace Existing Import</div>
+              <div style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui, lineHeight: 1.5, marginBottom: 14 }}>
+                This will permanently delete Job #{legacyTakenBy.display_job_number || legacyJobNumParsed} and its work-type links, then re-import this archive from scratch using job number {legacyJobNumParsed}.
+                Any custom edits made on the existing job since the prior import will be lost.
+              </div>
+              <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textFaint, marginBottom: 6 }}>
+                Type <span style={{ fontWeight: 800, color: C.amber }}>REPLACE {legacyJobNumParsed}</span> to confirm.
+              </div>
+              <input
+                value={replaceConfirmText}
+                onChange={(e) => setReplaceConfirmText(e.target.value)}
+                style={{ ...inputStyle, marginBottom: 14 }}
+                autoFocus
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button type="button" onClick={() => setReplaceConfirmOpen(false)} style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.textBody, cursor: "pointer", fontFamily: F.ui, fontSize: 12, fontWeight: 700 }}>Cancel</button>
+                <button
+                  type="button"
+                  disabled={replaceConfirmText.trim() !== `REPLACE ${legacyJobNumParsed}`}
+                  onClick={() => {
+                    setReplaceMode(true);
+                    setReplaceConfirmOpen(false);
+                    setForm(f => ({ ...f, useLegacyJobNum: true }));
+                  }}
+                  style={{
+                    padding: "8px 16px", borderRadius: 8,
+                    border: `1.5px solid ${C.amber}`, background: replaceConfirmText.trim() === `REPLACE ${legacyJobNumParsed}` ? C.amber : "transparent",
+                    color: replaceConfirmText.trim() === `REPLACE ${legacyJobNumParsed}` ? C.dark : C.amber,
+                    cursor: replaceConfirmText.trim() === `REPLACE ${legacyJobNumParsed}` ? "pointer" : "not-allowed",
+                    fontFamily: F.display, fontSize: 12, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase",
+                    opacity: replaceConfirmText.trim() === `REPLACE ${legacyJobNumParsed}` ? 1 : 0.55,
+                  }}
+                >
+                  Confirm Replace
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

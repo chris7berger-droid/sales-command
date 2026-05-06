@@ -181,7 +181,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         }
       }
       const [{ data: props }, { data: invs }] = await Promise.all([
-        supabase.from("proposals").select("id, status, total, proposal_number, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
+        supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
         jobNumbers.length
           ? supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).in("job_id", jobNumbers).order("sent_at", { ascending: false })
           : Promise.resolve({ data: [] }),
@@ -714,6 +714,32 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           <input type="file" multiple onChange={handleUpload} disabled={uploading} style={{ display: "none" }} />
         </label>
       </div>
+
+      {/* Job Totals — derived from linkedProposals + linkedInvoices (already family-scoped) */}
+      {(() => {
+        if (!linkedProposals.length) return null;
+        const sold = linkedProposals.filter(p => p.status === "Sold")
+          .reduce((s, p) => s + (parseFloat(p.total) || 0), 0);
+        const historical = linkedProposals.filter(p => p.status === "Sold")
+          .reduce((s, p) => s + (parseFloat(p.historical_billed_amount) || 0), 0);
+        const billedSC = linkedInvoices.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+        const billed = historical + billedSC;
+        const remaining = sold - billed;
+        const pct = sold > 0 ? Math.round((billed / sold) * 100) : 0;
+        const cellLabel = { fontSize: 10.5, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 };
+        const cellValue = { fontSize: 16, fontWeight: 800, color: C.textHead, fontFamily: F.display };
+        return (
+          <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20, marginBottom: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>Job Totals</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+              <div><div style={cellLabel}>Sold</div><div style={cellValue}>{fmt$(sold)}</div></div>
+              <div><div title="Historical billed (pre-SC) + invoices issued via Sales Command, excludes deleted." style={cellLabel}>Billed</div><div style={cellValue}>{fmt$(billed)}</div></div>
+              <div><div style={cellLabel}>Remaining</div><div style={cellValue}>{fmt$(remaining)}</div></div>
+              <div><div style={cellLabel}>% Invoiced</div><div style={cellValue}>{pct}%</div></div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Linked Items */}
       <div style={{ marginBottom: 24 }}>

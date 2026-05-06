@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { C, F } from "../lib/tokens";
+import { fmt$ } from "../lib/utils";
 import { supabase } from "../lib/supabase";
 import Btn from "./Btn";
 
@@ -21,6 +22,9 @@ export default function MergeJobModal({ loserJob, onClose, onMerged }) {
 
   const [counts, setCounts] = useState(null);
   const [loadingCounts, setLoadingCounts] = useState(false);
+
+  const [soldByJob, setSoldByJob] = useState({}); // { call_log_id: total }
+  const [loserSold, setLoserSold] = useState(0);
 
   const [survivorMaxP, setSurvivorMaxP] = useState(0);
   const [confirmText, setConfirmText] = useState("");
@@ -48,8 +52,26 @@ export default function MergeJobModal({ loserJob, onClose, onMerged }) {
         from += PAGE;
       }
       if (cancelled) return;
-      setAllJobs(all.filter(j => j.id !== loserJob.id));
+      const candidates = all.filter(j => j.id !== loserJob.id);
+      setAllJobs(candidates);
       setLoadingList(false);
+
+      // Fetch Sold proposal totals for every candidate + the loser, in one query
+      const ids = [loserJob.id, ...candidates.map(j => j.id)];
+      const { data: props } = await supabase
+        .from("proposals")
+        .select("call_log_id, total")
+        .eq("status", "Sold")
+        .is("deleted_at", null)
+        .in("call_log_id", ids);
+      if (cancelled) return;
+      const sums = {};
+      (props || []).forEach(p => {
+        const k = p.call_log_id;
+        sums[k] = (sums[k] || 0) + (parseFloat(p.total) || 0);
+      });
+      setSoldByJob(sums);
+      setLoserSold(sums[loserJob.id] || 0);
     }
     loadAll();
     return () => { cancelled = true; };
@@ -220,15 +242,20 @@ export default function MergeJobModal({ loserJob, onClose, onMerged }) {
                     onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "rgba(28,24,20,0.06)"; }}
                     onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <div style={{ fontWeight: 800, fontSize: 14, fontFamily: F.display, color: isSelected ? C.teal : C.textHead }}>
-                        {j.display_job_number || "(no number)"}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ fontWeight: 800, fontSize: 14, fontFamily: F.display, color: isSelected ? C.teal : C.textHead }}>
+                          {j.display_job_number || "(no number)"}
+                        </div>
+                        {j.stage && (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: isSelected ? C.teal : C.dark, color: isSelected ? C.dark : C.teal, letterSpacing: "0.04em", fontFamily: F.ui }}>
+                            {j.stage}
+                          </span>
+                        )}
                       </div>
-                      {j.stage && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: isSelected ? C.teal : C.dark, color: isSelected ? C.dark : C.teal, letterSpacing: "0.04em", fontFamily: F.ui }}>
-                          {j.stage}
-                        </span>
-                      )}
+                      <div style={{ fontSize: 13, fontWeight: 800, fontFamily: F.display, color: isSelected ? C.teal : C.textHead, whiteSpace: "nowrap" }}>
+                        {fmt$(soldByJob[j.id] || 0)}
+                      </div>
                     </div>
                     <div style={{ fontSize: 12, color: isSelected ? C.teal : C.textFaint, fontFamily: F.ui, marginTop: 2 }}>
                       {[j.customer_name, j.job_name].filter(Boolean).join(" · ") || "—"}
@@ -249,8 +276,8 @@ export default function MergeJobModal({ loserJob, onClose, onMerged }) {
           <>
             <div style={{ background: C.linenDeep, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: "14px 18px", marginBottom: 14 }}>
               <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, marginBottom: 8 }}>What will happen</div>
-              {noteRow("Loser (will be archived)", loserJob.display_job_number)}
-              {noteRow("Survivor (receives everything)", survivor.display_job_number)}
+              {noteRow("Loser (will be archived)", `${loserJob.display_job_number}  ·  ${fmt$(loserSold)}`)}
+              {noteRow("Survivor (receives everything)", `${survivor.display_job_number}  ·  ${fmt$(soldByJob[survivor.id] || 0)}`)}
               <div style={{ height: 1, background: C.border, margin: "8px 0" }} />
               {loadingCounts ? (
                 <div style={{ padding: "6px 0", fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>Counting…</div>

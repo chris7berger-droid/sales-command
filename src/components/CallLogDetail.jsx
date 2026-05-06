@@ -169,15 +169,28 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
 
   useEffect(() => {
     async function fetchLinked() {
+      // Family scope: parent rolls in CO children; CO viewed alone shows only itself.
+      let callLogIds = [job.id];
+      let jobNumbers = [job.display_job_number].filter(Boolean);
+      if (!job.parent_job_id) {
+        const { data: children } = await supabase
+          .from("call_log").select("id, display_job_number").eq("parent_job_id", job.id);
+        if (children) {
+          callLogIds.push(...children.map(c => c.id));
+          jobNumbers.push(...children.map(c => c.display_job_number).filter(Boolean));
+        }
+      }
       const [{ data: props }, { data: invs }] = await Promise.all([
-        supabase.from("proposals").select("id, status, total, proposal_number, call_log(display_job_number)").is("deleted_at", null).eq("call_log_id", job.id).order("created_at"),
-        supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).eq("job_id", job.display_job_number).order("sent_at", { ascending: false }),
+        supabase.from("proposals").select("id, status, total, proposal_number, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
+        jobNumbers.length
+          ? supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).in("job_id", jobNumbers).order("sent_at", { ascending: false })
+          : Promise.resolve({ data: [] }),
       ]);
       setLinkedProposals(props || []);
       setLinkedInvoices(invs || []);
     }
     fetchLinked();
-  }, [job.id]);
+  }, [job.id, job.parent_job_id, job.display_job_number]);
 
   async function handleUpload(e) {
     const files = Array.from(e.target.files);

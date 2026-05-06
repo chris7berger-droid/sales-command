@@ -3,6 +3,7 @@ import { C, F } from "../../lib/tokens";
 import { supabase } from "../../lib/supabase";
 import { fetchAll } from "../../lib/supabaseHelpers";
 import ContactBillingPicker from "../ContactBillingPicker";
+import SearchSelect from "../SearchSelect";
 
 const inputStyle = {
   padding: "10px 14px", borderRadius: 8,
@@ -17,6 +18,61 @@ const labelStyle = {
   fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em",
   color: C.textFaint, fontFamily: F.ui, marginBottom: 6,
 };
+
+const NAME_STOPWORDS = new Set([
+  "llc", "inc", "incorporated", "co", "corp", "corporation", "company",
+  "ltd", "limited", "lp", "llp", "pllc", "pc", "the", "and", "of",
+]);
+
+function tokenizeName(name) {
+  return (name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s&]/g, " ")
+    .split(/\s+/)
+    .filter(t => t && t !== "&" && !NAME_STOPWORDS.has(t));
+}
+
+function acronymOf(tokens) {
+  if (tokens.length < 2) return "";
+  return tokens.map(t => t[0]).join("");
+}
+
+// Match strategy: exact (trimmed, case-insensitive) → acronym both ways → token overlap.
+// Returns the matched customer object or null. Token-overlap requires >=50% archive
+// containment, >=2 overlapping meaningful tokens, and clear lead over second-best.
+function findCustomerMatch(customers, archiveName) {
+  const archiveTrim = (archiveName || "").trim().toLowerCase();
+  if (!archiveTrim) return null;
+
+  const exact = customers.find(c => (c.name || "").trim().toLowerCase() === archiveTrim);
+  if (exact) return exact;
+
+  const archiveTokens = tokenizeName(archiveName);
+  const archiveAcronym = acronymOf(archiveTokens);
+
+  for (const c of customers) {
+    const cTokens = tokenizeName(c.name);
+    if (cTokens.length === 1 && archiveAcronym && cTokens[0] === archiveAcronym) return c;
+    const cAcronym = acronymOf(cTokens);
+    if (archiveTokens.length === 1 && cAcronym && archiveTokens[0] === cAcronym) return c;
+  }
+
+  if (archiveTokens.length === 0) return null;
+  const archiveSet = new Set(archiveTokens);
+  let best = null, bestScore = 0, secondScore = 0;
+  for (const c of customers) {
+    const cTokens = tokenizeName(c.name);
+    if (!cTokens.length) continue;
+    let overlap = 0;
+    for (const t of cTokens) if (archiveSet.has(t)) overlap++;
+    if (overlap > bestScore) { secondScore = bestScore; bestScore = overlap; best = c; }
+    else if (overlap > secondScore) { secondScore = overlap; }
+  }
+  if (!best) return null;
+  const containment = bestScore / archiveTokens.length;
+  if (bestScore >= 2 && containment >= 0.5 && bestScore > secondScore) return best;
+  return null;
+}
 
 const StepLabel = ({ n, label }) => (
   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
@@ -179,10 +235,10 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
     })();
   }, []);
 
-  // Auto-match existing customer by name (case-insensitive exact)
+  // Auto-match existing customer: exact → acronym → token-overlap fallback
   useEffect(() => {
     if (!customers.length || !archiveCustName) return;
-    const match = customers.find(c => (c.name || "").trim().toLowerCase() === archiveCustName.toLowerCase());
+    const match = findCustomerMatch(customers, archiveCustName);
     if (match) {
       setForm(f => ({
         ...f,
@@ -435,11 +491,16 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
               <ChoiceBtn label="Create New" selected={form.customerMode === "new"} onClick={() => set("customerMode", "new")} />
             </div>
             {form.customerMode === "existing" && (
-              <select value={form.customerId} onChange={e => {
-                const id = e.target.value;
-                set("customerId", id);
-                const c = customers.find(x => x.id === id);
-                if (c) {
+              <SearchSelect
+                value={form.customerId}
+                placeholder="— Select Customer —"
+                options={filtered.map(c => ({ value: c.id, label: c.name }))}
+                onChange={(id) => {
+                  const c = customers.find(x => x.id === id);
+                  if (!id || !c) {
+                    setForm(f => ({ ...f, customerId: "" }));
+                    return;
+                  }
                   setForm(f => ({ ...f,
                     customerId: id,
                     contactName: "",
@@ -455,11 +516,8 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
                     businessState:   c.business_state   || f.businessState,
                     businessZip:     c.business_zip     || f.businessZip,
                   }));
-                }
-              }} style={inputStyle}>
-                <option value="">— Select Customer —</option>
-                {filtered.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+                }}
+              />
             )}
             {form.customerMode === "new" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

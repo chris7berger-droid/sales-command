@@ -6,6 +6,19 @@ drifting on styling. Read them before writing any code.
 
 ---
 
+## Session Start
+
+**Before doing anything else in a Sales Command session, read `docs/BACKLOG.md`.**
+That file is the single source of truth for outstanding work — security findings,
+bugs, features, cleanup. Do not propose work, recommend priorities, or claim
+something is "still open" or "already done" without checking it first.
+
+When you finish, defer, or discover an item, **update `docs/BACKLOG.md` in the
+same session.** Stale memory has caused duplicate work and surprises — the file
+is the cure.
+
+---
+
 ## Style Rules
 
 1. **No white backgrounds** in the internal app. Use `C.linen`, `C.linenCard`,

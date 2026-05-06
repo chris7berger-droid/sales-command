@@ -1,0 +1,95 @@
+-- ============================================================
+-- Audit fixes H1/H7 (deep audit 2026-04-30):
+--
+-- Set explicit `search_path` on three security-related functions in
+-- the public schema. Severity is mixed:
+--
+--   public.get_user_tenant_id()
+--     SECURITY DEFINER. This is the real CVE-2018-1058 vector — runs
+--     with the owner's privileges but, without an explicit search_path,
+--     resolves unqualified identifiers via the caller's session
+--     search_path. A caller could create attacker-owned objects in a
+--     schema higher in their search_path that mask `public.tenant_config`,
+--     causing the function to return an arbitrary tenant_id and breaking
+--     RLS scoping.
+--
+--   public.request_signing_token()
+--   public.request_viewing_token()
+--     STABLE, not SECURITY DEFINER. They run with the caller's own
+--     privileges, so search_path manipulation does not grant escalation
+--     — the caller can only mislead themselves. Setting search_path
+--     here is linter hygiene / defense-in-depth, matching the v91 RPCs
+--     (mark_proposal_signed, mark_recipient_viewed) which already bake
+--     `SET search_path = public` into their CREATE FUNCTION.
+--
+-- This migration changes function metadata only. No bodies change, no
+-- RLS changes, no data moves. Behavior is identical for legitimate
+-- callers.
+--
+-- NOT in scope:
+--   - The body of get_user_tenant_id() may need a separate fix
+--     depending on what prod actually has. Three versions exist in
+--     sql/ seed files (none in supabase/migrations/, so prod was
+--     populated by a manually-run seed):
+--       db_hardening_phase1.sql:12        — LIMIT 1 only (oldest)
+--       rls_identity_tables.sql:127       — COALESCE w/ team_members
+--       rls_cleanup_and_remaining.sql:373 — COALESCE + search_path
+--     The audit flagging missing search_path proves prod is NOT
+--     running the canonical (newest) seed. Run the PRE-APPLY query
+--     below to determine which body is live, then triage the body
+--     fix at the correct severity in docs/BACKLOG.md.
+-- ============================================================
+
+
+-- ============================================================
+-- PRE-APPLY VERIFICATION (run against prod BEFORE applying this
+-- migration to confirm starting state)
+-- ============================================================
+-- SELECT  prosrc,
+--         proconfig
+--   FROM  pg_proc
+--  WHERE  proname = 'get_user_tenant_id'
+--    AND  pronamespace = 'public'::regnamespace;
+--
+-- Interpret the result:
+--   prosrc contains "team_members"            → BACKLOG row downgrades
+--                                                to L (fallback edge
+--                                                case only)
+--   prosrc is just "SELECT id FROM tenant_config LIMIT 1"
+--                                              → BACKLOG row stays at M
+--                                                (every auth user gets
+--                                                arbitrary tenant)
+--   proconfig already contains search_path=public
+--                                              → migration is a no-op
+--                                                for this function;
+--                                                still applies cleanly
+--                                                to the other two.
+-- ============================================================
+
+ALTER FUNCTION public.get_user_tenant_id()      SET search_path = public;
+ALTER FUNCTION public.request_signing_token()   SET search_path = public;
+ALTER FUNCTION public.request_viewing_token()   SET search_path = public;
+
+-- ============================================================
+-- VERIFICATION (run manually after migration)
+-- ============================================================
+-- SELECT  proname,
+--         proconfig
+--   FROM  pg_proc
+--  WHERE  pronamespace = 'public'::regnamespace
+--    AND  proname IN (
+--           'get_user_tenant_id',
+--           'request_signing_token',
+--           'request_viewing_token'
+--         );
+-- -- expect proconfig to contain {search_path=public} for all three.
+--
+-- Functional smoke (anon path):
+--   SET ROLE anon;
+--   SELECT public.request_signing_token();   -- expect NULL (no header)
+--   SELECT public.request_viewing_token();   -- expect NULL (no header)
+--   RESET ROLE;
+--
+-- Authenticated path: log in to scmybiz.com, observe the dashboard
+-- loads (RLS-scoped queries via get_user_tenant_id() still work).
+-- ============================================================

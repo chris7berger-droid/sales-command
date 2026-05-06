@@ -49,7 +49,7 @@ export default function Archive({ userRole }) {
         </div>
       )}
 
-      {tab === "search" && <ArchiveSearchView tenantId={tenantId} onNavigateProposal={id => navigate(`/proposals/${id}`)} canImport={userRole === "Admin" || userRole === "Manager"} onDetailChange={setViewingDetail} />}
+      {tab === "search" && <ArchiveSearchView tenantId={tenantId} onNavigateProposal={id => navigate(`/proposals/${id}`)} canImport={["Admin", "Manager", "Sales Rep"].includes(userRole)} onDetailChange={setViewingDetail} />}
       {tab === "import" && <ArchiveImportWizard tenantId={tenantId} onDone={() => setTab("search")} />}
       {tab === "batches" && <ArchiveBatchManager tenantId={tenantId} />}
     </div>

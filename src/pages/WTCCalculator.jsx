@@ -1788,14 +1788,30 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     await handleSave();
     const newLocked = !locked;
     setLocked(newLocked);
-    if (wtcId) {
-      await supabase.from("proposal_wtc").update({ locked: newLocked }).eq("id", wtcId);
-    }
-    // Sync proposals.total on lock/unlock — sum ALL WTCs
+    // Sync proposals.total on lock/unlock — sum ALL WTCs. Done first
+    // (and then reused) so we have the just-saved row to snapshot
+    // locked_line_total from for the audit-H6 RPC path.
+    let allWtcs = null;
     if (proposalId) {
-      const { data: allWtcs } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", proposalId);
-      const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcTotal(w), 0);
+      const { data } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", proposalId);
+      allWtcs = data || [];
+      const proposalTotal = allWtcs.reduce((sum, w) => sum + calcWtcTotal(w), 0);
       await supabase.from("proposals").update({ total: proposalTotal }).eq("id", proposalId);
+    }
+    if (wtcId) {
+      // Audit H6: snapshot the per-WTC total when locking so the public
+      // signing page RPC can return it without exposing burden_rate /
+      // markup_pct / materials. Clear when unlocking.
+      let lockedLineTotal = null;
+      if (newLocked) {
+        const me = (allWtcs || []).find(w => w.id === wtcId);
+        const computed = me ? calcWtcTotal(me) : NaN;
+        if (Number.isFinite(computed)) lockedLineTotal = computed;
+      }
+      await supabase
+        .from("proposal_wtc")
+        .update({ locked: newLocked, locked_line_total: lockedLineTotal })
+        .eq("id", wtcId);
     }
   };
   const [showPDF,     setShowPDF]     = useState(false);

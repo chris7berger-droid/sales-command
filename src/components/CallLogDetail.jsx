@@ -181,7 +181,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         }
       }
       const [{ data: props }, { data: invs }] = await Promise.all([
-        supabase.from("proposals").select("id, status, total, proposal_number, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
+        supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
         jobNumbers.length
           ? supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).in("job_id", jobNumbers).order("sent_at", { ascending: false })
           : Promise.resolve({ data: [] }),
@@ -715,6 +715,32 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         </label>
       </div>
 
+      {/* Job Totals — derived from linkedProposals + linkedInvoices (already family-scoped) */}
+      {(() => {
+        if (!linkedProposals.length) return null;
+        const sold = linkedProposals.filter(p => p.status === "Sold")
+          .reduce((s, p) => s + (parseFloat(p.total) || 0), 0);
+        const historical = linkedProposals.filter(p => p.status === "Sold")
+          .reduce((s, p) => s + (parseFloat(p.historical_billed_amount) || 0), 0);
+        const billedSC = linkedInvoices.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+        const billed = historical + billedSC;
+        const remaining = sold - billed;
+        const pct = sold > 0 ? Math.round((billed / sold) * 100) : 0;
+        const cellLabel = { fontSize: 10.5, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 };
+        const cellValue = { fontSize: 16, fontWeight: 800, color: C.textHead, fontFamily: F.display };
+        return (
+          <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20, marginBottom: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>Job Totals</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+              <div><div style={cellLabel}>Sold</div><div style={cellValue}>{fmt$(sold)}</div></div>
+              <div><div title="Historical billed (pre-SC) + invoices issued via Sales Command, excludes deleted." style={cellLabel}>Billed</div><div style={cellValue}>{fmt$(billed)}</div></div>
+              <div><div style={cellLabel}>Remaining</div><div style={cellValue}>{fmt$(remaining)}</div></div>
+              <div><div style={cellLabel}>% Invoiced</div><div style={cellValue}>{pct}%</div></div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Linked Items */}
       <div style={{ marginBottom: 24 }}>
         <div style={labelStyle}>Linked Items</div>
@@ -753,6 +779,32 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                 })}
               </div>
             )}
+            {(() => {
+              const archiveBilled = linkedProposals.filter(p => parseFloat(p.historical_billed_amount) > 0);
+              if (archiveBilled.length === 0) return null;
+              return (
+                <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, overflow: "hidden" }}>
+                  <div style={{ padding: "8px 14px", background: C.dark, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.45)", fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase" }}>Previously Invoiced From Archive Job Setup</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: C.teal, fontFamily: F.ui }}>{archiveBilled.length}</span>
+                  </div>
+                  {archiveBilled.map((p, i) => {
+                    const label = `${p.call_log?.display_job_number || job.display_job_number || "P"} P${p.proposal_number || 1}`;
+                    return (
+                      <button key={`ab-${p.id}`} onClick={() => onNavigateProposal && onNavigateProposal(p.id)}
+                        style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", background: i % 2 === 0 ? C.linenLight : C.linen, border: "none", borderBottom: `1px solid ${C.border}`, cursor: onNavigateProposal ? "pointer" : "default", textAlign: "left" }}
+                        onMouseEnter={e => e.currentTarget.style.background = C.tealGlow}
+                        onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? C.linenLight : C.linen}
+                      >
+                        <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.03em", minWidth: 140 }}>{label}</span>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>Archive</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>{fmt$(parseFloat(p.historical_billed_amount) || 0)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
             {linkedInvoices.length > 0 && (
               <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, overflow: "hidden" }}>
                 <div style={{ padding: "8px 14px", background: C.dark, display: "flex", alignItems: "center", gap: 8 }}>

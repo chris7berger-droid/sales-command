@@ -218,11 +218,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       coNum = cos && cos.length > 0 ? (cos[0].co_number || 0) + 1 : 1;
     }
 
-    const displayLabel = data.projectName || name;
-    const displayJobNum = data.jobType === "co" && coNum
-      ? `${jobNum} CO${coNum} - ${displayLabel}`
-      : `${jobNum} - ${displayLabel}`;
-
     const billingAddrStreet = data.billingAddressSame ? data.businessAddress : data.billingAddrStreet;
     const billingAddrCity   = data.billingAddressSame ? data.businessCity    : data.billingAddrCity;
     const billingAddrState  = data.billingAddressSame ? data.businessState   : data.billingAddrState;
@@ -278,26 +273,49 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       }
     }
 
-    const { data: newJob, error: err } = await supabase.from("call_log").insert([{
-      job_number: jobNum, display_job_number: displayJobNum, job_name: data.projectName || null,
-      customer_name: name, customer_type: data.customerType, customer_id: customerId,
-      sales_name: data.salesName, stage: data.stage,
-      bid_due: data.bidDue || null,
-      follow_up: data.wantFollowUp ? data.followUp || null : null,
-      notes: data.notes,
-      is_change_order: data.jobType === "co",
-      parent_job_id: data.jobType === "co" && data.parentJobId ? parseInt(data.parentJobId) : null,
-      co_number: coNum,
-      co_standalone: data.jobType === "co" ? data.coStandalone : false,
-      jobsite_address: (data.jobsiteSame ? data.businessAddress : data.jobsiteAddress) || null,
-      jobsite_city: (data.jobsiteSame ? data.businessCity : data.jobsiteCity) || null,
-      jobsite_state: (data.jobsiteSame ? data.businessState : data.jobsiteState) || null,
-      jobsite_zip: (data.jobsiteSame ? data.businessZip : data.jobsiteZip) || null,
-      new_site_build: data.newSiteBuild || false,
-      billing_address: billingAddrStreet || null, billing_city: billingAddrCity || null,
-      billing_state: billingAddrState || null, billing_zip: billingAddrZip || null,
-      billing_address_same: data.billingAddressSame,
-    }]).select().single();
+    const buildPayload = () => {
+      const lbl = data.projectName || name;
+      const dj = data.jobType === "co" && coNum
+        ? `${jobNum} CO${coNum} - ${lbl}`
+        : `${jobNum} - ${lbl}`;
+      return [{
+        job_number: jobNum, display_job_number: dj, job_name: data.projectName || null,
+        customer_name: name, customer_type: data.customerType, customer_id: customerId,
+        sales_name: data.salesName, stage: data.stage,
+        bid_due: data.bidDue || null,
+        follow_up: data.wantFollowUp ? data.followUp || null : null,
+        notes: data.notes,
+        is_change_order: data.jobType === "co",
+        parent_job_id: data.jobType === "co" && data.parentJobId ? parseInt(data.parentJobId) : null,
+        co_number: coNum,
+        co_standalone: data.jobType === "co" ? data.coStandalone : false,
+        jobsite_address: (data.jobsiteSame ? data.businessAddress : data.jobsiteAddress) || null,
+        jobsite_city: (data.jobsiteSame ? data.businessCity : data.jobsiteCity) || null,
+        jobsite_state: (data.jobsiteSame ? data.businessState : data.jobsiteState) || null,
+        jobsite_zip: (data.jobsiteSame ? data.businessZip : data.jobsiteZip) || null,
+        new_site_build: data.newSiteBuild || false,
+        billing_address: billingAddrStreet || null, billing_city: billingAddrCity || null,
+        billing_state: billingAddrState || null, billing_zip: billingAddrZip || null,
+        billing_address_same: data.billingAddressSame,
+      }];
+    };
+
+    let { data: newJob, error: err } = await supabase.from("call_log").insert(buildPayload()).select().single();
+
+    // On unique-violation: retry once for auto-allocation; surface clear error otherwise
+    if (err && err.code === "23505") {
+      const isOverride = data.jobType === "override" && data.manualJobNum;
+      const isCo = data.jobType === "co";
+      if (isOverride) {
+        setError(`Job number ${jobNum} is already in use. Try a different number or use auto-assign.`); setSaving(false); return;
+      }
+      if (isCo) {
+        setError("Couldn't allocate a CO number — another CO was created at the same time. Reload and try again."); setSaving(false); return;
+      }
+      const { data: last } = await supabase.from("call_log").select("job_number").order("job_number", { ascending: false }).limit(1);
+      jobNum = last && last.length > 0 ? (last[0].job_number || 9999) + 1 : 10000;
+      ({ data: newJob, error: err } = await supabase.from("call_log").insert(buildPayload()).select().single());
+    }
 
     if (err) { setError(err.message); setSaving(false); return; }
 

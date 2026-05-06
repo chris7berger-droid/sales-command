@@ -450,13 +450,10 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         jobNum = lastJob && lastJob.length ? (lastJob[0].job_number || 9999) + 1 : 10000;
       }
       const displayLabel = form.projectName || custName();
-      const displayJobNum = `${jobNum} - ${displayLabel}`;
-
-      // 3. call_log
       const jobsiteSet = form.jobsiteAddress || form.jobsiteCity;
-      const { data: newJob, error: jErr } = await supabase.from("call_log").insert([{
+      const buildJobPayload = () => [{
         job_number: jobNum,
-        display_job_number: displayJobNum,
+        display_job_number: `${jobNum} - ${displayLabel}`,
         job_name: form.projectName || null,
         customer_name: custName(),
         customer_type: form.customerType,
@@ -477,7 +474,18 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         archive_record_id: record.id,
         qb_skip_sync: true,
         archived: false,
-      }]).select().single();
+      }];
+
+      // 3. call_log (retry on 23505 only when not using legacy number)
+      let { data: newJob, error: jErr } = await supabase.from("call_log").insert(buildJobPayload()).select().single();
+      if (jErr && jErr.code === "23505") {
+        if (form.useLegacyJobNum && legacyJobNumParsed) {
+          throw new Error(`Legacy number ${legacyJobNumParsed} is now in use. Go back and choose Assign New.`);
+        }
+        const { data: lastJob2 } = await supabase.from("call_log").select("job_number").order("job_number", { ascending: false }).limit(1);
+        jobNum = lastJob2 && lastJob2.length ? (lastJob2[0].job_number || 9999) + 1 : 10000;
+        ({ data: newJob, error: jErr } = await supabase.from("call_log").insert(buildJobPayload()).select().single());
+      }
       if (jErr) throw new Error("Call log: " + jErr.message);
 
       // 4. job_work_types

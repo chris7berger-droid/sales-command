@@ -1,0 +1,189 @@
+SC Handoff v94 — 2026-05-05 (evening)
+=====================================
+
+SESSION SUMMARY
+This session closed two High-severity audit findings (H1/H7 and H6)
+and shipped a session-state hygiene fix to prevent the kind of stale-
+context failure that derailed the start of the session.
+
+H1/H7 added SET search_path = public to three security-related
+functions in the public schema (one real CVE-2018-1058 vector on
+get_user_tenant_id, two defense-in-depth on the request token
+helpers). H6 eliminated the public signing page's exposure of
+proposal cost basis (burden_rate, ot_burden_rate, pw_rate, pw_ot_rate,
+markup_pct, materials, travel, regular_hours, ot_hours, size,
+prevailing_wage, discount, tax_rate) by storing per-WTC totals at
+lock time and reading them via a SECURITY DEFINER RPC instead of
+recomputing client-side.
+
+Process / hygiene work that came out of an early-session failure:
+- Created docs/BACKLOG.md as single source of truth for outstanding
+  work (read on every session per CLAUDE.md Session Start rule).
+- Added Session Start rule to CLAUDE.md pointing every Claude session
+  at BACKLOG.md before claiming work state.
+- Installed SessionStart hook in ~/.claude/settings.json that runs
+  git fetch + git status -sb + git log HEAD..@{u} --oneline at the
+  start of every Claude session in any git repo. Triggered by today's
+  failure where I claimed v91 was current while origin/main was 30+
+  commits ahead — root cause was no git fetch at session start, and
+  git status was lying against stale remote refs.
+
+COMMITS (oldest → newest, on main)
+──────────────────────────────────
+34b85bb  fix(security): SET search_path on security functions (audit H1/H7)
+c441fe5  docs(BACKLOG): reconcile against v92/v93 handoffs
+4b2cfb9  fix(review): add prod-state provenance to H1/H7 migration + reword B6
+c07d6a2  docs(BACKLOG): close H1/H7 — verified hardened on prod
+d9662ee  docs(BACKLOG): mark H6 In Progress on this branch
+02f891d  fix(security): close H6 — public signing page no longer exposes pricing internals
+c28cb57  Merge pull request #8 from chris7berger-droid/fix/h6-public-signing-locked-totals
+915a86b  docs(BACKLOG): close H6 — merged via PR #8, backfill applied
+
+SECURITY FIXES
+──────────────
+1. H1/H7 — SET search_path on security functions
+   - Functions: public.get_user_tenant_id, public.request_signing_token,
+     public.request_viewing_token
+   - get_user_tenant_id is SECURITY DEFINER → real CVE-2018-1058 vector;
+     prod was already partially hardened (proconfig had search_path=public)
+     per pre-apply pg_proc query, so the ALTER on that one was a no-op.
+   - request_signing_token / request_viewing_token are STABLE (not
+     SECURITY DEFINER) → defense-in-depth; both went from proconfig=null
+     to {search_path=public}.
+   - Pre-apply pg_proc output captured in the migration header for
+     future provenance.
+   - Verified post-apply: all 3 proconfig=["search_path=public"] on prod.
+
+2. H6 — public signing page no longer exposes pricing internals
+   - PublicSigningPage previously did supabase.from('proposal_wtc')
+     .select('*') so it could call calcWtcPrice(wtc) client-side. The
+     wildcard returned the full cost stack to the customer's browser.
+   - Architecture: store per-WTC total at lock time, read it back via
+     SECURITY DEFINER RPC. Avoids duplicating calcWtcPrice business
+     logic in SQL (which would create a silent-drift surface — customer
+     sees price X on public page while internal app shows price Y).
+   - New column proposal_wtc.locked_line_total (nullable numeric).
+   - handleLock writes it in three places:
+       toggleWtcLock — src/components/ProposalDetail.jsx:233-247
+       handlePullBack — src/components/ProposalDetail.jsx:467-470
+         (clears to NULL when pulled back)
+       handleLock — src/pages/WTCCalculator.jsx:1781-1810
+   - New RPC public.get_public_proposal_view(p_token) — SECURITY DEFINER,
+     SET search_path = public, GRANT EXECUTE TO anon. Returns json with
+     proposal core + call_log + customers + per-WTC {id, sales_sow,
+     locked_line_total, work_type_name}. No cost basis ever returned.
+     Pattern matches v91 mark_proposal_signed / mark_recipient_viewed.
+   - PublicSigningPage rewired: one rpc('get_public_proposal_view') call
+     replaces both the proposals select('*, …') and the proposal_wtc
+     select('*, work_types(name)'). Grand total reads proposal.total
+     (authoritative). Per-WTC totals read locked_line_total. calcWtcPrice
+     import removed.
+   - Backfill: scripts/backfill_locked_line_total.mjs imports the
+     canonical calcWtcPrice and writes locked_line_total for already-
+     locked WTCs. Run once after migration deploy with --apply.
+     Result on prod: 127 rows written, 0 failed.
+   - Vercel preview smoke test passed: TEST proposal locked, sent,
+     signed via incognito; per-WTC totals + grand total matched internal
+     app; network-tab payload for rpc/get_public_proposal_view contained
+     no burden_rate / markup_pct / materials.
+
+PROCESS / HYGIENE FIXES
+───────────────────────
+3. docs/BACKLOG.md — single source of truth
+   - All open security findings, bugs, features, refactor work, cleanup
+     in one tracked, version-controlled file.
+   - Reconciled against v91/v92/v93 handoffs (initial draft was
+     written from stale v91 state and missed everything done in v92/v93;
+     reconciliation commit added B6 QB OAuth 403, F5-F13 v93 carry-
+     forward items, R1-R3 refactor section, O2 HDSP bookkeeper journal,
+     and closed pay-app-system-redesign + stale-branch-cleanup as Done).
+   - Completed Log at the bottom captures what shipped and where.
+   - Note: this REPLACES the in-memory project_sales_command_bugs.md as
+     the canonical work tracker. Memory file is now marked deprecated
+     and points here.
+
+4. CLAUDE.md Session Start rule
+   - Section added at top: every Claude session must read docs/BACKLOG.md
+     before proposing work, recommending priorities, or claiming
+     something is "still open" or "already done." Must update BACKLOG.md
+     in the same session that finishes, defers, or discovers an item.
+
+5. ~/.claude/settings.json SessionStart hook
+   - Runs git fetch --all --prune + git status -sb + git log HEAD..@{u}
+     --oneline at the start of every Claude session. Silent no-op when
+     cwd isn't in a git repo. 15s timeout. Output lands in the
+     assistant's context so Claude can't miss commits-ahead state on
+     fresh open.
+   - Triggered by today's failure: I claimed v91 was current while
+     origin was 30+ commits ahead. The hook is the system-level fix;
+     CLAUDE.md rule + feedback memories are belt-and-suspenders.
+
+EDGE FUNCTIONS DEPLOYED
+───────────────────────
+None this session. (No edge function changes.)
+
+MIGRATIONS APPLIED
+──────────────────
+- 20260505181452_set_search_path_security_functions.sql
+    ALTER FUNCTION ... SET search_path = public on three functions.
+    Includes pre-apply pg_proc query result in header for provenance.
+- 20260505190200_proposal_wtc_locked_line_total.sql
+    Adds nullable numeric column for the lock-time per-WTC snapshot.
+- 20260505190300_get_public_proposal_view_rpc.sql
+    SECURITY DEFINER RPC for the public signing page.
+
+PR
+──
+#8 — fix(security): close H6 — public signing page no longer exposes
+     pricing internals. Merged via gh pr merge --merge --delete-branch.
+
+MEMORY UPDATES
+──────────────
+- user_chris.md — added: workflow/UX expertise; backend/security
+  stresses Chris (his exact words 2026-05-05). Slow down on backend
+  topics, over-explain trade-offs.
+- feedback_vercel_preview_testing.md — new: test on Vercel preview
+  branches, don't merge to main to "see if it works."
+- feedback_one_step_at_a_time.md — new: operational/CLI/dashboard
+  work gets one concrete action, then wait. Triggered by H6 backfill
+  session frustration.
+- feedback_git_fetch_first.md — new: always git fetch before claiming
+  repo state. Triggered by today's stale-state failure.
+- MEMORY.md — index updated with the 3 new feedback memories and
+  the BACKLOG-as-canonical pointer.
+- project_sales_command_bugs.md — marked deprecated in index, points
+  at docs/BACKLOG.md as the live tracker.
+
+NEXT SESSION PICKUP
+───────────────────
+First action: read docs/BACKLOG.md (CLAUDE.md Session Start rule).
+
+Open High-severity items still on the backlog:
+  H4 — proposal_signatures anon INSERT must bind tenant_id
+  H5 — Token expiry / single-use (signing_token_expires_at)
+  B6 — QuickBooks "Connection Failed" 403 on /qb/callback (open bug
+       from v92; hypothesis is qb-auth + --no-verify-jwt + retry/
+       await-session, but auth surface needs verification before
+       shipping — the flag makes the function callable without auth)
+
+Other notable BACKLOG rows:
+  L15 — qb_connection plaintext refresh tokens (Supabase Vault)
+  S1  — get_user_tenant_id COALESCE fallback (L severity, sharp edge
+        only on data-hygiene failure)
+  Triage — 13 Medium + 9 Low audit findings; report was on
+        claude/sweet-johnson-vvCCt branch which v93 cleanup deleted —
+        needs retrieval from PR/cache before triage
+  R3  — RLS simplification (use tenant_id directly instead of JOIN-
+        based scoping) — would let H1/H7-style fixes apply more cleanly
+        in future
+  F5  — C2 retention reminders + scheduled emails per invoice (M effort)
+  F6  — D Retainage Release flow (was Phase 5 of original SOV plan)
+  F7  — E onboarding auto-provision of QB retention item + Other
+        Current Asset account
+  Plus full Bugs / Features / Refactor / Cleanup sections in BACKLOG.
+
+How to resume:
+  Open Claude Code in ~/sales-command and say:
+    "Resume v94 — read BACKLOG, pick the next high-priority item."
+  The SessionStart hook will print git state in the context so Claude
+  can immediately confirm the local clone is current.

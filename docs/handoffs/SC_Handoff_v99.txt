@@ -1,0 +1,105 @@
+SC Handoff v99 — 2026-05-06
+============================
+
+SESSION SUMMARY
+A short UI-polish session: replaced the bare "LOADING…" text screens
+with a full-HUD radar boot loader adapted from a Claude Design mock
+("Radar Loading"). One commit chain on a feature branch, validated
+on a Vercel preview, then merged fast-forward to main → live on
+scmybiz.com.
+
+The original boot loaders rendered for <500ms, so the new component
+also got an explicit minimum-display timer (3s) so the radar
+actually registers visually on cold boot and refresh.
+
+CHANGES SHIPPED (commits c3c4ab2 ← 624ad6a, on main)
+─────────────────────────────────────────────────────
+624ad6a — feat(loader): radar loading screen on app boot
+  src/components/RadarLoader.jsx  (NEW, 479 lines)
+    Full-screen HUD: sweep radar dial w/ animated blips for the 12
+    seed records, telemetry top-left, scan timestamp top-right,
+    activity feed bottom-left, status line, progress bar, legend,
+    quadrant labels, scanlines + vignette + ambient grid.
+    Self-contained — no TweaksPanel, no useTweaks plumbing.
+    Defaults: accent=C.teal, bg=C.dark, size=380, speed=3.2s.
+    Props: accent, size, speed, label, bg.
+  src/App.jsx (+15/-12)
+    Both boot returns swapped to <RadarLoader/>:
+      L140  if (session === undefined || !bootMinElapsed)
+      L165  if (teamMember === undefined || !bootMinElapsed)
+  src/lib/tokens.js (+1/-1)
+    Added 'JetBrains Mono' to the global Google Fonts @import (the
+    radar HUD typography depends on it).
+
+c3c4ab2 — feat(loader): hold radar loader for 3s minimum on boot
+  src/App.jsx (+13/-2)
+    BOOT_LOADER_MIN_MS = 3000 constant near the top of
+    SalesCommandApp. State + useEffect flips bootMinElapsed
+    after the timer; both early returns gate on it as well as
+    the data being undefined. Set to 0 to disable.
+
+DECISIONS / CHOICES MADE
+─────────────────────────
+- Variant: sweep (the rotating-wedge classic). Pulse and Lock-On
+  variants from the source design were dropped for now.
+- HUD scope: full scene — telemetry, log feed, status, progress,
+  legend, quadrants. Boot is the one place where heavy chrome
+  reads as "the app is doing work."
+- Accent: C.teal (#30cfac), not the source mock's #3DDC97 — keeps
+  the loader visually native to the rest of the app. Honors
+  CLAUDE.md style rule (teal on C.dark only) and the existing
+  brand-voice memory.
+- Reusable: shipped as a single <RadarLoader/> component so other
+  long-running screens (PDF generation, archive imports, QB syncs)
+  can opt in without forking.
+- Branch flow: per the preview-deploys feedback memory, all
+  iteration happened on feat/radar-loader with Vercel previews —
+  no localhost dev server. User approved live deploy with
+  "make it live."
+
+TUNABLES (user-facing knobs in main)
+────────────────────────────────────
+src/App.jsx top of SalesCommandApp:
+  BOOT_LOADER_MIN_MS  — milliseconds the loader must stay visible
+                        on boot. 3000 today. Set to 0 to revert
+                        to "as-fast-as-data-allows."
+src/components/RadarLoader.jsx default props:
+  accent / size / speed / label / bg are all overridable on the
+  consumer side. Default is tuned for the boot screen.
+
+NOT TOUCHED THIS SESSION
+─────────────────────────
+- docs/BACKLOG.md — the loader was pure polish, not a tracked item.
+- docs/handoffs/SC_Handoff_v98.txt — that's a parallel-session
+  artifact (Multi-GC Allocation planning, untracked at session
+  start). Left as-is for that session's owner to commit when ready.
+- No DB migrations, no edge functions, no RLS policies. Pure
+  client-side work.
+
+VERIFICATION
+─────────────
+- ESLint clean on src/components/RadarLoader.jsx (one pre-existing
+  rule violation in src/App.jsx:65 was untouched — not my code).
+- Validated visually on Vercel preview deploy of feat/radar-loader.
+- User confirmed they saw it on refresh; the 3s minimum was added
+  after the initial preview was too quick to register.
+- Fast-forward merge to main, no conflicts.
+
+OPEN / NEXT
+────────────
+- BOOT_LOADER_MIN_MS at 3000 is intentionally generous so the
+  loader is easy to evaluate. Consider lowering to 1500 or 1800
+  once the novelty wears off (boot ergonomics > showing off).
+- <RadarLoader/> is now available for other long-load screens.
+  Candidates: archive batch import, QB sync, PDF render. Let
+  the next session decide whether any are slow enough to deserve
+  a radar moment vs. the existing inline spinners.
+- Multi-GC Allocation work (v98 handoff) is queued behind a
+  spawned Plan subagent — separate thread, not blocked by this.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+──────────────────────────────────────────
+src/components/RadarLoader.jsx  — the loader itself.
+src/App.jsx ~L78–95              — BOOT_LOADER_MIN_MS + timer.
+src/App.jsx L140, L165           — the two boot gates.
+src/lib/tokens.js L34            — JetBrains Mono import.

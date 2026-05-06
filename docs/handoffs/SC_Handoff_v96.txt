@@ -1,0 +1,201 @@
+SC Handoff v96 — 2026-05-06
+============================
+
+SESSION SUMMARY
+A focused History Locker / Import to Live polish session, plus a
+billing-contact data model fix surfaced while testing.
+
+Three feature shipments merged to main as one squash-style merge
+commit (c8af84e), all initiated and tested on
+feat/billing-contact-flag preview before going to prod:
+
+1. is_billing_contact flag on customer_contacts — decouples "billing
+   contact" routing from the single-value role field, so one PM at a
+   small customer can be both Project Manager AND the billing
+   recipient without duplicate rows.
+2. Re-import collision handling on the Import to Live wizard — when
+   the legacy job_number is held by a call_log linked to the SAME
+   archive record, Step 7 now offers Open Existing or Replace
+   Existing (gated by typed-confirm + clean-state check) instead of
+   silently forcing Assign New.
+3. Defensive archived=false on the wizard's call_log insert — fixes
+   a real symptom Chris hit (job 7406 imported but landed in Old Jobs
+   instead of Active). Root cause unsolved (B7 in BACKLOG); defensive
+   fix prevents recurrence.
+
+Also live: a small Replace-button readability tweak (amber on dark
+instead of amber on linen) — same-day style fix.
+
+salescommand.app rebuilt at c8af84e + 37612f4. send-invoice edge
+function redeployed (back-compat billing resolution). Migration
+20260506100000_customer_contacts_is_billing_contact.sql applied
+mid-session (additive: add column, backfill role='Billing Contact'
+rows to is_billing_contact=true).
+
+COMMITS (oldest → newest, on main)
+──────────────────────────────────
+b110b83  Decouple billing contact from role with is_billing_contact flag
+cc71eab  Handle re-import of an already-imported archive in Import to Live wizard
+8adaa5c  Style: Replace Existing Import button uses dark background for amber legibility
+eb0b94f  Force archived=false on archive imports so jobs land in Active Jobs
+c8af84e  Merge feat/billing-contact-flag: ...
+37612f4  docs(BACKLOG): log billing-contact-flag + re-import + archived defensive fix; open B7
+
+(34f926a was the smarter customer auto-match merge from earlier in
+the day — pre-merged on its own branch feat/import-wizard-customer-match.)
+
+WHAT SHIPPED
+────────────
+
+A. Smarter customer auto-match in Import to Live wizard (34f926a)
+   - File: src/components/HistoryLocker/ImportToLiveWizard.jsx
+   - Old: exact case-insensitive name match only, fell through silently
+     to "Create New" with the archive name prefilled — easy to miss
+     and create dupes.
+   - New: exact → acronym (IVGID ↔ Incline Village General
+     Improvement District) → token-overlap with stopword filter
+     (LLC, Inc, Co, Corp, Company, Ltd, etc.). Token overlap requires
+     ≥2 shared meaningful tokens, ≥50% archive containment, and a
+     clear lead over second-best to prevent attaching to a wrong
+     customer.
+   - Plus: native <select> on Use Existing replaced with the existing
+     SearchSelect component so the long customer list is searchable.
+
+B. is_billing_contact flag (b110b83)
+   - Migration: supabase/migrations/20260506100000_customer_contacts_is_billing_contact.sql
+       ALTER TABLE customer_contacts ADD COLUMN IF NOT EXISTS
+       is_billing_contact boolean NOT NULL DEFAULT false;
+       UPDATE customer_contacts SET is_billing_contact = true
+         WHERE role = 'Billing Contact' AND is_billing_contact = false;
+   - Already applied to prod via supabase db push --linked.
+   - UI:
+       * "Use as billing contact" checkbox in Edit Contact modal,
+         alongside "Mark as primary contact"
+         (src/pages/Customers.jsx)
+       * BILLING badge on contact cards, sits next to PRIMARY
+       * ContactFlagToggle helper extracted to dedupe checkbox markup
+   - Resolution updated everywhere — back-compat reads
+     `is_billing_contact OR role='Billing Contact'`:
+       * src/components/ContactBillingPicker.jsx (pickBillingContact,
+         multipleBilling, billingContactIdFor exports)
+       * src/pages/Invoices.jsx (loadContact for billing email)
+       * src/components/PayAppDetailModal.jsx (loadAll cust hydration)
+       * supabase/functions/send-invoice/index.ts — REDEPLOYED with
+         --no-verify-jwt
+   - Wizards that auto-create role='Billing Contact' rows
+     (NewInquiryWizard, CallLogDetail, ImportToLiveWizard) NOT
+     touched — back-compat resolver handles them.
+   - Edit Contact modal seeds is_billing_contact from
+     `contact?.is_billing_contact ?? (contact?.role === "Billing Contact")`
+     so existing legacy rows render with the box ticked.
+
+C. Import to Live wizard re-import collision (cc71eab)
+   - File: src/components/HistoryLocker/ImportToLiveWizard.jsx
+   - Detection: legacy lookup now also fetches archive_record_id and,
+     when it matches the current record, child counts (proposals +
+     invoices, both filtered by deleted_at IS NULL).
+   - Same-archive collision UI on Step 7 replaces the radios with:
+       1. "Open Existing Job #NNNN" (always available; calls
+          onSaved({ jobId: legacyTakenBy.id }) which navigates to
+          /calllog/<id> and closes the wizard — same path as a normal
+          successful import).
+       2. "Replace Existing Import" (disabled if existing has any
+          proposals or invoices; click opens typed-confirm modal,
+          user types `REPLACE NNNN` to enable Confirm).
+   - Replace flow at handleImport time:
+       * Re-checks child counts (concurrency safety — another tab
+         might have added work since the wizard loaded).
+       * Deletes job_work_types where call_log_id = legacyTakenBy.id.
+       * Deletes the call_log row.
+       * Falls through to the normal "useLegacyJobNum" path which
+         now finds the number free.
+   - validate() refuses to leave Step 7 if same-archive collision is
+     active and replaceMode wasn't set — user must pick Open or
+     Replace, can't just hit Next.
+   - Cross-archive collision (legacy num held by a different
+     archive's call_log) keeps the prior "force Assign New" behavior
+     unchanged.
+
+D. Defensive archived=false (eb0b94f)
+   - File: src/components/HistoryLocker/ImportToLiveWizard.jsx
+   - One-line: explicit `archived: false` in the call_log insert
+     payload. Fixes the symptom Chris hit on 7406. See B7 below for
+     the unsolved root cause.
+
+E. Replace-button styling fix (8adaa5c)
+   - File: src/components/HistoryLocker/ImportToLiveWizard.jsx
+   - Replace Existing Import button now uses C.dark background with
+     amber text instead of amber on linen — per project style rule
+     (alert text sits on dark). Disabled state uses muted white so
+     it stays legible on dark.
+
+OPEN — B7 (root cause for the original 7406 archived=true mystery)
+──────────────────────────────────────────────────────────────────
+DB-side checks all came back clean:
+   * call_log.archived column default = false
+   * No INSERT triggers on call_log (only trg_call_log_updated_at,
+     BEFORE UPDATE → set_updated_at())
+   * tenant_config archive_after_months = 12, archive_stages = ["Lost"]
+     — auto-archive in CallLog.jsx:64 won't match a fresh "Sold" row
+   * 7406 row: created_at = 2026-05-06 16:30 UTC, stage = Sold,
+     archived = true, archive_record_id set
+Yet the row landed archived=true. Defensive fix prevents recurrence
+on imports going forward, but we don't know what flipped that
+specific row. Two suspects to rule out next time:
+   1. Accidental click of "Move to Old Jobs" on CallLogDetail.jsx:414
+      during testing (silent UPDATE, no confirmation).
+   2. An unfound code path that updates call_log.archived after the
+      wizard's insert.
+Repro test for the next session: do a fresh archive import on prod
+(not the IVGID Chateau record — pick another), check which tab the
+new job lands in. If Active, B7 likely was a stray click and can be
+closed. If Old, we have a real bug and need to instrument.
+
+VERIFICATION STATUS (preview, before merge to main)
+───────────────────────────────────────────────────
+Confirmed by Chris on the preview deploy:
+   * Open Existing Job navigates correctly from Step 7 banner
+   * Fresh archive import (job 5775) lands in Active Jobs after
+     defensive fix
+NOT yet smoke-tested on prod (salescommand.app):
+   * The is_billing_contact UI end-to-end (badge appearance,
+     wizard auto-resolve, send-invoice email routing)
+   * Replace flow with typed confirm — Chris reached the modal but
+     didn't go through full Replace
+   * Cross-archive collision unchanged behavior
+Smoke-test list for v97 opening:
+   1. Edit Andy at IVGID — confirm BILLING badge appears after
+      checking the new box
+   2. Send a test pay app — confirm email lands at Andy's address
+   3. Try a fresh archive import on prod — verify Active landing
+      (closes B7 if so)
+
+PROCESS / HYGIENE
+─────────────────
+1. Stash collision incident (resolved, recorded in v95)
+   At ~10:21 PT this session ran `git checkout feat/billing-contact-flag`
+   while a parallel session had an uncommitted edit to
+   WTCCalculator.jsx in the working tree. Git carried that edit along.
+   Stashed as "wtc temp" before committing. Parallel session
+   recovered and committed on its own branch (PR #9, d5a72f6).
+   Reinforced via memory note feedback_parallel_session_collisions.
+
+2. Misplaced commit on main (resolved same session)
+   The defensive archived=false fix initially landed on local main
+   (commit 26ef249). Cherry-picked onto feat/billing-contact-flag
+   (became eb0b94f), then `git reset --hard origin/main` cleaned up
+   local. Origin/main was never touched directly — pushed the proper
+   merge commit (c8af84e) afterwards.
+
+CARRY FORWARD (for v97 session)
+────────────────────────────────
+   * Smoke test list above (especially closing B7)
+   * Existing IVGID Job #7406 sits in Old Jobs with the
+     "Restore to Active" button — Chris's call whether to restore or
+     leave there.
+   * BACKLOG.md is current as of 37612f4; H4/H5/L15/B6 still open
+     from prior sessions, plus the v95 carry items.
+   * Outstanding pre-existing carry: B2 (send-invoice error
+     surfacing — fnErr.context.json() pattern), F1 (invoice
+     numbering), F3 (customer settings page), retainage release
+     workflow (F6).

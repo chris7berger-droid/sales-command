@@ -51,7 +51,7 @@ const navigate = useNavigate();
 
 useEffect(() => {
   (async () => {
-    const { data } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).order("sent_at", { ascending: false });
+    const { data } = await supabase.from("invoices").select("id, amount").eq("proposal_id", p.id).is("deleted_at", null).order("sent_at", { ascending: false });
     setLinkedInvoices(data || []);
   })();
 }, [p.id]);
@@ -698,7 +698,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {p.is_archive_proposal ? (
-            <ArchiveProposalPanel p={p} setP={setP} money={money} />
+            <ArchiveProposalPanel p={p} setP={setP} money={money} linkedInvoices={linkedInvoices} />
           ) : (
           <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
             <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 14 }}>Work Type Calculators</div>
@@ -1204,12 +1204,17 @@ function fmtMoneyInput(v) {
   return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
-function ArchiveProposalPanel({ p, setP, money }) {
+function ArchiveProposalPanel({ p, setP, money, linkedInvoices = [] }) {
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState(fmtMoneyInput(p.total));
   const [histBilled, setHistBilled] = useState(fmtMoneyInput(p.historical_billed_amount || 0));
   const [saving, setSaving] = useState(false);
   const [tagged, setTagged] = useState([]);
+
+  const historical = parseFloat(p.historical_billed_amount) || 0;
+  const billedSC = linkedInvoices.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+  const totalBilled = historical + billedSC;
+  const remaining = (parseFloat(p.total) || 0) - totalBilled;
 
   useEffect(() => {
     (async () => {
@@ -1268,16 +1273,32 @@ function ArchiveProposalPanel({ p, setP, money }) {
           </div>
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 16, alignItems: "center", marginBottom: 14 }}>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Sold Amount</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(p.total || 0)}</div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 16, alignItems: "center", marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Sold Amount</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(p.total || 0)}</div>
+            </div>
+            <Btn sz="sm" v="ghost" onClick={() => setEditing(true)}>Edit</Btn>
           </div>
-          <div>
-            <div title="Amount already billed before this job came into Sales Command. Counts against Remaining when invoicing." style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Already Billed (Historical)</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(parseFloat(p.historical_billed_amount) || 0)}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+            <div>
+              <div title="Amount billed before this job came into Sales Command." style={{ fontSize: 10.5, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Historical</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(historical)}</div>
+            </div>
+            <div>
+              <div title="Sum of invoices issued through Sales Command (excludes deleted)." style={{ fontSize: 10.5, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Billed via SC</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(billedSC)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Total Billed</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(totalBilled)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Remaining</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(remaining)}</div>
+            </div>
           </div>
-          <Btn sz="sm" v="ghost" onClick={() => setEditing(true)}>Edit</Btn>
         </div>
       )}
 

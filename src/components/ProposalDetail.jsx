@@ -230,8 +230,20 @@ async function deletePropAttachment(fullName) {
         return;
       }
     }
-    await supabase.from("proposal_wtc").update({ locked: newLocked }).eq("id", wtcId);
-    setWtcs(prev => prev.map(w => w.id === wtcId ? { ...w, locked: newLocked } : w));
+    // When locking: snapshot the per-WTC total so the public signing page
+    // (audit H6) can read it via SECURITY DEFINER RPC without receiving
+    // burden_rate / markup_pct / materials. When unlocking: clear it so
+    // a stale snapshot doesn't outlive the locked state.
+    let lockedLineTotal = null;
+    if (newLocked) {
+      const computed = calcWtcPrice(wtc);
+      if (Number.isFinite(computed)) lockedLineTotal = computed;
+    }
+    await supabase
+      .from("proposal_wtc")
+      .update({ locked: newLocked, locked_line_total: lockedLineTotal })
+      .eq("id", wtcId);
+    setWtcs(prev => prev.map(w => w.id === wtcId ? { ...w, locked: newLocked, locked_line_total: lockedLineTotal } : w));
     // Sync proposals.total
     const { data: allWtcs } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id);
     const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcPrice(w), 0);
@@ -452,7 +464,10 @@ async function deletePropAttachment(fullName) {
     if (!window.confirm("Pull back this proposal? It will return to Draft status and WTCs will be unlocked for editing.")) return;
     const { error: sigErr } = await supabase.from("proposal_signatures").delete().eq("proposal_id", p.id);
     if (sigErr) { alert("Pull back failed clearing signatures: " + sigErr.message); return; }
-    const { error: wtcErr } = await supabase.from("proposal_wtc").update({ locked: false }).eq("proposal_id", p.id);
+    // Clear locked_line_total along with the lock — H6 RPC reads it
+    // for the public signing page; a stale snapshot must not survive
+    // a pull-back (proposal goes back to Draft, customer can't sign).
+    const { error: wtcErr } = await supabase.from("proposal_wtc").update({ locked: false, locked_line_total: null }).eq("proposal_id", p.id);
     if (wtcErr) { alert("Pull back failed unlocking WTCs: " + wtcErr.message); return; }
     const { error: propErr } = await supabase.from("proposals").update({
       status: "Draft", approved_at: null, sent_at: null, sent_to_email: null,

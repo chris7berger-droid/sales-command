@@ -2,8 +2,13 @@ import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { createPublicClient } from "../lib/supabasePublic";
 import { useMemo } from "react";
-import { calcWtcPrice } from "../lib/calc";
 import { DEFAULTS } from "../lib/config";
+
+// Audit H6: this page used to call calcWtcPrice() client-side, which
+// required burden_rate, ot_burden_rate, markup_pct, materials, and
+// travel to be returned to the customer's browser. The page now reads
+// the locked snapshot via get_public_proposal_view RPC instead, so
+// no cost basis crosses the wire. Do not re-import calc helpers here.
 
 const T = {
   green: "#30cfac",
@@ -44,39 +49,41 @@ export default function PublicSigningPage() {
       const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!token || !uuidRe.test(token)) { setError("Invalid signing link."); setLoading(false); return; }
 
-      const { data: prop, error: propErr } = await supabase
-        .from("proposals")
-        .select("*, call_log_id, call_log(job_name, display_job_number, customer_name, sales_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, customers(business_address, business_city, business_state, business_zip, contact_email))")
-        .eq("signing_token", token)
-        .single();
+      // Audit H6: single RPC returns proposal core, call_log,
+      // customer, and per-WTC rows (with locked_line_total snapshot)
+      // — no cost basis, markup, or materials sent to the anon caller.
+      const { data: view, error: rpcErr } = await supabase.rpc(
+        "get_public_proposal_view",
+        { p_token: token }
+      );
 
-      if (propErr || !prop) { setError("Proposal not found."); setLoading(false); return; }
+      if (rpcErr || !view) { setError("Proposal not found."); setLoading(false); return; }
 
       // Fetch rep contact info for header
-      const salesName = prop.call_log?.sales_name;
+      const salesName = view.call_log?.sales_name;
       if (salesName) {
         const { data: reps } = await supabase.rpc("get_rep_contact", { rep_name: salesName });
         if (reps?.[0]) setRepInfo(reps[0]);
       }
 
-      if (prop.status === "Sold") { setSigned(true); setProposal(prop); setLoading(false); return; }
-
-      // If proposal is Draft (pulled back), block signing
-      if (prop.status === "Draft") {
-        setPulledBack(true);
-        setProposal(prop);
+      if (view.status === "Sold") {
+        setSigned(true);
+        setProposal(view);
+        setWtc(view.wtc || []);
         setLoading(false);
         return;
       }
 
-      const { data: wtcData } = await supabase
-        .from("proposal_wtc")
-        .select("*, work_types(name)")
-        .eq("proposal_id", prop.id)
-        .order("created_at", { ascending: true });
+      // If proposal is Draft (pulled back), block signing
+      if (view.status === "Draft") {
+        setPulledBack(true);
+        setProposal(view);
+        setLoading(false);
+        return;
+      }
 
       // Load proposal attachments
-      const prefix = `proposal-${prop.id}`;
+      const prefix = `proposal-${view.id}`;
       const { data: attData } = await supabase.storage.from("job-attachments").list(prefix);
       const propAttachments = (attData || []).filter(f => f.name !== ".emptyFolderPlaceholder").map(file => {
         const { data: urlData } = supabase.storage.from("job-attachments").getPublicUrl(`${prefix}/${file.name}`);
@@ -84,8 +91,8 @@ export default function PublicSigningPage() {
         return { name: display, url: urlData.publicUrl };
       });
 
-      setProposal({ ...prop, _attachments: propAttachments });
-      setWtc(wtcData || []);
+      setProposal({ ...view, _attachments: propAttachments });
+      setWtc(view.wtc || []);
       setLoading(false);
 
       // Track view — server-side RPC marks recipients viewed_at via
@@ -240,7 +247,7 @@ export default function PublicSigningPage() {
       const combinedSow = (wtc || []).map((w, i) => {
         const sow = (w.sales_sow || "").trim();
         if (!sow) return "";
-        const header = wtc.length > 1 ? `── Work Type ${i + 1}${w.work_types?.name ? ` — ${w.work_types.name}` : ""} ──\n` : "";
+        const header = wtc.length > 1 ? `── Work Type ${i + 1}${w.work_type_name ? ` — ${w.work_type_name}` : ""} ──\n` : "";
         return header + sow;
       }).filter(Boolean).join("\n\n");
       const sowText = combinedSow || "No scope of work provided.";
@@ -409,7 +416,11 @@ export default function PublicSigningPage() {
   const cents = proposal.call_log?.show_cents;
   const fmt = n => n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
 
-  const total = (wtc || []).reduce((sum, w) => sum + calcWtcPrice(w), 0);
+  // Audit H6: grand total comes from proposal.total (the authoritative
+  // value handleLock() wrote when the proposal was locked). No client
+  // recompute — the customer sees exactly the number the internal app
+  // computed, with zero risk of drift from a SQL/JS calc divergence.
+  const total = proposal.total || 0;
 
   const wtcs = wtc || [];
 
@@ -501,15 +512,15 @@ export default function PublicSigningPage() {
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
               <div style={{ flex: 1, height: 3, background: T.green, borderRadius: 2 }} />
               <div style={{ fontSize: 12, fontWeight: 800, color: T.gray900, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
-                Work Type {i + 1}{w.work_types?.name ? ` — ${w.work_types.name}` : ""}
+                Work Type {i + 1}{w.work_type_name ? ` — ${w.work_type_name}` : ""}
               </div>
               <div style={{ flex: 1, height: 3, background: T.green, borderRadius: 2 }} />
             </div>
             <pre style={{ margin: 0, fontSize: 13, color: T.gray700, lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>{w.sales_sow}</pre>
             {wtcs.length > 1 && (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.gray200}` }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: T.gray500 }}>Work Type {i + 1}{w.work_types?.name ? ` — ${w.work_types.name}` : ""} Total</div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: T.green }}>{fmt(calcWtcPrice(w))}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.gray500 }}>Work Type {i + 1}{w.work_type_name ? ` — ${w.work_type_name}` : ""} Total</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T.green }}>{fmt(w.locked_line_total ?? 0)}</div>
               </div>
             )}
           </div>

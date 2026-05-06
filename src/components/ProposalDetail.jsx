@@ -685,7 +685,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             </Btn>
           )}
           {p.status === "Sold" && (
-            <Btn sz="sm" onClick={() => navigate("/invoices")}>+ Create Invoice</Btn>
+            <Btn sz="sm" onClick={() => navigate("/invoices", { state: { newInvoiceProposalId: p.id } })}>+ Create Invoice</Btn>
           )}
           {p.status !== "Sold" && (
             <Btn sz="sm" v="ghost" onClick={() => setShowApproveModal(true)} style={{ color: C.green, borderColor: C.green }}>✓ Internal Approve</Btn>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams, useLocation } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
@@ -1605,12 +1605,14 @@ const QB_AUTH_URL = `https://appcenter.intuit.com/connect/oauth2?client_id=${QB_
 
 export default function Invoices({ setSubPage, teamMember }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id: routeInvoiceId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const isRetentionView = searchParams.get("view") === "retention";
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [preselectedProposal, setPreselectedProposal] = useState(null);
   const [payAppContext, setPayAppContext] = useState(null); // { schedule, lines, proposal }
   const [sel, setSel] = useState(null);
   const [qbConnected, setQbConnected] = useState(null);
@@ -1646,6 +1648,26 @@ export default function Invoices({ setSubPage, teamMember }) {
     const inv = invoices.find(i => i.id === routeInvoiceId);
     if (inv) setSel(inv);
   }, [routeInvoiceId, invoices]);
+
+  // Auto-open New Invoice modal when ProposalDetail navigates here with a preselected proposal.
+  // Pay-app routing stays owned by NewInvoiceModal.selectProposal — see Invoices.jsx:91.
+  useEffect(() => {
+    const proposalId = location.state?.newInvoiceProposalId;
+    if (!proposalId) return;
+    (async () => {
+      const { data } = await supabase
+        .from("proposals")
+        .select("id, customer, total, proposal_number, call_log_id, is_archive_proposal, historical_billed_amount, call_log(display_job_number, customer_name, job_name, show_cents)")
+        .eq("id", proposalId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (!data) return;
+      setPreselectedProposal(data);
+      setShowModal(true);
+      // Consume the state so back-nav / refresh doesn't re-trigger.
+      navigate(location.pathname + location.search, { replace: true, state: null });
+    })();
+  }, [location.state?.newInvoiceProposalId]);
 
   const drafted = invoices.filter(i => i.status === "New").reduce((a, i) => a + (i.amount || 0), 0);
   const pending = invoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);
@@ -1692,10 +1714,12 @@ export default function Invoices({ setSubPage, teamMember }) {
     <>
       {showModal && (
         <NewInvoiceModal
-          onClose={() => setShowModal(false)}
-          onCreated={(inv) => { setShowModal(false); navigate(`/invoices/${inv.id}`); load(); }}
+          preselectedProposal={preselectedProposal}
+          onClose={() => { setShowModal(false); setPreselectedProposal(null); }}
+          onCreated={(inv) => { setShowModal(false); setPreselectedProposal(null); navigate(`/invoices/${inv.id}`); load(); }}
           onOpenPayApp={async (p) => {
             setShowModal(false);
+            setPreselectedProposal(null);
             const { data: sch } = await supabase
               .from("billing_schedule")
               .select("*")

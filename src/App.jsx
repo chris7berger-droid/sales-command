@@ -76,12 +76,23 @@ export default function App() {
   return <SalesCommandApp />;
 }
 
+// Minimum time the radar loader stays on screen during initial boot.
+// Set to 0 to disable.
+const BOOT_LOADER_MIN_MS = 3000;
+
 function SalesCommandApp() {
   const [open,       setOpen]       = useState(true);
   const [showTOC,    setShowTOC]    = useState(false);
   const [subPage,    setSubPage]    = useState(null);
   const [session,    setSession]    = useState(undefined);
   const [teamMember, setTeamMember] = useState(undefined);
+  const [bootMinElapsed, setBootMinElapsed] = useState(BOOT_LOADER_MIN_MS === 0);
+
+  useEffect(() => {
+    if (BOOT_LOADER_MIN_MS === 0) return;
+    const t = setTimeout(() => setBootMinElapsed(true), BOOT_LOADER_MIN_MS);
+    return () => clearTimeout(t);
+  }, []);
 
   // Clean up stale hash fragments (leftover from Supabase auth redirects)
   useEffect(() => {
@@ -138,7 +149,7 @@ function SalesCommandApp() {
     return () => sub.unsubscribe();
   }, []);
 
-  if (session === undefined) {
+  if (session === undefined || !bootMinElapsed) {
     return <><style>{GLOBAL_CSS}</style><RadarLoader /></>;
   }
 
@@ -161,7 +172,7 @@ function SalesCommandApp() {
   }
 
   // Wait for team member data before rendering the app
-  if (teamMember === undefined) {
+  if (teamMember === undefined || !bootMinElapsed) {
     return <><style>{GLOBAL_CSS}</style><RadarLoader /></>;
   }
 

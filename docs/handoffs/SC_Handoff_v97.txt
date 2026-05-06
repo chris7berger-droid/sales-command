@@ -1,0 +1,173 @@
+SC Handoff v97 — 2026-05-06
+============================
+
+SESSION SUMMARY
+A long polish-and-data-integrity session triggered by a regression
+("Create Invoice button takes me to the list, not the detail") that
+expanded into a full data-integrity sweep on call_log job numbers.
+Six PRs merged to main, two prod migrations applied, ~150 lines
+of historical dupes cleaned up via the new Merge Job UI.
+
+The 6507 customer (Plenium Builders) anchored most of the testing —
+4 bare "6507" call_log rows existed in prod from prior wizard usage
+that didn't enforce per-tenant uniqueness. Fixing the surface bug
+(UX) and the structural gap (DB integrity) at the same time avoided
+shipping a band-aid.
+
+PRS MERGED (oldest → newest)
+─────────────────────────────
+PR #10 (c56e553) — fix/restore-create-invoice-flow
+  Restore one-click Create Invoice → invoice detail. ProposalDetail
+  navigates to /invoices with location.state.newInvoiceProposalId;
+  Invoices.jsx auto-opens NewInvoiceModal preselected. Preserves the
+  v93 "stay-scoped" decision that kept modal hosting on /invoices.
+  Files: src/components/ProposalDetail.jsx (+1/-1),
+         src/pages/Invoices.jsx (+27/-3)
+
+PR #11 (1cb3b0b) — fix/proposal-billed-rollup
+  Archive Proposal panel shows 4-cell rollup
+  (Historical / Billed via SC / Total Billed / Remaining) instead of
+  just historical. Was hiding SC invoices, making "remaining" appear
+  off by an order of magnitude (Plenium 6844: $52k displayed vs
+  $4k actual). Computed from existing linkedInvoices fetch (extended
+  to include amount). No schema change.
+  Files: src/components/ProposalDetail.jsx (+32/-11)
+
+PR #13 (74cbbc5) — fix/merge-job-feature
+  merge_call_log() SECURITY DEFINER RPC + call_log_merges audit
+  table + MergeJobModal.jsx + Merge Job button on Job Detail.
+  Mirrors the customer_merges precedent (20260430120000). Re-points
+  proposals (renumbering as P+n on the survivor), invoices (handles
+  both observed job_id shapes — display_job_number text and
+  call_log.id::text), job_work_types (dedupes overlapping), and CO
+  children's parent_job_id. Loser is archived, not hard-deleted, so
+  storage attachments remain readable.
+  Admin/Manager only; hidden on COs and archived rows. Confirm-text
+  is the loser's display_job_number (harder to fat-finger than a
+  generic "MERGE"). Picker shows Sold $ per candidate so user picks
+  by dollar value.
+  Migration: supabase/migrations/20260507120000_call_log_merge.sql
+            (applied to prod via supabase db push --linked)
+  Files: +619 / 0
+
+PR #14 (7cbbf56) — fix/linked-items-family-walk
+  CallLogDetail's fetchLinked walks parent_job_id when viewing a
+  parent — Linked Items now includes proposals + invoices from CO
+  children. Was scoped to call_log_id = job.id only, which created
+  a visible mismatch with the proposal-list filter (which catches
+  all by display_job_number).
+  Files: src/components/CallLogDetail.jsx (+16/-3)
+
+PR #15 (92b0696) — fix/job-number-uniqueness
+  Partial unique index on
+    call_log (tenant_id, job_number, COALESCE(co_number, 0))
+    WHERE archived = false AND job_number IS NOT NULL
+  COALESCE(co_number, 0) lets parent (NULL co_number) coexist with
+  COs (1..N) under same job_number, while rejecting two distinct
+  parents sharing a job_number per tenant. Wizard retry guards on
+  PG 23505 in NewInquiryWizard (auto-allocate retry; override path
+  surfaces clear error) and ImportToLiveWizard (legacy-num path
+  surfaces clear error; auto path retries).
+  Migration: 20260507130000_call_log_unique_job_number.sql
+            (applied to prod cleanly — pre-flight cleanup confirmed
+             no active dupes remained).
+  Files: +69 / -31
+
+PR #12 (5ca50bb) — fix/job-detail-rollup [shipped LAST after rebase]
+  Job Detail "Job Totals" rollup card (Sold / Billed / Remaining /
+  % Invoiced) above Linked Items. Plus a new "Previously Invoiced
+  From Archive Job Setup" section in Linked Items listing each
+  archive proposal with non-zero historical_billed_amount, mirroring
+  the Invoices section styling with an ARCHIVE pill.
+  PR was paused mid-session (draft) when the 6507 dupe data
+  integrity issue was discovered. Rebased onto post-#14 main and
+  reimplemented to derive rollup from linkedProposals/linkedInvoices
+  arrays — no separate fetch needed since #14's family walk is
+  already family-scoped. Net diff dropped from +60 to +27, plus +26
+  for the Archive Setup section.
+  Files: src/components/CallLogDetail.jsx (+53/-1)
+
+PARALLEL SESSION COMMIT (cherry-pick)
+─────────────────────────────────────
+d262cc1 — fix(archive): allow Sales Rep to import archive jobs to live
+  Another session committed a one-line fix to fix/job-detail-rollup
+  (canImport gate at src/pages/Archive.jsx:52) and cherry-picked to
+  main. Heads-up came in mid-session; clean handoff (no uncommitted
+  changes lost). Branch state was reconciled by hard-reset + rebase
+  before reopening PR #12. Reinforced feedback_parallel_session_collisions.
+
+DATA WORK (manual, on prod)
+───────────────────────────
+1. 6507 family cleanup using new Merge Job UI:
+   - 4 bare "6507" parent rows existed: 3490, 3531, 3517, 3537
+   - User merged each into the survivor (the call_log holding the
+     $544k proposal — call_log id 3533 lineage)
+   - Survivor's proposals renumbered P1..P5 cleanly
+   - Loser rows archived (not hard-deleted), audit rows in
+     call_log_merges
+   - Verified via re-audit query — 6507 group reduced to one row
+
+2. 7423 row 3544 was a CO with mis-set flags — display said
+   "7423 CO1 - ..." but is_change_order=false, parent_job_id=NULL,
+   co_number=NULL. Manual SQL fix:
+     UPDATE call_log SET is_change_order=true, parent_job_id=51,
+            co_number=1 WHERE id=3544;
+
+3. Final audit query returned 0 rows after both, then unique-index
+   migration applied successfully.
+
+BACKLOG TOUCHES
+───────────────
+- B8 added (NewPayAppModal: negative Gross This Billing math +
+  misleading Less Previous Billings placement) — not fixed
+- B9 added (Merge Job feature) — closed when PR #13 shipped
+- B10 added (unique-index migration) — closed when PR #15 shipped
+- B7 still Open (archive imports root cause) — defensive fix from
+  v96 still in place; needs prod repro to confirm closure
+
+OPEN AT END OF SESSION
+──────────────────────
+1. B8 — NewPayAppModal: negative Gross This Billing / Current
+   Payment Due math when THIS APP $ inputs are empty. File:
+   src/components/NewPayAppModal.jsx. Repro on Plenium AGRU pay app.
+2. Step 3 of original 4-step roadmap — "Standard vs Pay App" Y/N
+   picker on Create Invoice click. Customer flag (requires_pay_app)
+   currently doesn't drive routing for archive proposals. Not built.
+3. Step 4 — when customer.requires_pay_app=true and proposal has no
+   billing_schedule (e.g. archive proposals), Create Invoice should
+   route to pay-app flow. Plan options were (a) block, (b) auto-create
+   1-line schedule, (c) open empty pay-app modal — user has not yet
+   chosen.
+4. v97 smoke list (carried from v96, still owed):
+   - Send a test pay app and confirm is_billing_contact email routing
+     end-to-end on prod
+   - Fresh archive import on prod (NOT IVGID Chateau) to confirm B7
+     defensive fix holds — closes B7 if Active landing works
+
+PROCESS / OBSERVATIONS
+──────────────────────
+- Plan agent used five times: proposal rollup (PR #11), job rollup
+  (PR #12 v1), merge feature (PR #13), then twice on the data-
+  integrity sweep. Saved an estimated 2-3 hours of churn.
+- User pace check ("lately simple things take forever") triggered
+  scope discipline twice — kept PR #14 (Linked Items walk) separate
+  from PR #13 (merge feature) and split the data-integrity sweep
+  into two PRs (#15 unique index + #13 merge feature, in opposite
+  order) instead of bundling. Both choices proved correct on review.
+- "Plan first" became the default for non-trivial work mid-session,
+  not just a preference. Worth carrying into v98.
+
+CARRY FORWARD (for v98)
+───────────────────────
+- B8 (NewPayAppModal math)
+- Step 3 + Step 4 (Standard vs Pay App picker + requires_pay_app
+  archive routing)
+- B7 (archive imports root cause — still has the v96 defensive fix;
+  needs prod repro)
+- All security carryforwards from v96: H4, H5, L15, B6, etc.
+
+TOTAL LINES
+───────────
+~ +1,430 / -36 across 6 merged PRs + 2 migrations applied to prod.
+
+End v97.

@@ -5,7 +5,7 @@ that completes, defers, or discovers an item. Status values: `Open`,
 `In Progress`, `Blocked`, `Done` (move Done items to the Completed Log
 at the bottom and out of the active table within a session or two).
 
-Last updated: 2026-05-05
+Last updated: 2026-05-05 (reconciled against v91/v92/v93 handoffs)
 
 ---
 
@@ -13,43 +13,59 @@ Last updated: 2026-05-05
 
 ### Security
 
-| ID    | Pri | Status      | Item                                                                                              | Source                          | Notes                                                                                                                |
-|-------|-----|-------------|---------------------------------------------------------------------------------------------------|---------------------------------|----------------------------------------------------------------------------------------------------------------------|
-| H1/H7 | H   | In Progress | `SET search_path` on `get_user_tenant_id`, `request_signing_token`, `request_viewing_token`       | Deep audit 2026-04-30           | Tiny migration. Started 2026-05-05.                                                                                  |
-| H4    | H   | Open        | `proposal_signatures` anon INSERT must bind `tenant_id`                                           | Deep audit 2026-04-30           |                                                                                                                      |
-| H5    | H   | Open        | Token expiry / single-use (`signing_token_expires_at`)                                            | Deep audit 2026-04-30           | Add expiry column, enforce in policies + RPCs.                                                                       |
-| H6    | H   | Open        | `PublicSigningPage` `select("*")` exposes pricing internals                                       | Deep audit 2026-04-30           | Replace with explicit column list.                                                                                   |
-| L15   | L   | Open        | `qb_connection` stores refresh tokens in plaintext                                                | Original audit 2026-04-26       | Move to Supabase Vault.                                                                                              |
-| —     | ?   | Open        | Triage remaining 13 Medium + 9 Low audit findings                                                 | Deep audit branch `claude/sweet-johnson-vvCCt` | Read report, file each as its own row here.                                                                          |
-| —     | ?   | Open        | `get_user_tenant_id()` body — needs prod verification before severity                             | Found 2026-05-05 reading code   | Three versions exist in sql/ seeds; prod was populated manually so live body is unknown. Run PRE-APPLY query in migration `20260505181452` to determine. If body is `LIMIT 1` only → M (every auth user gets arbitrary tenant). If body has `team_members` COALESCE → L (fallback only fires for users missing a team_members row). |
+| ID    | Pri | Status      | Item                                                                                              | Source                          | Notes                                                                                                                                                                                       |
+|-------|-----|-------------|---------------------------------------------------------------------------------------------------|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| H1/H7 | H   | In Progress | `SET search_path` on `get_user_tenant_id`, `request_signing_token`, `request_viewing_token`       | Deep audit 2026-04-30           | Migration `20260505181452` written. Prod verified: `get_user_tenant_id` already hardened (no-op for that one), other two still need the ALTER. Branch `fix/h1-h7-search-path` ready to push. |
+| H4    | H   | Open        | `proposal_signatures` anon INSERT must bind `tenant_id`                                           | Deep audit 2026-04-30           |                                                                                                                                                                                             |
+| H5    | H   | Open        | Token expiry / single-use (`signing_token_expires_at`)                                            | Deep audit 2026-04-30           | Add expiry column, enforce in policies + RPCs.                                                                                                                                              |
+| H6    | H   | Open        | `PublicSigningPage` `select("*")` exposes pricing internals                                       | Deep audit 2026-04-30           | Replace with explicit column list.                                                                                                                                                          |
+| L15   | L   | Open        | `qb_connection` stores refresh tokens in plaintext                                                | Original audit 2026-04-26       | Move to Supabase Vault.                                                                                                                                                                     |
+| S1    | L   | Open        | `get_user_tenant_id()` COALESCE fallback fires for auth users with no `team_members` row          | Found 2026-05-05; verified prod | Prod body uses `auth.uid() → team_members.tenant_id` w/ COALESCE fallback to `tenant_config LIMIT 1`. Sharp edge only on data-hygiene failure. Severity confirmed L after prod read.        |
+| —     | ?   | Open        | Triage remaining 13 Medium + 9 Low audit findings                                                 | Deep audit (branch was `claude/sweet-johnson-vvCCt`, deleted by v93 cleanup) | Audit report needs to be retrieved from PR/cache before triage — branch was deleted with other claude/* branches.                                                                          |
 
 ### Bugs
 
-| ID  | Pri | Status | Item                                                                          | Source           | Notes                                                          |
-|-----|-----|--------|-------------------------------------------------------------------------------|------------------|----------------------------------------------------------------|
-| B1  | M   | Open   | WTC step tabs clip at narrow widths, no nav to later steps                    | Found 2026-04-18 | Add horizontal scroll or wrap at small breakpoints.            |
-| B2  | M   | Open   | `send-invoice` error surfacing — apply `fnErr.context.json()` pattern         | v90 carryforward | Pattern lives in QBLinkModal.                                  |
-| B3  | L   | Open   | Page remount on list ↔ detail transitions                                     | v90 carryforward |                                                                |
-| B4  | L   | Open   | History Locker pagination — `DataTable` sorts only the visible page           | v90 carryforward |                                                                |
-| B5  | L   | Open   | `importApi.js` bulk CSV does NOT honor virtual `qb_skip_sync`                 | v90 carryforward |                                                                |
+| ID  | Pri | Status | Item                                                                          | Source           | Notes                                                                                                                                                       |
+|-----|-----|--------|-------------------------------------------------------------------------------|------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| B1  | M   | Open   | WTC step tabs clip at narrow widths, no nav to later steps                    | Found 2026-04-18 | Add horizontal scroll or wrap at small breakpoints.                                                                                                         |
+| B2  | M   | Open   | `send-invoice` error surfacing — apply `fnErr.context.json()` pattern         | v90 carryforward | Pattern lives in QBLinkModal.                                                                                                                               |
+| B3  | L   | Open   | Page remount on list ↔ detail transitions                                     | v90 carryforward |                                                                                                                                                             |
+| B4  | L   | Open   | History Locker pagination — `DataTable` sorts only the visible page           | v90 carryforward |                                                                                                                                                             |
+| B5  | L   | Open   | `importApi.js` bulk CSV does NOT honor virtual `qb_skip_sync`                 | v90 carryforward |                                                                                                                                                             |
+| B6  | H   | Open   | QuickBooks "Connection Failed" 403 on `/qb/callback`                          | v92 open bug     | qb-auth `exchange` returning 403; gotrue lock timeout on stale session. Most likely fix: redeploy qb-auth with `--no-verify-jwt` + retry/await-session in QBCallbackPage.jsx. Files: `supabase/functions/qb-auth/index.ts`, `_shared/tenantAuth.ts`, `src/pages/QBCallbackPage.jsx`, `src/pages/Settings.jsx:382`. |
 
 ### Features
 
-| ID  | Pri | Status | Item                                            | Source           | Notes                                                 |
-|-----|-----|--------|-------------------------------------------------|------------------|-------------------------------------------------------|
-| F1  | M   | Open   | Retention release workflow                      | v90 carryforward |                                                       |
-| F2  | M   | Open   | Invoice numbering                               | v90 carryforward |                                                       |
-| F3  | M   | Open   | Multi-invoice header link                       | v90 carryforward |                                                       |
-| F4  | M   | Open   | Customer settings page                          | v90 carryforward |                                                       |
-| F5  | L   | Open   | QB fan-out sweep                                | v90 carryforward |                                                       |
-| F6  | H   | Open   | Pay app system redesign                         | v90 carryforward | Plan exists: `docs/plans/pay_app_system_redesign.md`. |
+| ID  | Pri | Status | Item                                                                          | Source           | Notes                                                                                                                                                                                                                  |
+|-----|-----|--------|-------------------------------------------------------------------------------|------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| F1  | M   | Open   | Invoice numbering                                                             | v92/v93 carry    |                                                                                                                                                                                                                        |
+| F2  | M   | Open   | Multi-invoice header link                                                     | v92/v93 carry    |                                                                                                                                                                                                                        |
+| F3  | M   | Open   | Customer settings page                                                        | v92/v93 carry    |                                                                                                                                                                                                                        |
+| F4  | L   | Open   | QB fan-out sweep                                                              | v92/v93 carry    |                                                                                                                                                                                                                        |
+| F5  | M   | Open   | C2: Retention reminders + scheduled emails per invoice                        | v93              | Half day to a day. Needs: new table, datepicker UI, cron edge function, Resend wiring, dedupe + state-change skip logic.                                                                                              |
+| F6  | M   | Open   | D: Retainage Release flow (cumulative-release invoice when job substantially complete) | v93              | Was Phase 5 of original SOV plan.                                                                                                                                                                                      |
+| F7  | M   | Open   | E: Multi-tenant onboarding auto-provision of QB retention item + Other Current Asset account | v93              | Without this, other subs (Essentials/Plus) won't have correct routing on first connect.                                                                                                                                |
+| F8  | M   | Open   | Go-backs flow (re-scheduling invoiced work)                                   | v93 carry        |                                                                                                                                                                                                                        |
+| F9  | M   | Open   | Work Types Phase 2 — Smart Field SOW suggestion                               | v93 carry        |                                                                                                                                                                                                                        |
+| F10 | L   | Open   | Call Log Archiver                                                             | v93 carry        |                                                                                                                                                                                                                        |
+| F11 | L   | Open   | Sales Rep Reminders                                                           | v93 carry        |                                                                                                                                                                                                                        |
+| F12 | L   | Open   | PandaDoc PDF attachment                                                       | v93 carry        |                                                                                                                                                                                                                        |
+| F13 | L   | Open   | Contacts import from Glide (1,612 records)                                    | v93 carry        |                                                                                                                                                                                                                        |
 
-### Cleanup
+### Refactor
 
-| ID  | Pri | Status | Item                                                              | Source           | Notes                                                |
-|-----|-----|--------|-------------------------------------------------------------------|------------------|------------------------------------------------------|
-| C1  | L   | Open   | Delete SC Staging Supabase project (`zaeevatlpkrcmivhhrph`)       | v91 cleanup      | Served its purpose; clutter on dashboard.            |
-| C2  | L   | Open   | Delete 10 stale remote branches (all merged or superseded)        | v91 cleanup      | No open PRs depend on them.                          |
+| ID  | Pri | Status | Item                                                                          | Source           | Notes                                                                                                |
+|-----|-----|--------|-------------------------------------------------------------------------------|------------------|------------------------------------------------------------------------------------------------------|
+| R1  | M   | Open   | Extract Invoices.jsx (~1,200 lines)                                           | v93 carry        | Page is now hosting Retention list view + retention header cards on top of the original invoice CRUD. |
+| R2  | M   | Open   | Extract WTCCalculator.jsx (~2,100 lines)                                      | v93 carry        |                                                                                                      |
+| R3  | M   | Open   | RLS simplification — use `tenant_id` directly instead of JOIN-based scoping   | v93 carry        |                                                                                                      |
+
+### Cleanup / Ops
+
+| ID  | Pri | Status | Item                                                                                            | Source     | Notes                                                                                                                            |
+|-----|-----|--------|-------------------------------------------------------------------------------------------------|------------|----------------------------------------------------------------------------------------------------------------------------------|
+| O1  | L   | Open   | Delete SC Staging Supabase project (`zaeevatlpkrcmivhhrph`)                                     | v91        | Served its purpose; clutter on dashboard.                                                                                        |
+| O2  | M   | Open   | HDSP bookkeeper journal entry — move $41,734.78 from "AR Retention" to Construction in Progress-Retent (or Retention Receivable), then deactivate AR Retention | v93        | Not a code task. Three retention accounts exist; bookkeeper context unclear (likely intentional split between in-progress vs ready-to-release). |
 
 ### By-design (not bugs — kept here so we stop re-litigating)
 
@@ -72,7 +88,9 @@ Last updated: 2026-05-05
 Append rows as they finish — newest first. Once the log gets long, archive
 older entries to a per-version handoff and trim here.
 
-| Date       | ID  | Item                                                                                                | Where done                |
-|------------|-----|-----------------------------------------------------------------------------------------------------|---------------------------|
-| 2026-05-05 | —   | v91 prod smoke test — public signing page renders, signing flow transitions proposal/call_log → Sold | Session 2026-05-05        |
-| 2026-05-02 | —   | Security audit v91 deploy — all 12 Criticals, anti-pattern policies dropped, edge fn tenant isolation | v91 handoff               |
+| Date       | ID  | Item                                                                                                                          | Where done         |
+|------------|-----|-------------------------------------------------------------------------------------------------------------------------------|--------------------|
+| 2026-05-05 | —   | Stale remote branch cleanup — 9 claude/* + 3 feature branches deleted (handles former "delete 10 stale branches" cleanup row) | v93 (`ca2e984`)    |
+| 2026-05-05 | —   | Pay app system redesign shipped (delete cascade fix, retention to invoice, QB retention to Other Current Asset, retention list view) — replaces former "F6 Pay app system redesign" row pointing at `docs/plans/pay_app_system_redesign.md` | v93                |
+| 2026-05-05 | —   | v91 prod smoke test — public signing page renders, signing flow transitions proposal/call_log → Sold                          | Session 2026-05-05 |
+| 2026-05-02 | —   | Security audit v91 deploy — all 12 Criticals, anti-pattern policies dropped, edge fn tenant isolation                         | v91 handoff        |

@@ -76,9 +76,9 @@ serve(async (req) => {
     if (customerId) {
       const { data: contacts } = await supabase
         .from("customer_contacts")
-        .select("name, email, is_primary, created_at")
+        .select("name, email, is_primary, is_billing_contact, role, created_at")
         .eq("customer_id", customerId)
-        .eq("role", "Billing Contact");
+        .or("is_billing_contact.eq.true,role.eq.Billing Contact");
       const bc = contacts?.length
         ? (contacts.find((c: any) => c.is_primary) || [...contacts].sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))[0])
         : null;

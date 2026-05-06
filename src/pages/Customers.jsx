@@ -24,6 +24,17 @@ function Field({ label, children, wide }) {
   );
 }
 
+function ContactFlagToggle({ checked, onToggle, label }) {
+  return (
+    <button onClick={onToggle} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}>
+      <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${checked ? C.teal : C.borderStrong}`, background: checked ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {checked && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
+      </div>
+      <span style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>{label}</span>
+    </button>
+  );
+}
+
 /* ─── Edit Modal ─── */
 function CustomerModal({ customer, onClose, onSaved }) {
   const isNew = !customer;
@@ -156,6 +167,7 @@ function ContactModal({ contact, customerId, canManage, onClose, onSaved }) {
     email: contact?.email || "",
     role:  contact?.role  || "",
     is_primary: contact?.is_primary || false,
+    is_billing_contact: contact?.is_billing_contact ?? (contact?.role === "Billing Contact"),
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -168,6 +180,7 @@ function ContactModal({ contact, customerId, canManage, onClose, onSaved }) {
       customer_id: customerId,
       name: form.name.trim(), phone: form.phone || null, email: form.email || null,
       role: form.role || null, is_primary: form.is_primary,
+      is_billing_contact: form.is_billing_contact,
     };
     // If marking as primary, clear other primaries first
     if (form.is_primary) {
@@ -204,13 +217,11 @@ function ContactModal({ contact, customerId, canManage, onClose, onSaved }) {
           </Field>
           <Field label="Phone"><input value={form.phone} onChange={e => set("phone", e.target.value)} style={inputStyle} /></Field>
           <Field label="Email"><input type="email" value={form.email} onChange={e => set("email", e.target.value)} style={inputStyle} /></Field>
-          <Field label="Primary Contact?">
-            <button onClick={() => set("is_primary", !form.is_primary)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}>
-              <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${form.is_primary ? C.teal : C.borderStrong}`, background: form.is_primary ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {form.is_primary && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
-              </div>
-              <span style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>Mark as primary contact</span>
-            </button>
+          <Field label="Roles for This Job">
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <ContactFlagToggle checked={form.is_primary} onToggle={() => set("is_primary", !form.is_primary)} label="Mark as primary contact" />
+              <ContactFlagToggle checked={form.is_billing_contact} onToggle={() => set("is_billing_contact", !form.is_billing_contact)} label="Use as billing contact" />
+            </div>
           </Field>
         </div>
         {error && <div style={{ marginTop: 14, color: C.red, fontSize: 13, fontFamily: F.ui }}>{error}</div>}
@@ -581,10 +592,17 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
                 cursor: "pointer", position: "relative", display: "flex", flexDirection: "column", gap: 8,
                 boxShadow: "0 1px 3px rgba(28,24,20,0.06)",
               }}>
-                {c.is_primary && (
-                  <div style={{ position: "absolute", top: 12, right: 14, fontSize: 9.5, fontWeight: 800, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 9px", fontFamily: F.display, textTransform: "uppercase", letterSpacing: "0.08em" }}>Primary</div>
+                {(c.is_primary || c.is_billing_contact || c.role === "Billing Contact") && (
+                  <div style={{ position: "absolute", top: 12, right: 14, display: "flex", gap: 6 }}>
+                    {c.is_primary && (
+                      <span style={{ fontSize: 9.5, fontWeight: 800, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 9px", fontFamily: F.display, textTransform: "uppercase", letterSpacing: "0.08em" }}>Primary</span>
+                    )}
+                    {(c.is_billing_contact || c.role === "Billing Contact") && (
+                      <span style={{ fontSize: 9.5, fontWeight: 800, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 9px", fontFamily: F.display, textTransform: "uppercase", letterSpacing: "0.08em" }}>Billing</span>
+                    )}
+                  </div>
                 )}
-                <div style={{ fontSize: 18, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.01em", lineHeight: 1.15, paddingRight: c.is_primary ? 60 : 0 }}>{c.name || "—"}</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.01em", lineHeight: 1.15, paddingRight: (c.is_primary || c.is_billing_contact || c.role === "Billing Contact") ? 130 : 0 }}>{c.name || "—"}</div>
                 {c.role && (
                   <div style={{ alignSelf: "flex-start", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
                     background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontFamily: F.display }}>{c.role}</div>

@@ -77,12 +77,14 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
     setTenantConfig(tc);
 
     if (cust?.id) {
-      const { data: bc } = await supabase
+      const { data: bcRows } = await supabase
         .from("customer_contacts")
-        .select("name, email, phone")
+        .select("name, email, phone, is_primary, created_at")
         .eq("customer_id", cust.id)
-        .eq("role", "Billing Contact")
-        .maybeSingle();
+        .or("is_billing_contact.eq.true,role.eq.Billing Contact");
+      const bc = bcRows?.length
+        ? (bcRows.find(c => c.is_primary) || [...bcRows].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0])
+        : null;
       if (bc) {
         cust.billing_name = bc.name || cust.billing_name;
         cust.billing_email = bc.email || cust.billing_email;

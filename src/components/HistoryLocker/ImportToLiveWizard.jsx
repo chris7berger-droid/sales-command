@@ -754,11 +754,11 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
                   style={{
                     padding: "12px 16px", borderRadius: 10,
                     border: `1.5px solid ${isClean ? C.amber : C.border}`,
-                    background: "transparent",
-                    color: isClean ? C.amber : C.textFaint,
+                    background: C.dark,
+                    color: isClean ? C.amber : "rgba(255,255,255,0.45)",
                     cursor: isClean ? "pointer" : "not-allowed",
                     fontFamily: F.display, fontSize: 13, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase",
-                    opacity: isClean ? 1 : 0.55,
+                    opacity: isClean ? 1 : 0.7,
                   }}
                 >
                   Replace Existing Import

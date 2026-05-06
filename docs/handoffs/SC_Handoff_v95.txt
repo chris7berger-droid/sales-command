@@ -1,0 +1,131 @@
+SC Handoff v95 — 2026-05-06
+============================
+
+SESSION SUMMARY
+Short session. One-line copy fix to the Field SOW materials picker
+empty state, shipped to prod via PR #9.
+
+The picker pill on each Day Entry of the Field SOW (step 4 of the WTC
+builder) said "✓ All Tab 3 materials added" any time the picker had
+nothing to offer — collapsing two distinct states into one misleading
+message. Chris hit it on proposal 10074: zero materials defined on
+the WTC's Materials tab, but the pill read like a positive confirmation
+that all (presumably three) were already added. He read "Tab 3" as a
+count.
+
+Now the empty state distinguishes:
+- safeMaterials.length === 0 (no materials on this WTC at all)
+    → "No materials yet — add them in Step 3 · Materials"
+- available.length === 0 with safeMaterials > 0 (legitimate "all done")
+    → "✓ All materials added"
+- otherwise → "＋ Add material from this WTC"
+
+Button stays disabled in both empty states (no behavior change).
+Copy-only diff, +5 / -1 line on src/pages/WTCCalculator.jsx.
+
+NOTABLE: parallel-session collision incident (resolved, see below).
+Triggered creation of a new feedback memory and a tightened workflow
+rule for working alongside other Claude sessions.
+
+COMMITS (oldest → newest, on main)
+──────────────────────────────────
+c898729  fix: clarify Field SOW materials picker empty state
+         (pre-squash on fix/field-sow-empty-materials-copy)
+d5a72f6  fix: clarify Field SOW materials picker empty state (#9)
+         (squash-merge on main)
+
+BUG FIX
+───────
+1. Field SOW materials picker empty-state copy
+   - File: src/pages/WTCCalculator.jsx (around line 687)
+   - Component: FieldSowMaterialPicker
+   - Trigger: open any proposal where a WTC's Materials tab is empty
+     and look at any Day Entry in the Field SOW (step 4)
+   - Root cause: single-message pill that read true only when the
+     "all already added" path was taken; misled in the "nothing
+     defined yet" path.
+   - Fix: ternary on safeMaterials.length first, then available.length,
+     so the empty-tab message points users at the right step.
+
+PROCESS / HYGIENE
+─────────────────
+2. Parallel-session branch collision (resolved)
+   - Chris had a second Claude session running on
+     feat/billing-contact-flag concurrent with this session.
+   - Sequence that bit me:
+       1. I created fix/field-sow-empty-materials-copy off main and
+          made an uncommitted edit to WTCCalculator.jsx.
+       2. The other session ran `git checkout feat/billing-contact-flag`.
+          Git carried my uncommitted change along (clean apply, no
+          conflict).
+       3. Other session saw the unexpected dirty file and ran
+          `git stash push -m "wtc temp"` to clean its workspace,
+          then committed its own ImportToLiveWizard.jsx style fix.
+       4. I returned to commit and found my branch was empty and
+          `git status` was clean. Working tree had the original line.
+   - Recovery: `git stash list` showed `stash@{0}: On
+     fix/field-sow-empty-materials-copy: wtc temp`. Checked out the
+     correct branch, popped, committed cleanly as c898729.
+   - Lesson saved as feedback memory
+     `feedback_parallel_session_collisions.md` and indexed in MEMORY.md:
+       * Make edit → git add → git commit in one tight sequence; do
+         not pause with a dirty tree when another session is active.
+       * If a branch switch is unavoidable mid-edit, run
+         `git stash push -m "<descriptive>" -- <paths>` myself first;
+         do not trust git's carry-uncommitted-changes behavior to
+         survive contact with a parallel session.
+       * After any unexpected branch state shift, check `git stash
+         list` and `git fsck --lost-found` before assuming work is gone.
+
+PR
+──
+#9 — fix: clarify Field SOW materials picker empty state
+     Squash-merged via gh pr merge --squash --delete-branch.
+     Local main fast-forwarded to d5a72f6.
+
+EDGE FUNCTIONS DEPLOYED
+───────────────────────
+None. (Frontend-only change.)
+
+MIGRATIONS APPLIED
+──────────────────
+None.
+
+MEMORY UPDATES
+──────────────
+- feedback_parallel_session_collisions.md — new feedback memory.
+- MEMORY.md — index updated with the new memory pointer.
+
+BACKLOG UPDATES
+───────────────
+- Completed Log row added for d5a72f6 / PR #9.
+
+KNOWN STATE AT SESSION END
+──────────────────────────
+- Branch: main (clean, up to date with origin).
+- Working tree: only `supabase/.temp/cli-latest` modified — pre-existing
+  Supabase CLI artifact noise, not session work.
+- fix/field-sow-empty-materials-copy: deleted both locally (via merge)
+  and on origin (via gh pr merge --delete-branch).
+- feat/billing-contact-flag: untouched by this session. Other Claude
+  session was last seen committing 8adaa5c "Style: Replace Existing
+  Import button uses dark background for amber legibility".
+- Production: Vercel auto-deploy queued from d5a72f6 push to main.
+
+NEXT SESSION PICKUP
+───────────────────
+First action: read docs/BACKLOG.md (CLAUDE.md Session Start rule).
+
+Top open items unchanged from v94:
+  H4 — proposal_signatures anon INSERT must bind tenant_id
+  H5 — Token expiry / single-use (signing_token_expires_at)
+  B6 — QB OAuth 403 on /qb/callback (open since v92)
+  F1 — Invoice numbering
+  F5/F6/F7 — retention reminders, retainage release flow,
+             multi-tenant QB onboarding auto-provision
+  R1 — extract Invoices.jsx (~1,200 lines)
+
+Resume with:
+  cd ~/sales-command
+  Open Claude Code and say "Resume v95 — read BACKLOG, pick the next
+  high-priority item."

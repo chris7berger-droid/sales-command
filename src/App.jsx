@@ -26,6 +26,7 @@ import PublicInvoicePage from "./pages/PublicInvoicePage";
 import QBCallbackPage from "./pages/QBCallbackPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import WelcomeScreen from "./components/WelcomeScreen";
+import RadarLoader from "./components/RadarLoader";
 import { TenantConfigProvider } from "./lib/TenantConfigContext";
 import Import from "./pages/Import/Import";
 import UpdateBanner from "./components/UpdateBanner";
@@ -138,11 +139,7 @@ function SalesCommandApp() {
   }, []);
 
   if (session === undefined) {
-    return (
-      <div style={{ minHeight: "100vh", background: "#0f0f14", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Mono', monospace", fontSize: 13, color: "#4a4a6a", letterSpacing: "0.1em" }}>
-        LOADING…
-      </div>
-    );
+    return <><style>{GLOBAL_CSS}</style><RadarLoader /></>;
   }
 
   if (!session) {
@@ -165,11 +162,7 @@ function SalesCommandApp() {
 
   // Wait for team member data before rendering the app
   if (teamMember === undefined) {
-    return (
-      <div style={{ minHeight: "100vh", background: "#0f0f14", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Mono', monospace", fontSize: 13, color: "#4a4a6a", letterSpacing: "0.1em" }}>
-        LOADING…
-      </div>
-    );
+    return <><style>{GLOBAL_CSS}</style><RadarLoader /></>;
   }
 
   // Show welcome screen for newly invited users who haven't onboarded yet

@@ -31,7 +31,7 @@ export const F = {
 };
 
 export const GLOBAL_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Barlow:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Barlow:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Barlow',sans-serif;background:${C.linen};color:${C.textBody}}
   ::-webkit-scrollbar{width:6px;height:6px}

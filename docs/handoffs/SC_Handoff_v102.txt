@@ -1,0 +1,260 @@
+SC Handoff v102 — 2026-05-07
+============================
+
+SESSION SUMMARY
+S1 closed: dropped the COALESCE fallback in `public.get_user_tenant_id()`.
+Today (single-tenant prod) the bug was latent; under multi-tenant onboarding
+(F7) it would have returned "the first tenant_config row" for any auth user
+without a team_members row, leaking cross-tenant reads via every RLS predicate.
+Same root cause as H4 (closed 2026-05-06 for the anon path); S1 closes the
+authenticated path.
+
+Migration `20260509120000` applied to prod after full scratch-project test
+plan (Tests 1–6) passed. Live smoke green. Branch
+`fix/s1-get-user-tenant-id-no-fallback` is open, 1 commit (`c893aee`); ready
+for PR / squash-merge to main.
+
+CHANGES SHIPPED
+────────────────
+1. Migration `supabase/migrations/20260509120000_get_user_tenant_id_remove_fallback.sql`
+   - Pre-apply orphan gate (one-shot DO block; counts orphan auth users,
+     RAISE EXCEPTION if > 0 — see "Antifragile observability" framing).
+   - Function body: drops COALESCE; adds `AND active = true`; returns NULL
+     on miss. Metadata preserved (`STABLE`, `SECURITY DEFINER`,
+     `search_path=public`, `LANGUAGE sql`).
+   - View `public.v_orphan_auth_users` for steady-state monitoring (REVOKE
+     ALL; SECURITY INVOKER over auth.users so reads happen via service_role
+     / Studio only).
+
+2. Rollback `supabase/rollbacks/20260509120100_revert_get_user_tenant_id_remove_fallback.sql`
+   - Restores COALESCE form + drops view. Tested in scratch (Test 6 passed).
+
+3. Seed-file hygiene (so a future `supabase db reset` doesn't reintroduce):
+   - `sql/rls_cleanup_and_remaining.sql` — both public + archive helper bodies
+     synced to current prod.
+   - `sql/rls_identity_tables.sql` — public helper synced; SECTION 4 header
+     reframed (no more "Falls back to LIMIT 1").
+   - `sql/history_locker_phase1.sql` — archive helper updated from the
+     way-out-of-date `tenant_config LIMIT 1` body to the post-2026-04-16
+     prod body.
+
+4. Plan: `docs/plans/s1_remove_get_user_tenant_id_fallback.md` (committed on
+   main as `fbebc71` before the implementation branch was cut, so other
+   sessions can see what's planned).
+
+5. BACKLOG row moved to Completed Log.
+
+PRE-FLIGHT (against prod, before any DDL)
+──────────────────────────────────────────
+All three checks passed via `supabase db query --linked`:
+  Q1. `pg_get_functiondef('public.get_user_tenant_id()')` → exact COALESCE
+      form expected by the plan. STABLE / SECURITY DEFINER / search_path
+      preserved.
+  Q2. `pg_get_functiondef('archive.get_user_tenant_id()')` → no-fallback
+      form (already fixed by migration 20260416230000); out-of-scope for
+      this PR's DDL. Note: archive variant lacks `AND active = true` —
+      not part of S1 scope, future hardening if desired.
+  Q3. Orphan auth-user inventory → 0 rows. Pre-apply gate guaranteed clean.
+
+Call-site sweep: 237 references across `supabase/migrations/` + `sql/`,
+all in four expected categories (RLS predicates, column DEFAULTs, function
+definitions, PL/pgSQL assignments). Three PL/pgSQL assignments — all
+NULL-guarded — at:
+  - `customer_delete_merge.sql:123` (guard at 125)
+  - `customer_delete_merge.sql:216` (guard at 218)
+  - `call_log_merge.sql:121` (guard at 123)  ← newer than original plan;
+    plan was amended in the same session to reflect three callsites, not two.
+
+SCRATCH-PROJECT TEST RESULTS (Tests 1–6, all passed)
+─────────────────────────────────────────────────────
+Spun up scratch `xuovwlhqztqljyvveicu` (org `wgeurqatrnujygldpstv`, region
+us-west-1). Used dump-restore pattern (see Deviation 1 below) to replicate
+prod state instead of `supabase db push --linked` from main, because the
+ledger still has the `billing_schedule` out-of-band gap. Project deleted
+post-test (`supabase projects delete --yes`); `supabase projects list`
+confirmed gone.
+
+Test 1 — pre-apply gate fires with orphan present:
+  `supabase db push --linked` exit 1 with the named exception:
+  `S1 pre-flight failed: 1 orphan auth user(s) without an active
+   team_members row. Provision or delete them before applying this
+   migration. (SQLSTATE P0001)`
+  Function body unchanged (still COALESCE post-abort).
+
+Test 2 — backfill orphan, re-push succeeds:
+  Push exit 0; function body now `team_members ... AND active = true`,
+  view created, REVOKE applied.
+
+Test 3 — tenant isolation (multi-tenant):
+  alice (auth.uid → Tenant A team_members row) → tenant_id = Tenant A's UUID.
+  bob   (auth.uid → Tenant B team_members row) → tenant_id = Tenant B's UUID.
+  No cross-tenant resolution.
+
+Test 4 — orphan post-fix behavior:
+  4a. orphan helper → NULL (`is_null = t`).
+  4b. orphan SELECT customers → 0 rows (RLS deny).
+  4c. orphan INSERT customers → blocked, but with **42501 RLS WITH CHECK**
+      not the **23502 NOT NULL** stated in the plan. RLS evaluates the
+      DEFAULT-resolved row first and denies before the column constraint
+      fires. Same outcome (deny), stricter mechanism. See Deviation 3.
+  4d. orphan SELECT pay_apps → 0 rows.
+  4e. orphan INSERT pay_apps → blocked (42501, same reason as 4c).
+  4f. orphan calls `delete_customer` RPC → raises `FORBIDDEN` (42501) from
+      the `is_admin_or_manager` guard, which runs *before* the NO_TENANT
+      guard. To actually surface NO_TENANT requires an "Admin orphan"
+      (pathological state). 4a independently confirms the helper returns
+      NULL, which is what every IF-NULL guard relies on.
+
+Test 5 — anon path unchanged:
+  `SET ROLE anon; SELECT public.get_user_tenant_id();` → NULL.
+
+Test 6 — rollback rehearsal:
+  Apply rollback file → function reverts to COALESCE form, view dropped.
+  Re-apply migration body → DO block fires again because orphan was
+  deactivated in Test 4. **Bonus signal: pre-apply gate is idempotent —
+  fires on every body execution, not just the first.** Re-activated
+  orphan, re-applied, function body and view restored to fixed state.
+
+PROD VERIFICATION (post-`supabase db push --linked`)
+─────────────────────────────────────────────────────
+Push exit 0; only `20260509120000` applied; no other migrations re-ran.
+
+  ✓ `pg_get_functiondef` shows new body (FROM team_members ... AND active = true).
+  ✓ `SET ROLE anon; SELECT public.get_user_tenant_id();` → NULL.
+  ✓ `SELECT count(*) FROM public.v_orphan_auth_users;` → 0.
+  ✓ `SELECT version FROM supabase_migrations.schema_migrations
+       WHERE version = '20260509120000';` → 1 row.
+
+Live smoke (Chris, scmybiz.com prod admin):
+  ✓ Home / CallLog / Proposals / Invoices / Customers / Team all rendered.
+  ✓ Most-recent proposal signing URL in incognito → public signing flow OK.
+  ✓ New Inquiry wizard inserted call_log id=3565 ("10078 - TEST"),
+    `tenant_id = 246f6551-60de-4965-bb97-9a52971bc05d` (HDSP). DEFAULT
+    path resolved cleanly via the new function body.
+
+Cross-repo grep (per `CLAUDE_RLS.md`):
+  ✓ ~/sch-command, ~/field-command, ~/AR-Command-Center, ~/sub-con-command:
+    all 0 JS references to `get_user_tenant_id`. Fix flows automatically
+    via the shared DB.
+
+DEVIATIONS FROM PLAN (worth folding into ops knowledge)
+────────────────────────────────────────────────────────
+1. **Migration ledger gap is real and active.** The plan asserted the full
+   ledger applies cleanly to a fresh project. It does not — the first
+   migration (`20260416132135_billing_schedule_multi_docs.sql`) ALTERs
+   `public.billing_schedule`, which was created out-of-band (not in any
+   `sql/` seed file in the repo, presumably created via Studio direct DDL
+   in March 2026). Existing v101 carryforward; documenting the workaround.
+
+   **Workaround pattern: dump-restore + schema_migrations backfill.**
+   Run from `~/sales-command`:
+     # 1. Re-link prod (currently scratch-linked).
+     supabase link --project-ref pbgvgjjuhnpsumnowuym --password "$PROD_PWD"
+     # 2. Dump prod schema-only (skip auth — Supabase auto-creates).
+     PGPASSWORD="$PROD_PWD" supabase db dump --linked \
+       -s public,archive,storage,supabase_migrations -f /tmp/prod-schema.sql
+     # 3. Re-link scratch.
+     supabase link --project-ref <scratch-ref> --password "$SCRATCH_PWD"
+     # 4. Apply via docker psql as postgres superuser through pooler
+     #    (NOT supabase db query --linked — see Deviation 2).
+     #    pooler URL is in supabase/.temp/pooler-url.
+     docker run --rm --env "PGPASSWORD=$SCRATCH_PWD" -v /tmp:/tmp \
+       public.ecr.aws/supabase/postgres:17.6.1.063 \
+       psql -h aws-1-us-west-1.pooler.supabase.com -p 5432 \
+            -U "postgres.<scratch-ref>" -d postgres \
+            -f /tmp/prod-schema.sql
+       # ON_ERROR_STOP=0 (default) is needed: storage schema statements
+       # fail with "permission denied for schema storage" because the
+       # storage schema is reserved for `supabase_storage_admin`. Public
+       # and archive apply cleanly. Cross-references between schemas were
+       # confirmed zero before relying on this.
+     # 5. Backfill schema_migrations so push only runs the new migration.
+     INSERT INTO supabase_migrations.schema_migrations (version)
+     VALUES ('<each version up through prior to the new one>')
+     ON CONFLICT (version) DO NOTHING;
+     # 6. Now `supabase db push --linked` only attempts the new migration.
+
+   **Security:** prod password via PGPASSWORD env (not in argv); shred
+   dump file post-test (`dd if=/dev/urandom of=/tmp/prod-schema.sql
+   conv=notrunc; rm`). Treat dump as sensitive — full SECURITY DEFINER
+   bodies in cleartext.
+
+2. **`supabase db query --linked` runs as a constrained role.** The
+   management API token used by `--linked` is not a postgres superuser
+   and cannot modify the storage schema. For schema-level work in scratch
+   that the management API blocks, switch to **direct docker psql via
+   the session-mode pooler** (port 5432, user `postgres.<ref>`, pooler
+   host from `supabase/.temp/pooler-url`). Direct connections to
+   `db.<ref>.supabase.co` are no longer routable on current Supabase
+   plans — pooler-only.
+
+3. **RLS WITH CHECK fires before NOT NULL constraints.** Plan predicted
+   orphan INSERT would surface `23502 not_null_violation` when the
+   `DEFAULT public.get_user_tenant_id()` resolves to NULL. Actual error
+   is `42501 RLS row-level security policy violation` because RLS
+   WITH CHECK evaluates the DEFAULT-resolved row first and denies before
+   the NOT NULL constraint validates. Stricter deny, same outcome —
+   no caller-visible behavioral difference, but worth noting in the
+   handoff for future plan-writers expecting 23502.
+
+ANTIFRAGILE OBSERVABILITY (steady-state, post-apply)
+─────────────────────────────────────────────────────
+The DO block in the migration was a one-shot apply-time gate. Steady-state
+guard is `public.v_orphan_auth_users`. Recommend pairing with a scheduled
+query that alerts ops if `count(*) > 0`. Reads must use service_role
+(Studio SQL editor, scheduled cron edge functions) — the view is
+SECURITY INVOKER over `auth.users` which `authenticated` cannot read,
+and the migration left no GRANT to authenticated by design.
+
+Suggested cron query (run on Supabase pg_cron or a scheduled edge fn):
+  SELECT count(*), array_agg(email) AS orphan_emails
+    FROM public.v_orphan_auth_users;
+If non-zero, alert. Triage = provision a `team_members` row or call the
+deactivate-user edge function to clear the auth_id.
+
+Considered: BEFORE INSERT trigger on `auth.users` to auto-provision
+team_members. Deferred — GoTrue owns auth.users writes and trigger
+errors there surface as opaque 500s in signup. Re-evaluate when F7
+(multi-tenant onboarding auto-provision) lands.
+
+OPEN / NEXT
+────────────
+- **PR is open, awaiting squash-merge.** The branch was pushed and a PR
+  opened as the final wrap step. Migration is already live on prod, so
+  the PR is for audit trail / squash-merge to main, not a deploy gate.
+- **Sales-name on call_log row 3565 = 'Denise Barker'** despite Chris
+  creating it. Pre-existing wizard quirk, unrelated to S1. File a
+  BACKLOG bug if it's a real issue.
+- **Archive variant of `get_user_tenant_id()` lacks `AND active = true`.**
+  Not in S1 scope; minor consistency improvement. Open a small follow-up
+  if desired.
+- **All v101 OPEN / NEXT items still apply:** loader bypass for
+  `/invoice/:token` and `/invoice-paid`, supabase/.temp/* untracking,
+  H5 (signing token expiry), redundant DELETE policy cleanup on
+  `proposal_signatures`.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+──────────────────────────────────────────
+supabase/migrations/20260509120000_get_user_tenant_id_remove_fallback.sql
+  — the migration that's now on prod. Function body, DO block, view DDL.
+supabase/rollbacks/20260509120100_revert_get_user_tenant_id_remove_fallback.sql
+  — paste into Studio SQL editor if a fast revert is ever needed.
+docs/plans/s1_remove_get_user_tenant_id_fallback.md
+  — the plan, including 4 audit-pass revisions + post-flight notes.
+sql/rls_cleanup_and_remaining.sql, sql/rls_identity_tables.sql,
+sql/history_locker_phase1.sql
+  — seed files now matching current prod helper bodies.
+
+GIT STATE ON CLOSE
+───────────────────
+- Branch: fix/s1-get-user-tenant-id-no-fallback (NOT yet pushed to origin).
+- Commits on branch (relative to origin/main):
+    c893aee  fix(security): close S1 — drop COALESCE fallback ...
+- main has fbebc71 (plan + BACKLOG In Progress flip) already pushed.
+- Linked: pbgvgjjuhnpsumnowuym (prod).
+- Working tree noise (unchanged from v101 carryforward):
+    M supabase/.temp/cli-latest, gotrue-version, storage-migration,
+      storage-version  (CLI metadata, gitignored but tracked)
+    ?? docs/handoffs/SC_Handoff_v98.txt  (stale untracked file)
+- Scratch project xuovwlhqztqljyvveicu deleted.
+- /tmp clean (prod-schema.sql shredded, all test artifacts rm'd).

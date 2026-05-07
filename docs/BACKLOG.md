@@ -5,7 +5,7 @@ that completes, defers, or discovers an item. Status values: `Open`,
 `In Progress`, `Blocked`, `Done` (move Done items to the Completed Log
 at the bottom and out of the active table within a session or two).
 
-Last updated: 2026-05-06 (H4 closed; B9/B10 moved to Completed Log)
+Last updated: 2026-05-07 (S1 in progress)
 
 ---
 
@@ -17,7 +17,7 @@ Last updated: 2026-05-06 (H4 closed; B9/B10 moved to Completed Log)
 |-------|-----|-------------|---------------------------------------------------------------------------------------------------|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | H5    | H   | Open        | Token expiry / single-use (`signing_token_expires_at`)                                            | Deep audit 2026-04-30           | Add expiry column, enforce in policies + RPCs.                                                                                                                                              |
 | L15   | L   | Open        | `qb_connection` stores refresh tokens in plaintext                                                | Original audit 2026-04-26       | Move to Supabase Vault.                                                                                                                                                                     |
-| S1    | L   | Open        | `get_user_tenant_id()` COALESCE fallback fires for auth users with no `team_members` row          | Found 2026-05-05; verified prod | Prod body uses `auth.uid() → team_members.tenant_id` w/ COALESCE fallback to `tenant_config LIMIT 1`. Sharp edge only on data-hygiene failure. Severity confirmed L after prod read.        |
+| S1    | L   | In Progress | `get_user_tenant_id()` COALESCE fallback fires for auth users with no `team_members` row          | Found 2026-05-05; verified prod | Plan: `docs/plans/s1_remove_get_user_tenant_id_fallback.md`. Drop fallback, NULL on miss, pre-apply orphan gate, permanent `v_orphan_auth_users` view. Single-tenant prod = latent bug; multi-tenant onboarding (F7) makes it active. |
 | —     | ?   | Open        | Triage remaining 13 Medium + 9 Low audit findings                                                 | Deep audit (branch was `claude/sweet-johnson-vvCCt`, deleted by v93 cleanup) | Audit report needs to be retrieved from PR/cache before triage — branch was deleted with other claude/* branches.                                                                          |
 
 ### Bugs

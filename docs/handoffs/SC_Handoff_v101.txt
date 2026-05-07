@@ -1,0 +1,91 @@
+SC Handoff v101 — 2026-05-06
+============================
+
+SESSION SUMMARY
+The 3-second radar boot loader was firing on the public signing page,
+which looked broken to a customer mid-signing flow. Carved out
+/sign/:token so it bypasses both loader gates and renders instantly.
+One commit on main, deployed live, verified by Chris in incognito
+against the email link.
+
+CHANGES SHIPPED (commit e20c241, on main, squash-merge of PR #16)
+─────────────────────────────────────────────────────────────────
+e20c241 — fix(loader): skip radar loader on customer signing page
+  src/App.jsx (9 insertions, 5 deletions)
+    1. Added `isCustomerSigningRoute = window.location.pathname
+       .startsWith("/sign/")` at the top of `SalesCommandApp`.
+    2. `bootMinElapsed` initial state is `true` for signing routes
+       (skip the 3s timer entirely); the timer-arming useEffect
+       early-returns for signing routes.
+    3. Both loader gates (`session === undefined || !bootMinElapsed`
+       and `teamMember === undefined || !bootMinElapsed`) now also
+       check `&& !isCustomerSigningRoute`.
+  Branch fix/skip-radar-loader-on-signing — pushed, PR #16 merged
+  squash, branch deleted.
+
+DECISIONS / CHOICES MADE
+─────────────────────────
+- Route detection at SalesCommandApp top, not via React Router.
+  Reading window.location.pathname directly is fine here because the
+  decision is made once at mount and the boot loader is a mount-time
+  concern. No router refactor needed.
+- Tight scope: only /sign/:token. /invoice/:token and /invoice-paid
+  have the same problem (also customer-facing) but Chris's framing
+  was "the signing process" — flagged for follow-up, not bundled.
+- Skipped Vercel preview test. Chris asked to merge live after
+  preview testing turned out non-trivial (email link goes to prod,
+  not preview, so testing the preview means manually constructing
+  the URL with the token). Change is 9 lines and well-contained;
+  Chris validated on prod after deploy.
+
+VERIFICATION
+─────────────
+- Local edit, single file, only call sites of RadarLoader and
+  bootMinElapsed in the repo are in src/App.jsx (confirmed by grep).
+- Squash-merged to main as e20c241. Vercel auto-deployed.
+- Chris hit the email link in incognito post-deploy: signing page
+  rendered immediately, no radar animation. Confirmed "work perfect."
+
+NOT TOUCHED THIS SESSION
+─────────────────────────
+- /invoice/:token (PublicInvoicePage) — same pattern, same problem.
+- /invoice-paid (InvoicePaidPage) — same.
+- /qb/callback — programmatic, low priority but same fix shape.
+- /suite, /features/:slug, /checkout — marketing/landing surface;
+  loader is more defensible there but worth a UX call later.
+- The committer-identity warning on the local commit
+  (chrisberger@Mac.attlocal.net). Not surfaced post-merge since
+  GitHub squashed the commit.
+- supabase/.temp/* CLI metadata is still in working tree as modified.
+  Already in .gitignore (line 28) but tracked from before the rule;
+  needs `git rm --cached` to untrack. Not done this session — last
+  attempt was rejected by Chris. Worth picking up later.
+
+OPEN / NEXT
+────────────
+- Loader bypass for /invoice/:token and /invoice-paid. Same edit
+  shape as this PR — extend `isCustomerSigningRoute` to a broader
+  `isCustomerPublicRoute` covering signing + invoice paths, or
+  leave them on separate names. ~5-line follow-up PR.
+- All v100 OPEN / NEXT items still apply: S1 (helper COALESCE
+  fallback for auth users), H5 (token expiry / single-use),
+  migration ledger gap (billing_schedule etc).
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+──────────────────────────────────────────
+src/App.jsx — the boot-loader gates, now skip /sign/. If extending
+  to /invoice/:token, this is the file.
+src/components/RadarLoader.jsx — the loader component itself.
+  Untouched; only the gating logic changed.
+src/pages/PublicSigningPage.jsx — confirmed unchanged. Trigger
+  from H4 (v100) does the tenant_id work; this PR just stops
+  blocking the page on the boot loader.
+
+GIT STATE ON CLOSE
+───────────────────
+- Branch main, clean against origin/main (e20c241 deployed).
+- Working tree: src/App.jsx clean. supabase/.temp/* still modified
+  (CLI metadata, no semantic content; in .gitignore but tracked).
+- Linked project: pbgvgjjuhnpsumnowuym (Command Suite DB / prod).
+- PR #16 closed/merged. Branch fix/skip-radar-loader-on-signing
+  deleted on remote and locally.

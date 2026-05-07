@@ -119,18 +119,22 @@ ALTER TABLE public.qb_connection ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================
 -- SECTION 4: UPDATE get_user_tenant_id() TO BE AUTH-AWARE
--- Current version just does LIMIT 1 (single-tenant assumption).
--- New version: look up tenant via the logged-in user's auth_id.
--- Falls back to LIMIT 1 if no match (backwards-compatible).
+-- Body returns NULL when the caller has no active team_members
+-- row. Callers must treat NULL as "no tenant" (RLS denies, RPCs
+-- raise NO_TENANT). Migration 20260509120000 dropped the prior
+-- COALESCE fallback to public.tenant_config — see plan
+-- docs/plans/s1_remove_get_user_tenant_id_fallback.md.
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION public.get_user_tenant_id()
 RETURNS uuid AS $$
-  SELECT COALESCE(
-    (SELECT tenant_id FROM public.team_members WHERE auth_id = auth.uid() LIMIT 1),
-    (SELECT id FROM public.tenant_config LIMIT 1)
-  );
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+  SELECT tenant_id
+    FROM public.team_members
+   WHERE auth_id = auth.uid()
+     AND active = true
+   LIMIT 1;
+$$ LANGUAGE sql SECURITY DEFINER STABLE
+SET search_path = public;
 
 
 -- ============================================================

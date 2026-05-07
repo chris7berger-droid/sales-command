@@ -68,13 +68,19 @@ ALTER TABLE archive.import_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE archive.legacy_records ENABLE ROW LEVEL SECURITY;
 
 -- 7. RLS policies — users see only their tenant's archive data
--- Helper: get tenant_id for the current auth user via team_members
+-- Helper: get tenant_id for the current auth user via team_members.
+-- Returns NULL when no team_members row matches auth.uid(); callers
+-- must handle NULL (RLS denies). Matches the prod-applied body from
+-- migration 20260416230000_archive_rls_fix; see plan
+-- docs/plans/s1_remove_get_user_tenant_id_fallback.md.
 CREATE OR REPLACE FUNCTION archive.get_user_tenant_id()
 RETURNS uuid AS $$
-  SELECT tc.id
-  FROM public.tenant_config tc
-  LIMIT 1;
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+  SELECT tenant_id
+    FROM public.team_members
+   WHERE auth_id = auth.uid()
+   LIMIT 1;
+$$ LANGUAGE sql SECURITY DEFINER STABLE
+SET search_path = public, archive;
 
 -- import_batches policies
 CREATE POLICY "Users can view their tenant import batches"

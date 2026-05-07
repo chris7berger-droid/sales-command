@@ -81,18 +81,22 @@ export default function App() {
 const BOOT_LOADER_MIN_MS = 3000;
 
 function SalesCommandApp() {
+  // Customer-facing public routes must skip the boot loader — a 3s radar
+  // animation in the middle of a signing flow looks like an error to a customer.
+  const isCustomerSigningRoute = window.location.pathname.startsWith("/sign/");
+
   const [open,       setOpen]       = useState(true);
   const [showTOC,    setShowTOC]    = useState(false);
   const [subPage,    setSubPage]    = useState(null);
   const [session,    setSession]    = useState(undefined);
   const [teamMember, setTeamMember] = useState(undefined);
-  const [bootMinElapsed, setBootMinElapsed] = useState(BOOT_LOADER_MIN_MS === 0);
+  const [bootMinElapsed, setBootMinElapsed] = useState(BOOT_LOADER_MIN_MS === 0 || isCustomerSigningRoute);
 
   useEffect(() => {
-    if (BOOT_LOADER_MIN_MS === 0) return;
+    if (BOOT_LOADER_MIN_MS === 0 || isCustomerSigningRoute) return;
     const t = setTimeout(() => setBootMinElapsed(true), BOOT_LOADER_MIN_MS);
     return () => clearTimeout(t);
-  }, []);
+  }, [isCustomerSigningRoute]);
 
   // Clean up stale hash fragments (leftover from Supabase auth redirects)
   useEffect(() => {
@@ -149,7 +153,7 @@ function SalesCommandApp() {
     return () => sub.unsubscribe();
   }, []);
 
-  if (session === undefined || !bootMinElapsed) {
+  if ((session === undefined || !bootMinElapsed) && !isCustomerSigningRoute) {
     return <><style>{GLOBAL_CSS}</style><RadarLoader /></>;
   }
 
@@ -172,7 +176,7 @@ function SalesCommandApp() {
   }
 
   // Wait for team member data before rendering the app
-  if (teamMember === undefined || !bootMinElapsed) {
+  if ((teamMember === undefined || !bootMinElapsed) && !isCustomerSigningRoute) {
     return <><style>{GLOBAL_CSS}</style><RadarLoader /></>;
   }
 

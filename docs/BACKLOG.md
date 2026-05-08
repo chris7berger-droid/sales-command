@@ -5,7 +5,7 @@ that completes, defers, or discovers an item. Status values: `Open`,
 `In Progress`, `Blocked`, `Done` (move Done items to the Completed Log
 at the bottom and out of the active table within a session or two).
 
-Last updated: 2026-05-08 (B8 closed; tiers introduced; B6 closed retro; S2 added)
+Last updated: 2026-05-08 (B11 added — pay-app routing gap; B8 closed; tiers introduced; B6 closed retro; S2 added)
 Last full sweep: 2026-05-08 — every Open row re-evaluated against current code; B6 caught as already-shipped during this sweep.
 
 ## Tier definitions
@@ -39,6 +39,7 @@ as the first line of the Notes column.
 
 | ID  | Tier | Status | Item                                                                          | Source           | Notes                                                                                                                                                       |
 |-----|------|--------|-------------------------------------------------------------------------------|------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| B11 | T2   | Open   | Sold proposals with `requires_pay_app=true` fall back to regular invoice flow when `billing_schedule` is missing | Found 2026-05-08 (B8 smoke) | Routing in `NewInvoiceModal.selectProposal` (`Invoices.jsx:89`) gates on existence of `billing_schedule`, not on `customers.requires_pay_app`. Schedule is auto-created only when all WTCs lock (`ProposalDetail.jsx:253`); archive-imported / approved-without-locking proposals reach Sold without one. Result: Create Invoice routes to the regular invoice modal even though the customer is flagged for pay apps. **Repro**: KalB Legislative — Weather Proofing P1 (KalB Industries, `requires_pay_app=true`, archive proposal, no `billing_schedule`) → regular invoice modal opens instead of NewPayAppModal. **Fix candidates**: (a) auto-create `billing_schedule` on Sold-transition for flagged customers; (b) surface a "Generate Pay App Schedule" button on Sold proposals where `requires_pay_app=true` and no schedule exists. ~half-day either way. |
 | B1  | T3   | Open   | WTC step tabs clip at narrow widths, no nav to later steps                    | Found 2026-04-18 | Add horizontal scroll or wrap at small breakpoints. Affects narrow-screen users only. |
 | B2  | T3   | Open   | `send-invoice` error surfacing — apply `fnErr.context.json()` pattern         | v90 carryforward | Pattern lives in QBLinkModal. UX polish, not a bug per se. |
 | B3  | T3   | Open   | Page remount on list ↔ detail transitions                                     | v90 carryforward | Performance polish; minor flicker. |

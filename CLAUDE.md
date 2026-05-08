@@ -35,6 +35,36 @@ Use `Closes <ID>` only when the row is being marked Closed in the same commit. U
 
 ---
 
+## Backlog report format
+
+When asked for a "backlog report" (or similar), render `docs/BACKLOG.md` as:
+
+1. **Key/legend** at top — tier definitions + score format.
+2. **Grouped by Tier** (T0 → T4), Open and In Progress only; skip Completed Log unless asked.
+3. **Each row a bullet**: `**ID** [scores] — one-sentence description (Blocks/Blocked by, if any).`
+4. **Inline scores only for T1 and T2.** T3 and T4 get a single pass-through line listing IDs (scores omitted to keep the report scannable).
+5. **End** with one-line totals: "Open: X, In Progress: Y."
+
+### Scoring vocabulary
+
+For **bugs and security findings** — render as `[Sev N · Like N · Eff X]`:
+
+- **Severity (1–10)** — if this bites, how bad?
+  - 1–2 cosmetic · 3–4 minor UX irritation, internal-only · 5–6 customer-visible UX bug · 7–8 revenue-affecting (failed invoice, broken QB sync, missed billing) · 9 data loss / leaked credentials · 10 cross-tenant data exposure or full prod down.
+- **Likelihood (1–10)** — how likely to bite this quarter, given current state?
+  - 1–2 latent / multi-step preconditions · 3–4 rare edge case with workaround · 5–6 occasional / intermittent · 7–8 frequent in normal use · 9–10 every time / blocking.
+- **Effort** — 1h · half-day · day · multi-day · sprint.
+
+For **features and refactor** — render as `[Lev N · Eff X]`:
+
+- **Leverage (1–10)** — strategic value of shipping.
+  - 1–2 pure cleanup, no downstream effect · 3–4 unblocks one feature/use case · 5–6 improves a regularly-used flow · 7–8 unblocks revenue or major feature · 9–10 unlocks growth / new product.
+- **Effort** — same scale as above.
+
+**Composites (optional, only when asked)**: Risk = Severity × Likelihood (bug ranking). ROI = Leverage / Effort (feature ranking). Tier (T0–T4) is the final human-judged call — informed by, but not mechanically derived from, the scores.
+
+---
+
 ## Style Rules
 
 1. **No white backgrounds** in the internal app. Use `C.linen`, `C.linenCard`,

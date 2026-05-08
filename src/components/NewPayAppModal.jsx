@@ -95,7 +95,9 @@ export default function NewPayAppModal({ schedule, lines, proposal, onClose, onC
     const prior$ = priorAmountForLine(l.id);
     const priorPct = priorPctForLine(l.id, sv);
     const newPct = parseFloat(pctToDate[l.id]) || 0;
-    const newAmount = sv * (newPct / 100);
+    // Floor newAmount at prior$: empty input means "no new claim against this line",
+    // not "regress cumulative to 0". Keeps AIA G702 invariant L4 - L5 = L6 ≥ 0.
+    const newAmount = Math.max(prior$, sv * (newPct / 100));
     const thisAppAmount = Math.max(0, newAmount - prior$);
     return { line: l, sv, prior$, priorPct, newPct, newAmount, thisAppAmount };
   });

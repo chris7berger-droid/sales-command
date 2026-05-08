@@ -95,7 +95,9 @@ export default function NewPayAppModal({ schedule, lines, proposal, onClose, onC
     const prior$ = priorAmountForLine(l.id);
     const priorPct = priorPctForLine(l.id, sv);
     const newPct = parseFloat(pctToDate[l.id]) || 0;
-    const newAmount = sv * (newPct / 100);
+    // Floor newAmount at prior$: empty input means "no new claim against this line",
+    // not "regress cumulative to 0". Keeps AIA G702 invariant L4 - L5 = L6 ≥ 0.
+    const newAmount = Math.max(prior$, sv * (newPct / 100));
     const thisAppAmount = Math.max(0, newAmount - prior$);
     return { line: l, sv, prior$, priorPct, newPct, newAmount, thisAppAmount };
   });
@@ -108,7 +110,7 @@ export default function NewPayAppModal({ schedule, lines, proposal, onClose, onC
   const currentPaymentDue = grossThisBilling - retentionThisPeriod;
 
   function validate() {
-    if (!periodFrom || !periodTo) return "Period from and to are required";
+    if (!periodFrom || !periodTo) return "Set the billing period (From and To dates) at the top before creating.";
     if (grossThisBilling <= 0) return "Enter at least one line's % to date above its current value";
     for (const c of computed) {
       if (c.newPct < c.priorPct - 0.001) return `${c.line.description.slice(0, 40)}: % to date cannot be less than previous (${c.priorPct.toFixed(1)}%)`;

@@ -1,0 +1,208 @@
+SC Handoff v103 — 2026-05-08
+============================
+
+SESSION SUMMARY
+This session was about prioritization hygiene and one shipped bug fix.
+We merged the S1 paperwork PR (already-live migration), closed B6
+retroactively after audit caught the fix had shipped 4 days earlier,
+restructured BACKLOG with a T0–T4 tier system replacing the old H/M/L
+Pri field, codified two new commit conventions in CLAUDE.md, then
+shipped B8 (NewPayAppModal negative totals) via PR #18 with a bonus
+period-required validation message rewrite. Filed two new backlog
+items along the way: S2 (orphan-auth alarm) and B11 (pay-app routing
+gap on archive-imported proposals).
+
+CHANGES SHIPPED (all on main)
+─────────────────────────────────────────────────────────────────
+a998660 — fix(security): S1 — drop get_user_tenant_id() COALESCE fallback (PR #17)
+  Squash-merge of branch fix/s1-get-user-tenant-id-no-fallback.
+  Migration already live on prod; this PR was paperwork. Plan agent
+  reviewed and verdict was "ship as-is" — orphan gate, NULL semantics,
+  v_orphan_auth_users view, and search_path hardening all preserved.
+  Files: supabase/migrations/20260509120000_get_user_tenant_id_remove_fallback.sql,
+         supabase/rollbacks/20260509120100_revert_*.sql,
+         docs/plans/s1_remove_get_user_tenant_id_fallback.md,
+         3 sql/ seed files synced to current prod helper bodies.
+
+76443ca — docs(BACKLOG): add S2 — orphan-auth steady-state alarm
+  Filed as T2 follow-up to S1. Daily cron on
+  `SELECT count(*) FROM v_orphan_auth_users`. Currently 0 orphans;
+  becomes load-bearing the moment F7 multi-tenant onboarding lands.
+  Likely path: edge function + cron.schedule via pg_net.http_post
+  (matches existing Resend-using fns). ~30–45 min when picked up.
+  Marked Blocks: F7.
+
+d13a8f7 — docs(BACKLOG): close B6 retroactively — QB OAuth 403
+  Audit during prioritization sweep caught that f68e417 (2026-05-04)
+  had already shipped the exact fix in the B6 hypothesis:
+  `verify_jwt = false` on qb-auth in supabase/config.toml +
+  waitForSession retry loop in QBCallbackPage.jsx. Moved B6 to
+  Completed Log without a code change. Surfaced the failure mode
+  that produced this drift: BACKLOG rows go stale because nothing
+  forces re-evaluation. Mitigation landed in 7715177 (below).
+
+7715177 — docs: introduce tier-based prioritization + backlog/commit hygiene rules
+  Two-pronged change:
+  1. BACKLOG.md: replaced one-dimensional Pri (H/M/L) with Tier
+     (T0–T4) capturing severity × likelihood-soon × cost × strategic
+     leverage as one decision. Surfaced dependency chains
+     (Blocks: F7 / Blocked by: H5, S2). Added "Last full sweep"
+     date so rows can't drift. Re-tiered every Open row against
+     current code; tentative tiers on feature rows where scope is
+     unclear, flagged for re-tier.
+  2. CLAUDE.md: new "Backlog hygiene" section tightening the
+     existing "same session" rule to "same commit + commit SHA".
+     New "Commit message convention" section: `Closes <ID>` /
+     `Touches <ID>` in subject lines when a commit moves a backlog
+     row.
+
+afb3ba8 — docs(CLAUDE): codify backlog report format + scoring vocabulary
+  Stable spec for "give me a backlog report" so any session knows
+  the format without re-specifying:
+    - Key/legend up top (tiers + score format)
+    - Grouped by Tier (T0 → T4), Open + In Progress only
+    - Inline scores only for T1/T2 (T3/T4 pass-through)
+    - Bugs/security: [Sev N · Like N · Eff X], anchored 1–10 scales
+    - Features/refactor: [Lev N · Eff X]
+    - Composites Risk / ROI defined but only rendered on request
+    - Tier remains the human-judged final call
+
+cf45f84 — Closes B8: clamp Gross Completed to Date at prior billings (PR #18)
+  Squash-merge of branch fix/b8-payapp-negative-totals. Two
+  commits in the branch:
+    1d69959 — Closes B8 (the math fix + BACKLOG move to Completed Log)
+    71234a8 — Touches B8 (clearer "Period required" validation message)
+  Math fix is one word at src/components/NewPayAppModal.jsx:98:
+    const newAmount = Math.max(prior$, sv * (newPct / 100));
+  Plan agent picked Option C over A (sum-of-thisAppAmount) because
+  C preserves the AIA G702 invariant L4 − L5 = L6 ≥ 0 that
+  bookkeepers reconcile against. Rejected Option B (pre-fill
+  pctToDate with priorPct) because the existing init code at
+  NewPayAppModal.jsx:60 has an explicit author comment against it.
+  Validation message rewrite: "Period from and to are required" →
+  "Set the billing period (From and To dates) at the top before
+  creating." (offending fields are top of modal, error banner was
+  bottom — disconnected).
+
+84c703d — docs(BACKLOG): file B11 — pay-app routing gap on archive proposals
+  Discovered during B8 smoke test. KalB Legislative — Weather
+  Proofing P1 (KalB Industries, requires_pay_app=true, archive
+  proposal, no billing_schedule) → Create Invoice opens regular
+  invoice modal instead of NewPayAppModal. Routing in
+  NewInvoiceModal.selectProposal (Invoices.jsx:89) gates on
+  existence of billing_schedule, NOT on customers.requires_pay_app.
+  Schedule is auto-created only when all WTCs lock
+  (ProposalDetail.jsx:253); archive-imported / approved-without-
+  locking proposals reach Sold without one. Marked T2 with two fix
+  candidates: (a) auto-create on Sold-transition for flagged
+  customers; (b) manual "Generate Pay App Schedule" button.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+- Replace one-dimensional Pri with Tier. The H/M/L field was
+  failing in practice (unenforced, severity-only, didn't capture
+  leverage). Tier (T0–T4) is the composite human call, with the
+  scoring vocabulary spelling out what feeds into it.
+- Inline scores only for T1/T2 in the report. T3 has 22 items;
+  scoring all of them is cognitive overload for no gain (they're
+  already deferred).
+- Tight scope on PR #18. UX rabbit hole opened mid-session
+  (column rename "% To Date" → "% Complete" / "% This Period",
+  hover tooltip, on-input warning for below-prior values). Chris
+  cut the discussion at "I'm over this distraction." Bundled only
+  the period-required message rewrite (zero risk, complementary)
+  into PR #18; deferred the rest.
+- Smoke testing on PR #18 was partial. Chris hit B11 instead of
+  completing Tests 2–7. Authorized merge anyway based on math
+  trivially being correct ("make it live if it's ready"). Math is
+  one Math.max() call; I judge this safe.
+
+NEW BACKLOG ITEMS
+─────────────────
+S2  (T2, Open)  — Daily cron alarm on v_orphan_auth_users count.
+                  Blocks F7. ~30–45 min.
+B11 (T2, Open)  — Sold + requires_pay_app proposals fall back to
+                  regular invoice flow when billing_schedule is
+                  missing. ~half-day either fix path.
+
+CLOSED THIS SESSION
+───────────────────
+S1  — get_user_tenant_id() COALESCE fallback removed (PR #17 paperwork).
+B6  — QB OAuth 403 (closed retroactively; fix had shipped 2026-05-04).
+B8  — NewPayAppModal negative totals + period-required message (PR #18).
+
+VERIFICATION
+────────────
+- PR #17 squash-merged. Migration was already live on prod from
+  the c893aee push earlier in the week; PR was audit-trail.
+- PR #18 squash-merged after Vercel preview deploy succeeded.
+  Smoke partial: Test 1 (the original repro on Plenium AGRU) was
+  not explicitly run because Chris pivoted to B11 discovery. Math
+  is a single Math.max() guard; behavior on submittable states is
+  identical (validate() still gates on grossThisBilling <= 0, so
+  persisted invoice/pay_app values are unchanged). Period-required
+  message confirmed on preview.
+- B11 confirmed on Vercel preview deploy of PR #18 (KalB Legislative
+  — Weather Proofing P1 routes to regular invoice modal).
+- Vercel auto-deployed scmybiz.com from main after both squash-merges.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+- B11 fix itself (just filed). Two paths recorded in BACKLOG row.
+- H5 (token expiry / single-use). Still T2, Blocks: F7.
+- The "% To Date" column rename + delta-input UX rewire — Chris
+  shut down the discussion. If revisited later, the choices are
+  documented in the conversation: "Total To Date" + inline
+  warning (cumulative, ~10 min), or full delta-input flip
+  (~30 min math + validation rewire).
+- Hover tooltip on the % To Date input — Chris said skip.
+- supabase/.temp/* still tracked + modified in working tree.
+  Pre-existing carryforward from v101/v102; gitignored but tracked.
+- Archive variant of get_user_tenant_id() lacks AND active = true
+  (carryforward from v102 — still not in scope).
+
+NEXT SESSION POINTERS
+─────────────────────
+The current T1/T2 board:
+  T1 (this session): empty — nothing flagged blocking-and-quick
+  T2 (this sprint):  H5 → S2 → F7 (dependency chain), plus F5, B11
+  T3 (when convenient): 22 rows
+  T4 (only if forced): 1 row (audit triage, needs report retrieval)
+
+Suggested next moves:
+  1. H5 (token expiry) — last open High-severity security item.
+     Standalone, F7-gating. Half-day to a day.
+  2. B11 (pay-app routing gap) — fresh, Chris hit it today, real
+     workflow blocker on archive-imported proposals. ~half-day.
+  3. S2 (orphan-auth alarm) — small, F7-gating, fresh context.
+     ~30–45 min.
+  4. F7 (multi-tenant onboarding) — sprint-sized growth unlock,
+     blocked by H5 + S2.
+
+The tier-based BACKLOG plus the new commit conventions
+(`Closes <ID>` / `Touches <ID>`) are the durable workflow change
+out of this session — both spec'd in CLAUDE.md.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+docs/BACKLOG.md
+  — restructured. Tier definitions, Last full sweep date, dependency
+    lines (Blocks / Blocked by). Read this first per CLAUDE.md.
+CLAUDE.md
+  — new sections: Backlog hygiene, Commit message convention,
+    Backlog report format. Read after BACKLOG to know the rules.
+src/components/NewPayAppModal.jsx
+  — line 98 has the new Math.max(prior$, ...) clamp; line 113 has
+    the new period-required message.
+src/components/ProposalDetail.jsx:253-272 + src/pages/Invoices.jsx:89
+  — the B11 routing gap. Two files to consider for the fix.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: main (clean of session changes; up to date with origin).
+- Latest commit: 84c703d (docs(BACKLOG): file B11).
+- Working tree noise (carryforward from v102, unchanged):
+    M supabase/.temp/cli-latest, gotrue-version,
+      storage-migration, storage-version
+- No open PRs. PR #17 and PR #18 both merged + branches deleted.
+- No scratch projects. No /tmp artifacts.

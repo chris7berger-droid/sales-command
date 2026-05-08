@@ -17,6 +17,10 @@ When you finish, defer, or discover an item, **update `docs/BACKLOG.md` in the
 same session.** Stale memory has caused duplicate work and surprises — the file
 is the cure.
 
+After reading `docs/BACKLOG.md`, **read the most recent `docs/handoffs/SC_Handoff_v*.txt`** for the prior session's context (decisions made, items deferred, next-session pointers). The handoff is reference, not dictation — use it to orient, then defer to the current state of the code and BACKLOG.
+
+When wrapping up a session, **write a new `docs/handoffs/SC_Handoff_v<N+1>.txt`** following the structure of recent handoffs (Session Summary → Changes Shipped → Decisions → New/Closed Backlog Items → Verification → Not Touched → Next Session Pointers → Files To Know → Git State).
+
 ---
 
 ## Backlog hygiene

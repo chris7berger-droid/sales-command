@@ -19,6 +19,22 @@ is the cure.
 
 ---
 
+## Backlog hygiene
+
+Before starting any task, read `docs/BACKLOG.md` and check whether the work touches an open row. Before committing, if the change closes or alters a backlog item, update that row in the same commit (mark Closed with the commit SHA, or revise scope/status).
+
+---
+
+## Commit message convention for backlog items
+
+When a commit closes or touches a backlog row, reference its ID in the subject line:
+- `Closes B8: fix line-item tax rounding in pay app totals`
+- `Touches F7: scaffold tenant table (does not close)`
+
+Use `Closes <ID>` only when the row is being marked Closed in the same commit. Use `Touches <ID>` for partial progress.
+
+---
+
 ## Style Rules
 
 1. **No white backgrounds** in the internal app. Use `C.linen`, `C.linenCard`,

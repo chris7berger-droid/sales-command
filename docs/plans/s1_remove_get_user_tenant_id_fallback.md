@@ -110,7 +110,13 @@ All queries run via Supabase Studio SQL Editor on project `pbgvgjjuhnpsumnowuym`
    grep -rn "get_user_tenant_id" supabase/migrations/ sql/ \
      | grep -vE "USING|WITH CHECK|DEFAULT|CREATE OR REPLACE FUNCTION|ALTER COLUMN|--|public.get_user_tenant_id\(\)$"
    ```
-   The second command surfaces any callers outside the four expected categories: RLS predicates, column DEFAULTs, function definitions, and PL/pgSQL assignments (`v_tenant_id := public.get_user_tenant_id();`). Expect only the two PL/pgSQL assignments at `customer_delete_merge.sql:123` and `:216`, both already guarded by `IF NULL THEN RAISE` (lines 125 and 218 respectively). If anything else surfaces, audit it before proceeding.
+   The second command surfaces any callers outside the four expected categories: RLS predicates, column DEFAULTs, function definitions, and PL/pgSQL assignments (`v_tenant_id := public.get_user_tenant_id();`). Expect three PL/pgSQL assignments, all already guarded by `IF NULL THEN RAISE EXCEPTION 'NO_TENANT'`:
+
+   - `customer_delete_merge.sql:123` (guard at 125)
+   - `customer_delete_merge.sql:216` (guard at 218)
+   - `call_log_merge.sql:121` (guard at 123) — added in migration `20260507120000`, post-dates the original plan draft
+
+   If anything else surfaces (e.g. an unguarded assignment, or a call from outside these four categories), audit it before proceeding.
 
 4. **App-side bootstrap inspection — already done in this plan:**
    - `src/lib/auth.js:34-46` (`getCurrentTeamMember`) returns `null` cleanly via `.single()` error path; no throw.

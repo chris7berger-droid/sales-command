@@ -370,18 +370,28 @@ CREATE POLICY "wt_sow_delete" ON public.work_type_sow_templates
 -- Set search_path explicitly on all custom functions
 -- ============================================================
 
+-- Returns NULL on miss (no active team_members row for auth.uid()).
+-- Migration 20260509120000 removed the prior COALESCE fallback to
+-- public.tenant_config — see plan
+-- docs/plans/s1_remove_get_user_tenant_id_fallback.md.
 CREATE OR REPLACE FUNCTION public.get_user_tenant_id()
 RETURNS uuid AS $$
-  SELECT COALESCE(
-    (SELECT tenant_id FROM public.team_members WHERE auth_id = auth.uid() LIMIT 1),
-    (SELECT id FROM public.tenant_config LIMIT 1)
-  );
+  SELECT tenant_id
+    FROM public.team_members
+   WHERE auth_id = auth.uid()
+     AND active = true
+   LIMIT 1;
 $$ LANGUAGE sql SECURITY DEFINER STABLE
 SET search_path = public;
 
+-- Archive variant. Migration 20260416230000 removed the prior
+-- tenant_config-only body; this seed copy matches that prod body.
 CREATE OR REPLACE FUNCTION archive.get_user_tenant_id()
 RETURNS uuid AS $$
-  SELECT tc.id FROM public.tenant_config tc LIMIT 1;
+  SELECT tenant_id
+    FROM public.team_members
+   WHERE auth_id = auth.uid()
+   LIMIT 1;
 $$ LANGUAGE sql SECURITY DEFINER STABLE
 SET search_path = public, archive;
 

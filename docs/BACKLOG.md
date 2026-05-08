@@ -5,7 +5,7 @@ that completes, defers, or discovers an item. Status values: `Open`,
 `In Progress`, `Blocked`, `Done` (move Done items to the Completed Log
 at the bottom and out of the active table within a session or two).
 
-Last updated: 2026-05-07 (S1 in progress)
+Last updated: 2026-05-07 (S1 closed)
 
 ---
 
@@ -17,7 +17,6 @@ Last updated: 2026-05-07 (S1 in progress)
 |-------|-----|-------------|---------------------------------------------------------------------------------------------------|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | H5    | H   | Open        | Token expiry / single-use (`signing_token_expires_at`)                                            | Deep audit 2026-04-30           | Add expiry column, enforce in policies + RPCs.                                                                                                                                              |
 | L15   | L   | Open        | `qb_connection` stores refresh tokens in plaintext                                                | Original audit 2026-04-26       | Move to Supabase Vault.                                                                                                                                                                     |
-| S1    | L   | In Progress | `get_user_tenant_id()` COALESCE fallback fires for auth users with no `team_members` row          | Found 2026-05-05; verified prod | Plan: `docs/plans/s1_remove_get_user_tenant_id_fallback.md`. Drop fallback, NULL on miss, pre-apply orphan gate, permanent `v_orphan_auth_users` view. Single-tenant prod = latent bug; multi-tenant onboarding (F7) makes it active. |
 | —     | ?   | Open        | Triage remaining 13 Medium + 9 Low audit findings                                                 | Deep audit (branch was `claude/sweet-johnson-vvCCt`, deleted by v93 cleanup) | Audit report needs to be retrieved from PR/cache before triage — branch was deleted with other claude/* branches.                                                                          |
 
 ### Bugs
@@ -89,6 +88,7 @@ older entries to a per-version handoff and trim here.
 
 | Date       | ID  | Item                                                                                                                          | Where done         |
 |------------|-----|-------------------------------------------------------------------------------------------------------------------------------|--------------------|
+| 2026-05-07 | S1  | `public.get_user_tenant_id()` COALESCE fallback removed; body now returns NULL on miss + scoped to `active=true`. Pre-apply orphan gate (one-shot DO block) + permanent `v_orphan_auth_users` steady-state view. Three seed files synced to new prod body. Tests 1–6 passed on scratch (`xuovwlhqztqljyvveicu`, deleted post-test); prod push clean (0 orphans), live smoke green (call_log insert via New Inquiry wizard resolved tenant correctly). | commit `c893aee`, migration `20260509120000_get_user_tenant_id_remove_fallback.sql`, rollback `supabase/rollbacks/20260509120100_…sql`, plan `docs/plans/s1_remove_get_user_tenant_id_fallback.md`, handoff v102 |
 | 2026-05-06 | H4  | `proposal_signatures.tenant_id` now derived from parent proposal via `BEFORE INSERT` trigger `trg_proposal_signatures_set_tenant`; column DEFAULT (`get_user_tenant_id()`) dropped. Closes the latent cross-tenant write that would have activated on the second tenant being provisioned. Verified on scratch project with two tenants + live prod signing test (5 most recent signatures all match parent). Token-only anon INSERT policy unchanged. | commit `1660795`, migration `20260508120000_proposal_signatures_tenant_id_trigger.sql` |
 | 2026-05-06 | B10 | Unique partial index on `call_log(tenant_id, job_number, COALESCE(co_number,0))` excluding archived + retry guards on PG 23505 in `NewInquiryWizard.jsx` and `ImportToLiveWizard.jsx`. | PR #15 (`92b0696`), migration `20260507130000_call_log_unique_job_number.sql` |
 | 2026-05-06 | B9  | Merge Job feature — `merge_call_log()` RPC + `MergeJobModal.jsx` + Merge button on Job Detail. Re-points proposals/invoices/`job_work_types`/CO children, archives loser, admin/manager only, hidden on COs and archived rows. | PR #13 (`74cbbc5`), migration `20260507120000_call_log_merge.sql` |

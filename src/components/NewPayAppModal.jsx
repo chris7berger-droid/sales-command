@@ -110,7 +110,7 @@ export default function NewPayAppModal({ schedule, lines, proposal, onClose, onC
   const currentPaymentDue = grossThisBilling - retentionThisPeriod;
 
   function validate() {
-    if (!periodFrom || !periodTo) return "Period from and to are required";
+    if (!periodFrom || !periodTo) return "Set the billing period (From and To dates) at the top before creating.";
     if (grossThisBilling <= 0) return "Enter at least one line's % to date above its current value";
     for (const c of computed) {
       if (c.newPct < c.priorPct - 0.001) return `${c.line.description.slice(0, 40)}: % to date cannot be less than previous (${c.priorPct.toFixed(1)}%)`;

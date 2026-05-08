@@ -5,7 +5,7 @@ that completes, defers, or discovers an item. Status values: `Open`,
 `In Progress`, `Blocked`, `Done` (move Done items to the Completed Log
 at the bottom and out of the active table within a session or two).
 
-Last updated: 2026-05-07 (S1 closed)
+Last updated: 2026-05-08 (S2 added — orphan-auth steady-state alarm)
 
 ---
 
@@ -17,6 +17,7 @@ Last updated: 2026-05-07 (S1 closed)
 |-------|-----|-------------|---------------------------------------------------------------------------------------------------|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | H5    | H   | Open        | Token expiry / single-use (`signing_token_expires_at`)                                            | Deep audit 2026-04-30           | Add expiry column, enforce in policies + RPCs.                                                                                                                                              |
 | L15   | L   | Open        | `qb_connection` stores refresh tokens in plaintext                                                | Original audit 2026-04-26       | Move to Supabase Vault.                                                                                                                                                                     |
+| S2    | L   | Open        | Schedule daily alarm on `SELECT count(*) FROM public.v_orphan_auth_users`                         | S1 review 2026-05-08            | Steady-state guard for the S1 fix. Currently 0 orphans; becomes load-bearing the moment F7 multi-tenant onboarding lands. Likely path: new edge function querying the view + `cron.schedule` via `pg_net.http_post` (matches existing Resend-using fns). Suggested cron query at `docs/handoffs/SC_Handoff_v102.txt:213-216`. Must ship before F7. |
 | —     | ?   | Open        | Triage remaining 13 Medium + 9 Low audit findings                                                 | Deep audit (branch was `claude/sweet-johnson-vvCCt`, deleted by v93 cleanup) | Audit report needs to be retrieved from PR/cache before triage — branch was deleted with other claude/* branches.                                                                          |
 
 ### Bugs

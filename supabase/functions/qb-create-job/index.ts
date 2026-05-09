@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { authenticateCaller, unauthorizedResponse } from "../_shared/tenantAuth.ts";
 
 const QB_CLIENT_ID = Deno.env.get("QB_CLIENT_ID")!;
 const QB_CLIENT_SECRET = Deno.env.get("QB_CLIENT_SECRET")!;
@@ -14,9 +15,9 @@ const QB_API_BASE = QB_ENVIRONMENT === "production"
 const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 
 // ── Helper: get fresh QB access token ──────────────────────────────────
-async function getQBToken(sb: any) {
-  const { data: conn } = await sb.from("qb_connection").select("*").limit(1).single();
-  if (!conn) throw new Error("No QuickBooks connection found. Connect QB first.");
+async function getQBToken(sb: any, tenantId: string) {
+  const { data: conn } = await sb.from("qb_connection").select("*").eq("tenant_id", tenantId).maybeSingle();
+  if (!conn) throw new Error("No QuickBooks connection found for tenant.");
 
   // If token expires within 5 minutes, refresh it
   if (new Date(conn.token_expires_at) < new Date(Date.now() + 5 * 60 * 1000)) {
@@ -38,12 +39,14 @@ async function getQBToken(sb: any) {
     if (!tokenRes.ok) throw new Error(`Token refresh failed: ${tokenData.error || "unknown"}`);
 
     const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
-    await sb.from("qb_connection").update({
+    const { data: updated, error: updErr } = await sb.from("qb_connection").update({
       access_token: tokenData.access_token,
       refresh_token: tokenData.refresh_token,
       token_expires_at: expiresAt,
       updated_at: new Date().toISOString(),
-    }).eq("id", conn.id);
+    }).eq("id", conn.id).eq("tenant_id", tenantId).select("id").maybeSingle();
+    if (updErr) throw new Error(`QB token refresh failed: ${updErr.message}`);
+    if (!updated) throw new Error("QB token refresh failed: no matching qb_connection for tenant");
 
     return { accessToken: tokenData.access_token, realmId: conn.realm_id };
   }
@@ -97,22 +100,9 @@ serve(async (req) => {
   try {
     const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Verify caller is authenticated
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      });
-    }
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authErr } = await sb.auth.getUser(token);
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      });
-    }
+    const caller = await authenticateCaller(sb, req, SUPABASE_SERVICE_ROLE_KEY);
+    if (!caller.ok) return unauthorizedResponse(caller.status, corsHeaders);
+    if (caller.isServiceRole) return unauthorizedResponse(403, corsHeaders);
 
     const { callLogId, proposalId } = await req.json();
     if (!callLogId) {
@@ -121,9 +111,10 @@ serve(async (req) => {
       });
     }
 
-    // Fetch call log with customer
+    // Fetch call log + assert tenant before any QB call or write.
     const { data: job } = await sb.from("call_log").select("*").eq("id", callLogId).single();
     if (!job) throw new Error(`Call log ${callLogId} not found`);
+    if (job.tenant_id !== caller.tenantId) return unauthorizedResponse(403, corsHeaders);
 
     // Skip QB sync per flags. Order matters: qb_skip_sync wins (manual override).
     // Archive proposals always skip create — when linked, the user manually picked
@@ -131,7 +122,11 @@ serve(async (req) => {
     // when unlinked, there's nothing to attach an invoice to anyway.
     let isArchiveProposal = false;
     if (proposalId) {
-      const { data: prop } = await sb.from("proposals").select("is_archive_proposal").eq("id", proposalId).maybeSingle();
+      const { data: prop } = await sb.from("proposals")
+        .select("is_archive_proposal")
+        .eq("id", proposalId)
+        .eq("tenant_id", caller.tenantId)
+        .maybeSingle();
       isArchiveProposal = !!prop?.is_archive_proposal;
     }
     if (job.qb_skip_sync) {
@@ -148,14 +143,19 @@ serve(async (req) => {
       });
     }
 
-    // Fetch customer record
+    // Fetch customer record (tenant-scoped — call_log.customer_id should already
+    // belong to the same tenant via FK + RLS, but defense-in-depth).
     let customer = null;
     if (job.customer_id) {
-      const { data: c } = await sb.from("customers").select("*").eq("id", job.customer_id).single();
+      const { data: c } = await sb.from("customers")
+        .select("*")
+        .eq("id", job.customer_id)
+        .eq("tenant_id", caller.tenantId)
+        .single();
       customer = c;
     }
 
-    const { accessToken, realmId } = await getQBToken(sb);
+    const { accessToken, realmId } = await getQBToken(sb, caller.tenantId);
 
     // ── 1. Find or create PARENT customer ──────────────────────────────
     const parentName = job.customer_name || customer?.name || "Unknown Customer";
@@ -190,12 +190,18 @@ serve(async (req) => {
 
       // Save QB ID to customers table
       if (customer && !customer.qb_customer_id) {
-        await sb.from("customers").update({ qb_customer_id: parentQB.Id }).eq("id", customer.id);
+        await sb.from("customers")
+          .update({ qb_customer_id: parentQB.Id })
+          .eq("id", customer.id)
+          .eq("tenant_id", caller.tenantId);
       }
     } else {
       console.log("qb-create-job: parent found, QB ID:", parentQB.Id);
       if (customer && !customer.qb_customer_id) {
-        await sb.from("customers").update({ qb_customer_id: parentQB.Id }).eq("id", customer.id);
+        await sb.from("customers")
+          .update({ qb_customer_id: parentQB.Id })
+          .eq("id", customer.id)
+          .eq("tenant_id", caller.tenantId);
       }
     }
 
@@ -260,7 +266,10 @@ serve(async (req) => {
     }
 
     // Save the QB sub-customer ID to call_log for later invoice linking
-    await sb.from("call_log").update({ qb_customer_id: subQB.Id }).eq("id", callLogId);
+    await sb.from("call_log")
+      .update({ qb_customer_id: subQB.Id })
+      .eq("id", callLogId)
+      .eq("tenant_id", caller.tenantId);
 
     return new Response(JSON.stringify({
       success: true,

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { authenticateCaller, unauthorizedResponse } from "../_shared/tenantAuth.ts";
 
 const QB_CLIENT_ID = Deno.env.get("QB_CLIENT_ID")!;
 const QB_CLIENT_SECRET = Deno.env.get("QB_CLIENT_SECRET")!;
@@ -13,9 +14,9 @@ const QB_API_BASE = QB_ENVIRONMENT === "production"
 
 const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 
-async function getQBToken(sb: any) {
-  const { data: conn } = await sb.from("qb_connection").select("*").limit(1).single();
-  if (!conn) throw new Error("No QuickBooks connection found. Connect QB first.");
+async function getQBToken(sb: any, tenantId: string) {
+  const { data: conn } = await sb.from("qb_connection").select("*").eq("tenant_id", tenantId).maybeSingle();
+  if (!conn) throw new Error("No QuickBooks connection found for tenant.");
 
   if (new Date(conn.token_expires_at) < new Date(Date.now() + 5 * 60 * 1000)) {
     console.log("qb-search-customers: refreshing expired token");
@@ -36,12 +37,14 @@ async function getQBToken(sb: any) {
     if (!tokenRes.ok) throw new Error(`Token refresh failed: ${tokenData.error || "unknown"}`);
 
     const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
-    await sb.from("qb_connection").update({
+    const { data: updated, error: updErr } = await sb.from("qb_connection").update({
       access_token: tokenData.access_token,
       refresh_token: tokenData.refresh_token,
       token_expires_at: expiresAt,
       updated_at: new Date().toISOString(),
-    }).eq("id", conn.id);
+    }).eq("id", conn.id).eq("tenant_id", tenantId).select("id").maybeSingle();
+    if (updErr) throw new Error(`QB token refresh failed: ${updErr.message}`);
+    if (!updated) throw new Error("QB token refresh failed: no matching qb_connection for tenant");
 
     return { accessToken: tokenData.access_token, realmId: conn.realm_id };
   }
@@ -87,21 +90,9 @@ serve(async (req) => {
   try {
     const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      });
-    }
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authErr } = await sb.auth.getUser(token);
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      });
-    }
+    const caller = await authenticateCaller(sb, req, SUPABASE_SERVICE_ROLE_KEY);
+    if (!caller.ok) return unauthorizedResponse(caller.status, corsHeaders);
+    if (caller.isServiceRole) return unauthorizedResponse(403, corsHeaders);
 
     const { q } = await req.json();
     if (typeof q !== "string" || q.trim().length < 2) {
@@ -118,7 +109,7 @@ serve(async (req) => {
     const escaped = q.trim().replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     const query = `SELECT Id, DisplayName, CompanyName, Job, ParentRef, Active FROM Customer WHERE Active = true AND DisplayName LIKE '%${escaped}%' MAXRESULTS 25`;
 
-    const { accessToken, realmId } = await getQBToken(sb);
+    const { accessToken, realmId } = await getQBToken(sb, caller.tenantId);
     const data = await qbApi("GET", `/query?query=${encodeURIComponent(query)}`, accessToken, realmId);
 
     const customers = (data?.QueryResponse?.Customer || []).map((c: any) => ({

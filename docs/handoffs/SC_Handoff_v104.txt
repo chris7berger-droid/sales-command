@@ -1,0 +1,313 @@
+SC Handoff v104 — 2026-05-09
+============================
+
+SESSION SUMMARY
+This session shipped two of the three audit follow-throughs from the
+2026-04-30 deep audit and filed a new one discovered along the way.
+C9 (send-pay-app body trust + SSRF allowlist) and the QB tenant-scoping
+batch (qb-create-job, qb-link-customer, qb-search-customers) closed via
+PR #19, squash-merged at e662d24. Two commits pre-merge: 54a1409 (the
+build) and f02c77d (post-audit cleanups: optional-attachment-URL
+surfacing + token-refresh tenant-scoped + return-row verification).
+Filed H11 in the same merge — send-proposal trust boundary, same
+shape as audit C8 on send-invoice. All four edge functions deployed
+to prod (project pbgvgjjuhnpsumnowuym, "Command Suite DB") and
+API-verified ACTIVE. Smoke testing deferred by Chris — no live
+customer email tests were run; no QB link/create mutation tests were
+run. End state: merged, deployed, smoke deferred, ready for fresh
+session tomorrow.
+
+CHANGES SHIPPED (all on main via PR #19)
+─────────────────────────────────────────────────────────────────
+e662d24 — Closes C9 + QB tenant scoping; files H11 (#19)
+  Squash-merge of branch fix/c9-send-pay-app-and-qb-tenant-scoping.
+  Two commits in the branch:
+    54a1409 — Closes C9 + QB tenant scoping; files H11 (the build)
+    f02c77d — Touches C9 + QB scoping: post-audit cleanups
+
+  C9 — send-pay-app no longer trusts body-supplied recipientEmail,
+  PDF URLs, or senderEmail. Adopts _shared/tenantAuth.ts. Loads pay
+  app + invoice + customer chain from DB; asserts payApp.tenant_id
+  === caller.tenantId AND invoice.tenant_id === caller.tenantId AND
+  payApp.invoice_id === invoiceId (closes same-tenant cross-row send).
+  Requires invoice.pdf_url to be persisted before send (clear 400 if
+  missing). Soft recipient allowlist built server-side from
+  customer_contacts.email plus customers.{billing_email,
+  contact_email, email} for the pay app's own customer chain — typed
+  override allowed only if it matches a known contact (lowercased/
+  trimmed equality). Sender email derived from team_members.email via
+  caller.userId. PDF URLs taken from DB rows only and validated
+  against hostname=Supabase project + path prefix
+  /storage/v1/object/public/(job-attachments|signed-proposals)/.
+  Optional attachment URLs (pay-app PDF, SOV PDF, release waiver):
+  null/undefined/empty = no attachment (valid); non-empty +
+  allowlist-fail = 400 invalid_attachment_url with offending field
+  name (per audit cleanup — was silently dropped pre-cleanup). Pay-app
+  + invoice writes scoped with .eq("tenant_id", caller.tenantId)
+  defense-in-depth.
+
+  QB tenant scoping — qb-create-job, qb-link-customer,
+  qb-search-customers switched to authenticateCaller (reject service
+  role; these are user-initiated UI flows, not webhook). getQBToken(sb)
+  → getQBToken(sb, tenantId) matching qb-record-payment. Token-refresh
+  writes scoped to (id, tenant_id) AND return-row-verified via
+  .select("id").maybeSingle() with explicit "QB token refresh failed:
+  no matching qb_connection for tenant" error if no row (per audit
+  cleanup). qb-create-job and qb-link-customer load call_log and
+  assert call_log.tenant_id === caller.tenantId before any QB call or
+  DB write; proposals/customers reads scoped with .eq("tenant_id",
+  caller.tenantId); customers/call_log writes scoped same.
+  qb-search-customers no DB writes — only the getQBToken(sb,
+  caller.tenantId) switch matters. Closes the multi-tenant gap that
+  C4's qb_connection.tenant_id migration opened the door for.
+
+  H11 (filed in same merge, T2, Blocks F7) — send-proposal trust
+  boundary. Body-trusted customerEmail / signingUrl / companyName /
+  companyTagline / companyPhone / repEmail / repName /
+  proposalNumber / jobName / emailIntro, with several interpolated
+  into HTML without escapeHtml(). Same shape as audit C8 on
+  send-invoice. Vectors: low-priv tenant member redirects customer
+  email via customerEmail; stored-XSS-via-email through unescaped
+  fields. Preferred fix shape: accept proposalId, server loads
+  tenant/proposal/customer/rep, server builds signing URL from
+  proposals.signing_token, escape all HTML.
+
+DEPLOYED (project pbgvgjjuhnpsumnowuym — Command Suite DB, prod)
+────────────────────────────────────────────────────────────────
+Edge functions deployed via:
+  supabase functions deploy send-pay-app qb-create-job \
+    qb-link-customer qb-search-customers \
+    --project-ref pbgvgjjuhnpsumnowuym
+
+API-verified ACTIVE versions:
+  send-pay-app          v9
+  qb-create-job         v25
+  qb-link-customer      v4
+  qb-search-customers   v5
+
+All four bundle the shared _shared/tenantAuth.ts helper.
+Dashboard: https://supabase.com/dashboard/project/pbgvgjjuhnpsumnowuym/functions
+
+DECISIONS / CHOICES MADE
+────────────────────────
+- Recipient email enforcement: B (soft). User can type a recipient,
+  but the server validates it against a server-built allowlist:
+  customer_contacts.email ∪ customers.{billing_email, contact_email,
+  email} for the pay app's OWN customer chain. Lowercased/trimmed
+  equality. Tenant scope is implicit via the customer_id chain (pay
+  app → schedule → proposal → call_log → customer, all tenant-scoped);
+  customer_contacts has no tenant_id column. Most likely real-world
+  failure mode: rep tries to send to a one-off email not on file,
+  gets 400 "Recipient email must match a known contact." Fix is to
+  add the email to customer_contacts.
+- Single-use semantic for H5 (deferred to next session): action-only
+  consume — signing fails after first success (mark_proposal_signed
+  sets consumed_at), but get_public_proposal_view stays permissive on
+  consumed_at so the customer can revisit the signed page.
+- Two branches: C9/QB this session, H5 next session. Different review
+  surface (edge functions vs schema migration + RPC). Per audit
+  handoff lean.
+- send-proposal trust hardening: filed as H11 (separate work item),
+  not bundled into C9 branch. Keeps the C9 review surface tight; the
+  H11 fix is a substantial rewrite of send-proposal with the same
+  shape as the C8 fix on send-invoice.
+- Project ref verification before deploy: read-only check of
+  supabase/.temp/linked-project.json confirmed pbgvgjjuhnpsumnowuym
+  ("Command Suite DB") — distinct from staging ref zaeevatlpkrcmivhhrph
+  (O1, deferred deletion) and ephemeral scratch xuovwlhqztqljyvveicu
+  (S1 testing, deleted post-test). Then deployed with explicit
+  --project-ref (CLI v2.95.4 rejects --linked on functions deploy;
+  the flag is only valid on db push).
+- Smoke testing DEFERRED. No live customer email recipients touched.
+  No mutating QB calls. No mutating live customer/call_log/invoice
+  rows. No "borrowing" a real customer record.
+
+NEW BACKLOG ITEMS
+─────────────────
+H11 (T2, Open) — send-proposal trust boundary. Blocks F7. ~half day.
+                 Found 2026-05-09 during the C9 fix while reviewing
+                 send-proposal as comparison material.
+
+CLOSED THIS SESSION
+───────────────────
+C9  — send-pay-app body trust + SSRF allowlist (audit 2026-04-30
+      Critical, untouched until today). Closed via e662d24.
+QB tenant scoping (no audit ID — C4 follow-up batch) — qb-create-job,
+      qb-link-customer, qb-search-customers. Closed via e662d24.
+
+VERIFICATION
+────────────
+- Pre-merge audit terminal accepted the branch direction with two
+  cleanup requests:
+    1. Optional-attachment-URL surfacing — null/empty valid; present-
+       but-invalid 400 (was silently dropped).
+    2. Token-refresh write tenant-scoped + return-row-verified.
+  Both applied in commit f02c77d. Audit re-verified, signed off,
+  merged.
+- AUDIT_LOG.md updated: row for 54a1409 outcome flipped from
+  "shipped as-is" to "accepted-pending-changes". File now tracked in
+  git per its own header note "Build terminal commits this file on
+  its next pass."
+- Post-deploy: Supabase API confirmed all four functions ACTIVE with
+  the version IDs above.
+- NO smoke tests run today. Live behavior of all four functions is
+  unverified post-deploy. Confidence is from code review (build +
+  audit) only.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+- H5 (signing token expiry / single-use). Plan + decisions captured
+  in conversation; implementation deferred to next session. Two
+  branches, this one done first. Per Chris's earlier sign-off:
+  expiry refresh in src/components/ProposalPDFModal.jsx handleSend()
+  immediately before invoke("send-proposal", ...); do NOT regenerate
+  signing_token on resend; refresh signing_token_expires_at only.
+  Action-only consume in mark_proposal_signed; get_public_proposal_view
+  must remain permissive on consumed_at. Migration adds
+  signing_token_expires_at + signing_token_consumed_at to proposals;
+  before backfill, run preflight count of active unsigned proposals
+  whose links would immediately expire.
+- B11 fix (pay-app routing gap on archive-imported proposals). Open.
+- The "% To Date" column rename + delta-input UX rewire. Out of scope
+  per Chris ("over this distraction" 2026-05-08).
+- supabase/.temp/* still tracked + modified in working tree.
+  Pre-existing carryforward from v101/v102/v103; gitignored but
+  tracked.
+- Step 4 of the original operational plan (post-deploy wrap-up
+  commit on main: AUDIT_LOG outcome bump to "changed", BACKLOG
+  "Last updated" bump, this handoff). NOT executed — Chris cut
+  scope at end of day. Only this handoff was written.
+
+NEXT SESSION POINTERS
+─────────────────────
+First action: SAFE SMOKE PLAN. No mutations, no live emails, no
+QB writes. Order:
+
+  3a. Read-only QB customer search.
+      Invoke qb-search-customers with q: "test" (or any harmless
+      2+ char string). Expect 200, results array (possibly empty),
+      no errors. Confirms getQBToken(sb, tenantId) resolves and the
+      function still works post-deploy.
+
+  3b. Negative recipient-allowlist test — ONLY IF a safe internal/
+      test fixture exists (test customer + test pay-app + test
+      invoice with no real-customer email destination). If no safe
+      fixture exists, ASK CHRIS before doing anything; do not
+      improvise on a real record.
+      POST send-pay-app with recipientEmail: "attacker@nowhere.example"
+      on the test (payAppId, invoiceId).
+      Expect: 400, "Recipient email must match a known contact for
+      this customer."
+
+  3c. Negative attachment-URL test — ONLY IF a safe test fixture
+      exists AND Chris explicitly approves mutating a safe test row.
+      Manually update billing_schedule_pay_apps.sov_pdf_url on the
+      test row to "https://example.com/x.pdf".
+      POST send-pay-app on that test row.
+      Expect: 400, { error: "invalid_attachment_url",
+      field: "pay_app.sov_pdf_url" }.
+      Restore the test row's sov_pdf_url to its prior value after.
+
+  Hard rules: no live customer email recipients ever; no mutating
+  QuickBooks calls (no qb-create-job, no qb-link-customer writes);
+  no mutating live customer/call_log/invoice/pay-app rows;
+  "borrowing" a real customer record is NOT allowed.
+
+After smoke: pick up Step 4 wrap-up (AUDIT_LOG outcome → "changed"
+with squash SHA reference, BACKLOG "Last updated" bump). Then
+choose between H5 (T2, security, F7-gating) or H11 (T2, security,
+F7-gating) as the next build.
+
+Open follow-ups:
+  - H5 — signing token expiry / single-use. Pending. Blocks F7.
+  - H11 — send-proposal trust boundary. Open. Blocks F7.
+  - B11 — pay-app routing gap on archive-imported proposals. Open.
+  - S2 — orphan-auth steady-state alarm. Open. Blocks F7.
+
+Suggested next moves (Chris's call):
+  1. Smoke (Step 3 above) — confirm deploy works end-to-end on a
+     safe fixture before starting H5 or H11.
+  2. If smoke clean → H5 next (last open High-severity security item;
+     standalone; Chris has already signed off on the design and
+     implementation plan in v103/v104 conversations).
+  3. H11 after H5, or in parallel session.
+
+ROLLBACK NOTE (if urgent issue appears)
+────────────────────────────────────────
+Two paths, fastest first:
+
+  Function-level rollback (~2 min). Supabase dashboard at
+  https://supabase.com/dashboard/project/pbgvgjjuhnpsumnowuym/functions
+  → redeploy the prior known-good versions:
+    send-pay-app          → v8
+    qb-create-job         → v24
+    qb-link-customer      → v3
+    qb-search-customers   → v4
+  Restores prior runtime without touching git. Use this if one
+  specific function breaks and time matters more than tidiness.
+
+  Repo-level rollback (~5 min):
+    git revert -m 1 e662d24 && git push
+    supabase functions deploy send-pay-app qb-create-job \
+      qb-link-customer qb-search-customers \
+      --project-ref pbgvgjjuhnpsumnowuym
+  Use this if multiple functions are misbehaving or you want code
+  + runtime to match. NOTE: revert -m 1 also un-files H11 from
+  BACKLOG and undoes the AUDIT_LOG row addition. If you want to
+  preserve those, re-apply just the docs changes after revert.
+
+Most likely real-world failure mode to watch for: send-pay-app
+recipient allowlist (decision B / soft) is intentionally narrower
+than pre-change behavior. Pre-change: any email accepted. Post-change:
+must match customer_contacts.email or customers.{billing_email,
+contact_email, email} for that customer (lowercased/trimmed
+equality). If Chris hits this on a real send, the fix is to add
+the email to customer_contacts for that customer (preferred) or to
+one of the customer fields, then resend. Not a rollback trigger
+unless it's blocking actual billing.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+docs/BACKLOG.md
+  — H11 added to Security table. Last updated still 2026-05-09 from
+    today's mid-day commit; bump again after smoke + Step 4 wrap-up.
+docs/AUDIT_LOG.md
+  — Now tracked in git. Single row for 54a1409, outcome
+    "accepted-pending-changes". Bump to "changed" with squash SHA
+    cross-link in Step 4 wrap-up next session.
+supabase/functions/_shared/tenantAuth.ts
+  — Now used by send-invoice, qb-record-payment, qb-sync-invoice,
+    qb-void-invoice, create-billing-session, AND (as of today)
+    send-pay-app, qb-create-job, qb-link-customer, qb-search-customers.
+    Pattern is established. proposal-signed and send-proposal still
+    do not use it (proposal-signed by design — anon caller; send-
+    proposal pending H11).
+supabase/functions/send-pay-app/index.ts
+  — New shape: tenant assertions, soft recipient allowlist,
+    server-derived sender, DB-only PDF URLs, storage allowlist with
+    explicit invalid_attachment_url surfacing.
+supabase/functions/qb-{create-job,link-customer,search-customers}/index.ts
+  — New shape: authenticateCaller, getQBToken(sb, tenantId), call_log
+    tenant assertion, tenant-scoped writes, hardened token refresh.
+src/components/ProposalPDFModal.jsx (handleSend at line 51)
+  — Where H5 frontend touch will land next session: refresh
+    signing_token_expires_at on resend (do NOT regenerate
+    signing_token).
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: main (no in-progress local branch).
+- Latest commit on origin/main: e662d24 "Closes C9 + QB tenant
+  scoping; files H11 (#19)".
+- Working tree noise (carryforward from v101/v102/v103, unchanged):
+    M supabase/.temp/cli-latest, gotrue-version,
+      storage-migration, storage-version
+- No open PRs. PR #19 merged + branch deleted both sides.
+- No scratch projects. No /tmp artifacts.
+- Step 4 wrap-up commit (AUDIT_LOG → "changed", BACKLOG bump,
+  this handoff add) NOT yet on main. Tomorrow's session will land
+  it together with this handoff file.
+
+END STATE
+─────────
+Merged, deployed, smoke deferred, ready for fresh session tomorrow.

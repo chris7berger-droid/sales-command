@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { authenticateCaller, unauthorizedResponse } from "../_shared/tenantAuth.ts";
 
 const QB_CLIENT_ID = Deno.env.get("QB_CLIENT_ID")!;
 const QB_CLIENT_SECRET = Deno.env.get("QB_CLIENT_SECRET")!;
@@ -13,9 +14,9 @@ const QB_API_BASE = QB_ENVIRONMENT === "production"
 
 const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 
-async function getQBToken(sb: any) {
-  const { data: conn } = await sb.from("qb_connection").select("*").limit(1).single();
-  if (!conn) throw new Error("No QuickBooks connection found. Connect QB first.");
+async function getQBToken(sb: any, tenantId: string) {
+  const { data: conn } = await sb.from("qb_connection").select("*").eq("tenant_id", tenantId).maybeSingle();
+  if (!conn) throw new Error("No QuickBooks connection found for tenant.");
 
   if (new Date(conn.token_expires_at) < new Date(Date.now() + 5 * 60 * 1000)) {
     console.log("qb-link-customer: refreshing expired token");
@@ -87,21 +88,9 @@ serve(async (req) => {
   try {
     const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      });
-    }
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authErr } = await sb.auth.getUser(token);
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 401,
-      });
-    }
+    const caller = await authenticateCaller(sb, req, SUPABASE_SERVICE_ROLE_KEY);
+    if (!caller.ok) return unauthorizedResponse(caller.status, corsHeaders);
+    if (caller.isServiceRole) return unauthorizedResponse(403, corsHeaders);
 
     const { callLogId, qbCustomerId } = await req.json();
     if (!callLogId || typeof qbCustomerId !== "string" || !qbCustomerId.trim()) {
@@ -110,10 +99,24 @@ serve(async (req) => {
       });
     }
 
+    // Tenant binding: a user JWT may only link QB customers on call_log rows
+    // in their own tenant. Load the row and assert before any QB call or write.
+    const { data: callLog } = await sb
+      .from("call_log")
+      .select("id, tenant_id")
+      .eq("id", callLogId)
+      .maybeSingle();
+    if (!callLog) {
+      return new Response(JSON.stringify({ error: "Call log not found" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 404,
+      });
+    }
+    if (callLog.tenant_id !== caller.tenantId) return unauthorizedResponse(403, corsHeaders);
+
     // Verify the QB customer is real and active. Closes the search→pick→confirm
     // staleness window — if another user deactivated the customer between search
     // and confirm, we refuse to write a dead ID into call_log.
-    const { accessToken, realmId } = await getQBToken(sb);
+    const { accessToken, realmId } = await getQBToken(sb, caller.tenantId);
     const escapedId = String(qbCustomerId).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     const query = `SELECT Id, DisplayName, Active, ParentRef FROM Customer WHERE Id = '${escapedId}'`;
     const data = await qbApi("GET", `/query?query=${encodeURIComponent(query)}`, accessToken, realmId);
@@ -127,10 +130,13 @@ serve(async (req) => {
 
     // Service-role write — funnels the call_log update through this validated path
     // instead of relying on browser-side supabase.from("call_log").update(...) which
-    // would otherwise bypass the QB existence check.
+    // would otherwise bypass the QB existence check. Tenant scope on the WHERE
+    // clause is defense-in-depth: a TOCTOU race that flipped the row's tenant_id
+    // between our assertion above and this write would otherwise silently succeed.
     const { error: updErr } = await sb.from("call_log")
       .update({ qb_customer_id: cust.Id, qb_skip_sync: false })
-      .eq("id", callLogId);
+      .eq("id", callLogId)
+      .eq("tenant_id", caller.tenantId);
     if (updErr) throw new Error(`call_log update failed: ${updErr.message}`);
 
     console.log("qb-link-customer: linked", { callLogId, qbCustomerId: cust.Id, displayName: cust.DisplayName });

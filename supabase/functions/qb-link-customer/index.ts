@@ -37,12 +37,14 @@ async function getQBToken(sb: any, tenantId: string) {
     if (!tokenRes.ok) throw new Error(`Token refresh failed: ${tokenData.error || "unknown"}`);
 
     const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
-    await sb.from("qb_connection").update({
+    const { data: updated, error: updErr } = await sb.from("qb_connection").update({
       access_token: tokenData.access_token,
       refresh_token: tokenData.refresh_token,
       token_expires_at: expiresAt,
       updated_at: new Date().toISOString(),
-    }).eq("id", conn.id);
+    }).eq("id", conn.id).eq("tenant_id", tenantId).select("id").maybeSingle();
+    if (updErr) throw new Error(`QB token refresh failed: ${updErr.message}`);
+    if (!updated) throw new Error("QB token refresh failed: no matching qb_connection for tenant");
 
     return { accessToken: tokenData.access_token, realmId: conn.realm_id };
   }

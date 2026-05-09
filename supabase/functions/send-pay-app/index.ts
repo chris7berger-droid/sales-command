@@ -221,6 +221,11 @@ serve(async (req) => {
     const senderEmail: string | null = senderRow?.email || null;
 
     // ── Validate DB-derived URLs against storage allowlist ────────────
+    // Required: invoice.pdf_url. Optional (null/empty/missing OK): pay app PDF,
+    // SOV PDF, release waiver. Per audit cleanup: do NOT silently drop a
+    // present-but-invalid optional URL — surface it as 400 invalid_attachment_url
+    // so a misconfigured row can't quietly send without the attachment the row
+    // claimed to have.
     if (!isAllowedStorageUrl(invoiceRow.pdf_url)) {
       console.error("Invoice pdf_url failed storage allowlist:", invoiceRow.pdf_url);
       return new Response(JSON.stringify({ error: "Invoice PDF URL is not from an allowed storage bucket." }), {
@@ -229,9 +234,33 @@ serve(async (req) => {
       });
     }
     const invoicePdfUrl = invoiceRow.pdf_url;
-    const payAppPdfUrl     = isAllowedStorageUrl(payAppRow.pdf_url)            ? payAppRow.pdf_url            : null;
-    const sovPdfUrl        = isAllowedStorageUrl(payAppRow.sov_pdf_url)        ? payAppRow.sov_pdf_url        : null;
-    const releaseWaiverUrl = isAllowedStorageUrl(payAppRow.release_waiver_url) ? payAppRow.release_waiver_url : null;
+
+    // null / undefined / "" → no attachment (valid). Anything else must pass allowlist.
+    function normalizeOptionalAttachment(u: any): string | null {
+      if (u == null) return null;
+      const t = String(u).trim();
+      return t === "" ? null : t;
+    }
+    const payAppPdfUrl     = normalizeOptionalAttachment(payAppRow.pdf_url);
+    const sovPdfUrl        = normalizeOptionalAttachment(payAppRow.sov_pdf_url);
+    const releaseWaiverUrl = normalizeOptionalAttachment(payAppRow.release_waiver_url);
+    const optionalAttachments: Array<[string, string | null]> = [
+      ["pdf_url", payAppPdfUrl],
+      ["sov_pdf_url", sovPdfUrl],
+      ["release_waiver_url", releaseWaiverUrl],
+    ];
+    for (const [field, url] of optionalAttachments) {
+      if (url !== null && !isAllowedStorageUrl(url)) {
+        console.error(`Pay app ${field} failed storage allowlist:`, url);
+        return new Response(JSON.stringify({
+          error: "invalid_attachment_url",
+          field: `pay_app.${field}`,
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 400,
+        });
+      }
+    }
 
     // ── Fetch PDFs ────────────────────────────────────────────────────
     let payAppB64: string | null = null;

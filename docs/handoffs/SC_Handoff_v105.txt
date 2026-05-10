@@ -1,0 +1,202 @@
+SC Handoff v105 — 2026-05-10
+============================
+
+SESSION SUMMARY
+This session finished yesterday's deferred work and added one
+non-coding deliverable. PR #19 smoke step 3a (qb-search-customers
+read-only deploy-health check) executed from the live app via the
+CallLogDetail → Connect to QuickBooks → Link to Existing flow,
+returned a populated result list, and confirmed the deployed function
+loads with authenticateCaller wiring + tenant-scoped getQBToken.
+Steps 3b and 3c remained deferred — both require a safe internal
+test fixture (test customer + test pay-app + test invoice) that
+doesn't exist at single tenant. Outcome logged to AUDIT_LOG as
+"deferred / protocol-theater" so the partial-coverage state stays
+visible. One new backlog row filed (B12, T3) — QBActionModal Skip
+QB Sync button reads as disabled and has no labeled undo path,
+discovered by Chris during the 3a flow. Created
+~/.claude/commands/close-out-package.md (user-level, repo-agnostic)
+to standardize session wrap-up across all of Chris's repos. No
+product code changed. No deploys. No emails. No mutations to real
+billing/customer/pay-app rows.
+
+CHANGES SHIPPED (all on main, no PR)
+────────────────────────────────────
+d327944 — docs(AUDIT_LOG): record PR #19 smoke 3a — deferred outcome
+  Adds a new audit log row for 2026-05-10 PR #19 smoke plan, marked
+  outcome=deferred with pattern tag protocol-theater (3 of 3 steps
+  named, 1 of 3 runnable at single tenant). Includes a multi-paragraph
+  notes block explaining what 3a proves (deploy loads, authenticateCaller
+  works, getQBToken resolves, token-refresh persists), what it does
+  NOT prove (cross-tenant isolation, RLS behavior, full C9 fix), and
+  why 3b/3c are deferred. Also documents the hard limits the session
+  respected: no live emails, no real-row mutations, no QB link/create
+  against live data, no product code changes, no deploys.
+
+dbed27f — docs(BACKLOG): file B12 — QBActionModal Skip-Sync visual +
+          missing undo
+  Files B12 (T3, Bugs) for two related UX issues in
+  src/components/QBActionModal.jsx. (1) Skip QB Sync button uses a
+  faint gray icon background while the other two icons get bold
+  green / dark-with-teal — Chris's read on the modal is "this button
+  is disabled." (2) Clicking Skip writes qb_skip_sync=true and closes
+  the modal with no labeled "Resume QB Sync" affordance anywhere on
+  CallLogDetail; the QB SKIP badge exists on Proposals/Invoices list
+  pages but not on the job detail itself. Two fix candidates noted in
+  the row. Also bumps "Last updated" on BACKLOG.md to 2026-05-10.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+- 3a-only smoke. Chris's instruction was explicit — run 3a as
+  deploy-health, treat it as customer-safe (not strictly DB-read-only,
+  because getQBToken can refresh tokens and write to qb_connection),
+  log the outcome, and skip 3b/3c. Building safe internal fixtures
+  for 3b/3c would create scaffolding the audit terminal would also
+  need to validate, which outweighs the value of running the negative
+  tests today at single tenant.
+- AUDIT_LOG outcome = "deferred", pattern = "protocol-theater". The
+  v104 plan named three smoke steps; only one is runnable at single
+  tenant without scaffolding. Booking the deferral keeps the gap
+  visible instead of letting "smoke = security verified" creep in.
+- B12 filed at T3, not T2. Visual + UX, internal-only, doesn't block
+  billing or revenue. Bumps to T2 only if it actually causes Chris
+  to skip a job he meant to sync.
+- B12 NOT fixed mid-session. Per ship-first / no-while-we're-here
+  rule and Chris's explicit "no product code changes" instruction
+  this session.
+- /close-out-package saved at user scope (~/.claude/commands/) rather
+  than project scope (~/sales-command/.claude/commands/). Reason —
+  Chris said "use across all repos." Body detects per-repo handoff
+  convention by listing docs/handoffs/ and matching the existing
+  prefix/extension; falls back to asking Chris if no handoff dir
+  exists.
+
+NEW BACKLOG ITEMS
+─────────────────
+B12 (T3, Open) — QBActionModal "Skip QB Sync" reads as disabled, has
+                 no labeled undo path. Found 2026-05-10 during the
+                 3a smoke flow. Two related UX issues in one row.
+                 Not blocking anything. ~1h–half-day either fix.
+
+CLOSED THIS SESSION
+───────────────────
+None. PR #19 overall smoke plan remains "deferred" — 3a passed, 3b
+and 3c remain skipped until a safe internal fixture exists or until
+F7 multi-tenant onboarding naturally creates one.
+
+VERIFICATION
+────────────
+- 3a passed via real app flow (CallLogDetail → Connect to QuickBooks
+  → Link to Existing → typed "kal"). Result list populated with KalB
+  Industries Of Nevada parent + 5+ sub-customers. Modal was cancelled
+  without selecting a result.
+- 3a confirms: function loads, authenticateCaller wiring accepts a
+  real user session, getQBToken(sb, tenantId) resolves for the
+  current tenant, token-refresh persistence does not false-fail.
+- 3a does NOT confirm: cross-tenant isolation (would require a
+  second tenant), RLS behavior across tenants, or any of the C9
+  fixes (recipient allowlist, attachment-URL allowlist, server-
+  derived sender, DB-only PDF URLs, payApp ↔ invoice tenant
+  assertions, payApp.invoice_id === invoiceId).
+- 3b (negative recipient-allowlist test) — NOT run. No safe fixture.
+- 3c (negative attachment-URL test) — NOT run. No safe fixture.
+- B12 — code-review only. Both findings derived from reading
+  src/components/QBActionModal.jsx + src/components/CallLogDetail.jsx.
+  Chris's first-hand UX observation triggered the file. No live
+  verification of the proposed fix candidates.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+- H5 (signing token expiry / single-use). Open. Blocks F7. Plan +
+  decisions captured in v104 handoff; first-pick for next build.
+- H11 (send-proposal trust boundary). Open. Blocks F7. Same shape
+  as the C8/C9 fixes; can run in parallel with H5 if desired.
+- B11 (pay-app routing on archive-imported proposals). Open. T2,
+  customer-visible bug, half-day fix.
+- S2 (orphan-auth steady-state alarm). Open. Blocks F7.
+- B12 fix (visual + undo path). Filed today, not implemented.
+- 3b / 3c smoke steps (deferred — no safe fixture).
+- supabase/.temp/* still tracked + modified in working tree.
+  Pre-existing carryforward from v101/v102/v103/v104; gitignored
+  but tracked.
+
+NEXT SESSION POINTERS
+─────────────────────
+PR #19 deploy-health is confirmed via 3a. No further smoke required
+before picking up new build work.
+
+Suggested next picks (Chris's call):
+  1. H5 — signing token expiry / single-use. Plan + sign-off
+     captured in v103/v104. Migration adds signing_token_expires_at
+     + signing_token_consumed_at to proposals; refresh expiry on
+     resend (do NOT regenerate signing_token); action-only consume
+     in mark_proposal_signed; get_public_proposal_view stays
+     permissive on consumed_at. Run preflight count of active
+     unsigned proposals whose links would immediately expire before
+     backfill.
+  2. H11 — send-proposal trust boundary. Same shape as C8/C9 fixes:
+     accept proposalId, server loads tenant/proposal/customer/rep,
+     server builds signing URL from proposals.signing_token, escape
+     all HTML using the escapeHtml helper now in send-pay-app.
+     ~half day.
+  3. B11 — pay-app routing on archive-imported proposals.
+     Customer-visible billing bug. ~half-day either fix candidate
+     (auto-create billing_schedule on Sold-transition vs. surface
+     a "Generate Pay App Schedule" button on Sold proposals).
+  4. B12 — QBActionModal Skip-Sync UX. T3, ~1h–half-day. Pick up
+     when convenient.
+
+If H5 or H11 — same operational discipline as v104: branch, build,
+audit, deploy, smoke (where a safe fixture exists), wrap.
+
+ROLLBACK NOTE
+─────────────
+Nothing deployed this session — no rollback path needed. Yesterday's
+PR #19 rollback path remains valid as documented in v104 handoff
+(function-level redeploy of prior versions, or repo-level revert of
+e662d24 + redeploy).
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+docs/AUDIT_LOG.md
+  — Now has a 2026-05-10 row for the PR #19 smoke plan and a
+    multi-paragraph notes block beneath the table. Pattern tag
+    protocol-theater is new — first use.
+docs/BACKLOG.md
+  — B12 added under Bugs at T3. "Last updated" bumped to 2026-05-10.
+~/.claude/commands/close-out-package.md
+  — New user-level slash command. Lives OUTSIDE this repo. Detects
+    per-repo handoff convention and writes the next-numbered handoff
+    via the same protocol you're reading right now. Always asks
+    before pushing — never auto-pushes.
+src/components/QBActionModal.jsx
+  — B12 surface. Skip button visual at the third action button
+    (icon background rgba(28,24,20,0.08) at line ~130). handleSkip
+    writes qb_skip_sync=true + closes modal at line ~42.
+src/components/CallLogDetail.jsx
+  — Companion to B12. The green "Connect to QuickBooks" CTA at line
+    ~540 still renders when qb_skip_sync=true (because qb_customer_id
+    is null) — but nothing on the job detail says the job is
+    currently in skip state. QB SKIP badge code exists on
+    ProposalDetail.jsx:671 + Proposals.jsx:154 but is missing here.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: main (no in-progress local branch).
+- Latest commit on origin/main pre-handoff: dbed27f "docs(BACKLOG):
+  file B12 — QBActionModal Skip-Sync visual + missing undo".
+- Two commits pushed today: d327944, dbed27f.
+- Working tree noise (carryforward from v101/v102/v103/v104,
+  unchanged):
+    M supabase/.temp/cli-latest, gotrue-version,
+      storage-migration, storage-version
+- No open PRs.
+- No scratch projects. No /tmp artifacts.
+- Handoff commit (this file) pending Chris's push call.
+
+END STATE
+─────────
+PR #19 deploy-health smoke passed (3a only); 3b/3c logged as
+deferred. One T3 backlog row filed (B12). New /close-out-package
+user-level slash command installed. Ready for fresh session — H5,
+H11, B11, or B12 are next-likely picks.

@@ -95,6 +95,306 @@ CREATE TABLE IF NOT EXISTS public.proposal_clones (
 
 ---
 
+## §3 Markup Arithmetic — Resolution
+
+_Resolved 2026-05-11 (Round-4 Plan agent). Picks up the Sweep-2 `markup_override_pct` math sub-question. Reads v109-era code on `feat/multi-gc-allocation`. All line citations are against the unmodified working tree._
+
+### 1. Pre-question answers (with evidence)
+
+**Q1. Live `calcWtcPrice` formula. Where does `markup_pct` enter?**
+
+`src/lib/calc.js:60-74`:
+```js
+export function calcWtcPrice(wtc) {
+  const rate   = wtc.prevailing_wage ? (wtc.pw_rate    || 0) : (wtc.burden_rate    || 0);
+  const otRate = wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0);
+  const labor = calcLabor({
+    regular_hours: wtc.regular_hours, ot_hours: wtc.ot_hours,
+    markup_pct: wtc.markup_pct,
+    burden_rate: rate, ot_burden_rate: otRate, size: wtc.size,
+  });
+  const mats = (wtc.materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
+  const trav = calcTravel(wtc.travel);
+  return Math.ceil(labor.total + mats + trav - (wtc.discount || 0));
+}
+```
+
+`proposal_wtc.markup_pct` is consumed in exactly one place: as the `markup_pct` argument to `calcLabor`. Inside `calcLabor` (`calc.js:5-14`):
+```js
+const subtotal  = regularCost + otCost;                          // labor cost only
+const markupAmt = subtotal * ((markup_pct || 0) / 100);
+const total     = subtotal + markupAmt;
+```
+
+**`proposal_wtc.markup_pct` applies ONLY to labor cost** (regular_hours × burden + ot_hours × ot_burden). Does NOT touch materials or travel. UI confirms: `WTCCalculator.jsx:392` hints `"Markup is applied to total labor cost only — not materials"`.
+
+Important asymmetry: each material line carries its own `item.markup_pct` (per-row markup, applied in `calcMaterialRow`, `calc.js:16-25`). Travel has no markup (`calcTravel`, `calc.js:27-34`, is flat sum of rate × quantity).
+
+Therefore "effective_markup_pct" — if framed as a single number — only operates on the labor leg. A proposal-level multiplier framed as "effective_markup_pct" must EITHER (a) operate only on labor (mirroring `proposal_wtc.markup_pct`), OR (b) be redefined to mean something else.
+
+**Q2. Existing precedents for proposal-level multipliers/discounts?**
+
+- **`proposal_wtc.discount` (per-WTC, flat dollar)** — `CLAUDE.md:131-136` and `calc.js:53,73`. Subtracted AFTER labor markup + materials + travel: `Math.ceil(labor.total + mats + trav - (wtc.discount || 0))`. Per-WTC, dollar amount, requires `discount_reason` to lock (`WTCCalculator.jsx:1786-1790`). Renders on ProposalDetail as Subtotal/Discount/Total ladder (`ProposalDetail.jsx:1054-1078`).
+- **No proposal-level discount today.** Discount is per-WTC only.
+- **No proposal-level multiplier today.** Nothing in `tenant_config` (CLAUDE.md:172-181), nothing in `proposals` schema (CLAUDE.md:108-111).
+- **No bulk-adjust UX.** `WTCCalculator.jsx:1763-1773` syncs `prevailing_wage`/`pw_rate`/`pw_ot_rate` across sibling WTCs but that's column-mirror, not multiplier.
+
+Closest precedent is `proposal_wtc.discount` (per-WTC, flat-dollar, subtracted at end). The new column lives one level up — same flat-numeric, nullable-means-none pattern, different scope.
+
+**Q3. Range of `proposal_wtc.markup_pct` in real prod data?**
+
+No CHECK constraints anywhere in `supabase/migrations/` (grep `CHECK.*markup` / `CHECK.*pct` = zero). UI Field at `WTCCalculator.jsx:396` is `<Field type="number" suffix="%" />` with no min/max. No `default_markup_pct` in `tenant_config`. No `DEFAULT_MARKUP` constant in `src/lib/`.
+
+**Stated assumption:** typical sales-rep entries are 10–30% labor markup. Negative values technically allowed today (no CHECK), but no app-layer evidence this is intentionally exercised. Conservative read: `[0, 100]` with long tail in `[10, 50]`.
+
+**Implication for Option A (additive):** typical 10–30 baseline; a "-5pp" knock-off on a tough GC lands cleanly. A "-15pp" can push effective below zero on low-markup WTCs — reachable edge but only when both inputs are atypical. Clamp at app layer, not error.
+
+### 2. Recommendation — **Option A (additive), with floor-clamp.**
+
+```
+effective_markup_pct = Math.max(0, (wtc.markup_pct || 0) + (p.markup_override_pct || 0))
+```
+
+**Rationale.** User mental model for sales reps is "percentage points," not "scale factors" — they enter a WTC at 25% markup, then think "this GC is tougher, drop everything by 5 points." Additive maps to that 1:1. Option B (scale-on-existing) and Option C (compound) silently change math at edges in ways reps won't predict. Option D (replace) destroys per-WTC tuning, the entire point of the per-WTC `markup_pct` column. Option E (hybrid floor/cap) adds two semantics to one column — reject.
+
+The precedent from `proposal_wtc.discount` is "absolute, at the end, with a reason." Not perfectly mirroring (per-proposal not per-WTC; operates on markup not price), but additive percentage-points is closest shape that's still "in the rep's units." Floor clamp prevents negative-labor-markup pathology without rejecting input — reps can punch `-20` on a 25-markup WTC and get 5; on a 10-markup WTC they get 0, not -10. Override never silently inflates customer price; worst case pulls a WTC to zero-markup labor.
+
+Column name `markup_override_pct` is mildly misleading under additivity ("override" implies replacement). Sweep-2 naming is locked from v98; document the semantic clearly in code comments + CLAUDE.md so future readers don't infer "replace" from the name.
+
+**Scope clarification:** the override applies ONLY to the labor leg (the `markup_pct` argument of `calcLabor`). It does NOT touch per-material `item.markup_pct` and does NOT add markup to travel. Reason: this matches what `proposal_wtc.markup_pct` does today; expanding the scope of the override would expand the scope of the original column at the same time, which is out of scope for Sweep-2. Doing otherwise would break the PDF aggregation in `ProposalPDFModal.jsx:174-190` (which sums labor through `calcLabor` and materials through `calcMaterialRow` separately).
+
+If reps want a proposal-level "all-up multiplier on price," that's a different feature with a different name. Don't smuggle it in under `markup_override_pct`.
+
+### 3. Concrete artifacts
+
+#### 3a. `calc.js` change — `calcWtcPrice` and friends accept optional `markup_override_pct`
+
+Adding an optional parameter beats a wrapper because every existing call site (`grep calcWtcPrice` returns 14 hits across `ProposalDetail.jsx`, `Invoices.jsx`, `WTCCalculator.jsx`, `lib/invoicePdf.js`, `PublicInvoicePage.jsx`, `ProposalPDFModal.jsx`) needs the override applied — sister proposals must compute totals with override folded in, or `handleLock`'s stored total won't match what the customer sees. A wrapper would be opt-in and silently fail for callers we forget to migrate.
+
+```js
+// src/lib/calc.js — proposed body, drop-in
+
+// markup_override_pct is a per-proposal additive shift on the per-WTC
+// labor markup_pct, introduced by Multi-GC §3 (Sweep-2). Applies ONLY
+// to labor — not to per-material markup, not to travel. Clamped at zero
+// floor so a large negative override on a low-markup WTC produces a
+// zero-markup labor line (not negative). NULL/undefined behaves as 0.
+function effectiveLaborMarkupPct(wtc, markup_override_pct) {
+  const base = parseFloat(wtc?.markup_pct) || 0;
+  const ovr  = parseFloat(markup_override_pct) || 0;
+  return Math.max(0, base + ovr);
+}
+
+export function calcLabor({ regular_hours, ot_hours, markup_pct, burden_rate, ot_burden_rate, size }) {
+  // unchanged
+}
+
+// calcMaterialRow and calcTravel unchanged — override does not touch them.
+
+export function calcWtcBreakdown(wtc, markup_override_pct = 0) {
+  const rate   = wtc.prevailing_wage ? (wtc.pw_rate    || 0) : (wtc.burden_rate    || 0);
+  const otRate = wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0);
+  const labor = calcLabor({
+    regular_hours: wtc.regular_hours, ot_hours: wtc.ot_hours,
+    markup_pct: effectiveLaborMarkupPct(wtc, markup_override_pct),
+    burden_rate: rate, ot_burden_rate: otRate, size: wtc.size,
+  });
+  // ... rest unchanged ...
+}
+
+export function calcWtcPrice(wtc, markup_override_pct = 0) {
+  const rate   = wtc.prevailing_wage ? (wtc.pw_rate    || 0) : (wtc.burden_rate    || 0);
+  const otRate = wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0);
+  const labor = calcLabor({
+    regular_hours: wtc.regular_hours, ot_hours: wtc.ot_hours,
+    markup_pct: effectiveLaborMarkupPct(wtc, markup_override_pct),
+    burden_rate: rate, ot_burden_rate: otRate, size: wtc.size,
+  });
+  const mats = (wtc.materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
+  const trav = calcTravel(wtc.travel);
+  return Math.ceil(labor.total + mats + trav - (wtc.discount || 0));
+}
+
+// Convenience wrapper for "sum all WTCs for a proposal." Reads override
+// off the proposal row once and threads it through. Replaces the inline
+// reduce pattern in handleLock / handleSave / billing-schedule path.
+export function calcProposalTotal(proposal, wtcs) {
+  const ovr = parseFloat(proposal?.markup_override_pct) || 0;
+  return (wtcs || []).reduce((sum, w) => sum + calcWtcPrice(w, ovr), 0);
+}
+```
+
+Notes:
+- All four exported functions retain current signatures (override defaults to 0). Existing call sites that don't pass an override behave exactly as before — useful for incremental rollout.
+- `effectiveLaborMarkupPct` is private. Encodes the policy ("additive, floor-clamped, labor-only") in one place.
+- `calcProposalTotal` is the canonical wrapper for "sum WTCs for proposal." Replaces the inline reduce pattern in three places today.
+
+#### 3b. `handleLock` and other surfaces writing `proposals.total`
+
+Per CLAUDE.md Data Integrity Rule #4, `handleLock` must update `proposals.total`. Two implementations:
+
+**`WTCCalculator.jsx:1774-1804`** (calculator's lock toggle) — replace:
+```js
+const proposalTotal = allWtcs.reduce((sum, w) => sum + calcWtcTotal(w), 0);
+```
+with:
+```js
+const { data: prop } = await supabase
+  .from("proposals")
+  .select("markup_override_pct")
+  .eq("id", proposalId)
+  .single();
+const proposalTotal = calcProposalTotal(prop, allWtcs);
+```
+Same pattern at `WTCCalculator.jsx:1774-1779` (`handleSave`).
+
+**`ProposalDetail.jsx:218-273`** (WTC-toggle from proposal detail) — at `:247-250`:
+```js
+const { data: allWtcs } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id);
+const proposalTotal = calcProposalTotal(p, allWtcs);   // p in scope, carries markup_override_pct
+await supabase.from("proposals").update({ total: proposalTotal }).eq("id", p.id);
+```
+
+`ProposalDetail.jsx:239` (`locked_line_total` snapshot) — must receive override:
+```js
+const computed = calcWtcPrice(wtc, parseFloat(p.markup_override_pct) || 0);
+```
+
+**Critical edge:** `locked_line_total` is the snapshot the public signing page reads via `get_public_proposal_view`. If the snapshot omits the override, customer sees a different per-WTC subtotal than the grand total. Snapshot at lock time = snapshot WITH override folded in. Same fix needed at `WTCCalculator.jsx:1811-1813`.
+
+**Billing-schedule lines** (`ProposalDetail.jsx:262-267`) auto-create from `calcWtcPrice(w)`:
+```js
+const lines = allWtcs.map((w, i) => ({
+  billing_schedule_id: sch.id,
+  description: w.work_types?.name || `Work Type ${i + 1}`,
+  scheduled_value: calcWtcPrice(w, parseFloat(p.markup_override_pct) || 0),
+  ordinal: i,
+}));
+```
+
+#### 3c. Range / clamp / validation
+
+- **Allowed values:** any numeric. NULL = no override (semantic ≠ 0).
+- **Realistic range:** ±50 percentage points.
+- **No hard DB cap.** Floor clamp in `effectiveLaborMarkupPct` is load-bearing safety.
+- **UI soft-validation:** wizard warns if `|markup_override_pct| > 25`, but allows.
+- **No CHECK constraint on the column.** Reasons: (1) no precedent for percentage CHECK in this schema; (2) the `calc.js` floor clamp is the load-bearing safety; (3) a future "all-up price multiplier" feature might reuse the column at a wider range.
+
+#### 3d. Display rules
+
+| Surface | File:line | Show `markup_override_pct`? |
+|---|---|---|
+| Wizard Screen 3 (Pricing) | new component | YES — primary entry |
+| ProposalDetail summary panel | `ProposalDetail.jsx:1021-1081` | YES — row above "Total" when non-NULL, "internal only" badge |
+| ProposalDetail WTC list | `ProposalDetail.jsx:711` | YES — effective per-WTC price; tooltip explains override |
+| WTCCalculator labor tab | `WTCCalculator.jsx:396` | YES — read-only hint "Effective markup: 20% (25% − 5% override)" when proposal has override |
+| ProposalPDFModal aggregation | `ProposalPDFModal.jsx:172-190` | NO direct exposure, but totals reflect it (pass override through `calcLabor`) |
+| Customer PDF body | `ProposalPDFModal.jsx:330+` | NO — markup never on customer-facing pricing |
+| PublicSigningPage | `PublicSigningPage.jsx:553` | NO — reads `locked_line_total` snapshot only |
+| `get_public_proposal_view` RPC | migration `20260505190300_*.sql:17,99,123` | NO — does not return `markup_override_pct` to anon caller (mirrors H6) |
+| Invoices / PublicInvoicePage | `Invoices.jsx:171,417,789,1152,1416`; `PublicInvoicePage.jsx:189` | Invoice math reads `calcWtcPrice(wtc)` for SOV lines — pass override. Invoice shows dollar amounts, no markup column. |
+| `proposals.total` | written by `handleLock` (§3b) | Stored value already includes override. |
+
+**Key invariant:** `markup_override_pct` is internal-only. Customer never sees the number. Customer sees the effective dollar prices that result. Mirrors how `proposal_wtc.markup_pct` is handled today.
+
+#### 3e. Migration delta
+
+Sweep-2 column DDL from §3 already locked:
+```sql
+ALTER TABLE public.proposals
+  ADD COLUMN IF NOT EXISTS markup_override_pct numeric;
+```
+
+Recommended additions:
+```sql
+-- (no CHECK constraint — see §3c rationale)
+COMMENT ON COLUMN public.proposals.markup_override_pct IS
+  'Per-proposal additive shift (in percentage points) on per-WTC '
+  'proposal_wtc.markup_pct. Applies to labor markup only, NOT per-material '
+  'markup or travel. NULL = no override; 0 = explicit no-op. Effective '
+  'labor markup is computed by src/lib/calc.js:effectiveLaborMarkupPct '
+  'as max(0, wtc.markup_pct + p.markup_override_pct). Internal-only — '
+  'never returned to anon callers (excluded from get_public_proposal_view).';
+```
+
+No CHECK. No DEFAULT. No backfill. Reversible by `ALTER TABLE … DROP COLUMN`.
+
+### 4. Wizard Screen 3 UX (plain English)
+
+Screen 3 is "Pricing." For each GC the rep selected in Screen 1, render one row with:
+
+- **GC name** on left.
+- **Markup override** numeric input, suffix `pp` (percentage points). Width ~80px. Placeholder: "e.g. -5". Help text: "Adds (or subtracts) this many points from every WTC's labor markup on this GC's proposal. Leave blank for no change."
+- **Live preview total** on right: the would-be `proposals.total` if wizard were submitted with current inputs. Computed client-side via `calcProposalTotal({ markup_override_pct: input }, wtcs)`.
+- **Per-WTC breakdown disclosure** — one click to expand, shows each WTC's effective price under the current override.
+
+**Default value:** blank (NULL). Rep must type a number to opt in. Reinforces "parent proposal's pricing is default; only change for GCs that need it."
+
+**Unit:** percentage points. Explicitly NOT "%" suffix (which would imply "5% scale-on-existing"). Suffix `pp` is industry-standard for additive percentage-point shifts. If design objects to `pp`, next-best is no suffix plus inline help text "(percentage points)."
+
+**Soft-validation warning** when `|input| > 25`: amber message "Large markup override. Verify with manager." Doesn't block.
+
+**Preview surfaces:** both proposal-level total and on-demand per-WTC breakdown. Reps think in "total price to this GC" first, then drill into per-WTC.
+
+### 5. Backward-compat audit — every read of `proposals.total` or proposal-total compute in `src/`
+
+Grepped `proposals.total`, `p.total`, `\.total` in proposal/wtc/calc contexts:
+
+| File:line | Reads | Action |
+|---|---|---|
+| `ProposalDetail.jsx:247-250` | Writes `proposals.total` from `calcWtcPrice(w)` reduce | Replace with `calcProposalTotal(p, allWtcs)`. §3b. |
+| `ProposalDetail.jsx:239` | `calcWtcPrice(wtc)` for `locked_line_total` snapshot | Pass override. §3b. |
+| `ProposalDetail.jsx:265` | `calcWtcPrice(w)` for `billing_schedule_lines.scheduled_value` | Pass override. §3b. |
+| `ProposalDetail.jsx:529` | `p.total` for stripe checkout amount | Reads stored value. No change — stored value is post-override. |
+| `ProposalDetail.jsx:711` | `calcWtcPrice(wtc)` for WTC card display | Pass `parseFloat(p.markup_override_pct) \|\| 0`. |
+| `ProposalDetail.jsx:1030` | `calcWtcBreakdown(w)` for summary panel | Pass override. |
+| `ProposalDetail.jsx:1209,1217,1280` | `p.total` for billed-amount math | Reads stored value. No change. |
+| `ProposalPDFModal.jsx:174-190` | Aggregates labor/mats/trav for PDF total | Pass `proposal.markup_override_pct` into per-WTC `calcLabor`. Export `effectiveLaborMarkupPct` or replicate inline. |
+| `ProposalPDFModal.jsx:355-361` | Per-WTC breakdown for PDF body | Same fix. |
+| `WTCCalculator.jsx:1774-1779,1795-1804` | Writes `proposals.total` from `calcWtcTotal` reduce | Replace with `calcProposalTotal`. §3b. |
+| `WTCCalculator.jsx:1811-1813` | `calcWtcTotal(me)` for snapshot | Pass override. §3b. |
+| `PublicSigningPage.jsx:453` | `proposal.total \|\| 0` for grand total | Stored value. No change. |
+| `PublicSigningPage.jsx:553` | `w.locked_line_total ?? 0` for per-WTC display | Snapshot is post-override. No change. |
+| `Invoices.jsx:171,417,789,1152,1416` | `calcWtcPrice(wtc)` for SOV / invoice math | Pass override. Need proposal row in scope at each. |
+| `Invoices.jsx:193,362` | `selProposal.total` for stripe / remaining math | Stored value. No change. |
+| `PublicInvoicePage.jsx:189` | `calcWtcPrice(wtc)` for invoice line display | Pass override. Page already fetches proposal (`:32`); include `markup_override_pct` in select. |
+| `lib/invoicePdf.js:244` | `calcWtcPrice(wtc)` for invoice PDF lines | Pass override. Caller threads it in. |
+| `SalesDash.jsx:449,462,477` | `pw.proposals?.total` for dashboard rollups | Stored value. No change. |
+
+Total surfaces touched: ~14 call sites across 7 files. Default-zero signature on `calcWtcPrice` means migration is incremental — touch one file at a time, no flag-day.
+
+### 6. Edge cases
+
+1. **`markup_override_pct` NULL vs. 0.** Distinct semantically. NULL = "no override; parent or sister with no per-GC adjustment." 0 = "explicit acknowledgment that this GC has no adjustment." Math identical (`parseFloat(null) || 0 === 0`). Wizard distinguishes: blank input writes NULL; literal `0` writes 0. Useful for "did the rep visit Screen 3" queries. **[DESIGN-OPEN]** whether to surface this distinction in UI — probably not worth it v1.
+
+2. **Source-proposal vs sister inheritance on clone.** Per §4 (`clone_proposal_to_gcs`), RPC writes `(v_target->>'markup_override_pct')::numeric` per-sister from wizard's `p_targets`. Source proposal's own `markup_override_pct` is NOT copied — sisters receive only what wizard configured. Matches Q2 ("commerce is per-GC, not source-synced").
+
+   Corollary 1: Wizard's Pricing screen, when launched from a source with `markup_override_pct` set, does NOT pre-populate sisters with the same value. Default is blank. Flag in wizard help text.
+
+   Corollary 2: `markup_override_pct` is NOT in the §5 source-driven field list. Sync RPCs don't touch it. If source's override changes, sisters' overrides do not change. Confirmed.
+
+3. **WTC with discount AND a proposal-level override.** Order of operations (per `calc.js:73`): `Math.ceil(labor.total + mats + trav - (wtc.discount || 0))`. With override: `labor.total` uses `effective_markup_pct = max(0, wtc.markup_pct + override)`; `mats`, `trav`, `wtc.discount` unchanged; `Math.ceil` after subtracting discount.
+
+   Override and discount commute via discount sitting outside any percentage calculation. No interaction concern.
+
+   **Subtle case:** `markup_pct=10, override=-15, discount=200` → effective markup 0 (clamped), then `0 + mats + trav − 200` could go negative pre-`Math.ceil`. Existing code does not clamp negative WTC totals to zero — pre-existing pathology with steep `discount` alone, not made meaningfully worse. **[OUT OF SCOPE]** for §3. Follow-up "discount sanity" pass if we want to fix.
+
+4. **Locked WTC (`locked_line_total` set) — does override apply to snapshot or get ignored?** Per CLAUDE.md Rule #4, `handleLock` writes `proposals.total`. Snapshot in `proposal_wtc.locked_line_total` captured at lock time, read verbatim by public signing page via `get_public_proposal_view`. Override MUST be folded into snapshot at lock time (per §3b — `calcWtcPrice(wtc, ovr)` for snapshot value).
+
+   **Once locked, snapshot is frozen.** If rep changes `proposals.markup_override_pct` after locking, snapshot does NOT auto-update — by design (audit H6: customer sees the price that was locked). Rep must unlock → change override → re-lock. Same contract as for `markup_pct` today; no new defenses needed.
+
+   **Pre-existing risk (NOT introduced by this resolution):** if rep changes override while proposal is `'Sent'` with all WTCs locked, customer signing page total stays correct (reads snapshot), but internal `proposals.total` may drift unless the override-change flow also re-runs `calcProposalTotal`. **[DESIGN-OPEN — sister-edit pricing UX]** — flag for wizard implementation. Out of scope for §3 itself.
+
+### Critical files for implementation
+
+- `src/lib/calc.js` — `effectiveLaborMarkupPct` private helper + optional `markup_override_pct` param on `calcWtcPrice`/`calcWtcBreakdown` + new `calcProposalTotal` wrapper.
+- `src/components/ProposalDetail.jsx` — `handleLock` total recomputation + `locked_line_total` snapshot + billing-schedule lines + WTC card display.
+- `src/pages/WTCCalculator.jsx` — `handleSave` total recomputation + `locked_line_total` snapshot.
+- `src/components/ProposalPDFModal.jsx` — PDF aggregation passing override through `calcLabor`.
+- `src/pages/Invoices.jsx` + `src/pages/PublicInvoicePage.jsx` + `src/lib/invoicePdf.js` — invoice line math.
+
+---
+
 ## §4 RPC `clone_proposal_to_gcs`
 
 **[DERIVED + BLOCKED on H-C2]** Function signature, types, and structure are mechanical from the `merge_call_log` precedent, but the per-GC commerce inputs depend on the H-C2 fix shape for `send-proposal` (the wizard will eventually invoke `send-proposal` N times, and we want to commit to a body shape that survives the H-C2 fix).

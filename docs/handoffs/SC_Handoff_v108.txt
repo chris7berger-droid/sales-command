@@ -1,0 +1,220 @@
+SC Handoff v108 — 2026-05-11
+============================
+
+SESSION SUMMARY
+Tooling/plumbing session. Zero prod code, zero migrations, zero edge
+function deploys. Three commits to main, all docs/workflow. Started by
+pulling 16 commits of build-terminal work from origin/main (was sitting
+on an old feature branch). Installed a new "canonical-docs-first" rule
+into CLAUDE.md to prevent the recurring failure mode where new docs
+restate rules that already live in CLAUDE.md / CLAUDE_RLS.md /
+BACKLOG.md. Scaffolded /build (build terminal) and /audit (audit
+terminal) as repo-level slash commands in sales-command, both thin
+pointers that defer to the canonical docs. Set up a GitHub-synced
+user-level command repo (chris7berger-droid/claude-commands, private)
++ symlinked it into ~/.claude/commands/ so the existing
+/close-out-package command (created on the MacBook Pro this past
+weekend) is reachable from every machine. Late-committed v98 (Multi-GC
+planning handoff from 2026-05-06) so the v97 → v99 numeric gap closes
+and the Multi-GC genesis record is finally in git. Confirmed the
+Multi-GC plan doc + mockup originally on ~/Desktop are unrecoverable
+(GitHub never had them); reconstruction handed to a fresh Plan agent
+in a separate terminal.
+
+CHANGES SHIPPED (all on main)
+─────────────────────────────────────────────────────────────────
+a52b394 — docs(workflow): add canonical-docs-first rule + scaffold /build slash command
+  CLAUDE.md gets a new Workflow Rule 1: before drafting any workflow
+  doc / slash command / skill / spec, grep the repo for where it might
+  already live and point — don't duplicate. The existing rules 1–6
+  shift to 2–7. .claude/commands/build.md is a ~30-line thin pointer
+  that reads CLAUDE.md / CLAUDE_RLS.md / BACKLOG.md / latest handoff,
+  runs `git fetch && git status`, reports a five-line orient, and
+  waits for Chris to pick the next item. No rule definitions inside —
+  defers everything to the canonical sources.
+
+41b7040 — docs: session handoff v98 (late commit — planning artifact from 2026-05-06)
+  v98 was written on 2026-05-06 (Multi-GC Proposal Allocation
+  planning session) and never committed at the end of that session.
+  v99 explicitly noted it as untracked and queued. Committing now to
+  close the numbered-handoff gap (v97 → v99 on main) and to anchor the
+  Multi-GC genesis record in git before any reconstruction begins. 220
+  lines: locks Q1–Q5 + Sweep-1 (proposals.customer_id) + Sweep-2
+  (proposals.markup_override_pct) decisions, schema sweep findings
+  (invented vs real columns), and C1–C5 critical-issue titles. Plan
+  doc body (§3–§12) + 4-screen mockup HTML were on ~/Desktop and are
+  unrecoverable.
+
+0e25936 — docs(workflow): scaffold /audit slash command for the audit terminal
+  .claude/commands/audit.md mirrors /build's shape: thin pointer,
+  reads canonical sources (now including
+  .claude/skills/security-audit/SKILL.md and docs/AUDIT_LOG.md),
+  five-line orient, waits for mode pick. Three modes the audit
+  terminal runs in practice: per-PR review (default when build just
+  shipped), full audit (invokes the existing security-audit skill
+  verbatim), spot-check (Chris names a target). Bakes in the
+  convention from docs/AUDIT_LOG.md:3 that audit terminal writes new
+  AUDIT_LOG.md rows but does not commit them — build terminal commits
+  the file on its next pass.
+
+(Not part of this session, but landed mid-session on main from a
+parallel terminal: 0088c2d "v107: file B14 — Summary panel stale on
+show_cents toggle". B14 + v107 handoff + BACKLOG bump.)
+
+DECISIONS / CHOICES MADE
+────────────────────────
+- Canonical-docs-first rule placement: CLAUDE.md Workflow Rule 1, not
+  in slash command bodies. Why: drift risk. First /build draft was
+  ~80 lines duplicating Workflow Rules + Style Rules + Data Integrity
+  Rules + commit convention + "make it live" definition — all
+  already in CLAUDE.md. Chris caught it ("I don't know why I am
+  having to design this again"). Rule lives once, slash command points.
+- /build + /audit committed per-repo in sales-command, not user-level.
+  Why: both reference sales-command-specific surfaces (BACKLOG.md,
+  AUDIT_LOG.md, the security-audit skill, the column reference,
+  CLAUDE_RLS.md). Other Command Suite repos that adopt a build or
+  audit terminal will need their own copies tuned to their own
+  conventions.
+- /close-out-package kept user-level (~/.claude/commands/) but
+  source-of-truth moved into a new private GitHub repo
+  chris7berger-droid/claude-commands. Symlink pattern:
+  ~/.claude/commands -> ~/.claude-commands (which IS the git
+  working copy). Why: Chris works across multiple Macs and stores
+  everything in GitHub. Manual paste-per-machine (the approach the
+  MacBook Pro Claude proposed) violates that habit and gets lost the
+  same way the Multi-GC plan doc got lost. Symlink + git push/pull
+  matches Chris's normal workflow.
+- v98 committed late on main, not on a feature branch. Why: pure
+  docs, no prod impact, no risk of breaking anything. The "no
+  discovery to main" rule is about untested code; a 5-day-old
+  planning handoff doesn't trigger it. Defensible exception.
+- Multi-GC plan reconstruction declined this session. Refused to
+  produce 1000+ lines of fresh-derivation §3–§12 labeled as
+  "rehydration" — Chris explicitly told me to be honest about what's
+  in context vs. what isn't. The original Plan agent's context died
+  2026-05-06; this session's context never held the plan body. Chris
+  will spawn a fresh Plan agent in a separate terminal with v98 +
+  memory + locked decisions as the briefing.
+- Build/audit/planning terminal split memorialized in memory
+  (feedback_build_audit_split.md). Planning-agent role explicitly
+  marked TBD — don't reflexively spawn one for every non-trivial
+  task; surface as an option and explain the tradeoff (parallelism +
+  dedicated context window vs. context dying at session end).
+
+NEW BACKLOG ITEMS
+─────────────────
+None filed by this session. (B14 was filed by the parallel v107
+terminal — cosmetic Summary-panel-doesn't-respect-show_cents bug,
+T3 Open, ~1h fix.)
+
+CLOSED THIS SESSION
+───────────────────
+None.
+
+VERIFICATION
+────────────
+- /build slash command: scaffolded, NOT runtime-tested. Verify in
+  next session by typing `/build` in a fresh build terminal and
+  confirming the orient-and-wait pattern fires.
+- /audit slash command: scaffolded, NOT runtime-tested.
+- /close-out-package: in active use writing THIS handoff. Steps 1–5
+  followed end-to-end. Found a v107 collision (parallel terminal had
+  already taken v107) at step 1, bumped to v108 cleanly.
+- Symlink ~/.claude/commands -> ~/.claude-commands: verified resolves
+  (`ls -la ~/.claude/commands/` shows close-out-package.md + README.md
+  living in the git working copy). File contents readable through the
+  symlink path. Will register with Claude Code on next session start.
+- claude-commands repo: created private on GitHub
+  (`chris7berger-droid/claude-commands`), initial commit pushed (27c57df),
+  README.md + close-out-package.md tracked.
+- v98 commit: pushed and visible on origin/main (41b7040).
+- proposals.id type (Multi-GC C4 verification): confirmed TEXT via
+  FK column declarations in
+  `supabase/migrations/20260417140000_pay_apps.sql:169` and
+  `supabase/migrations/20260416175646_billing_schedule_and_archive_links.sql:36`
+  (both declare `proposal_id text REFERENCES public.proposals(id)`).
+- Multi-GC S1 regression vector: confirmed intact on current code at
+  `src/pages/Customers.jsx:258` (`.eq("call_log.customer_id",
+  customerId)`) and `:519` (same filter shape). Memory's 4-day-old
+  file refs still accurate.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+- All T2 backlog: O3, H11, B11, S2, B13, F7. No code touched.
+- Multi-GC feature code — still pre-step-1 per v98's playbook.
+- supabase/.temp/* still tracked + modified in working tree
+  (carryforward from v101+, gitignored but tracked).
+- O3 timer (H5 Migration B) — still on the ≥48h gate from 2026-05-11
+  02:09 UTC. Earliest start 2026-05-13 02:10 UTC.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Audit terminal can /audit this session's three commits as a
+   per-PR-style review even though they were pushed directly to
+   main (no PR). Light review — pure docs/tooling, no code surface.
+   Expected pattern tag: `tooling` or `docs-meta`. AUDIT_LOG row
+   only if anything is flagged.
+2. Multi-GC reconstruction in a fresh build terminal with a freshly-
+   spawned Plan subagent. Briefing context: `docs/handoffs/SC_Handoff_v98.txt`
+   (now in git) + memory file
+   `~/.claude/projects/-Users-chrisberger/memory/project_multi_gc_planning_agent.md`
+   + the 7 locked decisions + C1–C5 critical-issue descriptions.
+   Plan doc lands in `docs/plans/multi_gc_allocation.md` on branch
+   `feat/multi-gc-allocation` from minute 1 — do NOT park on Desktop
+   (per memory `feedback_never_park_on_desktop`).
+3. MacBook Pro setup: from a regular terminal (not inside Claude Code,
+   or prefix with `!`):
+     mv ~/.claude/commands ~/.claude/commands.bak
+     git clone git@github.com:chris7berger-droid/claude-commands.git ~/.claude-commands
+     ln -s ~/.claude-commands ~/.claude/commands
+   Restart Claude Code on that machine. Delete .bak after verifying.
+4. Test the new slash commands end-to-end: fresh build terminal in
+   ~/sales-command → `/build`. Fresh audit terminal → `/audit`.
+   Confirm both fire orient-and-wait correctly.
+5. O3 — still gated, earliest 2026-05-13 02:10 UTC. Before applying
+   Migration B query `pg_stat_statements` for any 1-arg
+   `mark_proposal_signed` traffic; require zero.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+.claude/commands/build.md
+  — New this session. Build-terminal session opener. Thin pointer.
+.claude/commands/audit.md
+  — New this session. Audit-terminal session opener. Thin pointer
+    that also defers to .claude/skills/security-audit/SKILL.md.
+CLAUDE.md
+  — Workflow Rules section now has 7 rules. New #1 is canonical-
+    docs-first.
+docs/handoffs/SC_Handoff_v98.txt
+  — Late commit of the 2026-05-06 Multi-GC planning session.
+docs/handoffs/SC_Handoff_v107.txt
+  — Parallel terminal's B14-file-and-defer session.
+~/.claude-commands/ (OUTSIDE this repo)
+  — New private GitHub repo `chris7berger-droid/claude-commands`.
+    Source of truth for user-level slash commands. Symlinked from
+    `~/.claude/commands/` on this Mac Mini. MacBook Pro setup
+    pending.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: main, clean (working tree noise: M supabase/.temp/*
+  carryforward only).
+- Latest on origin/main pre-this-handoff: 0e25936
+  "docs(workflow): scaffold /audit slash command for the audit
+  terminal".
+- No open PRs. No scratch projects. No /tmp artifacts.
+- External: new private repo `chris7berger-droid/claude-commands`
+  on GitHub, at SHA 27c57df, one commit (README + close-out-
+  package.md).
+- Memory updates this session (in ~/.claude/projects/, outside
+  any tracked repo): feedback_canonical_docs_first.md,
+  feedback_build_audit_split.md, feedback_never_park_on_desktop.md,
+  project_user_commands_sync.md. All indexed in MEMORY.md.
+
+END STATE
+─────────
+Tooling pass complete — no prod code shipped. /build + /audit
+installed in sales-command; /close-out-package installed user-level
+via new claude-commands repo + symlink pattern; v98 late-committed;
+Multi-GC reconstruction handed to a fresh Plan agent in a separate
+terminal. Ready for fresh session.

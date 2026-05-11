@@ -1,0 +1,366 @@
+SC Handoff v106 — 2026-05-11
+============================
+
+SESSION SUMMARY
+This session built, audited, and deployed H5 — signing-token expiry +
+single-use semantics — closing the last open High-severity security
+item in the 2026-04-30 deep audit. End state on prod: Migration A is
+live (24 hours after the audit terminal greenlit PR #20), Vercel +
+`proposal-signed` edge function deployed, prod smoke P2–P4 passed on
+a test customer. The 1-arg `mark_proposal_signed` compat wrapper +
+legacy `proposal_signatures_public_insert_token` policy intentionally
+remain in place for a ≥48h rollout window before Migration B (O3)
+drops them. H5 stays In Progress in BACKLOG until O3 closes it
+formally.
+
+The session walked through a full two-scratch verification cycle
+before merging: (1) original SQL smoke covering 16 scenarios including
+the audit-specific 1-arg compat wrapper behavior and `p_pdf_url`
+validation, (2) rollback round-trip R1–R9 confirming the rollback
+file restores the database character-for-character to its pre-H5
+state. Both scratch projects (`lvbdsfyppaogaezvqmrg` and
+`nqanzszlbbjkercgwrtl`) were deleted after their respective smokes.
+
+CHANGES SHIPPED (all on main)
+─────────────────────────────────────────────────────────────────
+a73ce87 — Touches H5: signing-token expiry + single-use (PR #20)
+  Squash-merge of branch `fix/h5-signing-token-expiry-and-consume`
+  (single commit `3417ca0` pre-merge).
+
+  Migration A — `supabase/migrations/20260510120000_signing_token_expiry_and_consume.sql`:
+    - Adds `proposals.signing_token_expires_at` +
+      `proposals.signing_token_consumed_at`.
+    - UNIQUE partial index `uq_proposals_signing_token_active` on
+      `signing_token WHERE signing_token IS NOT NULL`.
+    - Backfill: Drafts anchored on `now()`; Sent/other on
+      `COALESCE(sent_at, created_at, now()) + tenant proposal_validity_days`;
+      Sold on `COALESCE(approved_at, now()) + interval '1 year'`
+      (revisit window). `consumed_at` backfilled for already-Sold rows.
+    - CHECK constraint `proposals_signing_token_requires_expiry`
+      (added NOT VALID, then VALIDATED).
+    - Auto-fill trigger `trg_proposals_set_signing_token_expires_at`
+      (BEFORE INSERT OR UPDATE OF signing_token) fills `expires_at`
+      from `tenant_config.proposal_validity_days` (fallback 90).
+    - All 5 anon policies on signing-token surface gain strict
+      `expires_at IS NOT NULL AND expires_at > now()` (no NULL bypass).
+    - 5-arg `mark_proposal_signed(p_token, p_signer_name,
+      p_signer_email, p_ip_address, p_pdf_url)` — atomic single-use:
+      SELECT FOR UPDATE + UPDATE WHERE consumed_at IS NULL race
+      guard + signature insert + call_log.stage flip in one txn.
+      `p_pdf_url` validated against Supabase signed-proposals URL
+      whose filename embeds the proposal's own id.
+    - 1-arg `mark_proposal_signed(p_token)` KEPT as compat wrapper
+      that delegates to 5-arg with NULL signer fields (rolling-deploy
+      safety; O3 drops). `proposal_signatures_public_insert_token`
+      policy also KEPT (with expiry predicate added).
+    - `get_public_proposal_view`: strict on expiry, permissive on
+      consumed_at (revisit preserved). Adds `signing_token_consumed_at`
+      to returned JSON.
+    - `mark_recipient_viewed`: strict on both.
+    - `NOTIFY pgrst, 'reload schema'` at end so the new 5-arg
+      overload resolves immediately.
+
+  Rollback — `supabase/rollbacks/20260510120100_revert_signing_token_expiry_and_consume.sql`:
+    Restores pre-H5 RPC bodies (from 20260502120000 + 20260505190300),
+    pre-H5 policies (from 20260427180000 + 20260502130000), drops
+    trigger + CHECK + unique index + both new columns. Verified
+    line-for-line via R7 in scratch-r2 round-trip.
+
+  Frontend / edge fn:
+    - `src/components/ProposalPDFModal.jsx` — `proposals.update`
+      (incl. `signing_token_expires_at` refresh) moved BEFORE
+      `send-proposal` invoke; status-guarded with
+      `.neq("status","Sold")` defense-in-depth.
+    - `src/pages/PublicSigningPage.jsx` — drops direct
+      `proposal_signatures` insert (moves into 5-arg RPC); parses
+      `fnError.context?.json?.()` (QBLinkModal pattern) for the
+      HTTP 409 ALREADY_SIGNED case → silent `setSigned(true)` +
+      `qbBlocked` (skips qb-create-job so it can't double-fire);
+      fallback to direct 5-arg RPC on edge-fn round-trip failure.
+    - `supabase/functions/proposal-signed/index.ts` — extracts client
+      IP from `x-forwarded-for` (leftmost), fallback `cf-connecting-ip`;
+      no longer trusts body IP. Maps `ALREADY_SIGNED → 409`,
+      `INVALID_TOKEN → 403`, `INVALID_SIGNER_NAME / INVALID_PDF_URL → 400`.
+
+  Backlog / docs:
+    - H5 → In Progress (becomes Closed when O3 ships).
+    - B13 filed (Security T2, Blocks F7) — invoices.viewing_token
+      expiry, same forwarded-link class.
+    - O3 filed (Cleanup/Ops T2) — drop wrapper + legacy anon-insert
+      policy after deploy verifies.
+    - Plan + smoke matrix at `docs/plans/h5_signing_token_expiry.md`.
+
+DEPLOYED (project pbgvgjjuhnpsumnowuym — Command Suite DB, prod)
+────────────────────────────────────────────────────────────────
+Migration A pushed via `supabase db push --linked` at 2026-05-11 02:09
+UTC. Output: "Finished supabase db push." Two informational NOTICEs
+from the migration's idempotent `DROP IF EXISTS` on constraint +
+trigger (clean re-create pattern), no errors.
+
+Edge fn deployed via:
+  supabase functions deploy proposal-signed \
+    --project-ref pbgvgjjuhnpsumnowuym
+
+Script size 77.68 kB. Confirmation:
+  "Deployed Functions on project pbgvgjjuhnpsumnowuym: proposal-signed"
+
+Dashboard:
+  https://supabase.com/dashboard/project/pbgvgjjuhnpsumnowuym/functions
+
+DECISIONS / CHOICES MADE
+────────────────────────
+- Two-migration compat-safe rollout shape (A now, B after ≥48h).
+  Audit terminal explicitly required this so in-flight customer
+  browsers with cached old JS don't break during the deploy window.
+  Migration A keeps the 1-arg `mark_proposal_signed` form AND the
+  legacy `proposal_signatures_public_insert_token` policy alive; both
+  are dropped in Migration B after deploy traffic verification.
+- Sold revisit window = approved_at + 1 year. Compromise between
+  "permanent audit trail" (5+ years) and "minimize long-tail public
+  exposure" (90 days). 1 year covers bookkeeper revisit needs for the
+  common case; older proposals will need a fresh link issued if
+  re-access is needed.
+- Drafts backfilled with `expires_at = now() + 90d` (not
+  created_at + 90d). No customer has the link yet; `handleSend`
+  refreshes expires_at before email send anyway. Cleaner than
+  backfilling Drafts to past dates.
+- ALREADY_SIGNED UX is silent. Stale-tab / double-click → page
+  silently renders Accepted via `setSigned(true)`. Audit-approved.
+- IP captured in edge function from `x-forwarded-for`, not React
+  body. Verified end-to-end on prod (`76.235.216.194` for a real
+  signing session). Audit fix #3.
+- `mark_proposal_signed` 5-arg p_pdf_url uses regex interpolation
+  of `v_proposal_id` (audit note L1, low-risk because IDs are
+  UUIDs). Tracked as an optional follow-up; not a deploy blocker.
+- `ProposalPDFModal.handleSend` writes `status='Sent'` BEFORE
+  Resend fires (audit fix #1). Trade-off: if Resend fails after the
+  UPDATE, the row is flagged Sent with refreshed expiry but no email
+  delivered — the rep retries. Documented in deploy notes (audit
+  note L2).
+- 1-arg compat wrapper inlined as `RETURN QUERY SELECT * FROM
+  mark_proposal_signed(p_token, NULL::text, NULL::text, NULL::text,
+  NULL::text)`. 5-arg makes signature insert OPTIONAL (skipped when
+  `p_signer_name` is NULL) so the wrapper path produces the same
+  status/consumed/call_log flip without inserting a signature row
+  (the old JS path inserts via the legacy anon policy).
+- Two scratch projects spun up + deleted: `lvbdsfyppaogaezvqmrg`
+  for the 16-scenario SQL smoke; `nqanzszlbbjkercgwrtl` for the
+  R1–R9 rollback round-trip. Both required Docker for
+  `supabase db dump --linked -s public` (DDL-only, no customer
+  data crossed). Docker Desktop started mid-session per Chris's
+  approval; left running.
+
+NEW BACKLOG ITEMS
+─────────────────
+B13 (T2, Open) — Security. `invoices.viewing_token` — no expiry,
+                 indefinite public exposure of pricing + payment
+                 context. Same forwarded-link-forever class as H5.
+                 Blocks: F7. ~half day.
+O3  (T2, Open) — Cleanup/Ops. H5 Migration B — drop 1-arg compat
+                 wrapper + `proposal_signatures_public_insert_token`
+                 policy. Blocked by 48h timer + `pg_stat_statements`
+                 zero-traffic verification. Earliest start
+                 2026-05-13 02:10 UTC. ~15 min.
+
+CLOSED THIS SESSION
+───────────────────
+None formally — H5 stays In Progress until O3 lands. However the
+SECURITY GAP H5 was filed against (signing URLs leak forever) is
+CLOSED at the prod DB layer as of 2026-05-11 02:09 UTC. All 124
+existing token rows now carry expiries; all 63 already-Sold rows
+carry consumed_at timestamps; the 5 anon policies and 3 RPCs enforce
+the new predicates.
+
+VERIFICATION
+────────────
+Two scratch verifications pre-merge:
+
+(1) SQL smoke (scratch `lvbdsfyppaogaezvqmrg`):
+  Q-POST-APPLY 1–6 green on the scratch project.
+  16/16 scenarios pass:
+    S5  duplicate signing_token INSERT → unique_violation
+    S6  NULL expires_at via trigger-bypass → CHECK violation
+    S8  trigger refills expires_at on token rotation
+    S9  expired token → INVALID_TOKEN via get_public_proposal_view
+    S10a expired token → INVALID_TOKEN via mark_recipient_viewed
+    S10b expired token → INVALID_TOKEN via mark_proposal_signed
+    S12 consumed token → revisit returns Sold + consumed_at
+    S13 consumed token → INVALID_TOKEN via mark_recipient_viewed
+    S14 consumed token + 5-arg sign → ALREADY_SIGNED
+    S15 consumed token + 1-arg compat sign → ALREADY_SIGNED
+    S16 fresh 5-arg sign → atomic state
+    S17 1-arg compat wrapper → status/consumed flip + no signature
+        inserted (sig count unchanged) ← audit-required
+    S18 race / single-use → 2nd sign raises ALREADY_SIGNED
+    S19 p_pdf_url wrong proposal_id → INVALID_PDF_URL ← audit-required
+    S20 p_pdf_url non-Supabase host → INVALID_PDF_URL ← audit-required
+    S21 valid Supabase signed-proposals URL → accepted
+
+(2) Rollback round-trip (scratch `nqanzszlbbjkercgwrtl`):
+  Q-POST-APPLY 1–6 green forward state.
+  R1 signing_token_expires_at column dropped (information_schema 0)
+  R2 signing_token_consumed_at column dropped (0)
+  R3 CHECK constraint gone (pg_constraint 0)
+  R4 trigger gone (pg_trigger 0)
+  R5 unique index gone (pg_indexes 0)
+  R6 mark_proposal_signed forms = 1 (only 1-arg remaining)
+  R7 1-arg body line-for-line match to pre-H5 canonical from
+     `20260502120000_signing_flow_security_definer.sql` (630 chars
+     normalized whitespace-collapsed match)
+  R8 5 policies match pre-H5 shape (zero `signing_token_expires_at`
+     references in qual/with_check across all 5)
+  R9 regression: anon SELECT under SET LOCAL request.headers +
+     SET LOCAL ROLE anon with matching x-signing-token returned 1
+     row (pre-H5 policy resolves correctly)
+
+Prod deploy verification (2026-05-11 02:09 UTC):
+  Q-POST-APPLY 1–6 green on prod. Backfill sanity: zero unbacked-token
+  rows, zero Sold-unconsumed rows.
+  PostgREST cache verify: curl 5-arg `mark_proposal_signed` with
+  bogus token returned HTTP 400 INVALID_TOKEN (NOT PGRST202 — proves
+  NOTIFY pgrst reloaded the cache).
+  P3 smoke: existing Sold proposal `20bdf183-b8e4-4d99-99f6-c01b9f683fc3`
+  (KalB Industries Of Nevada, signed 2026-05-08) opened in incognito
+  rendered Accepted screen cleanly.
+  P4 smoke on TEST customer (proposal id
+  `6e6b120b-e960-4791-b87e-2e4f3a7a8349`, display_job_number
+  "10085 - TEST", proposal_number 1):
+    - Send: signing_token_expires_at = 2026-08-09 02:09:51 UTC
+      (89d 23h 58m out from now) ✓
+    - Sign: status=Sold, approved_at + signing_token_consumed_at +
+      proposal_signatures.signed_at all identical
+      `02:13:02.712165+00` (atomic) ✓
+    - Sign: call_log.stage=Sold ✓
+    - Sign: ip_address=76.235.216.194 (real client public IP via
+      x-forwarded-for, NOT React body) ✓
+    - Sign: pdf_url stored, passed Supabase regex ✓
+    - Revisit: Accepted screen rendered fresh ✓
+    - Stale-tab 409 contract: edge fn returned HTTP 409
+      `{"error":"ALREADY_SIGNED"}` for the consumed token re-attempt ✓
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+- O3 (Migration B — drop 1-arg compat wrapper + legacy anon-insert
+  policy). Open. Blocked by 48h timer + pg_stat_statements
+  verification. Earliest start 2026-05-13 02:10 UTC.
+- B13 (invoices.viewing_token expiry). Open. T2, Blocks F7.
+- H11 (send-proposal trust boundary). Open. T2, Blocks F7.
+- B11 (pay-app routing on archive-imported proposals). Open. T2.
+- S2 (orphan-auth steady-state alarm). Open. T2, Blocks F7.
+- supabase/.temp/* still tracked + modified in working tree.
+  Pre-existing carryforward from v101/v102/v103/v104/v105;
+  gitignored but tracked.
+
+NEXT SESSION POINTERS
+─────────────────────
+First action — verify wrapper traffic before O3.
+
+Run on prod (read-only):
+```
+SELECT calls, total_exec_time, query
+  FROM pg_stat_statements
+ WHERE query LIKE '%mark_proposal_signed%'
+   AND query NOT LIKE '%mark_proposal_signed(text, text, text, text, text)%'
+ ORDER BY calls DESC;
+```
+
+If `pg_stat_statements` is not available (the extension may not be
+enabled on the project), fall back to Supabase Studio's logs:
+Database → Logs → Postgres → filter on `mark_proposal_signed(text)`
+(the 1-arg signature). Require zero hits since 2026-05-11 02:09 UTC.
+
+Once verified zero traffic AND 48h have elapsed (earliest 2026-05-13
+02:10 UTC), apply Migration B. Suggested filename:
+`20260513120000_drop_h5_compat_wrapper.sql`:
+```
+BEGIN;
+DROP FUNCTION IF EXISTS public.mark_proposal_signed(text);
+DROP POLICY IF EXISTS "proposal_signatures_public_insert_token"
+  ON public.proposal_signatures;
+COMMIT;
+NOTIFY pgrst, 'reload schema';
+```
+
+Then smoke a single test-customer signing flow end-to-end to confirm
+the new JS path is the only path that fires. Close H5 in BACKLOG after
+the smoke passes. Move O3 to Completed Log.
+
+Other open T2 items, in priority order:
+  1. O3 (drop compat wrapper — this is the H5 follow-up)
+  2. H11 (send-proposal trust boundary) — Blocks F7, ~half day
+  3. B11 (pay-app routing gap) — half-day fix
+  4. S2 (orphan-auth alarm) — ~30–45 min
+  5. B13 (invoices.viewing_token expiry) — half day
+  6. F7 (multi-tenant onboarding) — unblocked once H5/S2 done
+
+ROLLBACK NOTE
+─────────────
+If H5 must be reverted urgently:
+
+  supabase db query --linked -f \
+    supabase/rollbacks/20260510120100_revert_signing_token_expiry_and_consume.sql
+
+This drops `signing_token_expires_at` + `signing_token_consumed_at`
+(destructive — audit trail lost), restores pre-H5 RPC bodies and
+policies, drops trigger + CHECK + unique index. Verified R1–R9
+clean on scratch round-trip.
+
+Frontend rollback: `git revert a73ce87 && git push`. Vercel
+auto-redeploys main. Edge fn: redeploy previous `proposal-signed`
+version via Supabase Studio.
+
+If Migration B (O3) has already applied, run its rollback first to
+restore the 1-arg form + legacy anon-insert policy, THEN this
+rollback. O3's rollback path will be documented when O3 ships.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+docs/AUDIT_LOG.md
+  — Row for PR #20 (squashed `a73ce87`) added with outcome=changed,
+    pattern=clean (zero findings). Multi-paragraph notes describe
+    the L1 + L2 audit notes, the two scratch verifications, and
+    the prod deploy outcome.
+docs/BACKLOG.md
+  — H5 row updated In Progress with deploy outcome in Notes; B13
+    + O3 rows reflect current state. "Last updated" bumped to
+    2026-05-11.
+docs/plans/h5_signing_token_expiry.md
+  — Plan + preflight + scratch + prod smoke matrix + rollback path.
+    Still relevant for O3 (Migration B references it).
+supabase/migrations/20260510120000_signing_token_expiry_and_consume.sql
+  — Migration A. Live on prod. Don't re-apply.
+supabase/rollbacks/20260510120100_revert_signing_token_expiry_and_consume.sql
+  — Rollback for Migration A. Tested clean on scratch round-trip
+    (R1–R9).
+supabase/functions/proposal-signed/index.ts
+  — New shape: 5-arg RPC call, IP from `x-forwarded-for`, ALREADY_SIGNED
+    → 409, INVALID_TOKEN → 403, INVALID_PDF_URL → 400.
+src/pages/PublicSigningPage.jsx (handleSign ~line 327)
+  — New shape: no direct `proposal_signatures` insert; parses
+    `fnError.context?.json?.()` for the 409 ALREADY_SIGNED case;
+    fallback to 5-arg RPC on edge-fn round-trip failure.
+src/components/ProposalPDFModal.jsx (handleSend ~line 51)
+  — New shape: `proposals.update` (status='Sent' +
+    `signing_token_expires_at` refresh) runs BEFORE
+    `send-proposal` invoke. Status-guarded with
+    `.neq("status","Sold")`.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: main (no in-progress local branch).
+- Latest commit on origin/main: `a73ce87` "Touches H5: signing-token
+  expiry + single-use (Migration A + frontend + edge fn) (#20)".
+- PR #20 merged + branch deleted both sides.
+- Working tree noise (carryforward from v101/v102/v103/v104/v105,
+  unchanged): M supabase/.temp/cli-latest, gotrue-version,
+  storage-migration, storage-version
+- No open PRs. No scratch projects (both deleted post-test).
+- No /tmp artifacts (all cleaned).
+- This handoff + AUDIT_LOG + BACKLOG updates pending Chris's push call.
+
+END STATE
+─────────
+H5 deployed and smoked clean on prod. Token expiry + single-use are
+LIVE. O3 (drop compat wrapper) gated on 48h timer + pg_stat_statements
+verification, earliest 2026-05-13 02:10 UTC. Audit-trail-quality
+verification record in AUDIT_LOG.md.

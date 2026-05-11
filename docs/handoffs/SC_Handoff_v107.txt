@@ -1,0 +1,81 @@
+SC Handoff v107 — 2026-05-11
+============================
+
+SESSION SUMMARY
+Short feature-locator session. Chris asked how to switch a proposal
+from rounded to exact display ($13,296 → $13,296.42). Confirmed the
+toggle is the `call_log.show_cents` checkbox on the Job (CallLogDetail),
+labeled "Show cents on proposals & invoices (legacy jobs)" — it lives
+inside the Job Info section, just under the date fields, and cascades
+to every proposal and invoice tied to that job.
+
+After flipping the toggle, Chris noticed the proposal body refreshed
+to show cents but the right-rail SUMMARY panel kept rounding. Logged
+as B14. No code changes shipped this session.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+None (docs only — see BACKLOG below).
+
+DECISIONS
+─────────
+- Don't fix B14 inline; it's cosmetic, no money math affected, and
+  the session was scoped to "find the feature."
+
+NEW / CLOSED BACKLOG ITEMS
+──────────────────────────
+- ADDED B14 (T3, Open) — "Proposal Summary panel does not reflect
+  `call_log.show_cents` toggle in same view session."
+    Repro, suspected cause, and fix path written into the row.
+    Both the WTC body cards and the right-rail Summary use the same
+    `money` formatter (`ProposalDetail.jsx:16`); discrepancy points
+    to a stale `p.call_log` at re-entry. Suggested mirror of the
+    existing refresh shape at `ProposalDetail.jsx:481/:616/:622`.
+
+VERIFICATION
+────────────
+- `show_cents` toggle wiring confirmed at:
+    src/components/CallLogDetail.jsx:496-501  (checkbox)
+    src/components/CallLogDetail.jsx:92,276    (form ↔ save)
+    src/components/ProposalDetail.jsx:16       (formatter selection)
+- Body + Summary both call `money(...)` (lines 722, 1048-1077);
+  no second formatter in play. So the bug really is stale `p`,
+  not a missed binding.
+
+NOT TOUCHED
+───────────
+- H5 / O3 (Migration B) — still gated on ≥48h timer, earliest
+  2026-05-13 02:10 UTC. No action needed yet.
+- H11, B13, S2 — unchanged.
+
+NEXT SESSION POINTERS
+─────────────────────
+- If B14 surfaces in another session before O3 lands, the simplest
+  patch is to re-fetch the proposal with the `call_log(show_cents,…)`
+  join on view focus/re-mount. Mirror the existing refreshes at
+  `src/components/ProposalDetail.jsx:481`, `:616`, `:622`.
+- O3 (drop 1-arg `mark_proposal_signed` compat wrapper + legacy
+  anon-insert policy) is still the next item on the H5 thread —
+  see v106 handoff for full plan.
+
+FILES TO KNOW
+─────────────
+docs/BACKLOG.md
+  — B14 added under Bugs; header "Last updated" line bumped.
+src/components/CallLogDetail.jsx
+  — Owns the `show_cents` checkbox.
+src/components/ProposalDetail.jsx
+  — `money` formatter at line 16; Summary panel render at 1021-1081.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: main, clean before this session.
+- Pending uncommitted changes after this session:
+    M docs/BACKLOG.md            (B14 + last-updated line)
+    ?? docs/handoffs/SC_Handoff_v107.txt
+- No new commits, no pushes. Awaiting Chris's call on whether
+  to commit + push the doc-only diff.
+
+END STATE
+─────────
+B14 logged. No code touched. H5 still on its 48h timer.

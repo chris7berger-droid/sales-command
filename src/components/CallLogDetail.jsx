@@ -105,6 +105,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [showQBActionModal, setShowQBActionModal] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const [qbToast, setQbToast] = useState(null);
   const [wtDropOpen, setWtDropOpen] = useState(false);
   const wtDropRef = useRef(null);
@@ -533,6 +534,33 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                 }}
               >
                 {unlinking ? "Unlinking…" : "Unlink"}
+              </Btn>
+            </div>
+          ) : job.qb_skip_sync ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, background: C.dark, color: C.teal, padding: "3px 10px", borderRadius: 6, fontFamily: F.ui, letterSpacing: "0.04em" }}>
+                QB SYNC SKIPPED
+              </span>
+              <Btn
+                sz="sm"
+                v="ghost"
+                disabled={resuming}
+                onClick={async () => {
+                  if (resuming) return;
+                  setResuming(true);
+                  const { error: rErr } = await supabase
+                    .from("call_log")
+                    .update({ qb_skip_sync: false })
+                    .eq("id", job.id);
+                  setResuming(false);
+                  if (rErr) { setError("Resume failed: " + rErr.message); return; }
+                  set("qb_skip_sync", false);
+                  setQbToast({ kind: "linked", text: "QB sync resumed. Connect this job to a QuickBooks customer to enable syncing." });
+                  setTimeout(() => setQbToast(null), 5000);
+                  (onJobRefresh || onSaved) && (onJobRefresh || onSaved)();
+                }}
+              >
+                {resuming ? "Resuming…" : "Resume QB Sync"}
               </Btn>
             </div>
           ) : (

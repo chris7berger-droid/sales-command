@@ -718,6 +718,254 @@ f. **Sister WTC missing because of work_type_id divergence.** Clone copies all W
 
 ---
 
+## §5 Leftover Cleanup — Resolution
+
+_Resolved 2026-05-11 (Round-3 Plan agent). Picks up the three sub-DESIGN-OPENs flagged in §5 resolution. Does not re-litigate Option A+, the C1 status model, or any other locked item. Does not touch C1 item 5 (pre_lost_status) — deferred to §6._
+
+### (a) Intro flag column
+
+**Restated question.** `intro` is the only proposal-scope source-driven field. Two options were flagged: (a) park `'intro'` on the lowest-numbered WTC's `locally_edited_fields[]` array, or (b) add a sibling column `proposals.locally_edited_fields text[]` to hold proposal-scope flags. Which?
+
+**Recommendation: (b) — add `proposals.locally_edited_fields text[]`.**
+
+Rationale. Option (a) hides a proposal-level fact inside an arbitrary child row, which means every read site that asks "did this sister override its intro?" has to look at the lowest-numbered WTC row's array — a spookily-indirect invariant that rots the first time a rep deletes the lowest-numbered WTC (`ProposalDetail.jsx:213` confirms deletion is one-click). The §5 RPC bodies already assume the sibling column exists (`v_sister.locally_edited_fields` reference + `array_remove(locally_edited_fields, 'intro')` on the `proposals` UPDATE). Picking (b) costs one nullable text[] column and keeps the §5 RPCs as-written; picking (a) would require rewriting both RPCs to JOIN through `proposal_wtc`.
+
+**Schema (adds to `supabase/migrations/20260512120000_multi_gc_allocation.sql`):**
+```sql
+ALTER TABLE public.proposals
+  ADD COLUMN IF NOT EXISTS locally_edited_fields text[] NOT NULL DEFAULT '{}';
+```
+
+No new RLS — `proposals` already has full RLS scoped on `tenant_id`. No new index — array contains-lookups on a text[] of ≤1 element scale linearly with proposal count.
+
+**DB trigger to populate** (mirrors the planned `proposal_wtc` trigger):
+```sql
+CREATE OR REPLACE FUNCTION public.proposals_track_local_edits()
+  RETURNS trigger
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+BEGIN
+  IF NEW.cloned_from_proposal_id IS NULL THEN
+    RETURN NEW;  -- parent proposal: no flagging
+  END IF;
+  IF NEW.intro IS DISTINCT FROM OLD.intro
+     AND NOT ('intro' = ANY (COALESCE(NEW.locally_edited_fields, '{}'))) THEN
+    NEW.locally_edited_fields := array_append(
+      COALESCE(NEW.locally_edited_fields, '{}'), 'intro');
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_proposals_track_local_edits ON public.proposals;
+CREATE TRIGGER trg_proposals_track_local_edits
+  BEFORE UPDATE OF intro ON public.proposals
+  FOR EACH ROW
+  EXECUTE FUNCTION public.proposals_track_local_edits();
+```
+
+`SECURITY DEFINER` keeps `search_path` pinned (project convention); the trigger doesn't need elevated rights since it only mutates the same NEW row. `BEFORE UPDATE OF intro` is the minimal-scope wake-up.
+
+**Sync-behavior interaction.** Preview returns `intro` as a conflict iff sister's `proposals.locally_edited_fields` contains `'intro'`. Apply with `intro` in `p_force_overwrite` clears the flag. Apply without force respects the flag and reports skipped. All encoded in §5 RPCs as-written.
+
+**UX surfacing.** None in v1. The conflict modal already surfaces the override at edit time. "Which sister overrode their intro without triggering a sync?" is a future §7 ask, not a v1 cleanup.
+
+**Backward-compat audit.** New column with `DEFAULT '{}'` is non-breaking for all existing reads. `proposals` SELECT sites are unaffected (none reference the column today). `ProposalDetail.jsx:88` parent-side intro-save: trigger NO-OPs for parents (`cloned_from_proposal_id IS NULL`). Sister-side intro-save: trigger flags `'intro'` — exactly the §5 semantics. Zero existing sisters in prod, so zero rows affected on initial migration.
+
+**Edge cases.**
+1. Sister edits intro then reverts to source's exact text — flag is NOT removed (same coarse semantic as §5's "Sister-edited then source-undoes" quirk, accepted explicitly).
+2. Parent hard-delete → sisters' `cloned_from_proposal_id` flips to NULL via `ON DELETE SET NULL`; trigger short-circuits. Orphaned sisters have nothing to sync from anyway.
+3. Bulk UPDATE of intro across many rows — `BEFORE UPDATE OF intro` fires per-row; no scaling concern.
+4. `clone_proposal_to_gcs` inserts sisters with `intro = v_source.intro` and `locally_edited_fields = '{}'`. Trigger does NOT fire on INSERT — fresh sisters are correctly not flagged.
+
+### (b) Sync audit table
+
+**Restated question.** §5 compared sync to `merge_call_log` (which writes one audit row per merge, low frequency) and noted sync fires on every parent save — high frequency. Should v1 ship a `proposal_sync_events` audit table?
+
+**Recommendation: do not ship in v1. Document the deferred shape so it lands cleanly later.**
+
+Rationale. Every parent edit that touches a source-driven field already updates `proposal_wtc.updated_at` (auto-trigger per CLAUDE.md). Every conflict resolution either updates the sister WTC's `locally_edited_fields` array (audit-able as a column-state diff) or doesn't. The information density of a separate audit table is low for an operational concern reps don't surface today: nobody asks "show me every sync attempt against sister X for the last 90 days." The compelling future use case is forensic — "sister disagrees with parent, when did that happen?" — and that case is already answered by `proposal_wtc.updated_at` + `locally_edited_fields` joined against `proposals.cloned_from_proposal_id`.
+
+Operating cost: at modest scale (1 parent edit/day × 3 sisters × 18 fields = 54 rows/day, ~20k/year per tenant) the table is fine on capacity but poor on signal-to-noise — most rows are empty-conflict previews. Ship the table only when a concrete read site exists.
+
+**Decision: defer.** Add a deferred-spec header comment in the §5 migration and a BACKLOG row.
+
+**If/when shipped later — locked spec** (do not re-debate shape):
+
+```sql
+-- ---------------------------------------------------------------------------
+-- proposal_sync_events  (FUTURE — not in v1)
+-- ---------------------------------------------------------------------------
+-- Append-only log of every preview/apply invocation. Written by both
+-- preview_sync_to_sisters (kind='preview') and apply_source_edit_to_sisters
+-- (kind='apply'). One row per RPC invocation, NOT one row per
+-- (sister × field). The detail lives in the jsonb payload.
+--
+-- Retention: 365 days via separate cron migration. Reader: admin-only
+-- forensic view; per-proposal detail surface is NOT planned for v1.
+
+CREATE TABLE IF NOT EXISTS public.proposal_sync_events (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_proposal_id   text NOT NULL REFERENCES public.proposals(id) ON DELETE CASCADE,
+  call_log_id          integer NOT NULL REFERENCES public.call_log(id) ON DELETE CASCADE,
+  kind                 text NOT NULL,           -- 'preview' | 'apply'
+  changed_fields       text[] NOT NULL,
+  forced_overwrites    text[] NOT NULL DEFAULT '{}',
+  result               jsonb NOT NULL,          -- full RPC return value
+  conflict_count       integer NOT NULL DEFAULT 0,
+  performed_by         uuid REFERENCES public.team_members(id) ON DELETE SET NULL,
+  performed_at         timestamptz NOT NULL DEFAULT now(),
+  tenant_id            uuid NOT NULL DEFAULT public.get_user_tenant_id()
+                              REFERENCES public.tenant_config(id),
+  CHECK (kind IN ('preview','apply'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_proposal_sync_events_tenant_id   ON public.proposal_sync_events(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_proposal_sync_events_source      ON public.proposal_sync_events(source_proposal_id);
+CREATE INDEX IF NOT EXISTS idx_proposal_sync_events_call_log_id ON public.proposal_sync_events(call_log_id);
+CREATE INDEX IF NOT EXISTS idx_proposal_sync_events_performed_at ON public.proposal_sync_events(performed_at);
+
+ALTER TABLE public.proposal_sync_events ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS proposal_sync_events_select ON public.proposal_sync_events;
+CREATE POLICY proposal_sync_events_select ON public.proposal_sync_events
+  FOR SELECT TO authenticated
+  USING (tenant_id = public.get_user_tenant_id() AND public.is_admin_or_manager());
+
+DROP POLICY IF EXISTS proposal_sync_events_insert ON public.proposal_sync_events;
+CREATE POLICY proposal_sync_events_insert ON public.proposal_sync_events
+  FOR INSERT TO authenticated
+  WITH CHECK (tenant_id = public.get_user_tenant_id());
+
+DROP POLICY IF EXISTS proposal_sync_events_update ON public.proposal_sync_events;
+CREATE POLICY proposal_sync_events_update ON public.proposal_sync_events
+  FOR UPDATE TO authenticated
+  USING       (tenant_id = public.get_user_tenant_id() AND public.is_admin_or_manager())
+  WITH CHECK  (tenant_id = public.get_user_tenant_id() AND public.is_admin_or_manager());
+
+DROP POLICY IF EXISTS proposal_sync_events_delete ON public.proposal_sync_events;
+CREATE POLICY proposal_sync_events_delete ON public.proposal_sync_events
+  FOR DELETE TO authenticated
+  USING (tenant_id = public.get_user_tenant_id() AND public.is_admin_or_manager());
+
+-- No updated_at column: append-only by design.
+```
+
+Reasons-for-choices locked:
+- **Per-invocation, not per-(sister × field) row.** Writing N×M rows per invocation explodes table size 18× for negligible read benefit. `merge_call_log` precedent stores `proposals_moved` as a jsonb array on one row.
+- **Both kinds (preview + apply).** Asymmetric ("only apply") would lose the preview-then-Don't-sync case (rep saw conflicts and bailed) — the second-most-interesting forensic event.
+- **`conflict_count` denormalized.** Cheap; lets future read sites filter `WHERE conflict_count > 0` without expanding the result jsonb.
+- **365-day retention via separate cron migration.** Mirrors `supabase/migrations/20260420170000_invoices_retention.sql` pattern.
+- **No `proposal_clones` consolidation.** Different cardinalities (one-per-clone-event vs one-per-edit) and different read consumers; don't merge.
+
+**Backward-compat audit.** N/A — table doesn't exist in v1.
+
+**Edge cases the deferral creates.**
+1. Forensic gap: between v1 ship and audit-table ship, "when did sister X first locally-override `materials`?" answers only with `proposal_wtc.updated_at` + current `locally_edited_fields[]` value — no sequence of flag-add/flag-remove events. Acceptable.
+2. Bug-investigation gap: if a sister silently goes out of sync and the rep can't recreate steps, there's no log. Mitigation: client-side console.log of RPC returns (matches today's posture for `merge_call_log` debugging).
+3. Future re-clone path would want a `parent_chain text[]` column. Deferral avoids preemptive design.
+
+### (c) Duplicate `work_type_id` on one proposal
+
+**Restated question.** `proposal_wtc` has no UNIQUE on `(proposal_id, work_type_id)`. WTCCalculator's work-type picker lists all work_types unconditionally. The §5 sync RPCs join by `work_type_id` and assume one-to-one. Block, UX-gate, or allow freely?
+
+**Recommendation: block at DB level with a plain UNIQUE constraint + add a WTCCalculator-side UX guard for friendlier errors. Pre-flight verify zero existing duplicates before applying.**
+
+Rationale. The §5 join-by-`work_type_id` is the cleanest possible identity for cross-sister WTC matching (`proposal_wtc.id` is uuid-per-row, distinct on every sister, so identity by `id` would fail; `work_type_id` is the only join key that survives clone). If duplicates are allowed, both sync RPCs must encode a deterministic disambiguation rule (e.g. "fan into the lowest-id sister WTC"), which is silently wrong half the time. The cost of blocking is one constraint; the cost of not blocking is rewriting both sync RPCs to handle a many-to-one shape.
+
+**Pre-flight verification** (add to §11 as V8):
+```sql
+-- V8: detect existing duplicate (proposal_id, work_type_id) pairs.
+-- Must return zero rows before applying the UNIQUE constraint.
+SELECT proposal_id, work_type_id, count(*)
+  FROM public.proposal_wtc
+ GROUP BY proposal_id, work_type_id
+HAVING count(*) > 1;
+-- If non-empty: triage with sales (collapse to single WTC, or split into
+-- separate proposals) BEFORE applying the constraint. The migration must
+-- fail loudly on dirty data.
+```
+
+If V8 returns rows: ship the UX guard first (so no new duplicates), triage existing duplicates, then ship UNIQUE. If V8 returns zero rows: ship in the single multi-GC migration.
+
+**Schema:**
+```sql
+ALTER TABLE public.proposal_wtc
+  ADD CONSTRAINT proposal_wtc_unique_work_type_per_proposal
+  UNIQUE (proposal_id, work_type_id);
+```
+
+**UX guard (file changes):**
+
+`src/pages/WTCCalculator.jsx:1646-1665` (`loadWorkTypes` effect) — fetch the set of work_type_ids already on this proposal:
+```js
+if (proposalId) {
+  const { data: existing } = await supabase
+    .from("proposal_wtc")
+    .select("id, work_type_id")
+    .eq("proposal_id", proposalId);
+  const usedIds = new Set((existing || [])
+    .filter(r => r.id !== wtcId)
+    .map(r => r.work_type_id));
+  setUsedWorkTypeIds(usedIds);
+}
+```
+
+`src/pages/WTCCalculator.jsx:316-318` (work-type `<select>`) — disable used options:
+```jsx
+{workTypes.map(wt => (
+  <option key={wt.id} value={wt.id} disabled={usedWorkTypeIds.has(wt.id)}>
+    {wt.name}{usedWorkTypeIds.has(wt.id) ? " (already on this proposal)" : ""}
+  </option>
+))}
+```
+
+`src/pages/WTCCalculator.jsx:1729` (`handleSave`) — defensive check before save:
+```js
+if (usedWorkTypeIds.has(selectedWorkTypeId)) {
+  alert("This work type is already on this proposal. Pick a different work type or edit the existing WTC.");
+  return;
+}
+```
+
+Also surface the 23505 error from the DB UNIQUE if a race somehow slips through (the existing insert at line 1760 swallows return — needs a small refactor to surface error to rep).
+
+**Sync semantics interaction.** With UNIQUE in place, the §5 join is unambiguous. Hypothetical "source has one WTC of work_type X, sister has two" → structurally impossible. "Source has two WTCs of work_type X" → also impossible. Collapse/duplicate/error question dissolves. At clone time, source had at most one WTC of any given work_type, so the §4 clone INSERT produces at most one sister WTC per work_type.
+
+**Backward-compat audit.**
+- `grep -rn "from(\"proposal_wtc\").insert" src/` → one site at `WTCCalculator.jsx:1760`. No upsert paths.
+- `grep -rn "INTO public.proposal_wtc" supabase/` → one site in §4 clone RPC. Clone SELECT-INSERT preserves uniqueness on each sister. F7-clean.
+- `WTCCalculator.jsx:1758` UPDATE path — `handleWorkTypeChange` at `:1668-1688` mutates `selectedWorkTypeId`. If a rep switches an existing WTC's work_type to one another sibling already has, UPDATE fails with 23505. UX guard prevents this in dropdown; dev-tools-bypass lands on the friendly check.
+- `src/pages/Import/importApi.js:306` writes `job_work_types`, NOT `proposal_wtc`. Unaffected.
+- `src/lib/calc.js`, `src/components/ProposalDetail.jsx` reads — all index by `proposal_wtc.id`, no assumption of duplicates. Zero existing read breaks.
+
+**Edge cases.**
+1. **Locked-WTC work_type swap blocked** — `proposalSold ? undefined : handleWorkTypeChange` at `WTCCalculator.jsx:1971` already gates this; rare case.
+2. **Soft-delete inconsistency** — `proposal_wtc` has no `deleted_at`; if added later, UNIQUE must become partial `WHERE deleted_at IS NULL`. Flag in migration comment.
+3. **Pre-existing duplicates block migration** — if V8 returns rows, the whole multi-GC migration fails. Two-stage path: UX guard + triage, then UNIQUE.
+4. **Constraint name length** — `proposal_wtc_unique_work_type_per_proposal` is 52 chars (under PostgreSQL's 63-char limit). Fine.
+5. **F7 future-tenant story** — UNIQUE applies within a single `proposal_id`, itself tenant-scoped via parent `proposals.tenant_id`. F7-clean.
+
+### Backward-compat summary across (a)(b)(c)
+
+| Change | New schema surface | Existing read sites broken | Existing write sites broken | Mitigation |
+|---|---|---|---|---|
+| (a) `proposals.locally_edited_fields text[]` | one column + trigger | 0 | 0 (`DEFAULT '{}'`) | none needed |
+| (b) sync audit table | none in v1 | 0 | 0 | (deferred) |
+| (c) UNIQUE `(proposal_id, work_type_id)` | one constraint | 0 | 1 if V8 returns rows; 0 otherwise | V8 pre-flight + WTCCalculator dropdown guard |
+
+### Scope check
+
+None of (a)/(b)/(c) crossed the "larger than leftover cleanup" line. Total addition to the multi-GC migration is small; the §5 RPCs work unchanged with these resolutions.
+
+### New BACKLOG row from this round
+
+- **F-class: `proposal_sync_events` audit table** (deferred from §5). Locked spec in this section. Ship when a concrete forensic read site exists.
+
+---
+
 ## §6 Award flow
 
 **[BLOCKED on C1] + [DERIVED]** Section is structurally clear but the C1 collision determines whether the auto-Sold path can stay or has to be re-routed.

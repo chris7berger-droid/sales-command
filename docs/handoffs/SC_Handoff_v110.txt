@@ -1,0 +1,200 @@
+SC Handoff v110 — 2026-05-11
+============================
+
+SESSION SUMMARY
+Short merge-and-deploy session that closed out the two QB fix PRs
+opened in v109. Started exploratory — Chris asked where the QB work
+from earlier in the day had landed, because he wasn't seeing it in
+prod. Located both PRs (#21 B12 skip-resume pill, #22 qb-create-job
+dedupe) open against main, code-review only, neither merged. Talked
+through whether to merge or wait for Multi-GC planning to finish;
+agreed planning is doc-only and the QB fixes are independent code
+surfaces, so no conflict. Chris approved merge. Squash-merged both
+PRs, deployed qb-create-job edge function, switched back to
+feat/multi-gc-allocation. Chris re-verified in prod and reported the
+QB doubled-DisplayName regression IS NOT actually fixed — PR #22's
+dedupRepeated() does not catch the real-world pattern. Filed B16
+(T2, Open) on the planning branch to log the regression without
+chasing it now. No Multi-GC code or plan touched this session.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+Merged to main (squash):
+
+45a15cf — Touches B12: persistent QB Skip pill + Resume button on CallLogDetail (#21)
+  Squash of bb0fc17 from fix/b12-qb-skip-resume. Frontend only.
+  CallLogDetail.jsx now renders a persistent "QB SYNC SKIPPED ·
+  Resume QB Sync" pill in place of the green "Connect to QuickBooks"
+  CTA when qb_skip_sync=true && !qb_customer_id. Vercel auto-deploys.
+
+7cd5633 — fix(qb): dedupe "X - X" job_name pattern before pushing to QB DisplayName (#22)
+  Squash of 39a8be1 from fix/qb-dedupe-job-name. Edge function only.
+  Adds dedupRepeated() near the top of qb-create-job/index.ts.
+  Applied where job.job_name is read. Verified in prod post-deploy:
+  the helper did NOT catch the actual failure mode — see B16.
+
+Committed on feat/multi-gc-allocation (not pushed at handoff time):
+
+a07b8c6 — B16: log QB doubled DisplayName regression — PR #22 dedupe didn't match actual pattern
+  Adds row B16 to docs/BACKLOG.md (T2, Open) documenting that the
+  dedupRepeated() helper shipped via 7cd5633 does not match the
+  real-world pattern. Doubled DisplayName still landing in QB after
+  deploy. No fix attempted — deferred until a real job_name value
+  can be captured side-by-side with the resulting QB DisplayName.
+
+DEPLOYED
+────────
+- Edge function: qb-create-job
+  Project: pbgvgjjuhnpsumnowuym
+  Command: supabase functions deploy qb-create-job --no-verify-jwt
+  Script size: 82.68 kB
+  Dashboard: https://supabase.com/dashboard/project/pbgvgjjuhnpsumnowuym/functions
+  Deployed from main @ 7cd5633.
+- Vercel: frontend (PR #21) auto-deployed from main merge. No manual
+  step taken.
+- No DB migrations this session.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+- Merge both PRs even though Multi-GC planning is in flight. Reason:
+  the planning branch only touches docs/ (BACKLOG.md, handoffs/,
+  plans/multi_gc_allocation.md); the QB PRs only touch code. Zero
+  current overlap. The plan WILL eventually rework
+  CallLogDetail.jsx (new GCs panel) and qb-create-job (only winner
+  triggers it), but B12's pill lives in a self-contained section and
+  the dedupe helper runs regardless of caller — both will absorb a
+  trivial rebase when implementation lands. Waiting would have kept
+  real bugs in prod for the duration of planning + implementation.
+- Squash-merge both PRs, matching the existing repo pattern (PR #20
+  was squash-merged with "(#20)" subject suffix).
+- Deployed the edge function from a checkout of main (after pull),
+  then switched back to feat/multi-gc-allocation. Working tree was
+  clean before the switch — no collision risk with other terminals.
+- B16 filed on feat/multi-gc-allocation, not main. Matches the
+  precedent set by B15 (also filed on this branch). The planning
+  branch already carries its own BACKLOG edits; bundling B16 here
+  keeps the planning narrative coherent. Will merge cleanly with
+  main's BACKLOG on next rebase.
+- Did NOT investigate B16 root cause this session. Chris said
+  "I don't want to chase it now just add it to backlog." Stay-scoped.
+
+NEW BACKLOG ITEMS
+─────────────────
+B16 (T2, Open) — QB doubled DisplayName regression — PR #22
+  dedupRepeated() did not catch the real-world pattern. Filed on
+  feat/multi-gc-allocation @ a07b8c6. Not blocked. Blocks nothing.
+
+CLOSED THIS SESSION
+───────────────────
+B12 #2 (no labeled undo path for QB Skip) — Touches B12 closed via
+  PR #21 / commit 45a15cf on main. B12 row remains Open in BACKLOG
+  for #1 (Skip icon visual weight in QBActionModal, ~15 min
+  cosmetic follow-up).
+
+VERIFICATION
+────────────
+- PR #21 (B12 pill): verified in prod by Chris ("fix confirmed").
+  Vercel deploy from main merge live at scmybiz.com. No reproduction
+  details captured beyond Chris's confirmation.
+- PR #22 (dedupe): verified in prod by Chris — and FAILED. Doubled
+  DisplayName still landing after edge fn deploy. dedupRepeated()
+  is live in qb-create-job but does not match the actual failure
+  mode. Logged as B16. No synthetic test ("foo - foo" pre-push)
+  was executed — Chris's real-world re-verification superseded it.
+- /audit slash command: still not runtime-tested. No audit-terminal
+  session this round.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+- All open T2 backlog except B16: O3, H11, B11, S2, B13, F7.
+- B12 #1 (Skip icon visual weight) — ~15 min cosmetic, still queued
+  in the B12 row.
+- Multi-GC planning code/docs (feat/multi-gc-allocation) — branch
+  remains 8 commits ahead of origin/main with the planning rounds +
+  B15 + B16. No plans/multi_gc_allocation.md edits this session.
+- ImportToLiveWizard.jsx — second-line defense for QB job_name
+  doubling, still deferred. May become relevant once B16 root cause
+  is captured.
+- O3 timer (H5 Migration B) — still on the ≥48h gate from
+  2026-05-11 02:09 UTC. Earliest start 2026-05-13 02:10 UTC.
+- supabase/.temp/* — gitignored carryforward, untouched.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. B16 reproduction — first action when B16 is picked up: capture
+   the literal call_log.job_name value for a known-bad case
+   side-by-side with the resulting QB DisplayName (via Supabase
+   query + QB customer screen). Do this BEFORE writing any new
+   dedupe logic — PR #22's mistake was assuming the pattern from a
+   single example. Likely sources for the doubling: archive imports
+   (ImportToLiveWizard), NewInquiryWizard.jsx job_name composition,
+   or an upstream Glide quirk. Check at the write path, not just at
+   QB push.
+2. Multi-GC reconstruction can resume on feat/multi-gc-allocation
+   any time — the branch is 8 commits ahead of origin/main with
+   rounds 1–7 of planning + B15 + B16. Briefing context per the v108
+   pointer #2 (v98 + memory + locked decisions in
+   docs/plans/multi_gc_allocation.md). The two QB merges to main
+   create a trivial rebase on CallLogDetail.jsx and
+   qb-create-job/index.ts — both files were not edited on this
+   branch, so the rebase should be clean (no conflict markers).
+3. B12 #1 — ~15 min cosmetic follow-up on QBActionModal Skip icon
+   visual weight, pickable anytime.
+4. O3 — gated, earliest 2026-05-13 02:10 UTC. Before applying
+   Migration B query pg_stat_statements for any 1-arg
+   mark_proposal_signed traffic; require zero.
+5. feat/multi-gc-allocation has 1 unpushed commit (a07b8c6) at
+   handoff time — push status depends on Chris's call on this
+   handoff.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+supabase/functions/qb-create-job/index.ts
+  — dedupRepeated() helper now live in prod (commit 7cd5633,
+    deployed). Does NOT catch the real-world doubled DisplayName
+    pattern. B16 work will either replace it, augment it, or fix
+    the upstream writer instead.
+src/components/CallLogDetail.jsx
+  — Persistent QB Skip pill + Resume button now live in prod (PR
+    #21 / commit 45a15cf). State hook `resuming` at ~line 108; new
+    conditional branch in the QuickBooks section around line 538.
+docs/BACKLOG.md
+  — On main: B12 row re-scoped to #1 only (per PR #21).
+  — On feat/multi-gc-allocation: also carries B15 and B16 rows that
+    are not yet on main. Rebase target on next Multi-GC push.
+docs/plans/multi_gc_allocation.md
+  — Untouched this session. Round-1 outline + subsequent planning
+    rounds remain on feat/multi-gc-allocation.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: feat/multi-gc-allocation.
+- Working tree: clean.
+- Local feat/multi-gc-allocation: 1 commit ahead of
+  origin/feat/multi-gc-allocation (a07b8c6 B16) + the handoff
+  commit pending after this file is written → 2 ahead after
+  handoff commit.
+- Local feat/multi-gc-allocation: 8 commits ahead of origin/main
+  (d61d99b, 7ce6a74, d3f124c, d24795a, 73d8429, e5c1d02, b0a6d63,
+  a07b8c6) — will be 9 after handoff commit.
+- Latest on origin/main: 7cd5633 "fix(qb): dedupe \"X - X\"
+  job_name pattern before pushing to QB DisplayName (#22)".
+- Open PRs: none. #21 and #22 merged and closed this session.
+- Remote branches deleted on merge: fix/b12-qb-skip-resume,
+  fix/qb-dedupe-job-name (local copies still exist).
+- Other local branches: feat/billing-contact-flag,
+  feat/import-wizard-customer-match, main,
+  fix/s1-get-user-tenant-id-no-fallback (remote gone),
+  fix/b12-qb-skip-resume (remote gone, local stale),
+  fix/qb-dedupe-job-name (remote gone, local stale).
+- Deployed this session: qb-create-job edge fn (project
+  pbgvgjjuhnpsumnowuym).
+- No migrations. No scratch projects. No /tmp artifacts.
+
+END STATE
+─────────
+B12 pill shipped, deployed, and confirmed in prod. QB dedupe
+shipped and deployed but does NOT fix the doubled DisplayName —
+logged as B16 and deferred. Multi-GC planning branch untouched but
+now carries B15 + B16 backlog entries ahead of main. Ready for
+fresh session.

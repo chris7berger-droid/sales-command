@@ -1330,7 +1330,9 @@ $$;
 
 ## §7 UI surfaces
 
-**[DESIGN-OPEN + DERIVED]**
+> **→ Resolved 2026-05-11. Final-round wizard spec, after-state surfaces, conflict-prompt UX, and sister detail-view treatments are nailed down in "§7 Wizard — Re-spec" below. The text in this section is the original stub, kept as the trail of how we got there.**
+
+**[DESIGN-OPEN — see resolution]**
 
 **Wizard — 4 screens** (per v98 mockup, reproduced from memory; not blocked but needs design pass since mockup HTML was deleted):
 1. **Pick GCs** — list of `customers` rows where `customer_type` is some GC tag, OR a free-create path. Multi-select.
@@ -1349,6 +1351,453 @@ $$;
 **Source-edit conflict modal** **[DESIGN-OPEN]**: when an edit on the parent triggers `preview_sync_to_sisters` and conflicts come back, modal lists sisters × conflicting fields, lets user pick "skip" or "force overwrite" per row, then invokes `apply_source_edit_to_sisters` with the chosen `p_force_overwrite` set. Trigger point: every save in WTCCalculator/ProposalDetail when the proposal has sisters.
 
 **Customer-jobs surface fix** **[BLOCKED on S1 resolution]**: see S1 below.
+
+---
+
+## §7 Wizard — Re-spec
+
+_Replaces §7 stub. Locked decisions surfaced: Q1, Q2, Q4, C1 (`'Signed'` status), §3 markup (additive, floor-clamped, labor-only), §5 (Option A+ sync, conflict modal lives outside wizard), §5-cleanup (a) `proposals.locally_edited_fields`, §5-cleanup (c) UNIQUE `(proposal_id, work_type_id)` + dropdown guard. Read-only spec; no files written._
+
+Wizard component: `src/components/MultiGCWizard.jsx` (new). Conflict modal: `src/components/SyncConflictModal.jsx` (new). Both are referenced from the existing entry points and live alongside `NewInquiryWizard.jsx`. Screen order kept as v98: **1 Pick GCs → 2 Per-GC Details → 3 Pricing → 4 Review**. No reordering — every prior-round decision maps onto this order cleanly.
+
+Layout precedent followed from `src/components/NewInquiryWizard.jsx:751-787`:
+- Backdrop `rgba(28,24,20,0.65)`, modal body `C.linenCard` background, `borderRadius: 14`, `padding: 32`, `width: 720` (wider than NewInquiry's 620 because Per-GC and Pricing screens need horizontal room for N sister cards side-by-side), `maxHeight: 92vh`, `overflowY: auto`, `boxShadow: 0 24px 64px rgba(0,0,0,0.45)`, `border: 1px solid C.borderStrong`.
+- Two `NavCircle` arrows pinned at `left/right: calc(50% - 414px)` (offset for the wider modal). `NavCircle` reused verbatim from NewInquiryWizard.jsx:55-64 (`C.teal` border, `C.dark` fill when secondary / `C.teal` fill with `C.dark` glyph when primary). Final-step right circle shows `✓`.
+- Per-screen `StepLabel n / label` from NewInquiryWizard.jsx:30-37, numbered 1–4.
+- Footer `{step+1} / 4` from NewInquiryWizard.jsx:779-781.
+- Top header strip: `<h2>Send to Additional GCs</h2>` in `F.display` + `C.textHead` + close `✕` at top-right.
+- Below the header, a dark sub-strip `background: C.dark`, `border: 1px solid C.tealBorder` reprises NewInquiryWizard.jsx:773-776 pattern but shows the **source proposal label**: small-caps `"Source Proposal"` in `rgba(255,255,255,0.3)` over the source's `display_job_number P{n}` in `C.teal` `F.display`. Replaces the job-number-preview block.
+
+State shape (held in `MultiGCWizard` top-level `useState`):
+```
+{
+  step: 0..3,
+  sourceProposalId: text,            // pre-set by entry point
+  sourceProposal: {...},             // joined call_log + customer + wtcs
+  sourceWtcs: [{...}],               // for live preview math (Screen 3)
+  callLogId: integer,                // === sourceProposal.call_log_id
+  existingSisterCustomerIds: uuid[], // from initial query, for UNIQUE guard
+  targets: [{                        // one entry per sister being created
+    customer_id: uuid,               // selected on Screen 1
+    customer_name: text,             // denormalized for display
+    primary_contact_id: uuid|null,   // 'signer' role
+    viewer_contact_ids: uuid[],
+    rfp_number: text,
+    bid_due_date: date|null,
+    billing_terms: integer,          // pulled from customer; editable per-GC
+    intro: text,                     // prepopulated from source.intro; editable
+    intro_locally_edited: boolean,   // tracks whether rep mutated from source value
+    markup_override_pct: numeric|null,
+  }],
+  saving: boolean,
+  error: text|null,
+  partialResults: {success: [...], failures: [...]} | null
+}
+```
+
+The wizard mirrors NewInquiryWizard's `setData` pattern (single state object, `set(k, v)` curry) — same shape, different fields.
+
+---
+
+### Entry Points
+
+#### Entry Point A — ProposalDetail "+ Send to Additional GCs"
+
+**File / insertion site.** `src/components/ProposalDetail.jsx:674-695` (the action toolbar inside the header `<div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>`). The button slots between the existing `Internal Approve` button (`:691`) and the `Generate PDF` button (`:693`). Order in the toolbar after insertion: Delete · Pull Back · Send to Schedule · Create Invoice · Internal Approve · **Send to Additional GCs** · Generate PDF · Send Proposal.
+
+**Button copy + styling.** Reuses `Btn sz="sm" v="secondary"` so the visual weight is below `Send Proposal` (primary) and above the ghost-class buttons. `Btn` `v="secondary"` is `background: transparent`, `color: C.tealDark`, `border: 1.5px solid C.teal` (Btn.jsx:6). Copy: `"+ Send to Additional GCs"`. No inline style override required.
+
+Rationale on variant: a primary teal-button-with-black-text (the literal Style Rule #2 form) is reserved for the wizard's final "Create N sister proposals" CTA on Screen 4 — using it here would over-promote a flow that's secondary to "Send Proposal."
+
+**Pre-conditions for visibility.** Show only when ALL of:
+1. `p.cloned_from_proposal_id == null` (this is a source, not a sister — §8.6 / §7 stub Q4 gate).
+2. `!p.is_archive_proposal` (archive proposals have no WTCs to clone — §3 already excludes them from calc paths).
+3. `p.status` is in `['Draft','Sent','Has Bid','Signed']` — excludes `'Sold'`, `'Lost'`, `'Parked'`. Hide on `'Sold'` because once Mark Awarded has run, sisters under this call_log are already terminal; hide on `'Lost'` because the source itself lost. `'Signed'` allowed because the rep may still need to add a late-arriving GC before they pull the trigger on Mark Awarded.
+4. `p.deleted_at == null`.
+
+Disabled (rendered, but `disabled` prop true with tooltip) when WTCs are present but none locked: `wtcs.length > 0 && !wtcs.some(w => w.locked)`. Reason: cloning before lock means sisters inherit `locked=false` WTCs (already guaranteed by C2 / §4 RPC clause), but the live preview total on Screen 3 would be uninformative because the source itself has no committed pricing yet. Tooltip: `"Lock at least one WTC on this proposal before cloning to additional GCs."` **[OPEN — see Open Items below]** — alternative is to allow even with zero locked.
+
+**Wizard opens with.** `sourceProposalId = p.id`, `callLogId = p.call_log_id`, `step = 0`. `sourceProposal` and `sourceWtcs` hydrated by the wizard's own initial effect (single Supabase round-trip mirroring `ProposalDetail.jsx:47-55`'s join shape). `existingSisterCustomerIds` queried once: `SELECT p.customer_id FROM proposals p WHERE p.call_log_id = ? AND p.cloned_from_proposal_id = ? AND p.deleted_at IS NULL` (catches sisters already cloned from this same source, for the §5-cleanup (c) UNIQUE-style guard on Screen 1).
+
+#### Entry Point B — CallLogDetail "+ Add Another GC"
+
+**File / insertion site.** `src/components/CallLogDetail.jsx:414-449` (the action toolbar `<div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>`). Slots immediately after the existing `+ New Proposal` button at `:426-428`. New order: Edit · (Save/Cancel during edit) · **+ New Proposal** · **+ Add Another GC** · + Add CO · + Archive Job Proposal · Delete · Merge Job · Move to Old Jobs.
+
+**Button copy + styling.** Same `Btn sz="sm" v="secondary"` for visual parity with `+ Add CO` immediately following it (`:430` uses `v="secondary"`). Copy: `"+ Add Another GC"`. No inline override.
+
+**Pre-conditions for visibility.** Show only when ALL of:
+1. There is at least one non-archive, non-deleted, non-Lost proposal on this call_log AND at least one of those is **not** a sister (i.e. an eligible "source proposal" exists). Implementation: pass `linkedProposals` down from `CallLogDetail` (already loaded — see `:443` `Btn` block that refreshes child counts) and gate on `linkedProposals.some(p => !p.cloned_from_proposal_id && !p.is_archive_proposal && p.deleted_at == null && !['Sold','Lost'].includes(p.status))`.
+2. `!job.archived` — old jobs can't get new sisters.
+3. `!job.is_change_order` — CO call_logs don't fan out to multi-GC. **[OPEN]** ratify.
+4. `job.stage` is NOT `'Sold'` or `'Lost'` (once a winner exists, no more sisters; reversal via `reverse_award` is the door to take if rep needs to reopen).
+
+Disabled with tooltip when the only candidate source proposal has zero locked WTCs (same rationale as Entry Point A).
+
+**Wizard opens with.** Different from Entry Point A: the source isn't pre-selected; the rep has to **pick which existing proposal to clone from** before Screen 1 proper. Two options for how that picker appears:
+
+- (a) **Pre-Screen 0 source picker.** A 5th screen that fires only via Entry Point B. Lists all eligible source proposals on the call_log (typically just one), each rendered with `display_job_number P{n}` badge + `Pill label={p.status}` + GC name + total. Rep taps one; wizard sets `sourceProposalId` and advances to Screen 1.
+- (b) **Auto-select most recent eligible.** If exactly one candidate exists, pre-select it and start at Screen 1; if 2+, fall through to (a).
+
+Pick **(b)** — single-GC is overwhelmingly the common case (call_log with one source proposal, rep wants to fan out). Multi-source-on-one-call_log only happens after a prior multi-GC + Mark Awarded reversal cycle, which is rare. (a) is the disambiguation lane when needed. Implementation: wizard opens with `step=0`, computes `candidateSources`, if `candidateSources.length === 1` it `setSourceProposalId(candidateSources[0].id)` and stays at step 0 with the source-picker UI hidden; if 2+, step 0 renders a source-picker variant of Screen 1's top. Header sub-strip ("Source Proposal: 1234 P1") populates once `sourceProposalId` is set.
+
+---
+
+### Screen 1 — Pick GCs
+
+**Goal.** Select N (1+) GC customers to clone this proposal to.
+
+**Layout.** Full-width single column inside the modal body. Vertical stack:
+
+1. `StepLabel n=1 label="Pick GCs"` (NewInquiryWizard `StepLabel` reused).
+2. Helper paragraph (`fontSize: 12.5`, `color: C.textMuted`, `fontFamily: F.ui`, `marginBottom: 14`): `"Pick one or more General Contractors to receive a copy of this proposal. Each will get its own customer, contacts, RFP#, and pricing."`.
+3. A search input (`<input>` styled with NewInquiryWizard `inputStyle` constant — `C.linenDeep` background, `borderRadius: 8`, `border: 1.5px solid C.borderStrong`, `padding: 10px 14px`, `fontSize: 14`, `WebkitAppearance: "none"`). Placeholder `"Search GC customers…"`. Filters the list below by `customer.name` `includes` (case-insensitive).
+4. A scrollable list (`maxHeight: 260`, `overflowY: auto`, `paddingRight: 4`, `display: flex column gap 6`) of GC candidates. Each row mirrors the `workTypes` selection pattern at NewInquiryWizard.jsx:680-691:
+   - Row background `C.linen` when unselected, `C.dark` when selected (matches selected-pill rule).
+   - Row border `1.5px solid C.border` unselected, `1.5px solid C.teal` selected.
+   - Row left side: small checkbox-square (18×18, `border 2px solid C.borderStrong` unselected / `C.teal` filled with `C.dark` `✓` when selected), then customer name in `F.ui` `fontSize: 13` `color: C.textBody` (unselected) / `C.teal` weight 700 (selected).
+   - Right side: `customer.customer_type` muted (`fontSize: 11`, `color: C.textFaint` unselected / `rgba(255,255,255,0.35)` selected).
+5. Below the list, an "+ Add New GC Customer" row styled as the dashed-border button at NewInquiryWizard.jsx:576-581 (`background: none`, `border: 1.5px dashed C.borderStrong`, `borderRadius: 8`, `padding: 8px 16px`, `F.display`). On click expands an inline mini-form (customer_type=Commercial pre-filled, name input, billing_terms select); on save inserts into `customers` and pushes id into `targets` with `customer_name` denormalized. Mini-form mirrors the customer-creation block of NewInquiryWizard.jsx:448-475.
+
+**Inputs / data.**
+- Source data: `customers` table, all rows where `tenant_id` matches (RLS enforced). Surface filtered to `customer_type === 'Commercial'` by default with a small `"Show Residential too"` toggle (`color: C.textFaint`, `fontSize: 11`, plain button) for the edge case. Rationale: today `customer_type` has no GC-specific tag (`Customers.jsx:96-100` shows only Residential/Commercial), and GCs are virtually always Commercial. **[OPEN — see Open Items]** ratify the default.
+- Selection writes to `targets[]` keyed by `customer_id`. Selecting a customer pushes `{ customer_id, customer_name, primary_contact_id: null, viewer_contact_ids: [], rfp_number: "", bid_due_date: null, billing_terms: customer.billing_terms || 30, intro: sourceProposal.intro, intro_locally_edited: false, markup_override_pct: null }`. Deselecting pops it.
+
+**State this screen reads / writes.**
+- Reads: `customers` (list), `sourceProposal.intro`, `existingSisterCustomerIds`.
+- Writes: `targets[]`.
+
+**Validation gates before Next enables.**
+- `targets.length >= 1`. Disabled `NavCircle` (right) when zero. Mirrors NewInquiryWizard's `validateStep` "workTypes" case (`NewInquiryWizard.jsx:168`).
+- Each `target.customer_id` must NOT appear in `existingSisterCustomerIds` (UNIQUE-style guard at the per-call_log level — "this GC already has a sister on this project"). On attempt to select such a customer, the row renders disabled (`opacity: 0.4`) with a `(already a sister on this project)` suffix in `color: C.textFaint`. Direct port of the §5-cleanup (c) WTCCalculator dropdown pattern, applied to customer-on-call_log.
+- The same customer may not be selected twice (the list itself already enforces this — single row per customer).
+
+**Edge cases.**
+- **Existing sister under this call_log (forward-only, Q2).** Renders with the disabled `(already a sister on this project)` indicator; rep cannot select. No retro-link path.
+- **Source-customer in the GC list.** The source proposal's own customer (`sourceProposal.customer_id ?? sourceProposal.call_log.customer_id`) renders disabled with suffix `(this is the source proposal's GC)`. Prevents diamond inheritance (§8.6) at the customer level.
+- **Customer with no contacts.** Permitted at Screen 1; deferred validation to Screen 2 where the rep must either select an existing contact or create one.
+- **No GC customers at all in the tenant.** List shows empty state `"No GC customers yet. Use + Add New GC Customer to create one."` — empty state in `C.textFaint`, `F.ui`, `fontSize: 13`, padding `20px 0`, centered.
+
+---
+
+### Screen 2 — Per-GC Details
+
+**Goal.** For each picked GC, capture commerce-side fields (Q2): contacts, RFP#, due date, billing terms, intro override.
+
+**Layout.** Tabbed per-sister UI (one tab per `target`). At the top of the screen body, a horizontal row of pill-tabs — one per target, plus visual counter `"1 of N"` on the right. Tab styling reprises the `STAGES` pill row at NewInquiryWizard.jsx:656-658:
+- Unselected tab: `border 1.5px solid C.border`, `background: transparent`, `color: C.textMuted`, padding `7px 14px`, `borderRadius: 20`, `F.display`, uppercase, `letterSpacing: 0.05em`.
+- Selected: `border 1.5px solid C.teal`, `background: C.dark`, `color: C.teal`.
+- Each tab label is the GC's customer_name truncated to 20 chars. A small red dot suffix appears if the tab has unfilled required fields (computed live).
+
+Per-sister tab body (single card; layout is a single tab "card", not multiple cards stacked):
+
+1. **Customer label header.** Sister customer's full name in `F.display` `fontSize: 18` `color: C.textHead` + below it the `customer_type` muted.
+2. **Primary contact picker.** `<select>` of `customer_contacts` for this sister's customer, ordered `is_primary desc, name asc`. Mirrors `ProposalDetail.jsx:64` query pattern. Plus an "+ Add new contact" link that expands a 3-field mini-form (name / email / phone / role-select with options "Project Manager" | "Office Manager" | "Billing Contact"). Same shape as ProposalDetail's `createNewRecipient` flow at `ProposalDetail.jsx:331`. The selected contact is written to `target.primary_contact_id` and becomes the sister's `proposal_recipients` row with `role='signer'` after the §4 clone RPC runs. **[OPEN]** wizard could optionally let the rep pick multiple viewers (`viewer_contact_ids[]`) — defer to v1.1 to keep the screen compact; ship v1 with signer-only.
+3. **RFP # input.** `<input>` styled with NewInquiryWizard `inputStyle`. Writes to `target.rfp_number`. **NOTE:** `proposals` schema (CLAUDE.md verified-columns block) has no `rfp_number` column today — this requires schema addition. See Backward-Compat / Migration Notes below; flagged as **[OPEN]** as the §3 schema additions did not include it.
+4. **Bid due date input.** `<input type="date">` styled with `inputStyle`. Writes to `target.bid_due_date`. **NOTE:** `proposals` schema has no `bid_due_date` either (only `call_log.bid_due` exists). Same schema-add flag. Per Q2, the GC's bid due date is commerce-side per-sister, so this lives on `proposals`, not `call_log`. **[OPEN]**.
+5. **Billing terms input.** `<select>` matching NewInquiryWizard.jsx:525-534 (`Net 5 / 15 / 30 / 45 / 60 / 90 / 120 / Custom`). Default = the sister customer's `customers.billing_terms`. Writes to `target.billing_terms`. **NOTE:** today `billing_terms` lives on `customers` (per CLAUDE.md), not on `proposals`. Per Q2 "per-GC on commerce", the per-sister billing terms either (i) overrides the customer's value (write back to `customers.billing_terms` on commit — rejects multi-tenant story), or (ii) lands on a new `proposals.billing_terms_override` column (cleaner). Recommend (ii). **[OPEN]** — see Open Items.
+6. **Sibling intro field (cleanup (a) trigger surface).** A `<textarea>` (matches `ProposalDetail.jsx:968` intro editor) labeled `"Email Introduction"`. Prepopulated from `target.intro` (which was seeded from `sourceProposal.intro` on Screen 1). When rep edits, `target.intro_locally_edited` flips to true (purely a UI hint — the trigger on `proposals.locally_edited_fields` does the database-side work post-commit). Above the textarea, a one-line hint: when `intro_locally_edited === false`, hint reads `"From source proposal. Edit to override for this GC only."` in `color: C.textFaint`. Once edited, hint changes to `"Overridden for this GC. Future source edits will not auto-sync this field."` in `C.amber`. (This pre-stages the conflict-modal vocabulary so reps already know the term when they later edit the source.)
+
+   On anchors (i.e. when the wizard creates a brand-new sister), the intro field semantically equals "today's intro field on the new sister." The trigger from §5-cleanup (a) only fires `BEFORE UPDATE OF intro` and only on rows where `cloned_from_proposal_id IS NOT NULL`. So at INSERT-time (clone RPC), `locally_edited_fields = '{}'` regardless of whether the wizard preset `intro` to source's value or to an edited variant. To keep the UX honest, the clone RPC should accept an optional `target.intro_override text` and write that into the sister's `proposals.intro` instead of `v_source.intro`, AND if `intro_override IS NOT NULL AND intro_override IS DISTINCT FROM v_source.intro`, the RPC should write `locally_edited_fields = ARRAY['intro']` to immediately flag the field as overridden. (Trigger doesn't catch INSERTs by design — §5-cleanup (a) `BEFORE UPDATE OF intro`. So the RPC has to do the work for the cloning case.) **[OPEN]** — adds a small RPC param + 2 lines of body; flagged to ratify.
+
+**Source-side intro on anchors.** The source proposal's own intro is unchanged by this wizard. The "ProposalDetail.jsx:968 intro editor" continues to write `proposals.intro` directly with no special multi-GC treatment, because the trigger only fires on sisters (`cloned_from_proposal_id IS NOT NULL`). Source-side intro editing → fires the §5 source-driven sync → ProposalDetail surfaces the conflict-prompt modal (see "Conflict-Prompt UX" section below).
+
+**Contact selection — existing vs new.** Mirrors ProposalDetail's recipients pattern at `ProposalDetail.jsx:317-370` (the `assignContactAsRecipient` + `createNewRecipient` flow). Picker shows `customer_contacts` rows sorted with primary first, plus inline "+ Add new" expanding a `customer_contacts` insert form. The insert side-effect on `customer_contacts` happens at wizard commit (Screen 4 "Create"), not at Screen 2 — so cancelling the wizard doesn't strand orphan contacts.
+
+**Edge cases.**
+- **Customer with no contacts.** The picker renders empty; the "+ Add new contact" inline form auto-expands. Required-field gate on Next: `target.primary_contact_id != null` OR `target` carries an inline-new contact object that hasn't been inserted yet.
+- **Sister-customer is same as anchor-customer.** Blocked on Screen 1 (see Edge cases there). Cannot reach Screen 2 in that state.
+- **Rep flips back to Screen 1 and deselects a target.** That target's tab and its data are dropped from `targets[]`. If the currently-active tab is deselected, default to first remaining tab.
+- **Long N (e.g. 8 GCs).** Tab row wraps to second line (`flexWrap: 'wrap'`); modal width 720 fits ~5 tabs per row of 20-char labels. Acceptable for the realistic ceiling of 6–8 GCs.
+
+**Validation gates before Next enables.**
+- Every target has: `primary_contact_id != null`, `rfp_number.trim().length > 0`, `bid_due_date != null`. Intro is optional (NULL is fine; renders as empty contract email body). Billing terms has a default so always passes.
+- If any required field is empty, the tab pill shows a red dot suffix.
+
+---
+
+### Screen 3 — Pricing
+
+**Goal.** Set per-sister `markup_override_pct` and confirm computed totals before commit.
+
+**Layout.** Vertical stack:
+
+1. `StepLabel n=3 label="Pricing"`.
+2. Helper paragraph: `"Adjust pricing per GC. The override adds (or subtracts) percentage points to every WTC's labor markup on this GC's proposal. Material markup and travel are unaffected. Leave blank for no change from the source."`.
+3. Source-total reference strip. A dark sub-strip (`background: C.dark`, `borderRadius: 9`, `padding: "10px 16px"`, `border: 1px solid C.tealBorder`) with `"Source proposal total"` label small-caps `color: rgba(255,255,255,0.3)` over `fmt$(calcProposalTotal(sourceProposal, sourceWtcs))` in `C.teal`, `F.display`, `fontSize: 18`. Always shown — gives reps a baseline to compare each sister's total against.
+4. One row per target (one card per sister, stacked vertically). Card style: `background: C.linen`, `border: 1.5px solid C.borderStrong`, `borderRadius: 10`, `padding: 16`, `marginBottom: 10`. Each card has three columns laid out via `display: grid`, `gridTemplateColumns: "1fr 140px 140px"`, `gap: 16`, `alignItems: center`:
+   - **Left:** customer_name in `F.display` `fontSize: 15` `color: C.textHead` + small `customer_type` line below.
+   - **Center:** numeric input for `target.markup_override_pct`. Width 100% of the column. Suffix `pp` rendered as overlay text (right-padded input + absolute-positioned `pp` glyph), per §3 spec ("explicitly NOT '%' suffix"). Placeholder `"e.g. -5"`. Default value: empty string → writes NULL. Typed `0` writes `0` (per §3 NULL-vs-0 distinction). Numeric input only, but allows `-` prefix; client clamps display preview at zero via `effectiveLaborMarkupPct` math but does NOT clamp the input value itself.
+   - **Right:** computed total for this sister, in `F.display` `fontSize: 18` `color: C.teal`, computed via `calcProposalTotal({ markup_override_pct: target.markup_override_pct }, sourceWtcs)`. Recomputes on every keystroke (no debounce needed — math is local, no DB round-trip). Below the total in small text: a delta `vs source: +$1,234` or `−$432` (`color: C.green` for negative-from-source = cheaper-for-customer, `color: C.amber` for positive = more expensive). Helps reps see the impact at a glance.
+5. Below the per-sister cards, a per-sister expandable "Show per-WTC breakdown" disclosure on each card (chevron at right corner). On expand, renders each `sourceWtc` as a sub-row: `WTC N — work_type.name`, `fmt$(calcWtcPrice(wtc, target.markup_override_pct || 0))` on right. Tiny per-WTC table (`fontSize: 12`, `F.ui`, padding `4px 0`). Source's per-WTC price shown muted alongside if `target.markup_override_pct` is non-null.
+6. Soft-validation warning (per §3): when `|target.markup_override_pct| > 25`, an amber `⚠ Large markup override — verify with manager.` chip renders next to the override input. Does not block Next.
+
+**Live preview formulae** (per §3 spec):
+- `effectiveLaborMarkupPct = Math.max(0, (wtc.markup_pct || 0) + (target.markup_override_pct || 0))`
+- Per-WTC: `calcWtcPrice(wtc, target.markup_override_pct || 0)` — needs the §3-spec'd updated `calc.js` signature with the optional override param.
+- Per-sister total: `calcProposalTotal({markup_override_pct: target.markup_override_pct}, sourceWtcs)`.
+
+**Post-lock drift warning (Round-4 sub-DESIGN-OPEN 3).** Wizard's Screen 3 is BEFORE any sister exists, so locks on sisters don't exist yet — there is no drift to surface at clone-time. The drift problem belongs to the *post-commit* sister-Pricing-edit surface (when a rep later changes `markup_override_pct` on an existing sister whose WTCs have `locked_line_total` snapshots set). That edit surface is **not** the wizard; it's the per-sister "edit override" affordance inside ProposalDetail when viewing a sister.
+
+**Decision: warn, do not re-snapshot.** On the post-commit edit surface (ProposalDetail when viewing a sister, on the override field), if `wtcs.some(w => w.locked_line_total !== null)` AND the rep changes `markup_override_pct`, surface an amber inline warning under the input:
+
+> ⚠ **Locked snapshots exist.** This change updates the proposal's internal total, but the customer-facing per-WTC prices on the signing page were captured at lock time and will not update. To update those, unlock and re-lock each WTC.
+
+Action set: warning only, no CTA, no auto-action. Rep can either accept the drift (acceptable when the change is downward — internal total now reflects new policy, customer still sees the original locked offer) or manually unlock/re-lock. This matches the §3 "snapshot is frozen" contract (per §3.6 case 4). Recommend not adding a "Re-snapshot now?" CTA — that would silently rewrite the customer-facing signing page mid-flight, which is what H6 explicitly forbids. **[OPEN]** if Chris prefers a CTA-driven re-snapshot, the implementation cost is one button + one RPC that calls `handleLock`-equivalent over the locked set; this resolution recommends against.
+
+**Locked-WTC handling on Screen 3.** Not applicable — at clone-time sisters have no locks (C2 / §4 RPC clause: `INSERT ... VALUES (... false, NULL, '{}')`). All `sourceWtcs.locked` values are irrelevant to the live preview because the wizard recomputes prices from inputs, not from snapshots. Source's snapshots remain on the source proposal untouched.
+
+**Edge cases.**
+- **Zero-WTC sister.** Wizard refuses to commit (Screen 4 guard) — the §4 RPC clones zero WTCs, leaving a sister proposal with `total = 0` that the rep can't lock or send. Cleaner to block at Screen 1: if `sourceWtcs.length === 0`, the wizard entry button was already disabled (Entry Point A precondition #4 covers "no locked WTCs" but not "zero WTCs"). Add: button hidden when `wtcs.length === 0`.
+- **Negative override walked past clamp-zero.** Input accepts `-30`; preview math floor-clamps each WTC's effective markup at 0 via `Math.max(0, ...)`. Total reflects the clamp. No additional UX; the rep sees the clamped total directly. Reasonable; matches §3's stated math.
+- **Source's own `markup_override_pct` is set.** Per §3.6 case 2, the clone RPC does NOT copy source's override into sisters — sisters default to NULL. So Screen 3's blank input is the correct default even if the source has a non-null value. The source-total reference strip computes from `sourceProposal.markup_override_pct` (so the comparison is "source as it ships today" vs "sister with rep's input"). Helper text under the source-total strip clarifies: `"Source's own markup override is already applied to the source total above. Sister overrides do not inherit."`.
+
+**Validation gates before Next enables.** None — every target's `markup_override_pct` is allowed to be NULL. Soft warnings only.
+
+---
+
+### Screen 4 — Review
+
+**Goal.** Final confirmation; commit triggers the §4 RPC.
+
+**Layout.** Vertical stack:
+
+1. `StepLabel n=4 label="Review"`.
+2. Source proposal summary card (compact; one-line per field). `background: C.linenCard`, `border: 1.5px solid C.borderStrong`, `borderRadius: 10`, `padding: 16`. Header `"Source proposal"` in small-caps `F.display`. Body: 2-column grid showing `Job:`, `Customer:`, `Status:`, `Total:`, `WTC count:`. Total uses `fmt$(calcProposalTotal(sourceProposal, sourceWtcs))`.
+3. Sister cards arranged as a horizontal row at `width: 720` modal — `display: grid`, `gridTemplateColumns: repeat(auto-fit, minmax(260px, 1fr))`, `gap: 12`. Each sister card: `background: C.linen`, `border: 1.5px solid C.borderStrong`, `borderRadius: 10`, `padding: 14`. Card body:
+   - GC name in `F.display` `fontSize: 15` `color: C.textHead`.
+   - Primary contact name + email (single line, `fontSize: 12`, `color: C.textMuted`, `F.ui`).
+   - `RFP# 1234`, `Bid due May 15`, `Net 30` — three small chips, `background: C.dark`, `color: C.teal`, `borderRadius: 6`, `padding: "3px 10px"` (dollar-badge style per CLAUDE.md style rule #3, repurposed for metadata badges).
+   - Override pp value as a chip: `+0 pp` if NULL or 0, `−5 pp` if negative, `+10 pp` if positive. Same chip styling.
+   - Computed total prominent: `fmt$(...)` in `F.display` `fontSize: 20` `color: C.teal`.
+   - Intro override indicator: a small line `"intro: overridden from source"` in `C.amber`, `fontSize: 11`, if `target.intro_locally_edited === true`. Otherwise omitted.
+4. Final commit CTA. A wide primary button positioned below the cards, full-width inside the modal body. **Per CLAUDE.md Style Rule #2 (teal button = black text)**: this CTA is NOT a `Btn v="primary"` (which renders dark-bg + teal-text — the dollar-badge style). Instead, custom inline styling matching NewInquiryWizard.jsx:418-423's Save Changes button:
+   ```
+   background: C.teal,
+   border: "none",
+   borderRadius: 9,
+   padding: "13px 28px",
+   color: C.dark,            // ← black text on teal
+   fontWeight: 800,
+   fontSize: 14.5,
+   fontFamily: F.display,
+   letterSpacing: "0.05em",
+   textTransform: "uppercase",
+   ```
+   Copy: `"Create N Sister Proposals"` where N is `targets.length`. Disabled with `opacity: 0.6, cursor: not-allowed` while `saving === true`; copy changes to `"Creating..."`.
+
+**Server-side action on click.** One `supabase.rpc("clone_proposal_to_gcs", { p_source_proposal_id: sourceProposalId, p_targets: <jsonb> })` call. `p_targets` shape per §4 RPC body — one element per target with `customer_id`, `rfp_number`, `bid_due`, `markup_override_pct`, `signer_contact_id`, `viewer_contact_ids`. Wizard also passes the optional `intro_override` (see Screen 2 hint) per the [OPEN] RPC param flagged above.
+
+The §4 RPC:
+1. Validates tenant + source existence.
+2. Computes `v_next_n` from `MAX(proposal_number)` on the call_log.
+3. Loops over `p_targets`:
+   - Inserts a sister `proposals` row with status `'Draft'`, `cloned_from_proposal_id` set, `customer_id` set, `markup_override_pct` set, `intro` set (from `intro_override` if provided else `v_source.intro`), conditionally `locally_edited_fields = ARRAY['intro']` if override differs from source.
+   - Inserts cloned `proposal_wtc` rows with `locked=false, locked_line_total=NULL, locally_edited_fields='{}'` (C2 invariant).
+   - Inserts `proposal_recipients` row for the signer contact (role='signer').
+   - Inserts `proposal_clones` audit row.
+4. Returns `(sister_proposal_id, customer_id, proposal_number)` per row.
+
+**Loading state.** While `saving === true`: CTA disabled with `"Creating..."` copy. Backdrop click ignored (no close-on-overlay). NavCircle arrows disabled. A small spinner glyph (or just animated `…`) next to the CTA copy.
+
+**Error state.** RPC throws `NO_TENANT` / `NOT_FOUND_SOURCE` / `TENANT_MISMATCH` / `SOURCE_DELETED`. Render error inline below the CTA in `color: C.red`, `fontSize: 13`, `F.ui`, with the raw error message and a tertiary "Try Again" button (`Btn v="ghost" sz="sm"`). Wizard stays on Screen 4; rep can back up to fix or retry.
+
+**Partial-success state.** The §4 RPC is a single transaction over the FOR loop — under normal Postgres semantics, either all sisters land or none do. So partial success shouldn't be possible at the RPC level. However, *post-clone* actions (sending confirmation emails via send-proposal — blocked on H-C2 per §4 BLOCKED clause) may partially fail. For v1: wizard does NOT auto-invoke `send-proposal` on commit (per §4 "block wizard send-on-create until H-C2 ships"). Sisters land as `'Draft'`; rep navigates manually to send. So partial-success isn't a v1 surface.
+
+---
+
+### After-State (post-commit landing)
+
+**Where the rep lands.** Wizard closes. The host that invoked it:
+- **Entry Point A (ProposalDetail).** Wizard's `onSaved` callback navigates the rep to `CallLogDetail` for the shared `call_log_id`, because the multi-GC view is most coherent at the call_log level (where all sisters appear in the "GCs" panel). Implementation: `navigate('/calllog/' + sourceProposal.call_log_id)`. The source ProposalDetail screen is left behind in the back-stack.
+- **Entry Point B (CallLogDetail).** Wizard already lives inside CallLogDetail; `onSaved` just calls `onJobRefresh()` (CallLogDetail prop, line 62) to re-fetch linked proposals and closes the modal in place. Rep stays on CallLogDetail with N+1 proposals now showing.
+
+**Visual treatment in Proposals.jsx list view.** Sisters need a visible differentiator without inventing a new badge style. Pick **indent + sister-of-link badge**:
+
+- In `Proposals.jsx:143` column `"Proposal #"`: when `row.cloned_from_proposal_id != null`, prepend a small `↳` glyph (Unicode `↳ U+21B3`) in `color: C.teal`, `marginRight: 6` (matches Sold-family color per C1-Round-2 audit ratification: "Sold-family color with visual differentiator"; teal is the Sold-family proxy in this codebase since Pill uses tealish hues for Sold). Then render the `display_job_number P{n}` badge as usual. To the right of the badge, an additional pill `SISTER` styled as: `background: C.dark`, `color: C.teal`, `border: 1px solid C.teal`, `borderRadius: 10`, `padding: "2px 7px"`, `fontSize: 10`, `fontWeight: 700`, `F.ui`, `letterSpacing: 0.04em` — directly reuses the existing `LINKED` / `QB SKIP` chip style at `Proposals.jsx:151-156` for consistency.
+- No grouping in the list (Proposals.jsx is sorted by `created_at desc`; sisters and source happen to be near each other but the list isn't tree-flattened). Grouping would require a structural change to `DataTable` that's out of scope for this wizard.
+
+**Visual treatment in CallLog.jsx list view.** Call_log is one row per project regardless of sister count — no per-sister rows in CallLog.jsx. But the call_log's row should signal "multi-GC project" so reps know to expect sisters when they open it. Add a small pill in the Job # column at `CallLog.jsx:243`: when the row has 2+ active proposals (passed as a denormalized count from the loader, computed as a sub-query or via the existing `linkedProposals` count machinery), render `{count} GCS` pill styled identically to the existing `CO` pill at `CallLog.jsx:244-246` but using `C.teal` foreground (rather than purple): `background: rgba(48,207,172,0.12)`, `color: C.tealDeep`, `padding: 2px 7px`, `borderRadius: 10`, `F.ui`. Click target opens CallLogDetail. **[OPEN]** — implementation requires loader to compute and inject the count; small but real loader change. Flagged as part of Backward-Compat audit below.
+
+**Where the C1 `'Signed'` status pill renders.**
+- **Proposals.jsx list `Status` column** (`Proposals.jsx:145-157`): `Pill label={v} cm={PROP_C}` already handles any status value generically, including `'Signed'` once `src/lib/mockData.js` PROP_C entry is added (per C1 §4: `"Signed": { bg:"rgba(67,160,71,0.10)", text:"#1e5e22" }`). No Proposals.jsx code change needed beyond adding the `'Signed'` STATUS_TAB at `:67`.
+- **ProposalDetail header pill** (`ProposalDetail.jsx:664`): `<Pill label={p.status} cm={PROP_C} />` likewise renders `'Signed'` automatically via PROP_C.
+- **CallLogDetail GCs panel** (a new panel — see "Sister Surfacing" below): each sister row carries its own Pill rendering `'Signed'` when applicable.
+- **PublicSigningPage confirmation**: the "Thank you" confirmation gate per C1 §4 accepts `['Sold','Signed'].includes(view.status)`. Unchanged copy.
+
+---
+
+### Conflict-Prompt UX (lives outside wizard)
+
+**Where the prompt renders.** New component `src/components/SyncConflictModal.jsx` (referenced by §5 resolution / Critical Files). Rendered as a modal overlay similar to NewInquiryWizard's backdrop pattern. Invoked from:
+1. **ProposalDetail intro save** at the existing `saveIntro` function (`ProposalDetail.jsx:84-90`).
+2. **WTCCalculator save flows** at `handleSave` (`WTCCalculator.jsx:1729`) and the `handleLock` toggle (`WTCCalculator.jsx:1774`).
+
+In both call sites, the save proceeds optimistically (the parent's row is written), then the client calls `preview_sync_to_sisters(sourceProposalId)`. If response is empty / all-empty-conflicts, the client silently calls `apply_source_edit_to_sisters` to push the pending updates and shows a brief toast. If any sister has non-empty `conflicts[]`, the modal renders.
+
+**When it fires.** Per §5 resolution: every parent save that touches one of the source-driven fields, ONLY when at least one active sister exists. Detection client-side: load `cloned_from_proposal_id IS NULL AND EXISTS sisters` once on ProposalDetail mount, cache the boolean, fall through to the no-op silent path when false.
+
+**Modal content (layout).**
+- Header: `"Sync to sister proposals"` in `F.display` `fontSize: 22` `color: C.textHead`, with close `✕`.
+- Sub-header: source proposal label `"Source: 1234 P1 — GC Foo Inc"` in `C.textMuted`, `F.ui`.
+- **Top region** — `"Will be synced automatically"`. List of `pending[]` rows (sister x field), each formatted: small `{customer_name}` chip + field label (`materials`, `field_sow`, `travel:drive_rate`, etc.). Read-only; no toggles. Hidden if `pending[].length === 0`.
+- **Bottom region** — `"These fields conflict with sister edits"`. One card per sister (`background: C.linen`, `border 1.5px solid C.borderStrong`, `borderRadius: 10`, `padding: 14`). Per-card body:
+  - Sister GC name in `F.display` `fontSize: 15`.
+  - For each conflicting field, a side-by-side row:
+    - Field label on left (`F.ui`, `fontSize: 12.5`, `color: C.textMuted`).
+    - Centered: `"Sister's version"` preview block (text up to 200 chars; for jsonb, JSON.stringify with 2-space indent capped at 6 lines + "…"). Block has `background: C.linenDeep`, `borderRadius: 6`, `padding: 8`, `fontFamily: 'JetBrains Mono'` (already loaded via tokens.js GLOBAL_CSS), `fontSize: 11`.
+    - Right: `"Your edit"` preview block, same styling.
+    - Below the two previews, a two-button toggle (NewInquiryWizard `ChoiceBtn` pattern): `"Keep sister's"` (default selected) | `"Overwrite with my edit"`. Selected styling is identical to ChoiceBtn (`border 2px C.teal`, `background C.dark`, `color C.teal`).
+- **Footer actions.**
+  - **Primary CTA — Sync.** Teal button with black text (NewInquiryWizard.jsx:418-423 style): `background: C.teal, color: C.dark`. Per CLAUDE.md Style Rule #2. Copy: `"Sync to sisters"`. On click, builds the `p_force_overwrite` array per the user's toggle picks (one `"<sister_id>:<field>"` string per toggle set to "Overwrite") and invokes `apply_source_edit_to_sisters(sourceProposalId, changed_fields, force_overwrite)`. On success, toast `"Synced N fields to M sisters. P fields kept their local edits."` and closes modal.
+  - **Secondary — Don't sync.** `Btn v="ghost"`. Copy: `"Don't sync (keep sisters diverged)"`. On click: closes modal without invoking apply. Source stays edited; sisters stay as-is.
+  - **Cancel parent edit.** Defer to v1.1 per §5 resolution (`[DESIGN-OPEN]` to add — recommend not shipping in v1). Wizard does not surface Cancel.
+
+**State written on each action — `locally_edited_fields[]` semantics.** Per §5 resolution table:
+
+| Action | Sister field NOT in `locally_edited_fields[]` | Sister field IS in `locally_edited_fields[]` and user picked "Keep sister's" | Sister field IS in `locally_edited_fields[]` and user picked "Overwrite" |
+|---|---|---|---|
+| **Sync** | Field overwritten with source value. Flag unchanged (still empty). | Field NOT overwritten. Flag unchanged. | Field overwritten. **Flag removed.** |
+| **Don't sync** | No write. **Flag NOT added** (deliberate; per §5 recommendation). | No write. Flag unchanged. | No write. Flag unchanged (Overwrite toggle ignored on dismissal). |
+
+The trigger from §5-cleanup (a) for `proposals.intro` and the (pre-existing) `proposal_wtc` trigger handle flag-population on sister-side edits independently of this modal.
+
+---
+
+### Sister Surfacing in Detail Views
+
+#### ProposalDetail.jsx changes when viewing a sister
+
+A sister proposal (`p.cloned_from_proposal_id != null`) needs to surface its lineage and override state. Changes:
+
+1. **Header treatment** at `ProposalDetail.jsx:660-673`. The existing `<h2>Proposal {p.call_log?.display_job_number} P{p.proposal_number}</h2>` is unchanged. Immediately after the existing `LINKED` / `QB SKIP` badge cluster, insert a new pill `SISTER` styled like `LINKED` (`background: C.dark`, `color: C.teal`, `border 1px solid C.teal`, `borderRadius: 10`, `padding: 3px 10px`, `fontSize: 10.5`, `fontWeight: 700`, `F.ui`, `letterSpacing: 0.04em`). Tooltip: `"Cloned from proposal {parent_display_job_number} P{parent_n}"`.
+
+2. **"Source: <anchor>" link.** New line below the header `<h2>`, inside the existing `<div style={{ color: C.textFaint, fontSize: 13, fontFamily: F.ui, marginBottom: 28 }}>` block at `CallLogDetail.jsx:451-457` equivalent (the customer-name display strip). For sisters, append `· Source: <anchor>` where the anchor renders as a clickable underlined teal-dark link (`color: C.tealDark`, `cursor: pointer`, `textDecoration: underline`, matches `:453` pattern). Click navigates to `/proposals/{parent.id}`.
+
+3. **"Sisters: N" count with quick-switch dropdown.** On the source proposal AND on each sister, render a count chip next to the SISTER (or new SOURCE-OF) pill. Click expands a small `dropdown` (absolute-positioned panel, `background: C.dark`, `borderRadius: 10`, `padding: 14px 18px`, `boxShadow: 0 8px 32px rgba(0,0,0,0.4)`, `zIndex: 100`, `minWidth: 240`) listing every sibling (source + sisters), each row: `{display_job_number P{n}}` badge + `{customer_name}` + `<Pill cm={PROP_C}>`. Click navigates to that sibling.
+
+4. **`locally_edited_fields[]` indicators on edited fields.**
+   - `intro` field (`ProposalDetail.jsx:953-981`): when the sister has `'intro' = ANY(p.locally_edited_fields)`, append a small amber chip `OVERRIDDEN` next to the "Email Introduction" header, `background: rgba(249,168,37,0.12)`, `color: #7a5000`, `border 1px solid rgba(249,168,37,0.4)`, `borderRadius: 10`, `padding: 2px 7px`, `fontSize: 10`, `F.ui`. Tooltip: `"This field has been edited locally on this sister and will not auto-sync from the source."`
+   - WTC fields (within `WTCCalculator.jsx` save form — but the wizard scope here is only the ProposalDetail header). For ProposalDetail's WTC list view (`:708+`), if any of the WTC's tracked source-driven columns is in its `locally_edited_fields[]`, append a small amber chip `OVERRIDES` on the WTC card next to the lock-status indicator at `:731`. Click expands tooltip listing the overridden fields. Implementation: small additive render in the existing WTC card.
+
+5. **Pull Back behavior for `'Signed'` sisters** — covered by C1 §5 backward-compat audit; not new in this spec but referenced for completeness.
+
+#### CallLogDetail.jsx changes
+
+1. **Sister proposals panel (new).** Currently `CallLogDetail.jsx` shows `linkedProposals` via the `Job Totals` section at `:718+` and possibly elsewhere. Add a new top-level `Section` titled `"GCs on this Project"` between Job Info and Job Totals. Body: one row per non-deleted proposal (anchor first, then sisters by `created_at`), each row:
+   - `display_job_number P{n}` badge (Btn/badge-style).
+   - GC name (`p.customer_id ? customer lookup : p.call_log.customer_name`). Per the Sweep-1 fallback pattern, resolved via `p.customer_id ?? cl.customer_id` (per CLAUDE.md / `customer_jobs` RPC under S1 resolution).
+   - `<Pill label={p.status} cm={PROP_C}>` — renders `'Signed'` per C1 once mockData PROP_C has the entry.
+   - `fmt$(p.total)` right-aligned.
+   - Row-level action: **Mark Awarded** button (`Btn sz="sm" v="ghost"`, `color: C.green`, `borderColor: C.green`) visible only when:
+     - `p.status` is in `['Sent','Has Bid','Signed']` (per §6 BLOCKED-on-C1 spec — `'Signed'` is an awarded-candidate state).
+     - The call_log has at least 2 active proposals (single-GC doesn't need an award flow — that uses regular Internal Approve / Send Proposal).
+   - Clicking Mark Awarded opens an inline confirm `"Award this proposal? Other GCs will be marked Lost."` and on confirm invokes `award_proposal(p.id, lost_reason)` per §6 spec. RPC handles everything else (status flips, QB sync via wrapper per C1 §3e).
+
+2. **Multi-GC count chip on header** at `:411-413` (next to the existing badge cluster). When `linkedProposals.length >= 2 && linkedProposals.some(p => p.cloned_from_proposal_id != null)`, render a `MULTI-GC` chip styled like the existing `ARCHIVE` chip but in teal-family: `background: rgba(48,207,172,0.12)`, `color: C.tealDeep`, `padding: 3px 10px`, `borderRadius: 10`, `fontSize: 10.5`, `fontWeight: 700`, `F.ui`, `border: 1px solid rgba(48,207,172,0.25)`. Tooltip: `"Proposal sent to multiple General Contractors."`.
+
+3. **Mark Awarded UI — the actual button only.** Per the task scope, the RPC (`award_proposal`) and its server-side semantics are owned by §6. Wizard spec only owns the UI surface: button placement, copy, confirm modal, post-action toast `"Awarded. {n} sisters marked Lost."`, refresh.
+
+---
+
+### Backward-Compat / Migration Notes
+
+**Files that gain new code or modified code:**
+
+- `/Users/chrisberger/sales-command/src/components/MultiGCWizard.jsx` — **new file**. 4-screen wizard, ~700–900 lines mirroring NewInquiryWizard structure.
+- `/Users/chrisberger/sales-command/src/components/SyncConflictModal.jsx` — **new file**. Conflict prompt UX. Invoked from ProposalDetail and WTCCalculator save paths. ~250–350 lines.
+- `/Users/chrisberger/sales-command/src/components/ProposalDetail.jsx` — modifications:
+  - `:674-695` action toolbar — insert `+ Send to Additional GCs` button + state to open MultiGCWizard.
+  - `:660-673` header pill cluster — insert SISTER pill + count chip + quick-switch dropdown for sisters.
+  - `:451-457` equivalent customer-name strip — append `· Source: <anchor>` link on sisters.
+  - `:84-90` saveIntro — wrap with preview/apply sync invocation when source has sisters.
+  - `:953-981` intro editor — surface OVERRIDDEN amber chip when sister's `locally_edited_fields` contains `'intro'`.
+  - `:708+` WTC list cards — surface OVERRIDES chip per WTC when its `locally_edited_fields[]` is non-empty.
+  - All the C1 §5 backward-compat tweaks already enumerated under C1 (Pull Back, Send Proposal, Internal Approve, Download Signed PDF gates).
+- `/Users/chrisberger/sales-command/src/components/CallLogDetail.jsx` — modifications:
+  - `:414-449` action toolbar — insert `+ Add Another GC` button + state to open MultiGCWizard.
+  - `:411-413` header chips — add MULTI-GC chip.
+  - Insert new "GCs on this Project" Section between Job Info and Job Totals — sister list + Mark Awarded action.
+- `/Users/chrisberger/sales-command/src/pages/Proposals.jsx` — modifications:
+  - `:67` STATUS_TABS — add `'Signed'` per C1.
+  - `:143` Proposal # column — add `↳` indent + `SISTER` chip when `row.cloned_from_proposal_id != null`. SELECT in `:36, :47` augmented to include `cloned_from_proposal_id`.
+- `/Users/chrisberger/sales-command/src/pages/CallLog.jsx` — modifications:
+  - `:243` Job # column — add `{count} GCS` chip when call_log has 2+ active proposals. Loader at `:82-91` augmented to compute count (sub-SELECT or post-load `Map` build).
+- `/Users/chrisberger/sales-command/src/pages/WTCCalculator.jsx` — modifications:
+  - `:1729` handleSave — wrap with preview/apply sync invocation when proposal has sisters; pre-edit snapshot capture for diff.
+  - `:316-318` work-type dropdown — UX guard per §5-cleanup (c): disable options whose `work_type_id` is already used on the same proposal, append `" (already on this proposal)"` to label.
+  - `:1646-1665` loadWorkTypes — fetch `usedWorkTypeIds` from `proposal_wtc` and pass to dropdown.
+  - `:1774` handleLock — pass `markup_override_pct` through to snapshot per §3 spec.
+- `/Users/chrisberger/sales-command/src/lib/calc.js` — modifications per §3 spec (`effectiveLaborMarkupPct`, optional `markup_override_pct` param on `calcWtcPrice` / `calcWtcBreakdown`, new `calcProposalTotal` wrapper).
+- `/Users/chrisberger/sales-command/src/lib/mockData.js` — add `'Signed': { bg:"rgba(67,160,71,0.10)", text:"#1e5e22" }` to PROP_C per C1 §4.
+- `/Users/chrisberger/sales-command/supabase/migrations/20260512120000_multi_gc_allocation.sql` — single migration carrying every DDL change (§3 columns + §3 audit table + §4 RPC + §5 RPCs + §5-cleanup (a)/(c) + C1 updated mark_proposal_signed). Already enumerated in the migration block in the plan doc.
+
+**Files that don't need to change but might look like they should:**
+
+- `/Users/chrisberger/sales-command/src/components/NewInquiryWizard.jsx` — orthogonal. Multi-GC fan-out happens AFTER a call_log + parent proposal exist; the inquiry wizard is upstream and untouched. Reused as a styling/state-shape precedent only.
+- `/Users/chrisberger/sales-command/src/components/Pill.jsx` — already accepts arbitrary `label` + `cm` map; adding `'Signed'` is a PROP_C edit, not a Pill component edit.
+- `/Users/chrisberger/sales-command/src/components/Btn.jsx` — already supports the variants needed; no new variant required.
+- `/Users/chrisberger/sales-command/src/components/SearchSelect.jsx` — Screen 1's GC picker uses a simple `<input>` + scrollable list rather than SearchSelect, mirroring NewInquiryWizard's workTypes selector. SearchSelect is fine as-is for other surfaces.
+- `/Users/chrisberger/sales-command/src/components/ContactBillingPicker.jsx` — could be reused on Screen 2's contact picker but adds complexity (billing-locking semantics from existing customers); simpler to inline a contact-picker mirroring `ProposalDetail.jsx:317-370`. ContactBillingPicker unchanged.
+- `/Users/chrisberger/sales-command/src/components/NewProposalModal.jsx` — single-proposal-from-call_log creation flow. Orthogonal to multi-GC clone.
+
+**Token usage check (CLAUDE.md Style Rules audit):**
+
+- Rule #1 (no white backgrounds): wizard modal body is `C.linenCard`. Per-sister cards are `C.linen` and `C.linenCard`. Conflict modal preview blocks are `C.linenDeep`. Inputs use `inputStyle` constant which is `C.linenDeep`. No white anywhere. ✓
+- Rule #2 (teal buttons get black text): the final Create-N CTA on Screen 4 uses inline `background: C.teal, color: C.dark`. NewInquiryWizard's Save Changes button (`:420`) is the precedent. Sync modal's primary action uses the same form. ✓
+- Rule #3 (dollar badges): the metadata chips (`RFP# 1234`, `Bid due May 15`, `Net 30`, `+0 pp`) on Screen 4 sister cards use `C.dark` background + `C.teal` text + `borderRadius: 6` + `padding: 3px 10px`. ✓
+- Rule #4 (selected tags/pills): Screen 1 GC list rows, Screen 2 tab pills, conflict modal Keep-vs-Overwrite toggle — all use `C.dark` background + `C.teal` border + `C.teal` text when selected. ✓
+- Rule #5 (inputs use `C.linenDeep`): all wizard inputs reuse `inputStyle` constant matching NewInquiryWizard.jsx:9-16. ✓
+- Rule #6 (import C from tokens.js): wizard `import { C, F } from "../lib/tokens"`. No local C object. ✓
+
+**Schema additions implied by the wizard (flagged):**
+
+- `proposals.rfp_number text` — per-sister, commerce-side per Q2. Not in current §3 list.
+- `proposals.bid_due_date date` — per-sister, commerce-side per Q2. Not in current §3 list. (`call_log.bid_due` continues to hold the project-level bid due.)
+- `proposals.billing_terms_override integer` — per-sister, commerce-side per Q2. Not in current §3 list. NULL = inherit from `customers.billing_terms`. (Or alternatively, inline `billing_terms` directly on `proposals`; "override" vs "value" semantic is the [OPEN].)
+- `proposals.locally_edited_fields text[]` — already in §5-cleanup (a) resolution; spec'd, not new here.
+
+These three new columns need ratification — they're load-bearing for Q2's per-GC commerce surface, and the wizard's Screen 2 requires them to write per-sister values. The §3 schema block as it stands (Sweep-1 / Sweep-2 / cloned_from / lost_reason / lost_at) does not include them. **[OPEN]** — add to §3 in the next pass, OR collapse them (e.g., consolidate RFP# + bid_due_date into a `commerce_overrides jsonb` if Chris prefers fewer columns; mirror is the `markup_override_pct` pattern of one column per commerce field).
+
+---
+
+### Open Items
+
+1. **Q4 entry-point "+ Send to Additional GCs" disabled state on zero locked WTCs.** Spec says disable with tooltip. Alternative: allow even with zero locked, accepting that Screen 3's preview totals will be uninformative (zero, since `calcWtcPrice` of a fresh WTC with no labor/materials yields 0). Recommend the disable; flagged because real-world reps may want to fan out at the very-early "Draft" stage. Ratify.
+
+2. **Q4 entry-point "+ Add Another GC" gating on `job.is_change_order`.** Spec hides the button on CO call_logs. CO call_logs by nature already have one parent; the multi-GC scenario on a CO is conceivable (rare but real — a CO sent to 3 GCs because the GC roster changed mid-project). Recommend allow; current spec recommends hide. Ratify.
+
+3. **Screen 1 default filter `customer_type === 'Commercial'`.** Today there's no GC-specific tag. Filtering to Commercial is a heuristic. Alternative: ship a new `customer_type` value `'General Contractor'` (or a boolean `is_gc` flag), but that's schema work outside this wizard's scope. Recommend the heuristic + the "Show Residential too" toggle for the long-tail case. Ratify (or commit to the schema-add as a §3 extension).
+
+4. **Screen 2 schema additions** for `rfp_number`, `bid_due_date`, `billing_terms_override`. Not in current §3. Without them, Screen 2's inputs are functionally orphaned at commit-time — they'd have to write to call_log (wrong; call_log is project-level) or be dropped (loses fidelity). Recommend add to §3 in the next pass. Three new nullable columns on `proposals`. Ratify.
+
+5. **Screen 2 intro override on the clone RPC.** The §5-cleanup (a) trigger only fires on UPDATE, not INSERT. To mark a wizard-time intro-override correctly, the clone RPC needs an optional `intro_override` param and inline `locally_edited_fields := ARRAY['intro']` logic. Two RPC body lines + one new field in the `p_targets` jsonb shape. Not in the current §4 RPC body. Ratify the addendum.
+
+6. **Screen 2 viewer contacts (`viewer_contact_ids[]`).** Spec ships v1 with signer-only (one contact per sister). ProposalDetail's recipients today support multiple viewers via the role='viewer' rows. Add multi-viewer to Screen 2 v1.1 if reps surface the need. Defer.
+
+7. **Screen 3 post-lock drift — warn vs. re-snapshot.** Recommend warn-only; CTA-driven re-snapshot rewrites customer-facing prices mid-flight. Worth a Chris call if the warn-only friction is felt later. Ratify.
+
+8. **Screen 4 final CTA → auto-send-proposal-on-create.** Per §4 BLOCKED on H-C2, wizard does NOT auto-invoke `send-proposal` in v1. Sisters land as `'Draft'`; rep navigates to each and clicks Send. After H-C2 ships, an extra "Create + Send All" CTA could land on Screen 4. Defer to post-H-C2.
+
+9. **CallLog.jsx multi-GC count chip.** Requires loader change to compute per-call_log proposal count. Small but real change. Ratify.
+
+10. **Sisters' visual differentiator in Proposals.jsx (↳ indent + SISTER chip).** The C1-Round-2 audit ratification mentioned "Sold-family color with visual differentiator." Picked teal as the Sold-family proxy via PROP_C convention. Chris may want a non-teal differentiator (e.g., a faint left-border on the row, or a lighter row background). Ratify the visual.
+
+11. **Open from prior rounds that the wizard surfaces and doesn't re-litigate but should be noted:**
+    - §5 audit-table deferral — wizard does NOT log to `proposal_sync_events`. Forensic gap accepted per §5-cleanup (b).
+    - `proposals.pre_lost_status` (reversal capture) — wizard does NOT capture; reversal flow owned by §6.
+    - `proposals_status_check` CHECK constraint — wizard does NOT add the constraint, keeps the `'Signed'` value as free-text consistent with C1's recommendation to defer.
+
+12. **Re-opening risk: §3 markup math.** Drawing Screen 3 made clear that the "additive, floor-clamped, labor-only" formula is intuitive to render but the unit-suffix `pp` may confuse reps unfamiliar with percentage-point semantics. If usability testing shows the `pp` suffix lands wrong, fallback is suffix-free input + inline help text `"(percentage points)"`. Doesn't change math, only label. Not a re-litigation; flagged for ratification at QA.
+
+13. **Re-opening risk: §5 conflict modal copy.** The "Sister's version" vs "Your edit" framing is honest but may read as adversarial. Alternative: "Local version" vs "Updated source." Not a math change; ratify the wording.
+
+### Critical Files for Implementation
+
+- /Users/chrisberger/sales-command/src/components/MultiGCWizard.jsx
+- /Users/chrisberger/sales-command/src/components/SyncConflictModal.jsx
+- /Users/chrisberger/sales-command/src/components/ProposalDetail.jsx
+- /Users/chrisberger/sales-command/src/components/CallLogDetail.jsx
+- /Users/chrisberger/sales-command/supabase/migrations/20260512120000_multi_gc_allocation.sql
 
 ---
 

@@ -95,6 +95,44 @@ CREATE TABLE IF NOT EXISTS public.proposal_clones (
 
 ---
 
+## §3 Schema Amendment — Round 5 Surfaced
+
+_Surfaced and ratified 2026-05-11. The §7 wizard re-spec exposed two columns missing from the locked §3 schema additions, both required to implement the Q2 commerce-is-per-GC list. Land as an amendment block here rather than silently overwriting §3 — preserves the audit trail of what was locked when._
+
+Round 5's Screen 2 spec needs three commerce fields **per sister**: customer (already covered by Sweep-1's `proposals.customer_id`), RFP#, bid due date, billing terms. Of those, `rfp_number` and `bid_due_date` have no host today — they'd otherwise have to be smuggled into `call_log` (wrong scope; call_log is project-level) or dropped entirely (loses commercial fidelity). `billing_terms_override` was also surfaced as a candidate but is **rejected** — `customers.billing_terms` (CLAUDE.md:121, integer default 30) already covers it via Sweep-1's `proposals.customer_id` lookup. No evidence in v98 or any subsequent round that reps need a per-proposal override on top of the per-customer setting.
+
+**Schema additions** (target migration: same `supabase/migrations/<timestamp>_multi_gc_allocation.sql` that holds Sweep-1 + Sweep-2 + UNIQUE + intro flag column + intro trigger):
+
+```sql
+-- Round 5 §7 wizard Screen 2 — per-GC commerce fields beyond customer_id.
+-- Both nullable, no default. tenant_id inherited via parent proposals row.
+ALTER TABLE public.proposals
+  ADD COLUMN IF NOT EXISTS rfp_number  text,
+  ADD COLUMN IF NOT EXISTS bid_due_date date;
+
+COMMENT ON COLUMN public.proposals.rfp_number IS
+  'GC-supplied RFP/bid number, per-proposal. Distinct from proposal_number '
+  '(internal sequence). Captured by the multi-GC wizard Screen 2 and may also '
+  'be set manually on single-GC proposals. Internal-only (not returned to '
+  'anon callers via get_public_proposal_view).';
+
+COMMENT ON COLUMN public.proposals.bid_due_date IS
+  'Per-proposal bid due date supplied by the GC. Drives reminders + sort '
+  'priority on Proposals.jsx. Captured by multi-GC wizard Screen 2; may '
+  'also be set manually. Distinct from call_log.bid_due which is the '
+  'project-level inquiry date.';
+```
+
+**Explicit skip — `billing_terms_override`.** Sweep-1 added `proposals.customer_id`. Each sister proposal's billing terms read through `customers.billing_terms` (per-GC, already exists). A per-proposal override would let one GC's proposal use different terms than the GC's customer record — no evidence reps need this, and the additional column would invite confusion about which value is canonical. **Reject.**
+
+**Display rules.** Both fields are internal-only. `rfp_number` displays on ProposalDetail header + Proposals list view + PDF cover (already a feature on the PDF template — confirm in implementation). `bid_due_date` displays on ProposalDetail header + Proposals list sort. Neither is returned by `get_public_proposal_view` (the customer doesn't need to see their own RFP# echoed back at them on a signing page).
+
+**Backward-compat.** New nullable columns, no DEFAULT. Zero existing-read breaks. Existing single-GC proposals carry NULL on both fields until a rep manually fills them in — acceptable, matches today's behavior where the same data is held informally in `call_log.bid_due` and `call_log.job_name` or not at all.
+
+**Sync semantics.** Both fields are commerce, per-GC (Q2). `clone_proposal_to_gcs` writes them per-sister from the wizard's `p_targets` jsonb (extend §4 RPC body to read `(v_target->>'rfp_number')::text` and `(v_target->>'bid_due_date')::date`). They are NOT in the §5 source-driven sync field list — source edits do not fan into sisters.
+
+---
+
 ## §3 Markup Arithmetic — Resolution
 
 _Resolved 2026-05-11 (Round-4 Plan agent). Picks up the Sweep-2 `markup_override_pct` math sub-question. Reads v109-era code on `feat/multi-gc-allocation`. All line citations are against the unmodified working tree._
@@ -1801,6 +1839,33 @@ These three new columns need ratification — they're load-bearing for Q2's per-
 
 ---
 
+## Round 5 Ratifications
+
+_Audit terminal ratified 2026-05-11. All 13 sub-DESIGN-OPENs surfaced by the §7 wizard re-spec resolved. Planning phase closes with this round._
+
+| # | Item | Agent rec | Ratification | Notes |
+|---|---|---|---|---|
+| 1 | `proposals.rfp_number` + `proposals.bid_due_date` + `proposals.billing_terms_override` (Screen 2 commerce fields) | Add all three to §3 | **Partial accept** | `rfp_number` and `bid_due_date` accepted (see "§3 Schema Amendment — Round 5 Surfaced"). `billing_terms_override` **rejected** — `customers.billing_terms` already covers per-GC terms via Sweep-1's `proposals.customer_id`. No evidence reps need a per-proposal override on top of the per-customer setting. |
+| 2 | Clone RPC needs inline `locally_edited_fields := ARRAY['intro']` on INSERT (§5-cleanup (a) trigger fires on UPDATE only) | Add as RPC addendum | **Accept** | §4 `clone_proposal_to_gcs` body extends: read optional `intro_override` from `p_targets`, and when present write both the override value AND `locally_edited_fields = ARRAY['intro']` to the sister row on INSERT. Without this the sister's first-edit-after-clone would be miscounted as "originated from source." |
+| 3 | Multi-viewer recipients (`viewer_contact_ids[]`) on Screen 2 | Defer to v1.1; v1 signer-only | **Accept** | File F-class BACKLOG row. v1 ships with one signer per sister; multi-viewer is a v1.1 ask if reps surface the need. |
+| 4 | Hide "+ Add Another GC" on `call_log.is_change_order = true` | Hide on COs | **Accept** | COs are scope-extensions of an existing project; multi-GC on a CO is conceivable but rare. If reps need it later, file a feature row. |
+| 5 | Markup override input suffix: `pp` vs no-suffix-with-help-text | Use `pp` suffix | **Accept** | Industry-standard for additive percentage-point shifts. Fallback to suffix-free + inline help text "(percentage points)" only if QA usability shows confusion. |
+| 6 | Conflict modal framing: "Sister's version" / "Your edit" vs "Local version" / "Updated source" | Use "Local version" / "Updated source" | **Accept** | Less adversarial. Math/behavior unchanged; pure copy revision. |
+| 7 | "+ Send to Additional GCs" entry button disabled state on zero locked WTCs | Disable with tooltip | **Accept** | Tooltip copy: "Lock at least one WTC before fanning out." Same gate must apply to "+ Add Another GC" on CallLogDetail when its pre-selected source proposal has zero locked WTCs — implementation must confirm both surfaces enforce the gate. |
+| 8 | Screen 1 GC picker default filter `customer_type === 'Commercial'` | Heuristic + "Show Residential too" toggle | **Accept** | File F-class BACKLOG row to replace the Commercial-as-proxy heuristic with an explicit GC flag on `customers` (boolean `is_gc` or new `customer_type='General Contractor'` enum value). Heuristic produces false positives over time; the BACKLOG row makes the eventual cleanup visible. |
+| 9 | Screen 3 post-lock drift — warn vs re-snapshot | Warn-only | **Accept** | H6 invariant (locked = price snapshot) takes precedence over wizard convenience. Re-snapshotting customer-facing prices mid-flight is the precise hazard `locked_line_total` guards. Existing unlock-then-relock flow already exists; don't duplicate inside wizard. |
+| 10 | Screen 4 final CTA — Create-only vs Create-and-Send | Create-only in v1; defer Create-and-Send to post-H-C2 | **Accept** | Fanning out N `send-proposal` calls from one click while H-C2 is open amplifies the body-trust surface. **Implementation note:** §4 RPC H-C2-BLOCKED line and Screen 4 CTA both need to be re-opened together once H-C2 lands; cross-referenced below. |
+| 11 | CallLog.jsx multi-GC count chip | Ship the chip | **Accept with note** | Implementation must use a single PostgREST query with a count aggregate (or a denormalized `active_proposal_count` field on `call_log` if simpler), **NOT** an N+1 fetch per call_log row. CallLog paginates at 1000; N+1 would compound. Flagged in §10 step 8. |
+| 12 | Sisters' visual differentiator in Proposals.jsx list view | `↳` indent prefix + `SISTER` chip (`C.teal`-on-`C.dark`) | **Accept** | Two reinforcing signals (relationship via indent, category via chip). Source proposal needs no marker — implicitly the un-indented row with sisters attached. If list ordering scatters sisters away from source, consider grouping by `call_log_id` in the implementation pass; flag if needed. |
+| 13 | Carry-forwards from prior rounds (sync_events deferral, `pre_lost_status` to §6, `proposals_status_check` skip) | Keep all deferred per prior decisions | **Accept** | No new decisions. Confirms the wizard didn't accidentally re-open prior-round closeouts. |
+
+### Cross-references the closeout adds
+
+- **H-C2 dependency pair:** when H-C2 lands and `send-proposal` is hardened, BOTH (a) the §4 `clone_proposal_to_gcs` BLOCKED-on-H-C2 note + (b) the Screen 4 CTA "Create + Send All" deferral (Round 5 open-item 8 / Ratification #10) need to re-open together. They're a coupled pair.
+- **§10 step 8 amendment:** the CallLog.jsx multi-GC count chip implementation must use a single aggregate query, not N+1.
+
+---
+
 ## §8 Edge cases
 
 **[DERIVED + BLOCKED]**
@@ -1867,7 +1932,7 @@ These three new columns need ratification — they're load-bearing for Q2's per-
 6. **RPCs** — `clone_proposal_to_gcs`, `award_proposal`, `preview_sync_to_sisters`, `apply_source_edit_to_sisters`, `reverse_award`. Single migration, all SECURITY DEFINER, all check `NO_TENANT`.
 7. **DB trigger** for `locally_edited_fields` auto-population on proposal_wtc UPDATE.
 8. **Wizard component** — scaffold under feat/multi-gc-allocation. 4 screens. Local state only at first, then wire to RPCs.
-9. **UI surfaces** — sister sidebar in ProposalDetail, GCs panel in CallLogDetail, source-edit conflict modal, entry buttons.
+9. **UI surfaces** — sister sidebar in ProposalDetail, GCs panel in CallLogDetail, source-edit conflict modal, entry buttons. **Multi-GC count chip on CallLog.jsx must use a single PostgREST aggregate query (or a denormalized `active_proposal_count` field on call_log), NOT an N+1 fetch per row** — CallLog paginates at 1000 and N+1 would compound. Per Round 5 Ratification #11. Sister differentiator on Proposals.jsx: `↳` indent + `SISTER` chip; consider grouping by `call_log_id` if list ordering scatters sisters from source (per Ratification #12).
 10. **Preview deploy.** I1–I6 smoke.
 11. **Merge to main → prod smoke S1.** Add BACKLOG row pointing at this doc. Update CLAUDE.md verified-columns block with the new columns.
 

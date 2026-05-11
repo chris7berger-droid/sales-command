@@ -82,6 +82,20 @@ async function findCustomer(name: string, accessToken: string, realmId: string) 
   return data?.QueryResponse?.Customer?.[0] || null;
 }
 
+// Guard against job_name that was accidentally concatenated to itself
+// (observed on archive imports where Glide source data already contained
+// "X - X"). Splits on " - "; if even segment count and first half equals
+// second half (case-insensitive), return one copy. Otherwise pass through.
+function dedupRepeated(s: string): string {
+  if (!s) return s;
+  const parts = s.split(" - ");
+  if (parts.length < 2 || parts.length % 2 !== 0) return s;
+  const half = parts.length / 2;
+  const a = parts.slice(0, half).join(" - ");
+  const b = parts.slice(half).join(" - ");
+  return a.toLowerCase() === b.toLowerCase() ? a : s;
+}
+
 const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.app", "https://www.scmybiz.com", "https://scmybiz.com"];
 
 serve(async (req) => {
@@ -208,7 +222,7 @@ serve(async (req) => {
     // ── 2. Build sub-customer (job) display name ───────────────────────
     const jobNum = job.display_job_number || job.job_number || "";
     const coPrefix = job.is_change_order ? `CO${job.co_number || ""} ` : "";
-    const jobName = job.job_name || "";
+    const jobName = dedupRepeated((job.job_name || "").trim());
     // Format: "10002 - Job Name" or "10002 CO1 - Job Name"
     // QB already shows parent customer name, so sub-customer only needs job info
     // If job name matches customer name, just use the job number

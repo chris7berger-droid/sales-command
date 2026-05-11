@@ -976,6 +976,363 @@ Wrapper (1-arg) inherits this automatically.
 
 Recommend (a) — minimal surface change, mental model "Sold means this customer signed; award means we picked this one." **[DESIGN-OPEN]** — Chris's call.
 
+> **→ Superseded 2026-05-11. Round-2 Plan agent resolved this to Option (b) — introduce `'Signed'` status. See "C1 Resolution — Status Model" below for full SQL, ProposalDetail.jsx + PublicSigningPage.jsx changes, customer-facing UX text, and the backward-compat audit. Reasoning: QB sync correctness + cleaner customer-visible semantics outweigh the new-status-value cost. Single-GC backward compat preserved via fast-path branching inside `mark_proposal_signed`.**
+
+---
+
+## C1 Resolution — Status Model
+
+_Resolved 2026-05-11 (Round-2 Plan agent). Supersedes the (a)-recommendation in the C1 stub above. C3 verification folded in._
+
+### 1. Pre-question answers (with evidence)
+
+**1a. Is `proposals.status` an enum or text? Same for `call_log.stage`?**
+
+**Text, both.** Evidence:
+
+- `grep -rn "CREATE TYPE\|TYPE.*AS ENUM" supabase/migrations/ sql/` returns zero rows.
+- `grep -rn "CHECK" supabase/migrations/ | grep -iE "status|stage"` returns zero — no CHECK constraints.
+- `proposals.status` referenced as plain text in `supabase/migrations/20260510120000_signing_token_expiry_and_consume.sql:498` (`SET status = 'Sold'`) — would fail at apply-time if it were an enum without a `'Sold'` member.
+- `call_log.stage` referenced as plain text at line 526 of the same migration (`SET stage = 'Sold'`).
+- Client surfaces use the values as free-form strings: `src/lib/mockData.js:1` `STAGES = ["New Inquiry","Wants Bid","Has Bid","Sold","Lost"]`; `src/pages/Proposals.jsx:67` `STATUS_TABS = ["All","Draft","Sent","Sold","Lost"]`; `src/lib/mockData.js:19-28` PROP_C also contains `"New"`, `"In Progress"`, `"Viewed"`, `"Approved Internally"` keys. The UI already paints a wider vocabulary than the canonical CallLog list.
+
+**This resolves C3.** No `ALTER TYPE` is required. Adding `'Signed'` (or any other status value) is a no-op at the schema level — it's just a string the application starts writing. The verification queries in §11 (V1/V2) remain valid as a pre-migration sanity check.
+
+**1b. What does `qb-create-job` create, and is it idempotent?**
+
+Creates **(parent customer, sub-customer job)** in QuickBooks. Evidence in `supabase/functions/qb-create-job/index.ts`:
+
+- Parent: 161-188 — queries QB for `Customer WHERE DisplayName = parentName` (line 79-83 `findCustomer`), creates only if not found.
+- Sub-customer (job): 220-263 — same find-then-create, keyed on a derived `subName` ("`{display_job_number} {coPrefix}- {jobName}`" at 213-218).
+- After sub-customer is found/created, persists its QB ID onto `call_log.qb_customer_id` (268-272).
+
+**Idempotency: yes, by find-then-create on QB DisplayName.** Re-invoking with the same `callLogId` does not duplicate — the second call hits the `findCustomer` early-return path (199, 265). The downside: it idempotently re-asserts the **shared** sub-customer for the call_log. Under Q1 (one shared `call_log` per project), every sister that signs will idempotently create *the same single QB job* under the shared call_log. There is no per-sister QB job to undo.
+
+**There is no `qb-delete-job` function** — `ls supabase/functions/ | grep -i delete` returns nothing. Option II's "undo path" would either require building one (plus the policy question of whether QB itself permits deletion of customers with linked transactions) or accepting a "ghost sub-customer in QB" left behind on every wrong-sister early sign. Both are costly.
+
+**1c. What does `mark_proposal_signed` currently set `proposals.status` to?**
+
+`'Sold'`. Verified at `supabase/migrations/20260510120000_signing_token_expiry_and_consume.sql:497-499`: `UPDATE public.proposals SET status = 'Sold', approved_at = now(), signing_token_consumed_at = now()`. And `call_log.stage='Sold'` at 526. The plan doc's claim is correct.
+
+### 2. Recommendation: **Option I — introduce `'Signed'` status.**
+
+Rationale weighing the four axes:
+
+- **Customer-visible semantics.** Option II's "Sold-then-Lost" sequence is genuinely confusing — the rep watches a sister flip green, then red. Option I keeps the status surface honest: a signed sister is `'Signed'` (we have a signed contract); a winning sister is `'Sold'`; a non-winning sister is `'Lost'`. The vocabulary already biases toward this — `PROP_C` in `src/lib/mockData.js:19-28` carries `"Approved Internally"` as a distinct value, so adding `'Signed'` continues an existing pattern.
+
+- **QB sync correctness.** Under Q1, sisters share one `call_log`. The QB sub-customer is keyed on `call_log.display_job_number + job_name`, which is the same across sisters. Option II fires `qb-create-job` on the first signer; on subsequent Mark Awarded for a *different* sister, there's nothing to undo at the QB level because the right job is already there. So Option II doesn't actually require `qb-delete-job` — but it does the right thing for the wrong reason, and the brittleness shows up the day anyone adds per-sister QB data (GC-specific addresses, GC-specific PO numbers). Option I keeps the rule clean: QB sync fires exactly once, on the `'Sold'` transition that `award_proposal` performs.
+
+- **Implementation complexity.** Both options touch the same three surfaces. Option I adds one more thing — UI vocabulary for `'Signed'` (one pill color, one filter tab, several constant updates). Option III ("single-GC → Option II, multi-GC → Option I") is the worst of both: it adds branch logic in the RPC, and the "is this proposal a sister" check is racy.
+
+- **Single-GC backward compatibility.** Mitigated by the RPC fast-path: when no sisters exist, `mark_proposal_signed` falls through to `status='Sold' + stage='Sold'` exactly as today. Net effect on single-GC: zero. Net effect on multi-GC: correct semantics.
+
+### 3. Concrete changes
+
+#### 3a. Schema migration delta (resolves C3)
+
+**None required at the type/constraint level** (text column, no CHECK). New status value introduced purely by application writes. Optional belt-and-suspenders CHECK left commented in the migration:
+
+```sql
+-- C3 verification (run once, expect text/text):
+-- SELECT data_type FROM information_schema.columns
+--  WHERE table_schema='public' AND table_name='proposals' AND column_name='status';
+-- SELECT data_type FROM information_schema.columns
+--  WHERE table_schema='public' AND table_name='call_log'  AND column_name='stage';
+
+-- Optional belt-and-suspenders: encode canonical status vocabulary as
+-- a CHECK constraint. Skipping for v1 to avoid breaking latent stale
+-- rows from pre-launch test data; revisit after prod inventory.
+-- ALTER TABLE public.proposals ADD CONSTRAINT proposals_status_check
+--   CHECK (status IN (
+--     'Draft','New','In Progress','Sent','Viewed',
+--     'Approved Internally','Signed','Sold','Lost','Parked'
+--   ));
+```
+
+`'Parked'` observed in `ProposalDetail.jsx:541`; `'Approved Internally'` in `Managers.jsx:17-18` and `SalesDash.jsx:436`. Flagging as **[DESIGN-OPEN]** whether to ship the CHECK at all. Recommend leaving commented for v1.
+
+#### 3b. Updated `mark_proposal_signed` body
+
+Mirrors conventions of `supabase/migrations/20260510120000_signing_token_expiry_and_consume.sql:439-533`. Single-GC fast path: when no sisters exist, behavior is byte-for-byte unchanged. When sisters exist, the RPC stops at `'Signed'` and leaves the award + QB sync to the explicit Mark Awarded surface.
+
+Replace lines 439-531 of 20260510120000:
+
+```sql
+CREATE OR REPLACE FUNCTION public.mark_proposal_signed(
+  p_token        text,
+  p_signer_name  text,
+  p_signer_email text,
+  p_ip_address   text,
+  p_pdf_url      text
+)
+RETURNS TABLE (proposal_id text, call_log_id integer, became_sold boolean)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_proposal_id  text;
+  v_call_log_id  integer;
+  v_rows         integer;
+  v_pdf          text := NULLIF(btrim(p_pdf_url), '');
+  v_signer_name  text := NULLIF(btrim(p_signer_name), '');
+  v_has_sisters  boolean;
+BEGIN
+  -- Argument hygiene (unchanged from 20260510120000:457-467)
+  IF p_token IS NULL OR p_token = '' THEN RAISE EXCEPTION 'INVALID_TOKEN'; END IF;
+  IF v_signer_name IS NOT NULL AND length(v_signer_name) < 3 THEN
+    RAISE EXCEPTION 'INVALID_SIGNER_NAME';
+  END IF;
+
+  -- Lock + lookup (unchanged from 20260510120000:469-481)
+  SELECT p.id, p.call_log_id
+    INTO v_proposal_id, v_call_log_id
+    FROM public.proposals p
+   WHERE p.signing_token IS NOT NULL
+     AND p.signing_token::text = p_token
+     AND p.signing_token_expires_at IS NOT NULL
+     AND p.signing_token_expires_at > now()
+   LIMIT 1
+   FOR UPDATE;
+
+  IF v_proposal_id IS NULL THEN RAISE EXCEPTION 'INVALID_TOKEN'; END IF;
+
+  -- PDF URL validation (unchanged from 20260510120000:487-492)
+  IF v_pdf IS NOT NULL THEN
+    IF v_pdf !~ ('^https://[a-z0-9-]+\.supabase\.co/storage/v1/object/public/signed-proposals/signed-proposal-' ||
+                 v_proposal_id || '-[0-9]+\.pdf$') THEN
+      RAISE EXCEPTION 'INVALID_PDF_URL';
+    END IF;
+  END IF;
+
+  -- C1: sister-aware terminal status.
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.proposals s
+     WHERE s.call_log_id = v_call_log_id
+       AND s.id <> v_proposal_id
+       AND s.deleted_at IS NULL
+       AND s.status NOT IN ('Lost')
+  ) INTO v_has_sisters;
+
+  IF v_has_sisters THEN
+    -- Multi-GC path: this is a signed sister, not the winner.
+    UPDATE public.proposals
+       SET status                    = 'Signed',
+           approved_at               = now(),
+           signing_token_consumed_at = now()
+     WHERE id = v_proposal_id
+       AND signing_token_consumed_at IS NULL;
+  ELSE
+    -- Single-GC path: preserve current behavior exactly.
+    UPDATE public.proposals
+       SET status                    = 'Sold',
+           approved_at               = now(),
+           signing_token_consumed_at = now()
+     WHERE id = v_proposal_id
+       AND signing_token_consumed_at IS NULL;
+  END IF;
+
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows = 0 THEN RAISE EXCEPTION 'ALREADY_SIGNED'; END IF;
+
+  -- Signature insert (unchanged from 20260510120000:511-523)
+  IF v_signer_name IS NOT NULL THEN
+    INSERT INTO public.proposal_signatures (
+      proposal_id, signer_name, signer_email,
+      ip_address, pdf_url, signed_at
+    ) VALUES (
+      v_proposal_id,
+      v_signer_name,
+      NULLIF(btrim(p_signer_email), ''),
+      NULLIF(btrim(p_ip_address), ''),
+      v_pdf,
+      now()
+    );
+  END IF;
+
+  -- call_log.stage transition: only on single-GC path.
+  IF v_call_log_id IS NOT NULL AND NOT v_has_sisters THEN
+    UPDATE public.call_log SET stage = 'Sold' WHERE id = v_call_log_id;
+  END IF;
+
+  RETURN QUERY SELECT v_proposal_id, v_call_log_id, (NOT v_has_sisters);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.mark_proposal_signed(text, text, text, text, text) TO anon;
+```
+
+Notes:
+- 1-arg wrapper inherits the new behavior automatically.
+- `v_has_sisters` uses `status NOT IN ('Lost')` — `'Approved Internally'`, `'Signed'`, `'Sent'`, `'Draft'`, or any other live sibling counts as "sisters exist."
+- Returns `became_sold` so the edge function and client can gate `qb-create-job`.
+
+#### 3c. Updated `ProposalDetail.jsx:598-617` (handleInternalApprove)
+
+```js
+async function handleInternalApprove() {
+  if (!approveBy.trim()) { alert("Approved By is required."); return; }
+  if (!approveReason.trim()) { alert("Reason is required."); return; }
+
+  // C1: sister-aware. Active sisters → 'Signed' (no stage flip, no QB).
+  const { data: siblings } = await supabase
+    .from("proposals")
+    .select("id")
+    .eq("call_log_id", p.call_log_id)
+    .neq("id", p.id)
+    .is("deleted_at", null)
+    .not("status", "in", "(Lost)");
+  const hasSisters = (siblings?.length || 0) > 0;
+
+  await supabase.from("proposals").update({
+    status: hasSisters ? "Signed" : "Sold",
+    approved_at: new Date().toISOString(),
+    internal_approval: true,
+    approved_by: approveBy.trim(),
+    approval_reason: approveReason.trim(),
+  }).eq("id", p.id);
+
+  if (p.call_log_id && !hasSisters) {
+    await supabase.from("call_log").update({ stage: "Sold" }).eq("id", p.call_log_id);
+    const isTest = (p.call_log?.job_name || "").toLowerCase().includes("test");
+    !isTest && supabase.functions.invoke("qb-create-job", { body: { callLogId: p.call_log_id, proposalId: p.id } })
+      .catch(() => {});
+  }
+  // Refresh (unchanged)
+  ...
+}
+```
+
+The internal-approval surface collapses "customer signed externally" and "internally approved as Signed" into the same `'Signed'` status value. Differentiator stays in `internal_approval bool + approved_by + approval_reason` (existing columns). **[DESIGN-OPEN]** — alternative is two new statuses; recommend collapsing.
+
+#### 3d. Updated `qb-create-job` invocation conditions
+
+Two client invocation sites:
+
+- `ProposalDetail.jsx:611-613` (handleInternalApprove) — gated by `hasSisters` per 3c.
+- `PublicSigningPage.jsx:391-397` (customer-side signing path) — must also gate. The customer's browser doesn't have direct visibility into sisters, so use the `became_sold` field surfaced from `mark_proposal_signed`'s extended RETURNS TABLE:
+
+```ts
+// supabase/functions/proposal-signed/index.ts ~line 100-104:
+const proposalId  = signedRows[0].proposal_id;
+const callLogId   = signedRows[0].call_log_id;
+const becameSold  = signedRows[0].became_sold;
+return jsonResp(200, { success: true, became_sold: becameSold }, corsHeaders);
+```
+
+```js
+// src/pages/PublicSigningPage.jsx ~line 395:
+if (!qbBlocked && proposal.call_log_id && !isTest && responseBody?.became_sold) {
+  supabase.functions.invoke("qb-create-job", { body: { callLogId: proposal.call_log_id, proposalId: proposal.id } }).catch(() => {});
+}
+```
+
+Also covers the fallback path at `PublicSigningPage.jsx:376-389` (direct RPC call when edge fn fails): surface `became_sold` from the fallback path similarly.
+
+`src/components/QBActionModal.jsx:18` is a manual user-initiated "create QB job" — unrelated to signing flow, **no change**.
+
+#### 3e. Mark Awarded flow (`award_proposal`) — interaction with `'Signed'`
+
+The §6 RPC already does the right thing — sister set has `status NOT IN ('Sold','Lost')`, which naturally includes `'Signed'`. **No SQL change needed at §6.**
+
+The client wrapper that invokes `award_proposal` is the new surface that owns QB sync:
+
+```js
+async function handleMarkAwarded(winnerProposalId) {
+  const { data, error } = await supabase.rpc("award_proposal", {
+    p_winner_proposal_id: winnerProposalId,
+    p_lost_reason: "Lost to other GC",
+  });
+  if (error) { alert(error.message); return; }
+  const { winner_id, call_log_id } = data;
+  const winnerCallLog = /* re-fetch or pass through */;
+  const isTest = (winnerCallLog?.job_name || "").toLowerCase().includes("test");
+  if (call_log_id && !isTest) {
+    supabase.functions.invoke("qb-create-job", { body: { callLogId: call_log_id, proposalId: winner_id } })
+      .catch(() => {});
+  }
+}
+```
+
+Interaction edge: if a sister was `'Signed'` (with `approved_at` set) and a different sister is awarded, the signed sister flips to `'Lost'` but retains its `approved_at` and `internal_approval` flag — the signing record is history, not erased. The plan doc's §6 reversal flow needs `pre_lost_status` capture (already flagged **[DESIGN-OPEN]** at §6:777) so reversal restores `'Signed'`.
+
+### 4. Customer-facing UX text for `'Signed'`
+
+- **Proposal-detail Pill (`ProposalDetail.jsx:664`).** Add to `PROP_C` in `src/lib/mockData.js`: `"Signed": { bg:"rgba(67,160,71,0.10)", text:"#1e5e22" }` — same family as 'Sold' but visually distinct (lighter background; same green text).
+- **Status filter tab (`Proposals.jsx:67`).** Insert `'Signed'` between `'Sent'` and `'Sold'`: `["All","Draft","Sent","Signed","Sold","Lost"]`.
+- **Signing page confirmation (`PublicSigningPage.jsx`).** Accepted-state gate becomes `["Sold","Signed"].includes(view.status)`. Customer copy unchanged ("Thank you, your signature has been recorded").
+- **Customer email (`supabase/functions/proposal-signed/index.ts:132`).** Change "status has been updated to **Sold**" → "**Signed**" when `became_sold=false`; keep "Sold" when `became_sold=true`. (This email goes to the internal rep, line 120 `to: repEmail` — not the customer.)
+- **CallLogDetail GC panel (§7 surface).** Each sister rendered with GC name + status pill. `'Signed'` renders via PROP_C.
+
+### 5. Backward-compat audit — every read of `proposals.status` and `call_log.stage` in `src/`
+
+**Status filter tabs / constants:**
+- `src/pages/Proposals.jsx:67` STATUS_TABS — **add `'Signed'`**.
+- `src/pages/Managers.jsx:17` SENT_STATUSES — **add `'Signed'`** (signed sisters count as sent for the month).
+- `src/pages/Managers.jsx:18` ACCEPTED_STATUSES — **[DESIGN-OPEN]** recommend NO (`'Signed'` is pre-award; "accepted" should mean "we won").
+- `src/pages/SalesDash.jsx:13` SENT_STATUSES — **add `'Signed'`**.
+- `src/pages/SalesDash.jsx:154` forecastStatuses — **add `'Signed'`**.
+- `src/pages/SalesDash.jsx:436` — **add `'Signed'`**.
+
+**Per-status branching:**
+- `src/components/ProposalDetail.jsx:67` `pInit.status === "Sold"` — schedule send. `'Signed'` should NOT trigger. **No change.**
+- `src/components/ProposalDetail.jsx:96` auto-refresh while `status === "Sent"` — already stops on non-Sent. **No change.**
+- `src/components/ProposalDetail.jsx:429` checklist `"Proposal sent": ["Sent","Sold"]` — **update to `["Sent","Signed","Sold"]`**.
+- `src/components/ProposalDetail.jsx:678` Pull Back button visibility `(p.status === "Sent" || p.status === "Sold")` — **add `'Signed'`** (must be able to pull back a signed sister).
+- `src/components/ProposalDetail.jsx:694` Send Proposal button — **update to also exclude `'Signed'`**.
+- `src/components/ProposalDetail.jsx:1137` Download Signed PDF block `status === "Sold"` — **update to `["Sold","Signed"].includes(p.status)`**.
+- `src/pages/PublicSigningPage.jsx:69` accepted-state gate — **update to `["Sold","Signed"].includes(view.status)`**.
+- `src/pages/WTCCalculator.jsx:1839` `data?.status === "Sold"` locks calculator — **update to `["Sold","Signed"].includes(data?.status)`**. Once signed, WTCs lock from edits same as Sold.
+- `src/pages/Home.jsx:135` `["Sent","Viewed","Approved","Sold","Lost"]` — **add `'Signed'`**.
+- `src/pages/Customers.jsx:687` color logic — **[DESIGN-OPEN]** recommend treating `'Signed'` like `'Sold'` for color.
+- `src/components/ProposalPDFModal.jsx:277-278` Send button visibility — **update to exclude `'Signed'`**.
+
+**call_log.stage:**
+- STAGES vocabulary unchanged (stage stays `'Has Bid'` while sisters sign; flips to `'Sold'` only on award).
+- `src/components/ProposalDetail.jsx:609` writes `stage: "Sold"` — handled in 3c by `!hasSisters` gate.
+- Other stage writes (`ProposalDetail.jsx:478, :588`, `ProposalPDFModal.jsx:151`) — orthogonal.
+
+**Sibling repos** (sch-command / field-command / AR-Command-Center per CLAUDE_RLS.md:73-83): adding `'Signed'` is non-breaking for those repos as long as they default-render unknown statuses. Worth a sibling-repo audit follow-up, not a blocker.
+
+### 6. Edge cases
+
+**a. Sister signs mid-other-sister-signing (race).** Two customers sign two different sisters within the same second. Each is its own RPC invocation with a different token. `v_has_sisters` query runs at row-lock time but doesn't lock siblings; both queries return true. Both proposals end up `'Signed'`. Correct.
+
+**b. Customer revokes signature.** Current path: Pull Back at `ProposalDetail.jsx:458-475` (deletes `proposal_signatures` rows, sets `status='Draft'`, clears `approved_at`). Under Option I, Pull Back must also accept `'Signed'` status (called out in §5 audit). Same handler logic; no new revoke path needed.
+
+**c. Mark Awarded before any sister signs.** Rep verbally awarded; clicks Mark Awarded without a customer signature. `award_proposal` flips winner to `'Sold'`, others to `'Lost'`. Winner's `approved_at` set to `now()` (per §6:751) without a `proposal_signatures` row. Identical to today's Internal Approve modulo the new branching. **No change needed.**
+
+**d. All sisters signed.** Possible — every GC signs before rep picks. Each ends in `'Signed'`. Rep clicks Mark Awarded → winner `'Sold'`, rest `'Lost'`. **Correcting the plan's prior speculation** at §8.7: "all sisters signed before any award" is not impossible under Q1 — Option I makes this representable cleanly.
+
+**e. Single-GC proposal signs.** `v_has_sisters` returns false; RPC falls into single-GC branch (`status='Sold' + stage='Sold'`). Client also falls into `!hasSisters` branch and fires `qb-create-job`. End-to-end byte-for-byte preservation. ✓
+
+**f. Sister-of-sister attempt.** Already prohibited by §7 `cloned_from_proposal_id IS NULL` gate on `+ Send to Additional GCs`. C1 inherits.
+
+**g. Reversal interplay.** `reverse_award` must capture `pre_lost_status` (already flagged **[DESIGN-OPEN]** at §6:777). A sister that was `'Signed'` before award and got flipped to `'Lost'` returns to `'Signed'` on reverse.
+
+**h. Idempotent re-award.** §6:762 `status NOT IN ('Sold','Lost')` makes re-award no-op. Awarding a *different* sister after a previous award requires `reverse_award` first — pre-existing wizard-UX question, C1 doesn't change it.
+
+**i. Optimistic concurrency on `internal_approval` + customer signing.** Pre-existing race bug (rep's PostgREST update lacks the `signing_token_consumed_at` guard); orthogonal to C1. Worth a BACKLOG row but out of scope.
+
+### DESIGN-OPEN items remaining after this resolution
+
+- Whether to add the `proposals_status_check` CHECK constraint (recommend: skip for v1; revisit after prod inventory).
+- Whether to differentiate "customer-Signed" from "internally-approved-while-sisters-exist" via two statuses (recommend: collapse to single `'Signed'`).
+- `Customers.jsx:687` color rule for `'Signed'` (recommend: treat as Sold-family color).
+- `Managers.jsx:18` ACCEPTED_STATUSES inclusion of `'Signed'` (recommend: NO).
+- `proposals.pre_lost_status` snapshot column for reversal (already flagged in §6).
+
+### Critical files for this resolution
+
+- `supabase/migrations/20260512120000_multi_gc_allocation.sql` — `mark_proposal_signed` redefinition + extended RETURNS TABLE.
+- `supabase/migrations/20260510120000_signing_token_expiry_and_consume.sql` — superseded by above (no edit, just reference).
+- `src/components/ProposalDetail.jsx` — handleInternalApprove rewrite (3c) + ~10 backward-compat tweaks per §5 audit.
+- `src/pages/PublicSigningPage.jsx` — `became_sold` gate on qb-create-job invocation + accepted-state gate update.
+- `supabase/functions/proposal-signed/index.ts` — surface `became_sold` in response body.
+- `src/lib/mockData.js` — add `'Signed'` to PROP_C.
+- `src/pages/Proposals.jsx`, `src/pages/Managers.jsx`, `src/pages/SalesDash.jsx`, `src/pages/Home.jsx`, `src/pages/WTCCalculator.jsx`, `src/pages/Customers.jsx`, `src/components/ProposalPDFModal.jsx` — `'Signed'` inclusion per §5 backward-compat audit.
+
 ---
 
 ### C2 — Clone RPC must not violate H6 locked_line_total invariant

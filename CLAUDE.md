@@ -206,12 +206,13 @@ This applies to both the CallLog wizard upload and CallLogDetail upload.
 
 ## Workflow Rules
 
-1. Always grep before edits
-2. One step at a time
-3. Never give half-baked solutions mid-figuring-it-out
-4. Git commit after every completed task
-5. Ask for screenshot before assuming error cause
-6. `git push` + handoff doc at session end
+1. Before drafting any new workflow doc, rule, slash command, skill, or spec — grep the repo for where it might already live (this file, `CLAUDE_RLS.md`, `docs/BACKLOG.md`, latest handoff in `docs/handoffs/`, `docs/plans/`). If it exists, point — don't duplicate.
+2. Always grep before edits
+3. One step at a time
+4. Never give half-baked solutions mid-figuring-it-out
+5. Git commit after every completed task
+6. Ask for screenshot before assuming error cause
+7. `git push` + handoff doc at session end
 
 ## Key File Locations
 

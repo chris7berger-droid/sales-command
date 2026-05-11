@@ -213,7 +213,9 @@ GRANT EXECUTE ON FUNCTION public.clone_proposal_to_gcs(text, jsonb) TO authentic
 
 ## §5 Sync logic (`preview_sync_to_sisters` + `apply_source_edit_to_sisters`)
 
-**[DESIGN-OPEN]** This is the highest-uncertainty section. Two-RPC pattern (preview returns conflicts, apply commits) is the right shape, but the exact column-vs-jsonb-field handling of `field_sow` / `materials` / `sub_areas` / `travel` needs Chris's input.
+> **→ Resolved 2026-05-11. The granularity question, RPC bodies, conflict-prompt UX, and downstream implications are nailed down in "§5 Sync Semantics — Resolution" below. The text in this section is the original stub, kept as the trail of how we got there. Final answer: Option A+ (column-level for the 3 jsonb arrays; sub-key level for `travel`).**
+
+**[DESIGN-OPEN — see resolution]** This is the highest-uncertainty section. Two-RPC pattern (preview returns conflicts, apply commits) is the right shape, but the exact column-vs-jsonb-field handling of `field_sow` / `materials` / `sub_areas` / `travel` needs Chris's input.
 
 **Preview RPC** (read-only, returns conflict report):
 ```sql
@@ -245,6 +247,474 @@ Recommend (c) for v1 — coarse-grained, easy to reason about, matches mental mo
 2. **Client-side** — wrap every WTC write in a helper that diffs old→new and writes `locally_edited_fields` alongside. Pro: explicit. Con: every edit site has to know.
 
 Recommend (1) — DB trigger. Less burden on every code path.
+
+---
+
+## §5 Sync Semantics — Resolution
+
+_Resolved 2026-05-11 (round-2 Plan agent). Reads the v109-era code: `src/pages/WTCCalculator.jsx` line citations below are against the WTC save path._
+
+### 1. Pre-question — do the four jsonb columns have stable per-row identifiers?
+
+**Answer: row-id presence is uneven; none of the IDs are durable, globally unique, or DB-enforced.**
+
+Evidence from the WTC save path (`src/pages/WTCCalculator.jsx`) — these IDs are generated client-side and round-trip through Supabase only because the save handler at `WTCCalculator.jsx:1744-1750` writes the full jsonb blob verbatim (`materials: materials`, `field_sow: sow.field_sow`, `sub_areas: sow.sub_areas ?? []`, `travel: travel`) with no shape transformation.
+
+| Column | Shape | Per-row id? | Generator | Stable? |
+|---|---|---|---|---|
+| `materials` | jsonb array of line-items | `id` field | `WTCCalculator.jsx:413` `addFromDB`: `{ id: Date.now(), product, kit_size, … }`; `:414` `addCustom`: same | **No.** `Date.now()` collides on rapid-fire adds and is not unique across sisters. Not a DB key. |
+| `field_sow` | jsonb array of day-entries, each with nested `tasks[]` and nested `materials[]` | `id` on the day; `id` on each task | `:732` `addDay`: `{ id: Date.now(), day_label, tasks: [newTask()], crew_count, hours_planned, materials: [] }`; `:731` `newTask()`: `{ id: Date.now() + Math.random(), description, pct_complete }` | **No.** Day ids collide across sisters (same `Date.now()` epoch when cloned). Task ids use a random fraction to disambiguate but only within one session — not durable across clones. |
+| `sub_areas` | jsonb array of `{ id, label, size, unit }` | `id` | `:727` `addSubArea`: `{ id: Date.now(), label: "", size: 0, unit: "SQFT" }` | **No.** Same `Date.now()` story. |
+| `travel` | jsonb **object** (not array) — flat keys: `drive_rate`, `drive_miles`, `fly_rate`, `fly_tickets`, `stay_rate`, `stay_nights`, `per_diem_rate`, `per_diem_days`, `per_diem_crew` | N/A — no rows | Set as a flat object in `WTCCalculator.jsx:1520` and read in `calc.js:29` (`(t.drive_rate \|\| 0) * (t.drive_miles \|\| 0)`) | N/A — there are no rows to identify. Subfields are stable named keys. |
+
+Implication: Option B (row-level merge with row-stable identifiers) is **not free**. To make it correct we would need to (a) backfill row ids into existing jsonb arrays via a one-time migration, (b) change every UI insertion site to generate `crypto.randomUUID()` instead of `Date.now()`, and (c) make `clone_proposal_to_gcs` rewrite all child ids in the cloned jsonb (otherwise sisters would share the parent's row ids and a "merge by id" model would treat divergent edits as the "same row"). That's a schema migration in spirit even if no DDL ALTER lands — it's an invariant migration across the jsonb payload.
+
+Travel is the exception: it's not an array, so per-key sync is trivially available without any id question.
+
+### 2. Recommendation — **Option A with one carve-out: travel is keyed by sub-key.**
+
+Call it A+. For the three array-shaped jsonbs (`materials`, `field_sow`, `sub_areas`) — column-level granularity. For `travel` — sub-key granularity (each named travel key is its own entry in `locally_edited_fields[]`).
+
+Rationale: the row identifiers don't exist durably, so Option B for the arrays would build sync correctness on a foundation that has been unstable since the WTC was first written — and the cost to fix that foundation (rewrite every id generator + backfill migration + clone-time id rewrite) is several days of work on a code path that's not the bottleneck. Column-level granularity matches the rep's mental model: "I customized this sister's materials list" is the level reps will think about overrides at. The carve-out for `travel` costs nothing because travel is already keyed.
+
+So `locally_edited_fields[]` entries are exactly one of: `'intro'`, `'sales_sow'`, `'field_sow'`, `'materials'`, `'sub_areas'`, `'size'`, `'unit'`, `'discount'`, `'discount_reason'`, `'travel:drive_rate'`, `'travel:drive_miles'`, `'travel:fly_rate'`, `'travel:fly_tickets'`, `'travel:stay_rate'`, `'travel:stay_nights'`, `'travel:per_diem_rate'`, `'travel:per_diem_days'`, `'travel:per_diem_crew'`.
+
+Note: `intro` lives on `proposals`, not `proposal_wtc`. Tracking it in `proposal_wtc.locally_edited_fields[]` is awkward (which WTC's row holds the flag?). Two options: (a) store `'intro'` only on the lowest-numbered WTC row per proposal, (b) add a sibling column `proposals.locally_edited_fields text[]` for proposal-scope fields. **[DESIGN-OPEN]** — recommend (b) for clarity; flagging rather than picking arbitrarily.
+
+### 3. Row-id strategy / migration
+
+N/A — Option A is chosen. No row-id strategy needed. No additional schema migration beyond `proposal_wtc.locally_edited_fields text[]` already in §3, plus the **[DESIGN-OPEN]** `proposals.locally_edited_fields text[]` for the `intro` carve-out.
+
+### 4. RPC bodies
+
+Both RPCs follow `merge_call_log` conventions: `SECURITY DEFINER`, `SET search_path = public`, `NO_TENANT` guard, `TENANT_MISMATCH` on cross-tenant, `RETURN jsonb`, `REVOKE … FROM public; GRANT EXECUTE … TO authenticated`. No audit-table writes — sync is high-frequency (every parent save), and `merge_call_log` itself only writes audit on a once-per-merge event. Compare-with-precedent decision: skip audit for sync. If demanded later, add `proposal_sync_events` with similar shape to `proposal_clones` (§3). **[DESIGN-OPEN]** — flagging rather than picking.
+
+```sql
+-- ----------------------------------------------------------------------------
+-- preview_sync_to_sisters(p_source_proposal_id text)
+-- ----------------------------------------------------------------------------
+-- Read-only. Walks all sisters of p_source_proposal_id and reports, per
+-- sister, which source-driven fields differ from source AND are flagged
+-- on that sister's proposal_wtc.locally_edited_fields[] (conflicts), vs
+-- which differ but are NOT flagged (will be quietly synced by apply).
+--
+-- Tracked fields:
+--   proposals: intro
+--   proposal_wtc scalars: sales_sow, size, unit, discount, discount_reason
+--   proposal_wtc jsonb columns (column-level): field_sow, materials, sub_areas
+--   proposal_wtc jsonb object subkeys (key-level): travel:<key>
+--
+-- Returns jsonb:
+--   { sisters: [
+--       { sister_id text,
+--         pending: [{ field text, scope text }],     -- will auto-sync
+--         conflicts: [{ field text, scope text,
+--                       source_value jsonb, sister_value jsonb }]
+--       },
+--       ...
+--     ]
+--   }
+-- where scope ∈ { 'proposal', 'wtc:<work_type_id>' }.
+--
+-- "Conflicts" gate on locally_edited_fields[] containing the field name
+-- (or 'travel:<key>' for travel sub-keys, or 'intro' on the
+-- proposals.locally_edited_fields[] sibling column if §3 adds it).
+-- ----------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.preview_sync_to_sisters(p_source_proposal_id text)
+  RETURNS jsonb
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+DECLARE
+  v_tenant_id     uuid;
+  v_source        public.proposals%ROWTYPE;
+  v_result        jsonb := jsonb_build_object('sisters', '[]'::jsonb);
+  v_sister        record;
+  v_sister_obj    jsonb;
+  v_pending       jsonb;
+  v_conflicts     jsonb;
+  v_wtc_source    record;
+  v_wtc_sister    record;
+  v_travel_key    text;
+  v_travel_keys   text[] := ARRAY[
+    'drive_rate','drive_miles','fly_rate','fly_tickets',
+    'stay_rate','stay_nights','per_diem_rate','per_diem_days','per_diem_crew'
+  ];
+BEGIN
+  v_tenant_id := public.get_user_tenant_id();
+  IF v_tenant_id IS NULL THEN RAISE EXCEPTION 'NO_TENANT'; END IF;
+
+  SELECT * INTO v_source FROM public.proposals
+    WHERE id = p_source_proposal_id;
+  IF v_source.id IS NULL THEN RAISE EXCEPTION 'NOT_FOUND_SOURCE'; END IF;
+  IF v_source.tenant_id <> v_tenant_id THEN RAISE EXCEPTION 'TENANT_MISMATCH'; END IF;
+  IF v_source.deleted_at IS NOT NULL THEN RAISE EXCEPTION 'SOURCE_DELETED'; END IF;
+
+  FOR v_sister IN
+    SELECT * FROM public.proposals
+     WHERE cloned_from_proposal_id = p_source_proposal_id
+       AND deleted_at IS NULL
+       AND tenant_id = v_tenant_id
+       AND status NOT IN ('Lost','Sold')   -- skip awarded/lost sisters
+  LOOP
+    v_pending   := '[]'::jsonb;
+    v_conflicts := '[]'::jsonb;
+
+    -- ---- proposal-scope: intro ----
+    IF v_source.intro IS DISTINCT FROM v_sister.intro THEN
+      -- DESIGN-OPEN: where does 'intro' live as a locked flag?
+      -- Assuming §3 adds proposals.locally_edited_fields text[].
+      IF 'intro' = ANY (COALESCE(v_sister.locally_edited_fields, '{}')) THEN
+        v_conflicts := v_conflicts || jsonb_build_object(
+          'field','intro','scope','proposal',
+          'source_value', to_jsonb(v_source.intro),
+          'sister_value', to_jsonb(v_sister.intro)
+        );
+      ELSE
+        v_pending := v_pending || jsonb_build_object('field','intro','scope','proposal');
+      END IF;
+    END IF;
+
+    -- ---- wtc-scope: walk source WTCs, join sister WTCs by work_type_id ----
+    -- (Sisters were cloned 1:1 from source so work_type_id is the join key.)
+    FOR v_wtc_source IN
+      SELECT * FROM public.proposal_wtc WHERE proposal_id = p_source_proposal_id
+    LOOP
+      SELECT * INTO v_wtc_sister
+        FROM public.proposal_wtc
+       WHERE proposal_id = v_sister.id
+         AND work_type_id = v_wtc_source.work_type_id
+       LIMIT 1;
+
+      IF v_wtc_sister.id IS NULL THEN
+        CONTINUE;  -- sister missing this WTC (manual deletion); skip
+      END IF;
+
+      -- Inline diff for one scalar (size) — repeat block for sales_sow,
+      -- unit, discount, discount_reason:
+      IF v_wtc_source.size IS DISTINCT FROM v_wtc_sister.size THEN
+        IF 'size' = ANY (COALESCE(v_wtc_sister.locally_edited_fields, '{}')) THEN
+          v_conflicts := v_conflicts || jsonb_build_object(
+            'field','size',
+            'scope', 'wtc:' || v_wtc_source.work_type_id::text,
+            'source_value', to_jsonb(v_wtc_source.size),
+            'sister_value', to_jsonb(v_wtc_sister.size)
+          );
+        ELSE
+          v_pending := v_pending || jsonb_build_object(
+            'field','size',
+            'scope','wtc:' || v_wtc_source.work_type_id::text
+          );
+        END IF;
+      END IF;
+      -- ... repeat for unit, discount, discount_reason, sales_sow ...
+
+      -- jsonb columns (column-level granularity)
+      IF v_wtc_source.field_sow::jsonb IS DISTINCT FROM v_wtc_sister.field_sow::jsonb THEN
+        IF 'field_sow' = ANY (COALESCE(v_wtc_sister.locally_edited_fields, '{}')) THEN
+          v_conflicts := v_conflicts || jsonb_build_object(
+            'field','field_sow',
+            'scope','wtc:' || v_wtc_source.work_type_id::text,
+            'source_value', v_wtc_source.field_sow,
+            'sister_value', v_wtc_sister.field_sow
+          );
+        ELSE
+          v_pending := v_pending || jsonb_build_object(
+            'field','field_sow',
+            'scope','wtc:' || v_wtc_source.work_type_id::text
+          );
+        END IF;
+      END IF;
+      -- ... repeat for materials, sub_areas ...
+
+      -- travel (key-level granularity)
+      FOREACH v_travel_key IN ARRAY v_travel_keys LOOP
+        IF (v_wtc_source.travel -> v_travel_key) IS DISTINCT FROM (v_wtc_sister.travel -> v_travel_key) THEN
+          IF ('travel:' || v_travel_key) = ANY (COALESCE(v_wtc_sister.locally_edited_fields, '{}')) THEN
+            v_conflicts := v_conflicts || jsonb_build_object(
+              'field','travel:' || v_travel_key,
+              'scope','wtc:' || v_wtc_source.work_type_id::text,
+              'source_value', v_wtc_source.travel -> v_travel_key,
+              'sister_value', v_wtc_sister.travel -> v_travel_key
+            );
+          ELSE
+            v_pending := v_pending || jsonb_build_object(
+              'field','travel:' || v_travel_key,
+              'scope','wtc:' || v_wtc_source.work_type_id::text
+            );
+          END IF;
+        END IF;
+      END LOOP;
+    END LOOP;
+
+    v_sister_obj := jsonb_build_object(
+      'sister_id', v_sister.id,
+      'pending',   v_pending,
+      'conflicts', v_conflicts
+    );
+    v_result := jsonb_set(v_result, '{sisters}',
+                          (v_result->'sisters') || v_sister_obj);
+  END LOOP;
+
+  RETURN v_result;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.preview_sync_to_sisters(text) FROM public;
+GRANT EXECUTE ON FUNCTION public.preview_sync_to_sisters(text) TO authenticated;
+
+
+-- ----------------------------------------------------------------------------
+-- apply_source_edit_to_sisters(p_source_proposal_id text, p_changed_fields text[])
+-- ----------------------------------------------------------------------------
+-- Writes source values into sisters. For each sister × field pair:
+--   - field NOT in sister's locally_edited_fields[]  -> overwrite quietly
+--   - field IS in sister's locally_edited_fields[]   -> skipped (returned
+--       in 'skipped' so the client can decide whether to re-invoke with
+--       p_force_overwrite).
+--
+-- p_force_overwrite shape: array of '<sister_id>:<field>' strings.
+-- Conflict modal emits these from the user's per-row toggle decisions.
+--
+-- p_changed_fields[] uses the same vocabulary as locally_edited_fields[]:
+--   'intro', 'sales_sow', 'size', 'unit', 'discount', 'discount_reason',
+--   'field_sow', 'materials', 'sub_areas',
+--   'travel:drive_rate' … 'travel:per_diem_crew'
+-- For wtc-scoped fields, all WTC rows on the sister with matching
+-- work_type_id are updated. (Multi-WTC of the same work_type is not
+-- currently a supported shape — confirm with Chris.) **[DESIGN-OPEN]**
+-- ----------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.apply_source_edit_to_sisters(
+  p_source_proposal_id text,
+  p_changed_fields     text[],
+  p_force_overwrite    text[] DEFAULT '{}'::text[]
+) RETURNS jsonb
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+DECLARE
+  v_tenant_id   uuid;
+  v_source      public.proposals%ROWTYPE;
+  v_sister      record;
+  v_field       text;
+  v_force_key   text;
+  v_should_skip boolean;
+  v_synced      jsonb := '[]'::jsonb;
+  v_skipped     jsonb := '[]'::jsonb;
+  v_wtc_source  record;
+  v_locked      boolean;
+BEGIN
+  v_tenant_id := public.get_user_tenant_id();
+  IF v_tenant_id IS NULL THEN RAISE EXCEPTION 'NO_TENANT'; END IF;
+
+  SELECT * INTO v_source FROM public.proposals
+    WHERE id = p_source_proposal_id FOR UPDATE;
+  IF v_source.id IS NULL THEN RAISE EXCEPTION 'NOT_FOUND_SOURCE'; END IF;
+  IF v_source.tenant_id <> v_tenant_id THEN RAISE EXCEPTION 'TENANT_MISMATCH'; END IF;
+  IF v_source.deleted_at IS NOT NULL THEN RAISE EXCEPTION 'SOURCE_DELETED'; END IF;
+
+  FOR v_sister IN
+    SELECT * FROM public.proposals
+     WHERE cloned_from_proposal_id = p_source_proposal_id
+       AND deleted_at IS NULL
+       AND tenant_id = v_tenant_id
+       AND status NOT IN ('Lost','Sold')
+     FOR UPDATE
+  LOOP
+    FOREACH v_field IN ARRAY p_changed_fields LOOP
+      v_force_key   := v_sister.id || ':' || v_field;
+      v_should_skip := FALSE;
+
+      -- Proposal-scope field
+      IF v_field = 'intro' THEN
+        IF 'intro' = ANY (COALESCE(v_sister.locally_edited_fields, '{}'))
+           AND NOT (v_force_key = ANY (p_force_overwrite)) THEN
+          v_should_skip := TRUE;
+        END IF;
+
+        IF v_should_skip THEN
+          v_skipped := v_skipped || jsonb_build_object(
+            'sister_id', v_sister.id, 'field', v_field, 'reason','locked');
+        ELSE
+          UPDATE public.proposals
+             SET intro = v_source.intro
+           WHERE id = v_sister.id;
+          v_synced := v_synced || jsonb_build_object(
+            'sister_id', v_sister.id, 'field', v_field);
+
+          -- If forced over a lock, the override is gone -> remove the flag.
+          IF 'intro' = ANY (COALESCE(v_sister.locally_edited_fields, '{}')) THEN
+            UPDATE public.proposals
+               SET locally_edited_fields = array_remove(locally_edited_fields, 'intro')
+             WHERE id = v_sister.id;
+          END IF;
+        END IF;
+
+      ELSE
+        -- WTC-scope field. Walk source WTCs; for each, sync into sister's
+        -- matching-work_type_id WTC row.
+        FOR v_wtc_source IN
+          SELECT * FROM public.proposal_wtc WHERE proposal_id = p_source_proposal_id
+        LOOP
+          -- Explicit lock-state read into a local (avoids brittle FOUND
+          -- semantics across nested loops).
+          SELECT v_field = ANY (COALESCE(locally_edited_fields, '{}'))
+            INTO v_locked
+            FROM public.proposal_wtc
+           WHERE proposal_id = v_sister.id
+             AND work_type_id = v_wtc_source.work_type_id
+           LIMIT 1;
+
+          IF NOT FOUND THEN
+            -- Sister is missing this WTC (manually deleted). Surface, skip.
+            v_skipped := v_skipped || jsonb_build_object(
+              'sister_id', v_sister.id,
+              'field', v_field,
+              'scope', 'wtc:' || v_wtc_source.work_type_id::text,
+              'reason', 'missing_on_sister');
+            CONTINUE;
+          END IF;
+
+          IF v_locked AND NOT (v_force_key = ANY (p_force_overwrite)) THEN
+            v_skipped := v_skipped || jsonb_build_object(
+              'sister_id', v_sister.id,
+              'field', v_field,
+              'scope', 'wtc:' || v_wtc_source.work_type_id::text,
+              'reason', 'locked');
+            CONTINUE;
+          END IF;
+
+          -- Field-specific write.
+          IF v_field = 'sales_sow' THEN
+            UPDATE public.proposal_wtc SET sales_sow = v_wtc_source.sales_sow
+             WHERE proposal_id = v_sister.id AND work_type_id = v_wtc_source.work_type_id;
+          ELSIF v_field = 'size' THEN
+            UPDATE public.proposal_wtc SET size = v_wtc_source.size
+             WHERE proposal_id = v_sister.id AND work_type_id = v_wtc_source.work_type_id;
+          ELSIF v_field = 'unit' THEN
+            UPDATE public.proposal_wtc SET unit = v_wtc_source.unit
+             WHERE proposal_id = v_sister.id AND work_type_id = v_wtc_source.work_type_id;
+          ELSIF v_field = 'discount' THEN
+            UPDATE public.proposal_wtc SET discount = v_wtc_source.discount
+             WHERE proposal_id = v_sister.id AND work_type_id = v_wtc_source.work_type_id;
+          ELSIF v_field = 'discount_reason' THEN
+            UPDATE public.proposal_wtc SET discount_reason = v_wtc_source.discount_reason
+             WHERE proposal_id = v_sister.id AND work_type_id = v_wtc_source.work_type_id;
+          ELSIF v_field = 'field_sow' THEN
+            UPDATE public.proposal_wtc SET field_sow = v_wtc_source.field_sow
+             WHERE proposal_id = v_sister.id AND work_type_id = v_wtc_source.work_type_id;
+          ELSIF v_field = 'materials' THEN
+            UPDATE public.proposal_wtc SET materials = v_wtc_source.materials
+             WHERE proposal_id = v_sister.id AND work_type_id = v_wtc_source.work_type_id;
+          ELSIF v_field = 'sub_areas' THEN
+            UPDATE public.proposal_wtc SET sub_areas = v_wtc_source.sub_areas
+             WHERE proposal_id = v_sister.id AND work_type_id = v_wtc_source.work_type_id;
+          ELSIF v_field LIKE 'travel:%' THEN
+            DECLARE
+              v_tkey text := substring(v_field FROM 8);
+              v_tval jsonb := v_wtc_source.travel -> v_tkey;
+            BEGIN
+              UPDATE public.proposal_wtc
+                 SET travel = jsonb_set(COALESCE(travel, '{}'::jsonb), ARRAY[v_tkey], v_tval, true)
+               WHERE proposal_id = v_sister.id AND work_type_id = v_wtc_source.work_type_id;
+            END;
+          ELSE
+            RAISE EXCEPTION 'UNKNOWN_FIELD: %', v_field;
+          END IF;
+
+          v_synced := v_synced || jsonb_build_object(
+            'sister_id', v_sister.id,
+            'field', v_field,
+            'scope', 'wtc:' || v_wtc_source.work_type_id::text);
+
+          -- Forced over a lock -> clear the flag on that sister-WTC.
+          IF v_locked THEN
+            UPDATE public.proposal_wtc
+               SET locally_edited_fields = array_remove(locally_edited_fields, v_field)
+             WHERE proposal_id = v_sister.id
+               AND work_type_id = v_wtc_source.work_type_id;
+          END IF;
+        END LOOP;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'source_id', p_source_proposal_id,
+    'synced',    v_synced,
+    'skipped',   v_skipped
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.apply_source_edit_to_sisters(text, text[], text[]) FROM public;
+GRANT EXECUTE ON FUNCTION public.apply_source_edit_to_sisters(text, text[], text[]) TO authenticated;
+```
+
+**Sub-points flagged rather than picked:**
+- **`'intro'` flag column.** Recommend `proposals.locally_edited_fields text[]` sibling column. **[DESIGN-OPEN]**.
+- **Audit-table writes on sync.** Skipped for v1 (high-frequency vs. `merge_call_log`'s once-per-event). **[DESIGN-OPEN]** if a sync audit is later required, mirror `proposal_clones` shape.
+- **Duplicate `work_type_id` on one proposal.** Today nothing prevents two `proposal_wtc` rows with the same `work_type_id` on the same proposal. Sync would fan source value into both. **[DESIGN-OPEN]** — needs a uniqueness constraint, or accept current behavior.
+
+### 5. Conflict-prompt UX (plain English)
+
+**When the prompt fires.** Every parent save in WTCCalculator/ProposalDetail that touches one of the source-driven fields, when at least one active sister exists (`EXISTS (SELECT 1 FROM proposals WHERE cloned_from_proposal_id = p.id AND deleted_at IS NULL AND status NOT IN ('Lost','Sold'))`). Trigger: client computes the diff between previous-saved state and new state, calls `preview_sync_to_sisters(parent_id)`, and shows the modal if the response has any sister with a non-empty `conflicts[]`. If all sister responses have empty `conflicts[]`, skip the modal and silently call `apply_source_edit_to_sisters(parent_id, changed_fields)` to push the pending updates.
+
+**What it shows.** A modal titled "Sync to sister proposals." Body has two regions:
+1. Top — "Will be synced automatically" — a flat list of sister × field rows from `pending[]` (read-only, just confirms what's about to happen).
+2. Bottom — "These fields conflict with sister edits" — a grouped list, one card per sister. Each card shows the sister's GC name (via `customer_id`), and for each conflicting field a row with: field label, a small "their version" preview of `sister_value`, a small "your edit" preview of `source_value`, and a per-row toggle ("Keep sister's version" | "Overwrite with my edit").
+
+**Actions.**
+- **Sync** (primary, teal button per CLAUDE.md style rule 2 — teal background, black text): invokes `apply_source_edit_to_sisters(parent_id, changed_fields, force_overwrite)` where `force_overwrite[]` contains `'<sister_id>:<field>'` strings for every toggle the user set to "Overwrite." On return, success toast: "Synced N fields to M sisters. P sister fields kept their local edits." Closes modal.
+- **Don't sync** (secondary, ghost button): skips the apply entirely. Parent change persists; sisters stay diverged on every field. Sisters' `locally_edited_fields[]` is unchanged.
+- **Cancel parent edit** (tertiary, ghost link): reverts the parent save itself. Useful when the rep realizes "wait, I didn't mean to touch the parent's materials list." Implementation: the parent save must be staged-not-yet-committed when the modal opens, so the cancel path is a no-op on DB. **[DESIGN-OPEN]** — whether to ship Cancel in v1 or pure two-button (Sync / Don't sync). Adds save-staging complexity; recommend defer.
+
+**Effect on `locally_edited_fields[]` after each action.**
+
+| User action | sister field NOT in `locally_edited_fields[]` | sister field IS in `locally_edited_fields[]` and user picked "Keep sister's" | sister field IS in `locally_edited_fields[]` and user picked "Overwrite" |
+|---|---|---|---|
+| Sync | Field overwritten with source value. `locally_edited_fields[]` unchanged (still empty for this field). | Field NOT overwritten. `locally_edited_fields[]` unchanged (still contains the flag — sister stays diverged). | Field overwritten with source value. **Flag removed from `locally_edited_fields[]`** (sister is now back in sync, future source edits on this field will sync quietly). |
+| Don't sync | Field NOT overwritten. **Flag NOT added** (the sister never edited it; it's just temporarily diverged because the user declined the sync). Next time the rep edits this field on the parent, the same pending-list will reappear. | Field NOT overwritten. Flag unchanged. | Same as "Keep sister's" — Overwrite toggle is ignored when the user dismisses the modal. |
+
+The "Don't sync, never-edited field" cell is the trickiest behavior. The honest alternative: "Don't sync" could add the flag for all currently-pending-and-not-yet-locked fields, treating the rep's dismissal as "yes, sister is supposed to diverge here." Reasonable both ways; **[DESIGN-OPEN]** — recommend the not-adding behavior (less surprising — the rep can always edit the sister directly to lock it).
+
+**`locally_edited_fields[]` population on sister-side edits** (separate from the conflict modal). Already locked in §5 stub as DB trigger: a `BEFORE UPDATE` trigger on `proposal_wtc` that, when the proposal has `cloned_from_proposal_id IS NOT NULL`, appends to `locally_edited_fields[]` whichever of `{sales_sow, size, unit, discount, discount_reason, field_sow, materials, sub_areas}` is changing in this UPDATE, plus `'travel:<key>'` for any key in `NEW.travel` that differs from `OLD.travel`. Idempotent via `array_append` + dedupe.
+
+### 6. Downstream implications
+
+**§6 award flow.** Adding A+ has no direct effect on `award_proposal`. Indirect: once a winner is picked, sisters flip to 'Lost' and the sync loops in both RPCs already exclude `status IN ('Lost','Sold')`. Reversal (`reverse_award`) also benefits — sisters flipped back from 'Lost' re-enter the sync pool automatically. **No award-flow changes needed.**
+
+**§7 wizard / detail surfaces.** Three surfaces fire the conflict modal:
+1. ProposalDetail toolbar saves that touch `intro` (the intro editor on the proposal-level form). Detection: on save, diff `intro` against pre-edit snapshot; if changed AND parent has active sisters, call preview.
+2. WTCCalculator save that touches any source-driven WTC field. Detection: in `handleSave` (`WTCCalculator.jsx:1729`), wrap the existing DB write so that after the parent's `proposal_wtc` update succeeds, if the parent has active sisters AND any of the source-driven fields changed since pre-edit snapshot, call preview. The "since pre-edit snapshot" requires `WTCCalculator` to capture the previous values when loading the row — a small refactor (it already loads them; just hold onto them rather than dropping).
+3. Bulk operations that update source-driven fields (today only "Load default SOW" at `WTCCalculator.jsx:1690`). Treat identically.
+
+Wizard itself: doesn't fire the conflict modal — at clone time `locally_edited_fields[]` is empty on every sister, so there's nothing to conflict with.
+
+**§8 edge cases this granularity creates.**
+
+a. **Source-deleted-row vs sister-edited-row.** Parent deletes one material from its `materials` jsonb array. Sister had marked `'materials'` as locally edited. `apply_source_edit_to_sisters` is called with `p_changed_fields=['materials']`. The whole sister materials column is locked → preview returns a conflict → modal shows it. If rep overwrites: the deleted-from-parent row vanishes from sister too. If rep keeps sister: sister retains its full list including any sister-added rows AND the now-deleted parent row. Column-level granularity means this is intuitive — "I customized this sister's materials, including keeping a row the parent deleted."
+
+b. **Sister-deleted-row vs source-edited-row.** Sister had marked `'materials'` (deleting a row counts as an edit; the trigger fires on any change to the column). Parent edits a different row. Same outcome as (a): one conflict on `'materials'` column, rep picks at column level. The deleted-on-sister row stays gone if rep keeps sister; comes back if rep overwrites.
+
+c. **Sister-edited then source-undoes the change.** Sister edits `materials[0].qty` from 5 to 10, locking `'materials'`. Parent later sets the same row's qty back to 5. `preview_sync_to_sisters` compares the full `materials` jsonb (parent's vs sister's) — they're still different (sister still has 10). Conflict fires. Rep is shown source.materials[0].qty=5 and sister.materials[0].qty=10 in the preview and can decide. **Quirk:** at column-level granularity, even if the rep wants to "re-sync the qty," they can't ungate just that row — it's the whole materials column or nothing. This is the explicit tradeoff of A. If this becomes a regular workflow complaint, the Option-B path with row-ids is the upgrade.
+
+d. **Travel sub-key undo same scenario.** Better at travel because it's keyed: sister edited `drive_miles` (locked `'travel:drive_miles'`), parent later changes `drive_rate`. No conflict — `'travel:drive_rate'` isn't in sister's `locally_edited_fields[]`. Parent's drive_rate syncs quietly. Sister keeps its drive_miles. Confirms the carve-out earns its complexity.
+
+e. **Auto-sync removing a previously-locked field via overwrite.** When the rep overwrites a locked field, the flag is removed (§5 table above). Next time the parent edits that same field, the sister will silently sync. If the rep wanted "permanent override," they need to remember to re-edit the sister after the conflict resolution. Acceptable; document in §7 UX copy.
+
+f. **Sister WTC missing because of work_type_id divergence.** Clone copies all WTCs 1:1, but a rep could later delete a WTC from a sister. `apply_source_edit_to_sisters` joins by `work_type_id` — if the sister's WTC is gone, it now returns `reason='missing_on_sister'` in `skipped[]` (improved from the original "silently no-op"). UI can surface this as a third bucket in the conflict modal so the rep knows.
+
+### Critical files this resolution adds/changes
+
+- `supabase/migrations/20260512120000_multi_gc_allocation.sql` — both sync RPC bodies + `BEFORE UPDATE` trigger on `proposal_wtc` for `locally_edited_fields[]` auto-population + optional `proposals.locally_edited_fields text[]` sibling column for `intro` (if DESIGN-OPEN resolves yes).
+- `src/pages/WTCCalculator.jsx` (lines 1729-1782 `handleSave` — capture pre-edit snapshot + invoke preview/apply on parent save when sisters exist).
+- `src/components/ProposalDetail.jsx` (intro editor save path — same preview/apply pattern).
+- `src/components/SyncConflictModal.jsx` (new — renders preview output, collects per-row overwrite toggles, invokes apply with `force_overwrite[]`).
 
 ---
 

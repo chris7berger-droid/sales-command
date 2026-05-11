@@ -1,0 +1,220 @@
+SC Handoff v98 — 2026-05-06
+============================
+
+SESSION SUMMARY
+A planning-only session in a separate terminal from v97's polish work.
+No code committed, no migrations applied, no PRs opened. Output is
+design artifacts + a spawned Plan subagent that owns the new feature
+going forward.
+
+Feature designed: Multi-GC Proposal Allocation. Sales reps frequently
+get RFPs from multiple General Contractors for the same project and
+today rebuild the proposal N times, with typo drift and no project-
+level pipeline view. The wizard lets them build once, allocate to N
+GCs, and manage them as sister proposals stacked under one call_log.
+
+Five product questions walked one-at-a-time, all locked. A read-only
+schema sweep against the actual repo caught major plan errors (the
+original plan invented column names that don't exist). A Plan
+subagent then reviewed the post-sweep plan and surfaced 4 critical
+issues the human sweep had missed plus 1 real regression vector.
+
+ARTIFACTS PRODUCED (all OUTSIDE ~/sales-command)
+────────────────────────────────────────────────
+~/Desktop/multi_gc_allocation_mockup.html
+  4-screen wizard mockup (Pick GCs → Per-GC details → Pricing →
+  Review) plus origin-trigger and after-state mockups. Brand-aligned
+  (dark/teal, linen crosshatch). Realistic example data
+  (Tahoe Truckee Hospital, IVGID, Q&D, Reyman, Plenium).
+
+~/Desktop/multi_gc_allocation_plan.md
+  Working plan doc, post-schema-sweep. §1 problem statement,
+  §2 locked decisions (7 locks), §3 schema additions, §4 RPC
+  (clone_proposal_to_gcs, mirrors merge_call_log precedent line-
+  for-line), §5 sync logic, §6 award flow, §7 UI surfaces, §8 edge
+  cases (~10), §9 test plan, §10 implementation order, §11
+  resolved verifications + 4 newly raised items, §12 explicit
+  out-of-scope. Held on Desktop until critical issues are resolved
+  and it's safe to move into ~/sales-command/docs/plans/.
+
+Plan subagent (spawned 2026-05-06)
+  Description handle: "Multi-GC proposal allocation planning owner".
+  Read-only — no Edit/Write/NotebookEdit. Owns the design work
+  going forward. Re-engage via SendMessage in any future session;
+  the agent retains the comprehensive brief context.
+
+DECISIONS LOCKED (don't reopen unless evidence forces)
+──────────────────────────────────────────────────────
+Q1   One call_log per project. Use existing call_log.job_name
+     for project title (no new column). Sisters stacked under
+     it. On Mark Awarded → winner Sold, sisters auto-flip to Lost
+     with lost_reason + timestamp. Reversible. Never hard-deleted.
+
+Q2   Source-driven sync for content (proposals.intro, proposal_wtc
+     sales_sow + jsonb columns: field_sow / materials / sub_areas
+     / travel; size; unit; discount; discount_reason). Per-GC for
+     commerce (customer, contact, RFP#, due, markup). Sister
+     overrides supported via proposal_wtc.locally_edited_fields[];
+     conflict prompt on source-edit hitting overridden field.
+
+Q3   Resolved by Q1 (sister auto-Lost on award).
+
+Q4   Both entry surfaces — ProposalDetail "+ Send to Additional
+     GCs" and CallLogDetail "+ Add Another GC". Single wizard.
+
+Q5   Forward-only. No retro-link UI. Manual SQL for rare in-flight
+     cases.
+
+Sweep-1  Add nullable proposals.customer_id FK → customers.
+         NULL falls back to call_log.customer_id (preserves
+         existing data semantics). Client switches
+         p.call_log?.customer_id → p.customer_id ?? p.call_log?
+         .customer_id everywhere it reads.
+
+Sweep-2  Add nullable proposals.markup_override_pct numeric.
+         Per-proposal multiplier on top of per-WTC markup_pct.
+         Powers Screen 3 of wizard cleanly.
+
+SCHEMA SWEEP FINDINGS — INVENTED VS REAL
+─────────────────────────────────────────
+Original draft assumed columns that DO NOT exist:
+  proposals.scope_narrative, proposals.exclusions, proposals.terms,
+  proposals.markup_pct, proposals.rfp_number, proposals.bid_due_date,
+  proposals.lost_reason, proposals.lost_at, proposals.customer_id,
+  proposal_wtc.description, proposal_wtc.scope_text
+
+Real content surface used by sync:
+  proposals.intro (text)
+  proposal_wtc.sales_sow (text), field_sow (jsonb), materials
+  (jsonb), sub_areas (jsonb), travel (jsonb), size, unit,
+  discount, discount_reason
+  WTC name comes via FK: proposal_wtc.work_type_id → work_types.name
+
+Confirmed zero source coupling on:
+  send-proposal edge fn (takes client-provided params)
+  PDF naming (signed-proposal-${proposal.id}-${ts}.pdf)
+  get_public_proposal_view RPC (keyed on proposal_id) — but needs
+  one-line update to use COALESCE(p.customer_id, cl.customer_id)
+  after Sweep-1 ships, otherwise sister signing pages render the
+  anchor GC's name.
+
+CRITICAL ISSUES OPEN (Plan agent's first delivery, 2026-05-06)
+──────────────────────────────────────────────────────────────
+C1   mark_proposal_signed RPC (in 20260502120000_signing_flow_
+     security_definer.sql:107-116) auto-flips call_log.stage =
+     'Sold' system-wide on the FIRST sister to sign. With Q1's
+     shared call_log, the first signer becomes de facto winner
+     before "Mark Awarded" is even invoked. ProposalDetail.jsx:
+     601-614 does the same client-side, then triggers qb-create-
+     job. Plan §6 must either replace this pathway when sisters
+     exist OR explicitly accept "first signer = winner."
+
+C2   Clone RPC violates H6 invariant: sisters get locked = false
+     but inherit locked_line_total. Per
+     20260505190200_proposal_wtc_locked_line_total.sql:32-43,
+     locked_line_total is NULL for unlocked WTCs. Fix in migration
+     draft: locked_line_total => NULL. Sisters must lock + send
+     themselves (mirrors today's flow).
+
+C3   proposals.status enum-vs-text-column unverified. Plan §6
+     introduces literal 'Lost'. If status is text with no CHECK,
+     fine. If enum, ALTER TYPE ... ADD VALUE 'Lost' required.
+     Same for call_log.stage if enum.
+
+C4   proposals.id is TEXT, not uuid (per CLAUDE.md:94 — invoices.
+     proposal_id text FK proposals). Plan §4 RPC declares
+     p_source_proposal_id uuid AND cloned_from_proposal_id uuid.
+     Both wrong. Audit table FK to proposals also needs text.
+
+S1   Customers.jsx:257-258, 519 filters customer-detail jobs/
+     proposals by call_log.customer_id directly via PostgREST.
+     After Sweep-1, sister proposals where proposals.customer_id
+     = X but call_log.customer_id = Y will be INVISIBLE on
+     customer X's page. Real regression vector. Fallback pattern
+     alone won't fix this — likely needs a denormalized column,
+     view, or RPC.
+
+Six should-fix items + seven track-but-don't-block items in the
+Plan agent's full delivery (relayed in this session — see plan doc
+§11 once updated). Plan agent verified six items as already
+correct: call_log.job_name as project title, content surface
+column list, is_admin_or_manager + get_user_tenant_id helpers,
+no source coupling on send-proposal/PDF, audit table pattern,
+forward-only retro-link decision.
+
+PLAN AGENT — RE-ENGAGE PATTERN
+──────────────────────────────
+SendMessage with to: "Multi-GC proposal allocation planning owner"
+Each call: focused question, focused proposal back. Examples:
+
+  "Resolve C1: when call_log already has multiple proposals and
+   one signs, what should mark_proposal_signed do? Specific
+   approach as a code change to the RPC, plus how it interacts
+   with our Mark-Awarded flow."
+
+  "Draft full body for preview_sync_to_sisters and
+   apply_source_edit_to_sisters RPCs, including jsonb handling for
+   field_sow / materials / sub_areas / travel."
+
+  "Customers.jsx S1 — pick between (a) denormalized
+   primary_customer_id on call_log, (b) RPC
+   customer_jobs(p_customer_id), (c) keep PostgREST and add an
+   OR filter. Specific recommendation with tradeoffs."
+
+DO NOT spawn a new Plan agent for this feature — that loses
+context.
+
+WHAT'S NOT DONE (deliberate scope gates)
+────────────────────────────────────────
+[ ] C1–C4 + S1 resolutions (agent's next delivery)
+[ ] Plan doc moved into ~/sales-command/docs/plans/multi_gc_
+    allocation.md (waiting for critical issues to clear so the
+    in-repo doc is correct out of the gate)
+[ ] BACKLOG.md row added pointing at the plan doc
+[ ] Migration drafted at supabase/migrations/20260508120000_
+    multi_gc_allocation.sql (waiting on C1–C4 resolutions +
+    proposals.id type verification)
+[ ] Client audit run (grep p.call_log?.customer_id sites,
+    convert to fallback pattern). Plan agent already found
+    Customers.jsx + 4 other files the manual sweep missed.
+[ ] feat/multi-gc-allocation branch created
+[ ] Wizard component scaffolded
+[ ] Vercel preview deploy
+[ ] Smoke tests
+
+NEXT SESSION OPENERS (in order)
+───────────────────────────────
+1. SendMessage the Plan agent with the C1–C4 + S1 resolution
+   request. (Task #10 already on the list.)
+2. Apply agent's resolutions to ~/Desktop/multi_gc_allocation_
+   plan.md.
+3. Verify proposals.id type via psql or schema dump. Update
+   plan §3/§4 to match.
+4. Move plan doc into ~/sales-command/docs/plans/. Add BACKLOG
+   row.
+5. Draft migration (supabase/migrations/20260508120000_multi_
+   gc_allocation.sql). Send to agent for review BEFORE applying.
+6. Branch feat/multi-gc-allocation. Wizard scaffold. Preview
+   deploy. Smoke. Then merge to main when greenlit.
+
+MEMORY UPDATES (this session)
+─────────────────────────────
+Added: ~/.claude/projects/-Users-chrisberger/memory/
+       project_multi_gc_planning_agent.md
+       (indexed in MEMORY.md)
+
+Updated: project_sales_command.md
+       (latest = v97 → references v98 by inference once this
+       handoff is committed)
+
+PARALLEL-SESSION NOTE
+─────────────────────
+This session ran in a separate terminal from the v97 session.
+v97's working tree was cleared mid-session by Chris before this
+session touched ~/sales-command. No write conflicts. The fix/
+job-detail-rollup branch with the +60 line CallLogDetail.jsx
+modification noted earlier in the session was reconciled into
+v97 and merged via PR #12.
+
+END
+───

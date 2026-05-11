@@ -13,14 +13,14 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
   const [sendDone, setSendDone] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState(null);
-  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
+  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url, proposal_validity_days: DEFAULTS.proposal_validity_days });
   const [repContact, setRepContact] = useState({ phone: "", email: "" });
   const [contacts, setContacts] = useState([]);
   const [signerEmail, setSignerEmail] = useState("");
   const [viewerEmails, setViewerEmails] = useState([]);
 
   useEffect(() => {
-    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url, proposalEmailIntro: cfg.default_proposal_email_intro || "" }));
+    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url, proposalEmailIntro: cfg.default_proposal_email_intro || "", proposal_validity_days: cfg.proposal_validity_days || 90 }));
     const salesName = proposal.call_log?.sales_name;
     if (salesName) {
       supabase.from("team_members").select("phone, email").eq("name", salesName).maybeSingle().then(({ data }) => {
@@ -67,6 +67,34 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
         const { data: rep } = await supabase.from("team_members").select("email").eq("name", salesName).maybeSingle();
         repEmail = rep?.email || "";
       }
+
+      // H5: refresh signing_token_expires_at BEFORE Resend fires so the
+      // link the customer is about to receive can't be DOA. Also flips
+      // status='Sent' and records sent_at/sent_to_email here (was at
+      // the tail of this function pre-H5). Status-guarded with
+      // status <> 'Sold' as defense-in-depth on top of the UI gate
+      // that hides the Send button on Sold proposals.
+      const now = new Date().toISOString();
+      const validityDays = COMPANY.proposal_validity_days || 90;
+      const expiresAt = new Date(Date.now() + validityDays * 86400000).toISOString();
+      const { data: upd, error: updErr } = await supabase
+        .from("proposals")
+        .update({
+          status: "Sent",
+          sent_at: now,
+          sent_to_email: signerEmail,
+          signing_token_expires_at: expiresAt,
+        })
+        .eq("id", proposal.id)
+        .neq("status", "Sold")
+        .select("id");
+      if (updErr) throw new Error(updErr.message || "Could not update proposal status.");
+      if (!upd?.length) {
+        setSendError("This proposal has been signed and cannot be re-sent.");
+        setSending(false);
+        return;
+      }
+
       // Send to signer
       const signerContact = contacts.find(c => c.email === signerEmail);
       const { data: fnData, error: fnError } = await supabase.functions.invoke("send-proposal", {
@@ -107,8 +135,8 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
         });
       }
 
-      // Save recipients to proposal_recipients
-      const now = new Date().toISOString();
+      // Save recipients to proposal_recipients (proposals UPDATE
+      // already ran pre-Resend above, so no second update at the tail.)
       const recipients = [
         { proposal_id: proposal.id, contact_name: signerContact?.name || "", contact_email: signerEmail, role: "signer", sent_at: now },
         ...viewerEmails.map(vEmail => {
@@ -122,7 +150,6 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
       if (proposal.call_log_id) {
         await supabase.from("call_log").update({ stage: "Has Bid" }).eq("id", proposal.call_log_id);
       }
-      await supabase.from("proposals").update({ status: "Sent", sent_at: now, sent_to_email: signerEmail }).eq("id", proposal.id);
     } catch (e) {
       setSendError(e.message || "Send failed. Please try again.");
     }

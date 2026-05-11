@@ -324,45 +324,75 @@ export default function PublicSigningPage() {
         pdfUrl = urlData?.publicUrl || null;
       }
 
-      // Save signature record
-      await supabase.from("proposal_signatures").insert({
-        proposal_id: proposal.id,
-        signer_name: name.trim(),
-        signer_email: null,
-        ip_address: ip,
-        pdf_url: pdfUrl,
-        signed_at: new Date().toISOString(),
-      });
-
-      // Update status + notify rep via edge function (uses service role key to bypass RLS)
+      // H5: signature insert moves into the SECURITY DEFINER RPC
+      // (mark_proposal_signed 5-arg) so the row insert, status flip,
+      // consumed_at flag, and call_log update happen atomically in one
+      // txn. The page no longer writes proposal_signatures directly.
       const salesName = proposal.call_log?.sales_name || "";
       let repEmail = "";
       if (salesName) {
         const { data: reps } = await supabase.rpc("get_rep_contact", { rep_name: salesName });
         repEmail = reps?.[0]?.email || "";
       }
-      const { data: fnData, error: fnError } = await supabase.functions.invoke("proposal-signed", {
+      const { error: fnError } = await supabase.functions.invoke("proposal-signed", {
         body: {
           repEmail,
           repName: salesName,
           customerName: proposal.call_log?.customer_name || "Customer",
           signerName: name.trim(),
+          signerEmail: null,
+          pdfUrl,
           proposalNumber: proposal.proposal_number || proposal.id,
           jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
           signing_token: token,
         },
       });
+      // ALREADY_SIGNED (HTTP 409) from the edge function indicates a
+      // race — the proposal was signed in another tab / by a
+      // double-click. The existing signature is authoritative; render
+      // Accepted silently and skip QB sync (winning tab handled it).
+      //
+      // supabase-js v2 surfaces non-2xx responses as fnError with the
+      // raw Response on fnError.context — same pattern as
+      // src/components/QBLinkModal.jsx for parsing edge fn error bodies.
+      let alreadySigned = false;
+      let fallbackNeeded = false;
       if (fnError) {
-        // Fallback path when the edge function call fails: invoke the
-        // same SECURITY DEFINER RPC the function would have called.
-        // The RPC reads call_log_id from proposals (not from anything
-        // the client supplies), so this path can't be steered to flip
-        // an unrelated call_log row's stage (audit C1, C10).
-        await supabase.rpc("mark_proposal_signed", { p_token: token });
+        const errBody = await fnError.context?.json?.().catch(() => null);
+        if (errBody?.error === "ALREADY_SIGNED") {
+          alreadySigned = true;
+        } else {
+          fallbackNeeded = true;
+        }
       }
-      // QB job sync (non-blocking, skip test jobs)
+      let qbBlocked = alreadySigned;
+      if (fallbackNeeded) {
+        // Fallback when the edge fn round-trip itself fails (network,
+        // 5xx, etc — NOT ALREADY_SIGNED, which we already handled).
+        // Call the same 5-arg RPC directly. IP captured here is
+        // degraded (client-side ipify) since PostgREST doesn't surface
+        // the real x-forwarded-for to the RPC's request-headers
+        // context the way the edge function does.
+        const { error: rpcErr } = await supabase.rpc("mark_proposal_signed", {
+          p_token:        token,
+          p_signer_name:  name.trim(),
+          p_signer_email: null,
+          p_ip_address:   ip,
+          p_pdf_url:      pdfUrl,
+        });
+        if (rpcErr) {
+          if ((rpcErr.message || "").includes("ALREADY_SIGNED")) {
+            qbBlocked = true;
+          } else {
+            throw rpcErr;
+          }
+        }
+      }
+      // QB job sync (non-blocking, skip test jobs). Don't re-trigger on
+      // a race-collapsed ALREADY_SIGNED — qb-create-job would have
+      // already fired (or be about to fire) from the winning tab.
       const isTest = (proposal.customer || "").toLowerCase().includes("test");
-      if (proposal.call_log_id && !isTest) {
+      if (!qbBlocked && proposal.call_log_id && !isTest) {
         supabase.functions.invoke("qb-create-job", { body: { callLogId: proposal.call_log_id, proposalId: proposal.id } }).catch(() => {});
       }
 

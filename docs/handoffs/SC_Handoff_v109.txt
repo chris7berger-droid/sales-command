@@ -1,0 +1,206 @@
+SC Handoff v109 — 2026-05-11
+============================
+
+SESSION SUMMARY
+Build-terminal session, two unrelated fix PRs opened against main,
+neither merged or deployed. Started with /build orient on the
+feat/multi-gc-allocation branch. Chris paused Multi-GC work and
+raised a UX bug — clicking the "X" on the "QB sync disabled for this
+job" banner did nothing to clear the skip state. Diagnosed as B12 #2:
+that "X" is on the transient qbToast (auto-dismiss in 5s), not on a
+persistent skip pill, and no UI affordance existed to clear
+qb_skip_sync. Built the persistent skip pill + Resume QB Sync button
+on a new branch off main; PR #21 opened. Mid-session Chris flagged a
+second issue: an archive job (Dennis Banks Construction, QB ID
+11736) was created in QuickBooks with a doubled DisplayName. Traced
+to source data — call_log.job_name itself was doubled at QB-push
+time (likely Glide archive quirk); qb-create-job's subName builder
+just passed it through. Chris said he'd clean existing data himself
+and only wanted prevention. Built dedupRepeated() helper in
+qb-create-job on a second new branch off main; PR #22 opened. Both
+PRs are unrelated to Multi-GC, both off main. The Multi-GC branch
+and its round-1 outline are untouched.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+PR #21 — fix/b12-qb-skip-resume (branched off main, off bb0fc17)
+
+bb0fc17 — Touches B12: persistent QB Skip pill + Resume button on CallLogDetail
+  CallLogDetail.jsx now renders a persistent "QB SYNC SKIPPED ·
+  Resume QB Sync" pill in place of the green "Connect to QuickBooks"
+  CTA when qb_skip_sync=true && !qb_customer_id. Mirrors the existing
+  LINKED · QB ID / Unlink pattern 30 lines above in the same QuickBooks
+  section. Resume writes qb_skip_sync=false to call_log, updates local
+  form state, fires the existing qbToast in "linked" kind for green
+  confirmation, and triggers onJobRefresh/onSaved. Adds one new state
+  hook (resuming). BACKLOG.md updated in the same commit: B12 row
+  re-scoped to "Skip icon visual weight (#1 remaining)" since #2
+  (missing undo path) is now shipped. Marked as Touches B12 (not
+  Closes) because the modal-icon visual weight issue is still open.
+
+PR #22 — fix/qb-dedupe-job-name (branched off main, off 39a8be1)
+
+39a8be1 — fix(qb): dedupe "X - X" job_name pattern before pushing to QB DisplayName
+  supabase/functions/qb-create-job/index.ts gets a new dedupRepeated()
+  helper near the top of the file. Splits on " - "; if segment count
+  is even and the first half equals the second half (case-insensitive),
+  returns one copy — otherwise pass-through. Applied at the moment
+  job.job_name is read into the local jobName variable, so the
+  existing showJobName logic + subName builder both see the cleaned
+  value. No DB changes, no new dependencies. Catches "X - X" and
+  "A - B - A - B" patterns; ignores partial overlaps and odd segment
+  counts on purpose. Closes nothing in BACKLOG — this is a preventive
+  fix for a finding raised mid-session, not a previously-filed item.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+- Resume-shape question: picked option A (persistent pill + Resume
+  button) over option B (Resume option inside QBActionModal) and option
+  C (both). Reason: A mirrors the existing LINKED/Unlink pattern in
+  the same QuickBooks section, gives a glanceable skip state, and
+  resolves the X-on-toast confusion by separating concerns — the
+  toast keeps its transient-confirmation role, the pill is the
+  persistent source of truth. B was cheaper LOC-wise but worse
+  discoverability since the only entry to the modal once skipped is
+  the green Connect CTA, which doesn't read as "undo my skip." C was
+  redundant.
+- B12 marked Touches, not Closes. Issue #1 (Skip icon visual weight
+  in QBActionModal — faint gray background reads as disabled) is a
+  separate concern from #2 (no undo path). Stay-scoped — Chris asked
+  specifically for the reverse path. ~15 min follow-up left as a
+  re-scoped B12 row.
+- QB DisplayName doubling — declined to back-correct existing QB
+  customers. Chris explicitly said "I don't need these fixed, I can
+  do that, I just need it to not happen in the future." Preventive
+  guard only.
+- QB dedupe applied at qb-create-job, NOT at ImportToLiveWizard.jsx.
+  qb-create-job is the last gate before QB writes, so it catches all
+  sources: archive imports, manual edits in Sales Command, future
+  data-entry paths. ImportToLiveWizard would be a parallel
+  second-line defense — offered as a follow-up PR if Chris wants it,
+  not bundled here.
+- Two separate PRs (#21 and #22) instead of one bundled PR. Reason:
+  unrelated surfaces (CallLogDetail.jsx frontend vs. qb-create-job
+  edge function), different review attention required, different
+  deploy mechanics (Vercel auto vs. manual supabase functions deploy).
+  Chris explicitly asked for separate.
+- No new backlog rows filed this session. B12 row was edited
+  in-place (re-scoped to #1 only) on PR #21. The dedupe fix is a
+  closed-loop preventive fix — no follow-up tracked.
+
+NEW BACKLOG ITEMS
+─────────────────
+None filed by this session. B12 re-scoped (not newly filed).
+
+CLOSED THIS SESSION
+───────────────────
+None merged yet. PR #21 closes B12 #2 (Touches B12, leaves #1 open)
+once merged. PR #22 closes nothing — preventive.
+
+VERIFICATION
+────────────
+- PR #21: code review only, no live verification. Reviewed the diff
+  against the existing LINKED/Unlink pattern at CallLogDetail.jsx:511-537
+  and confirmed identical state-management + DB-write + onJobRefresh
+  shape. 5-step manual test plan provided to Chris covering: pill
+  appears after Skip, pill survives hard reload (proves DB drives
+  render), Resume clears the flag + green CTA returns, Connect on a
+  Resumed job hits Create without the red "Skipped" dead-end, and
+  untouched jobs (LINKED or no-QB) still render correctly. Awaiting
+  Vercel preview deploy on PR #21 before Chris runs the test plan.
+- PR #22: code review only, no live verification. Edge function
+  change — Vercel preview will not exercise this code path because
+  the preview app still calls the production edge function. Real
+  verification requires a manual `supabase functions deploy
+  qb-create-job --no-verify-jwt` after merge, then a synthetic test
+  (temporarily set a job's job_name to "foo - foo", push to QB,
+  confirm DisplayName lands as "{jobnum} - foo" not "{jobnum} - foo
+  - foo"). Not yet executed.
+- /build slash command: ran at session start (orient + report
+  delivered, 5-line shape per .claude/commands/build.md). Worked
+  end-to-end. Confirms v108's "scaffolded, NOT runtime-tested"
+  caveat is now resolved for /build.
+- /audit slash command: still NOT runtime-tested. No audit-terminal
+  session this round.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+- All other T2 backlog: O3, H11, B11, S2, B13, F7. No code touched.
+- B12 #1 (Skip icon visual weight in QBActionModal) — left as
+  ~15 min follow-up, re-scoped in the B12 row on PR #21.
+- Multi-GC feature code (feat/multi-gc-allocation branch, 1 commit
+  ahead of origin/main with the Plan agent's round-1 outline at
+  docs/plans/multi_gc_allocation.md) — paused by Chris during the
+  session, not touched.
+- O3 timer (H5 Migration B) — still on the ≥48h gate from
+  2026-05-11 02:09 UTC. Earliest start 2026-05-13 02:10 UTC.
+- ImportToLiveWizard.jsx — second-line defense for the dedupe fix,
+  deliberately deferred.
+- supabase/.temp/* — gitignored carryforward, untouched.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Check PR #21 Vercel preview status. If green, walk Chris through
+   the 5-step test plan (the test plan lives in the PR body). If all
+   5 pass, merge to main — Vercel auto-deploys to prod. After merge,
+   only B12 #1 (Skip icon visual weight) remains as a ~15 min
+   cosmetic follow-up.
+2. PR #22 — code review (no preview-verifiable surface). On merge:
+   `supabase functions deploy qb-create-job --no-verify-jwt`
+   (per memory feedback_edge_functions). Then synthetic test:
+   temporarily set a job's job_name to "foo - foo" in Supabase,
+   push to QB via Create in QuickBooks, confirm DisplayName lands
+   as "{jobnum} - foo" not "{jobnum} - foo - foo", then restore the
+   real job_name. Without this synthetic test, the fix is
+   code-review only.
+3. Multi-GC reconstruction can resume on feat/multi-gc-allocation
+   once #21 and #22 are landed. That branch is 1 commit ahead of
+   origin/main with the Plan agent's round-1 outline
+   (docs/plans/multi_gc_allocation.md). Briefing context per v108
+   pointer #2 (v98 + memory + locked decisions).
+4. O3 — still gated, earliest 2026-05-13 02:10 UTC. Before applying
+   Migration B query pg_stat_statements for any 1-arg
+   mark_proposal_signed traffic; require zero.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+src/components/CallLogDetail.jsx
+  — Resume QB Sync pill added on PR #21 (not yet merged). New state
+    hook `resuming` at line ~108; new conditional branch in the
+    QuickBooks section around line ~538.
+supabase/functions/qb-create-job/index.ts
+  — dedupRepeated() helper added near top on PR #22 (not yet merged);
+    applied where job.job_name is read (line ~225). Requires manual
+    deploy with --no-verify-jwt after merge to be live.
+docs/BACKLOG.md
+  — B12 row re-scoped on PR #21 (not yet merged to main). Currently
+    main has the pre-session BACKLOG.md.
+docs/plans/multi_gc_allocation.md
+  — Multi-GC round-1 outline on feat/multi-gc-allocation, untouched
+    this session. Briefing target for next Multi-GC build pass.
+.claude/commands/build.md
+  — Scaffolded by v108, exercised end-to-end this session. /build
+    orient pattern verified.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: main, clean.
+- Latest on origin/main pre-this-handoff: 970441e
+  "docs: session handoff v108".
+- Open PRs:
+    #21 — fix/b12-qb-skip-resume → main (B12 #2 fix, frontend only)
+    #22 — fix/qb-dedupe-job-name → main (qb-create-job dedupe, edge fn)
+- Other local branches: feat/multi-gc-allocation (1 commit ahead of
+  origin/main, untouched), fix/b12-qb-skip-resume, fix/qb-dedupe-job-name.
+- No scratch projects. No /tmp artifacts. No edge fn deploys. No
+  migrations.
+- Memory: no updates this session.
+
+END STATE
+─────────
+Two unrelated fix PRs open against main (#21 frontend, #22 edge fn),
+both code-review only — no Vercel preview verification on #21 yet,
+no live verification on #22 since edge fn won't deploy on merge.
+Multi-GC branch and round-1 outline untouched, ready for
+reconstruction next session. Ready for fresh session after #21 and
+#22 land.

@@ -78,7 +78,7 @@ Stores the list of source-driven field names this WTC has locally overridden (e.
 ```sql
 CREATE TABLE IF NOT EXISTS public.proposal_clones (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  parent_proposal_id text NOT NULL REFERENCES public.proposals(id) ON DELETE SET NULL,
+  parent_proposal_id text REFERENCES public.proposals(id) ON DELETE SET NULL,
   sister_proposal_id text NOT NULL REFERENCES public.proposals(id) ON DELETE CASCADE,
   call_log_id     integer NOT NULL REFERENCES public.call_log(id) ON DELETE CASCADE,
   wtc_count       integer NOT NULL,
@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS public.proposal_clones (
 );
 ```
 **[DERIVED]** Mirrors `call_log_merges` audit-row precedent. Full RLS block (SELECT scoped on tenant; INSERT scoped on tenant + `is_admin_or_manager()` — or just tenant, depending on whether wizard can be invoked by sales reps — **[DESIGN-OPEN]**).
+
+**Ratified 2026-05-12:** admin/manager-only for INSERT/UPDATE/DELETE; will relax if F15 sales-rep clone access is enabled. Also: `parent_proposal_id` is nullable (no `NOT NULL`) — the original `NOT NULL REFERENCES … ON DELETE SET NULL` shape was self-contradicting (parent hard-delete would abort the cascade with a NOT NULL violation). Sister-side `sister_proposal_id` stays `NOT NULL` with `ON DELETE CASCADE` since the audit row is meaningless without its sister.
 
 **Open schema question — [DESIGN-OPEN]**
 - Do sisters need their own `proposal_number` series, or do they share the parent's number and disambiguate by GC name only? Today `proposal_number` is unique per call_log (no DB constraint, but UI assumes it). The clone RPC has to assign new numbers; suggest `parent_number, parent_number+1, parent_number+2…` continuing from current max on the call_log. Ask Chris.

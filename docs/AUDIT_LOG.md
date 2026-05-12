@@ -12,6 +12,7 @@ Append one row per artifact reviewed by the audit terminal. Build terminal commi
 | 2026-05-11 | Jobs IA + Send-to-Schedule wizard planning doc (rev 3) | 2 | 2 Lo | changed | doc-consistency |
 | 2026-05-11 | Jobs IA + Send-to-Schedule wizard planning doc (rev 4, final) | 0 | clean | shipped as-is | clean |
 | 2026-05-12 | +Add CO wizard + CO archive-parent WTC hint (cherry-picked 26de654..8128108 onto main) | 4 | 1 High (TDZ runtime), 2 Med (non-PW gap, jobsite/burden inheritance gaps), 1 Low (PW=true unrelated mystery) | changed | accepted-pending-changes |
+| 2026-05-12 | feat/multi-gc-1a (84edc1b + ba747d3) — Multi-GC Migration 1a schema + WTCCalculator UX guard | 2 | 1 Med, 1 Low | accepted-pending-changes | doc-consistency |
 
 ## 2026-05-12 — +Add CO wizard + archive-parent WTC hint notes
 

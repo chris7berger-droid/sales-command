@@ -62,7 +62,7 @@ ALTER TABLE public.proposal_wtc
 
 CREATE TABLE IF NOT EXISTS public.proposal_clones (
   id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  parent_proposal_id text NOT NULL REFERENCES public.proposals(id) ON DELETE SET NULL,
+  parent_proposal_id text REFERENCES public.proposals(id) ON DELETE SET NULL,
   sister_proposal_id text NOT NULL REFERENCES public.proposals(id) ON DELETE CASCADE,
   call_log_id        integer NOT NULL REFERENCES public.call_log(id) ON DELETE CASCADE,
   wtc_count          integer NOT NULL,

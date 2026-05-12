@@ -43,7 +43,8 @@ function Label({ children }) {
   );
 }
 
-function Field({ label, value, onChange, type = "text", prefix, suffix, readOnly, highlight, placeholder }) {
+function Field({ label, value, onChange, type = "text", prefix, suffix, readOnly, highlight, placeholder, error, errorMsg }) {
+  const borderColor = readOnly ? "transparent" : (error ? T.red : T.gray200);
   return (
     <div style={{ marginBottom: 14 }}>
       {label && <Label>{label}</Label>}
@@ -56,7 +57,7 @@ function Field({ label, value, onChange, type = "text", prefix, suffix, readOnly
           readOnly={readOnly}
           placeholder={placeholder}
           style={{
-            width: "100%", border: `1.5px solid ${readOnly ? "transparent" : T.gray200}`, borderRadius: 8,
+            width: "100%", border: `1.5px solid ${borderColor}`, borderRadius: 8,
             padding: prefix ? "8px 10px 8px 28px" : "8px 10px", fontSize: 14,
             color: highlight ? T.green : T.gray900, fontWeight: highlight ? 700 : 400,
             background: readOnly ? "rgba(28,24,20,0.08)" : "#bfb3a1", outline: "none",
@@ -64,10 +65,11 @@ function Field({ label, value, onChange, type = "text", prefix, suffix, readOnly
             cursor: readOnly ? "default" : "text", fontFamily: "inherit"
           }}
           onFocus={e => { if (!readOnly) e.target.style.borderColor = T.green; }}
-          onBlur={e => { e.target.style.borderColor = T.gray200; }}
+          onBlur={e => { e.target.style.borderColor = borderColor; }}
         />
         {suffix && <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: T.gray400, fontSize: 12 }}>{suffix}</span>}
       </div>
+      {error && errorMsg && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>{errorMsg}</div>}
     </div>
   );
 }
@@ -300,6 +302,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
   const otVal = pw ? (data.pw_ot_rate || 0) : (data.ot_burden_rate || 0);
   const otOverridden = pw ? data.pw_ot_overridden : data.ot_overridden;
   const otIsAuto = !otOverridden && Math.abs(otVal - rateVal * 1.5) < 0.02;
+  const rateMissing = showArchiveRateHint && rateVal === 0;
 
   const setDate = k => v => onChange({ ...data, [k]: v });
   return (
@@ -320,7 +323,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         {!selectedWorkTypeId && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required</div>}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 20px", alignItems: "end" }}>
-        <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" />
+        <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" error={rateMissing} errorMsg="Required" />
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <Label>{pw ? "PW OT Rate" : "OT Burden Rate"}</Label>
@@ -350,7 +353,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         </div>
         <Field label="Tax Rate" value={data.tax_rate} onChange={set("tax_rate")} suffix="%" type="number" />
       </div>
-      {showArchiveRateHint && (
+      {rateMissing && (
         <div style={{ fontSize: 11.5, color: T.gray700, fontStyle: "italic", marginTop: -8, marginBottom: 12 }}>
           Parent is an archive proposal — burden rate wasn't captured. Enter manually.
         </div>
@@ -1680,7 +1683,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   // sibling (PW is uniform on a proposal); burden_rate is pulled per-work-type
   // in handleWorkTypeChange below.
   useEffect(() => {
-    if (!proposalId || wtcId) return;
+    if (!proposalId) return;
     async function loadParentWtcs() {
       const { data: prop } = await supabase
         .from("proposals")
@@ -1700,19 +1703,18 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
         .limit(1);
       const parentProposalId = parentProps?.[0]?.id;
       if (!parentProposalId) { setParentProposalWtcs([]); return; }
-      setParentIsArchive(!!parentProps[0].is_archive_proposal);
+      const isArchive = !!parentProps[0].is_archive_proposal;
+      setParentIsArchive(isArchive);
       const { data: pwtcs } = await supabase
         .from("proposal_wtc")
         .select("work_type_id, burden_rate, ot_burden_rate, prevailing_wage, pw_rate, pw_ot_rate")
         .eq("proposal_id", parentProposalId);
       const rows = pwtcs || [];
       setParentProposalWtcs(rows);
-      const pwParent = rows.find(r => r.prevailing_wage);
-      if (pwParent) {
-        setBidding(b => {
-          if (b.prevailing_wage) return b;
-          return { ...b, prevailing_wage: true, pw_rate: pwParent.pw_rate || 0, pw_ot_rate: pwParent.pw_ot_rate || 0 };
-        });
+      if (!wtcId && isArchive) {
+        // Archive parents don't capture burden_rate. Zero out the tenant-default
+        // seed so the rate field reads empty + Required, prompting manual entry.
+        setBidding(b => ({ ...b, burden_rate: 0, ot_burden_rate: 0 }));
       }
     }
     loadParentWtcs();
@@ -2032,7 +2034,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
           {(locked || proposalSold) && tab !== "summary" && (
             <div style={{ position: "absolute", inset: 0, borderRadius: 14, zIndex: 10, cursor: "not-allowed" }} onClick={() => {}} />
           )}
-          {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} showArchiveRateHint={parentIsArchive && !wtcId} />}
+          {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} showArchiveRateHint={parentIsArchive} />}
           {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={proposalSold ? undefined : v => { setLabor(v); setSaved(false); }} />}
           {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={proposalSold ? undefined : v => { setMaterials(v); setSaved(false); }} />}
           {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} onSave={handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} />}

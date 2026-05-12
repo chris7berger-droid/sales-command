@@ -1304,6 +1304,18 @@ None of (a)/(b)/(c) crossed the "larger than leftover cleanup" line. Total addit
 
 - **F-class: `proposal_sync_events` audit table** (deferred from §5). Locked spec in this section. Ship when a concrete forensic read site exists.
 
+### Reversal — 2026-05-12
+
+**The §5(c) resolution above is overturned.** During Migration 1a prod-apply, build terminal challenged the "duplicates are a bug" premise. Chris confirmed: multi-WTC-same-`work_type_id` on one proposal is the intentional encoding for sub-area splits, time-phasing, and crew assignment. `proposal_wtc.sub_areas (jsonb)` is an orthogonal within-WTC mechanism, not a replacement. V8 evidence (Hyundai Reno 4× Demo + 4× Specialty pattern across three jobs, mostly status=`Sent`) is sub-area-split data, not import duplication.
+
+**Implications:**
+- UNIQUE `(proposal_id, work_type_id)` is wrong. Migration 1b (O5) closed Won't-Do.
+- UX guard at `WTCCalculator.jsx` (commit `ba747d3`) is wrong. Reverted.
+- §5 sync identity assumption (`join by work_type_id` is 1:1) is invalid. Sync RPCs need a new lineage key. Recommended: add `proposal_wtc.cloned_from_wtc_id uuid REFERENCES proposal_wtc(id) ON DELETE SET NULL` in a future migration (mirrors `proposals.cloned_from_proposal_id` pattern); sister WTC ↔ source WTC matches by lineage.
+- §10 step 6 (RPCs) blocked on §5 sync-identity re-plan, NOT on UNIQUE. Filed as F16.
+
+Audit ratification miss: the 2026-05-11 Round-5 audit pass ratified the §5(c) resolution without challenging the load-bearing domain-fact premise. Audit owns the miss. See `docs/AUDIT_LOG.md` 2026-05-12 §5(c) reversal notes.
+
 ---
 
 ## §6 Award flow
@@ -1933,6 +1945,7 @@ _Audit terminal ratified 2026-05-11. All 13 sub-DESIGN-OPENs surfaced by the §7
 5. **C1 fix** — modify `mark_proposal_signed` (5-arg) + replace ProposalDetail.handleInternalApprove path. Migration B-style two-step to stay compat-safe.
 6. **RPCs** — `clone_proposal_to_gcs`, `award_proposal`, `preview_sync_to_sisters`, `apply_source_edit_to_sisters`, `reverse_award`. Single migration, all SECURITY DEFINER, all check `NO_TENANT`.
    - **2026-05-12 amendment:** Blocked by O5/Migration 1b — UNIQUE `(proposal_id, work_type_id)` constraint must apply before §4 + §5 RPCs ship. Plan line 1214: both §4 clone and §5 sync RPCs join by `work_type_id`; without UNIQUE they are "silently wrong half the time." V8 pre-flight (2026-05-12) returned 17 dup pairs across 14 proposals; UNIQUE deferred to Migration 1b pending B17 (importer root-cause) + B18 (dup triage).
+   - **2026-05-12 (second amendment):** First amendment (blocked-by-O5) is overturned. O5 closed Won't-Do (see §5(c) Reversal). §10 step 6 is now blocked on F16 (§5 sync-identity re-plan via `cloned_from_wtc_id` lineage column), NOT on Migration 1b UNIQUE constraint.
 7. **DB trigger** for `locally_edited_fields` auto-population on proposal_wtc UPDATE.
 8. **Wizard component** — scaffold under feat/multi-gc-allocation. 4 screens. Local state only at first, then wire to RPCs.
 9. **UI surfaces** — sister sidebar in ProposalDetail, GCs panel in CallLogDetail, source-edit conflict modal, entry buttons. **Multi-GC count chip on CallLog.jsx must use a single PostgREST aggregate query (or a denormalized `active_proposal_count` field on call_log), NOT an N+1 fetch per row** — CallLog paginates at 1000 and N+1 would compound. Per Round 5 Ratification #11. Sister differentiator on Proposals.jsx: `↳` indent + `SISTER` chip; consider grouping by `call_log_id` if list ordering scatters sisters from source (per Ratification #12).

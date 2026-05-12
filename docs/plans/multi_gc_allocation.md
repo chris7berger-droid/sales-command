@@ -1930,6 +1930,7 @@ _Audit terminal ratified 2026-05-11. All 13 sub-DESIGN-OPENs surfaced by the §7
 4. **S1 fix** — pick one of (a)/(b)/(c) below, ship before any sister can be created with a divergent customer_id.
 5. **C1 fix** — modify `mark_proposal_signed` (5-arg) + replace ProposalDetail.handleInternalApprove path. Migration B-style two-step to stay compat-safe.
 6. **RPCs** — `clone_proposal_to_gcs`, `award_proposal`, `preview_sync_to_sisters`, `apply_source_edit_to_sisters`, `reverse_award`. Single migration, all SECURITY DEFINER, all check `NO_TENANT`.
+   - **2026-05-12 amendment:** Blocked by O5/Migration 1b — UNIQUE `(proposal_id, work_type_id)` constraint must apply before §4 + §5 RPCs ship. Plan line 1214: both §4 clone and §5 sync RPCs join by `work_type_id`; without UNIQUE they are "silently wrong half the time." V8 pre-flight (2026-05-12) returned 17 dup pairs across 14 proposals; UNIQUE deferred to Migration 1b pending B17 (importer root-cause) + B18 (dup triage).
 7. **DB trigger** for `locally_edited_fields` auto-population on proposal_wtc UPDATE.
 8. **Wizard component** — scaffold under feat/multi-gc-allocation. 4 screens. Local state only at first, then wire to RPCs.
 9. **UI surfaces** — sister sidebar in ProposalDetail, GCs panel in CallLogDetail, source-edit conflict modal, entry buttons. **Multi-GC count chip on CallLog.jsx must use a single PostgREST aggregate query (or a denormalized `active_proposal_count` field on call_log), NOT an N+1 fetch per row** — CallLog paginates at 1000 and N+1 would compound. Per Round 5 Ratification #11. Sister differentiator on Proposals.jsx: `↳` indent + `SISTER` chip; consider grouping by `call_log_id` if list ordering scatters sisters from source (per Ratification #12).
@@ -2027,9 +2028,27 @@ V5 expands the plan's "Customers.jsx + 4 other files" claim. Two classes:
 
 **Step 3 scope expansion:** Sweep-1 must now cover 5 derivation sites (3 client + 2 edge fn) plus the RPC update, AND a separate Class-B treatment for the two Customers.jsx filter sites. The plan's §10 step 3 sentence currently lists "three known sites" — leave the original wording in place (per [Schema Amendment Not Overwrite]); this run-results section is the authoritative inventory going into the migration draft.
 
+### V8 — Pre-flight for UNIQUE `(proposal_id, work_type_id)` on `proposal_wtc`
+
+`SELECT proposal_id, work_type_id, count(*) FROM public.proposal_wtc GROUP BY 1,2 HAVING count(*) > 1` returned **17 dup pairs across 14 proposals (48 rows total)**.
+
+**Pattern — archive-import-driven, not user-entered:**
+- Jobs `10033` / `10034` / `10070` (all titled "Hyundai Reno Demo Concrete Seal") — each has 4× `Demo` + 4× `Specialty` rows.
+- `029fa0a5` (Gaco/Hyatt) — 3× "Waterproofing - On Concrete".
+- `5b3ea87f` (Durastone) — 3× "100% Solids Epoxy".
+- Most affected proposals have `status='Sent'`.
+
+**Action — two-stage split per plan §5(c) line 1229:**
+- Migration 1a (this commit) ships ALL §3 schema additions + `proposal_clones` audit table + `proposals_track_local_edits` intro trigger. **No UNIQUE.**
+- BACKLOG B17 filed — importer root-cause investigation.
+- BACKLOG B18 filed — manual dup triage (blocked by B17).
+- BACKLOG O5 filed — Migration 1b applying the UNIQUE constraint (blocked by B17 + B18).
+- WTCCalculator UX guard shipped in same PR as Migration 1a to stop new dupes accruing during the wait.
+- §10 step 6 (RPCs) amendment line added — blocked by O5.
+
 ### What this run did NOT verify
 - §3 amendment columns (`source_proposal_id`, `locally_edited_fields`, `award_state`, etc.) — no `IF NOT EXISTS` collision check yet; Migration 1 will use `ADD COLUMN IF NOT EXISTS`.
-- `multi_gc_audit` table name collision — `SELECT 1 FROM information_schema.tables WHERE table_name='multi_gc_audit'` not yet run; will check inside Migration 1 with `CREATE TABLE IF NOT EXISTS`.
+- `proposal_clones` table name collision — `SELECT 1 FROM information_schema.tables WHERE table_name='proposal_clones'` not yet run; Migration 1a uses `CREATE TABLE IF NOT EXISTS`.
 - pg_stat_statements traffic on the existing `mark_proposal_signed(text)` 1-arg form (O3 gate, separate timeline 2026-05-13).
 
 ---

@@ -278,7 +278,7 @@ function TaskAutocomplete({ value, onChange, allPriorTasks, placeholder }) {
 }
 // ── Tab components ─────────────────────────────────────────────────────────
 
-function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeChange, isFirstWtc, onPwToggle, showArchiveRateHint }) {
+function BiddingTab({ data, onChange, workTypes, usedWorkTypeIds, selectedWorkTypeId, onWorkTypeChange, isFirstWtc, onPwToggle, showArchiveRateHint }) {
   const set = k => v => onChange({ ...data, [k]: parseFloat(v) || 0 });
   const pw = data.prevailing_wage;
   const setBurden = v => {
@@ -317,7 +317,9 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         >
           <option value="" disabled>Select a work type…</option>
           {workTypes.map(wt => (
-            <option key={wt.id} value={wt.id}>{wt.name}</option>
+            <option key={wt.id} value={wt.id} disabled={usedWorkTypeIds.has(wt.id)}>
+              {wt.name}{usedWorkTypeIds.has(wt.id) ? " (already on this proposal)" : ""}
+            </option>
           ))}
         </select>
         {!selectedWorkTypeId && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required</div>}
@@ -1523,6 +1525,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const [saved,      setSaved]    = useState(!!wtcIdProp);
   const autosaveTimer = useRef(null);
   const [workTypes,  setWorkTypes] = useState([]);
+  const [usedWorkTypeIds, setUsedWorkTypeIds] = useState(new Set());
   const [selectedWorkTypeId, setSelectedWorkTypeId] = useState(workTypeId ?? null);
   const [bidding,  setBidding]  = useState({ burden_rate: DEFAULTS.default_burden_rate, ot_burden_rate: DEFAULTS.default_ot_burden_rate, tax_rate: DEFAULTS.default_tax_rate, prevailing_wage: false, ot_overridden: false, start_date: "", end_date: "" });
   const [labor,    setLabor]    = useState({ regular_hours: 0, ot_hours: 0, markup_pct: 0 });
@@ -1658,7 +1661,11 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     checkSiblings();
   }, [proposalId, wtcId]);
 
-  // ── Load work types for dropdown ─────────────────────────────────────────
+  // ── Load work types for dropdown + sibling-WTC work_type_ids ────────────
+  // Sibling-WTC fetch supports the Multi-GC §5(c) UX guard: disable
+  // work_type options already on this proposal so reps can't create a
+  // duplicate (proposal_id, work_type_id) row. UNIQUE constraint deferred
+  // to Migration 1b (O5); guard is the front-line defense in the interim.
   useEffect(() => {
     async function loadWorkTypes() {
       const { data } = await supabase
@@ -1676,9 +1683,21 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
         }
         setWorkTypes(Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name)));
       }
+      if (proposalId) {
+        const { data: existing } = await supabase
+          .from("proposal_wtc")
+          .select("id, work_type_id")
+          .eq("proposal_id", proposalId);
+        const usedIds = new Set((existing || [])
+          .filter(r => r.id !== wtcId)
+          .map(r => r.work_type_id));
+        setUsedWorkTypeIds(usedIds);
+      } else {
+        setUsedWorkTypeIds(new Set());
+      }
     }
     loadWorkTypes();
-  }, []);
+  }, [proposalId, wtcId]);
 
   // ── Auto-load SOW template when work type selected ───────────────────────
   // ── CO inheritance: load parent proposal's WTCs ─────────────────────────
@@ -2037,7 +2056,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
           {(locked || proposalSold) && tab !== "summary" && (
             <div style={{ position: "absolute", inset: 0, borderRadius: 14, zIndex: 10, cursor: "not-allowed" }} onClick={() => {}} />
           )}
-          {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} showArchiveRateHint={parentIsArchive} />}
+          {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} usedWorkTypeIds={usedWorkTypeIds} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} showArchiveRateHint={parentIsArchive} />}
           {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={proposalSold ? undefined : v => { setLabor(v); setSaved(false); }} />}
           {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={proposalSold ? undefined : v => { setMaterials(v); setSaved(false); }} />}
           {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} onSave={handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} />}

@@ -98,6 +98,46 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       });
   }, []);
 
+  const [data, setData] = useState({
+    jobType: initialJobType,
+    manualJobNum: "",
+    parentJobId: initialParentJobId ? String(initialParentJobId) : "",
+    coStandalone: false,
+    customerType: null,
+    customerMode: null,
+    customerId: "",
+    firstName: "",
+    lastName: "",
+    businessName: "",
+    projectName: "",
+    contactName: "",
+    contactPhone: "",
+    contactEmail: "",
+    billingSame: true,
+    billingName: "",
+    billingPhone: "",
+    billingEmail: "",
+    billingTerms: "30",
+    billingTermsCustom: "",
+    requiresPayApp: false,
+    billingSourceContactId: null,
+    businessAddress: "", businessCity: "", businessState: "", businessZip: "",
+    jobsiteAddress: "", jobsiteCity: "", jobsiteState: "", jobsiteZip: "", newSiteBuild: false, jobsiteSame: false,
+    billingAddressSame: true,
+    billingAddrStreet: "", billingAddrCity: "", billingAddrState: "", billingAddrZip: "",
+    salesName: "",
+    stage: "New Inquiry",
+    selectedWorkTypes: [],
+    bidDue: "",
+    wantFollowUp: false,
+    followUp: "",
+    notes: "",
+    attachments: [],
+    additionalContacts: [],
+  });
+
+  const set = (k, v) => setData(d => ({ ...d, [k]: v }));
+
   // CO mode: pre-fill customer from parent job and skip customerType/customerSelect steps.
   // Why: customer is invariant across parent + CO; showing those steps creates dead clicks.
   // Null parent.customer_id (legacy archive-import parents) blocks via validateStep.
@@ -142,46 +182,6 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       additionalContacts: [],
     }));
   }, [data.jobType, data.parentJobId, customers, allJobs]);
-
-  const [data, setData] = useState({
-    jobType: initialJobType,
-    manualJobNum: "",
-    parentJobId: initialParentJobId ? String(initialParentJobId) : "",
-    coStandalone: false,
-    customerType: null,
-    customerMode: null,
-    customerId: "",
-    firstName: "",
-    lastName: "",
-    businessName: "",
-    projectName: "",
-    contactName: "",
-    contactPhone: "",
-    contactEmail: "",
-    billingSame: true,
-    billingName: "",
-    billingPhone: "",
-    billingEmail: "",
-    billingTerms: "30",
-    billingTermsCustom: "",
-    requiresPayApp: false,
-    billingSourceContactId: null,
-    businessAddress: "", businessCity: "", businessState: "", businessZip: "",
-    jobsiteAddress: "", jobsiteCity: "", jobsiteState: "", jobsiteZip: "", newSiteBuild: false, jobsiteSame: false,
-    billingAddressSame: true,
-    billingAddrStreet: "", billingAddrCity: "", billingAddrState: "", billingAddrZip: "",
-    salesName: "",
-    stage: "New Inquiry",
-    selectedWorkTypes: [],
-    bidDue: "",
-    wantFollowUp: false,
-    followUp: "",
-    notes: "",
-    attachments: [],
-    additionalContacts: [],
-  });
-
-  const set = (k, v) => setData(d => ({ ...d, [k]: v }));
   const stepList = buildStepList(data.jobType);
   const currentKey = stepList[step];
   const next = () => { setError(null); setStep(s => s + 1); };

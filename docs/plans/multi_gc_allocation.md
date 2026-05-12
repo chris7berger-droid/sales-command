@@ -1976,6 +1976,64 @@ SELECT conname, pg_get_constraintdef(oid)
 
 ---
 
+## §11 Verification Run — 2026-05-12
+
+**[DERIVED]** Run against prod project `pbgvgjjuhnpsumnowuym` via `supabase db query --linked` (V1–V4) plus `grep src/ supabase/` (V5). All §10 step 1 evidence.
+
+### V1 — proposals.status type
+`data_type=text, udt_name=text`. **No ENUM constraint** — `clone_proposal_to_gcs` can write `'Awaiting Award'` and `award_proposal` can write `'Lost (Sister Awarded)'` as plain text. No `ALTER TYPE` needed in Migration 1.
+
+### V2 — call_log.stage type
+`data_type=text, udt_name=text`. Stage transitions in §6 (award flow) can write text values directly. No `ALTER TYPE` needed.
+
+### V3 — proposals.id type
+`data_type=text`. Confirms C4: `cloned_from` column on proposals must be `text` (not `uuid`) to FK-reference `proposals(id)`. Existing FKs (V4) all use `text` proposal_id columns — pattern is consistent.
+
+### V4 — FKs into proposals.id (6 total, all CASCADE except invoices)
+| Constraint | Source column → Target | On Delete |
+|---|---|---|
+| `billing_schedule_proposal_id_fkey` | `billing_schedule.proposal_id` → `proposals(id)` | CASCADE |
+| `customer_pay_app_templates_proposal_id_fkey` | `customer_pay_app_templates.proposal_id` → `proposals(id)` | CASCADE |
+| `invoices_proposal_id_fkey` | `invoices.proposal_id` → `proposals(id)` | **(no CASCADE — explicit)** |
+| `proposal_recipients_proposal_id_fkey` | `proposal_recipients.proposal_id` → `proposals(id)` | CASCADE |
+| `proposal_signatures_proposal_id_fkey` | `proposal_signatures.proposal_id` → `proposals(id)` | CASCADE |
+| `proposal_wtc_proposal_id_fkey` | `proposal_wtc.proposal_id` → `proposals(id)` | CASCADE |
+
+No existing `cloned_from`-shaped self-FK; Migration 1's `proposals.cloned_from text REFERENCES proposals(id) ON DELETE SET NULL` (§3) does not collide. Note: §6 `award_proposal` deletes the loser sisters' `proposal_wtc` / `proposal_recipients` / `proposal_signatures` rows automatically via CASCADE — useful for the "Lost (Sister Awarded)" cleanup. **`invoices` deliberately does not cascade** — confirmed intentional (a deleted proposal must not nuke historical invoices). Sister archival must not delete sisters that have invoices; §6 status-only "Lost (Sister Awarded)" already respects this (no DELETE on sister rows, just status update).
+
+### V5 — Inventory of `call_log.customer_id` derivation sites
+
+V5 expands the plan's "Customers.jsx + 4 other files" claim. Two classes:
+
+**Class A — derive single customer from a proposal (needs `COALESCE(proposals.customer_id, call_log.customer_id)` after Sweep-1):**
+| Site | Pattern | In plan? |
+|---|---|---|
+| `src/components/ProposalDetail.jsx:62` | `pInit.call_log?.customer_id` | yes |
+| `src/components/ProposalDetail.jsx:282` | `p.call_log?.customer_id` | yes |
+| `src/components/ProposalPDFModal.jsx:31` | `proposal.call_log?.customer_id` | yes |
+| `supabase/functions/send-pay-app/index.ts:182` | `(invoiceRow as any).proposals?.call_log?.customer_id` | **NEW — add to step 3** |
+| `supabase/functions/send-invoice/index.ts:73` | `invoice.proposals?.call_log?.customer_id` | **NEW — add to step 3** |
+| `get_public_proposal_view` (mig `20260510120000`:344) | `WHERE c.id = cl.customer_id` | yes (already called out above) |
+
+**Class B — filter proposals BY a known customer (needs OR-fallback, different shape):**
+| Site | Pattern | Treatment |
+|---|---|---|
+| `src/pages/Customers.jsx:258` | `.eq("call_log.customer_id", customerId)` (templates section) | After Sweep-1, must also match `proposals.customer_id` directly — risk: customer detail view misses sister proposals where parent's call_log carries a different customer. PostgREST `.or()` or refactor to a view. |
+| `src/pages/Customers.jsx:519` | same shape (customer detail proposals list) | Same. |
+
+**Class C — non-derivation contexts, no change needed:**
+- `supabase/migrations/20260502130000_drop_antipattern_anon_policies.sql:65,72` — RLS join predicates, not single-row derivation.
+- `supabase/functions/qb-create-job/index.ts:146` — code comment only.
+
+**Step 3 scope expansion:** Sweep-1 must now cover 5 derivation sites (3 client + 2 edge fn) plus the RPC update, AND a separate Class-B treatment for the two Customers.jsx filter sites. The plan's §10 step 3 sentence currently lists "three known sites" — leave the original wording in place (per [Schema Amendment Not Overwrite]); this run-results section is the authoritative inventory going into the migration draft.
+
+### What this run did NOT verify
+- §3 amendment columns (`source_proposal_id`, `locally_edited_fields`, `award_state`, etc.) — no `IF NOT EXISTS` collision check yet; Migration 1 will use `ADD COLUMN IF NOT EXISTS`.
+- `multi_gc_audit` table name collision — `SELECT 1 FROM information_schema.tables WHERE table_name='multi_gc_audit'` not yet run; will check inside Migration 1 with `CREATE TABLE IF NOT EXISTS`.
+- pg_stat_statements traffic on the existing `mark_proposal_signed(text)` 1-arg form (O3 gate, separate timeline 2026-05-13).
+
+---
+
 ## §12 Out of scope
 
 **[LOCKED]**

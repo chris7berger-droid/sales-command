@@ -32,7 +32,7 @@ _Draft v0.2, re-derived 2026-05-11. Owner: Plan subagent (read-only); main sessi
 
 ## §3 Schema additions
 
-**[DERIVED]** Single migration `supabase/migrations/20260512120000_multi_gc_allocation.sql` (slot is open — 0510 is the most recent applied). All columns nullable so the migration is reversible without data loss; F7-clean: every new column on a tenant-scoped table gets implicit `tenant_id` inheritance via parent FK.
+**[DERIVED]** Single migration `supabase/migrations/20260513000000_multi_gc_allocation.sql` (slot is open — 0510 is the most recent applied). All columns nullable so the migration is reversible without data loss; F7-clean: every new column on a tenant-scoped table gets implicit `tenant_id` inheritance via parent FK.
 
 **Sweep-1 — `proposals.customer_id`**
 ```sql
@@ -1051,7 +1051,7 @@ f. **Sister WTC missing because of work_type_id divergence.** Clone copies all W
 
 ### Critical files this resolution adds/changes
 
-- `supabase/migrations/20260512120000_multi_gc_allocation.sql` — both sync RPC bodies + `BEFORE UPDATE` trigger on `proposal_wtc` for `locally_edited_fields[]` auto-population + optional `proposals.locally_edited_fields text[]` sibling column for `intro` (if DESIGN-OPEN resolves yes).
+- `supabase/migrations/20260513000000_multi_gc_allocation.sql` — both sync RPC bodies + `BEFORE UPDATE` trigger on `proposal_wtc` for `locally_edited_fields[]` auto-population + optional `proposals.locally_edited_fields text[]` sibling column for `intro` (if DESIGN-OPEN resolves yes).
 - `src/pages/WTCCalculator.jsx` (lines 1729-1782 `handleSave` — capture pre-edit snapshot + invoke preview/apply on parent save when sisters exist).
 - `src/components/ProposalDetail.jsx` (intro editor save path — same preview/apply pattern).
 - `src/components/SyncConflictModal.jsx` (new — renders preview output, collects per-row overwrite toggles, invokes apply with `force_overwrite[]`).
@@ -1070,7 +1070,7 @@ _Resolved 2026-05-11 (Round-3 Plan agent). Picks up the three sub-DESIGN-OPENs f
 
 Rationale. Option (a) hides a proposal-level fact inside an arbitrary child row, which means every read site that asks "did this sister override its intro?" has to look at the lowest-numbered WTC row's array — a spookily-indirect invariant that rots the first time a rep deletes the lowest-numbered WTC (`ProposalDetail.jsx:213` confirms deletion is one-click). The §5 RPC bodies already assume the sibling column exists (`v_sister.locally_edited_fields` reference + `array_remove(locally_edited_fields, 'intro')` on the `proposals` UPDATE). Picking (b) costs one nullable text[] column and keeps the §5 RPCs as-written; picking (a) would require rewriting both RPCs to JOIN through `proposal_wtc`.
 
-**Schema (adds to `supabase/migrations/20260512120000_multi_gc_allocation.sql`):**
+**Schema (adds to `supabase/migrations/20260513000000_multi_gc_allocation.sql`):**
 ```sql
 ALTER TABLE public.proposals
   ADD COLUMN IF NOT EXISTS locally_edited_fields text[] NOT NULL DEFAULT '{}';
@@ -1769,7 +1769,7 @@ A sister proposal (`p.cloned_from_proposal_id != null`) needs to surface its lin
   - `:1774` handleLock — pass `markup_override_pct` through to snapshot per §3 spec.
 - `/Users/chrisberger/sales-command/src/lib/calc.js` — modifications per §3 spec (`effectiveLaborMarkupPct`, optional `markup_override_pct` param on `calcWtcPrice` / `calcWtcBreakdown`, new `calcProposalTotal` wrapper).
 - `/Users/chrisberger/sales-command/src/lib/mockData.js` — add `'Signed': { bg:"rgba(67,160,71,0.10)", text:"#1e5e22" }` to PROP_C per C1 §4.
-- `/Users/chrisberger/sales-command/supabase/migrations/20260512120000_multi_gc_allocation.sql` — single migration carrying every DDL change (§3 columns + §3 audit table + §4 RPC + §5 RPCs + §5-cleanup (a)/(c) + C1 updated mark_proposal_signed). Already enumerated in the migration block in the plan doc.
+- `/Users/chrisberger/sales-command/supabase/migrations/20260513000000_multi_gc_allocation.sql` — single migration carrying every DDL change (§3 columns + §3 audit table + §4 RPC + §5 RPCs + §5-cleanup (a)/(c) + C1 updated mark_proposal_signed). Already enumerated in the migration block in the plan doc.
 
 **Files that don't need to change but might look like they should:**
 
@@ -1837,7 +1837,7 @@ These three new columns need ratification — they're load-bearing for Q2's per-
 - /Users/chrisberger/sales-command/src/components/SyncConflictModal.jsx
 - /Users/chrisberger/sales-command/src/components/ProposalDetail.jsx
 - /Users/chrisberger/sales-command/src/components/CallLogDetail.jsx
-- /Users/chrisberger/sales-command/supabase/migrations/20260512120000_multi_gc_allocation.sql
+- /Users/chrisberger/sales-command/supabase/migrations/20260513000000_multi_gc_allocation.sql
 
 ---
 
@@ -2466,7 +2466,7 @@ Interaction edge: if a sister was `'Signed'` (with `approved_at` set) and a diff
 
 ### Critical files for this resolution
 
-- `supabase/migrations/20260512120000_multi_gc_allocation.sql` — `mark_proposal_signed` redefinition + extended RETURNS TABLE.
+- `supabase/migrations/20260513000000_multi_gc_allocation.sql` — `mark_proposal_signed` redefinition + extended RETURNS TABLE.
 - `supabase/migrations/20260510120000_signing_token_expiry_and_consume.sql` — superseded by above (no edit, just reference).
 - `src/components/ProposalDetail.jsx` — handleInternalApprove rewrite (3c) + ~10 backward-compat tweaks per §5 audit.
 - `src/pages/PublicSigningPage.jsx` — `became_sold` gate on qb-create-job invocation + accepted-state gate update.
@@ -2574,7 +2574,7 @@ Customers.jsx changes:
 
 ### Critical Files for Implementation
 
-- `/Users/chrisberger/sales-command/supabase/migrations/20260512120000_multi_gc_allocation.sql` (new — schema + RPCs)
+- `/Users/chrisberger/sales-command/supabase/migrations/20260513000000_multi_gc_allocation.sql` (new — schema + RPCs)
 - `/Users/chrisberger/sales-command/supabase/migrations/20260510120000_signing_token_expiry_and_consume.sql` (modify `mark_proposal_signed` for C1)
 - `/Users/chrisberger/sales-command/src/components/ProposalDetail.jsx` (C1 handleInternalApprove rewrite + customer_id fallback + sister sidebar UI)
 - `/Users/chrisberger/sales-command/src/pages/Customers.jsx` (S1 fallback via new RPCs at :253-260, :514, :516-519)

@@ -276,7 +276,7 @@ function TaskAutocomplete({ value, onChange, allPriorTasks, placeholder }) {
 }
 // ── Tab components ─────────────────────────────────────────────────────────
 
-function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeChange, isFirstWtc, onPwToggle }) {
+function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeChange, isFirstWtc, onPwToggle, showArchiveRateHint }) {
   const set = k => v => onChange({ ...data, [k]: parseFloat(v) || 0 });
   const pw = data.prevailing_wage;
   const setBurden = v => {
@@ -350,6 +350,11 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         </div>
         <Field label="Tax Rate" value={data.tax_rate} onChange={set("tax_rate")} suffix="%" type="number" />
       </div>
+      {showArchiveRateHint && (
+        <div style={{ fontSize: 11.5, color: T.gray700, fontStyle: "italic", marginTop: -8, marginBottom: 12 }}>
+          Parent is an archive proposal — burden rate wasn't captured. Enter manually.
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px", marginTop: 8 }}>
         <div style={{ marginBottom: 14 }}>
           <Label>Tentative Start Date <span style={{ color: T.red }}>*</span></Label>
@@ -1521,6 +1526,9 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const [discount, setDiscount] = useState({ amount: 0, reason: "" });
   // CO inheritance: cached parent-proposal WTCs (null until loaded; [] when not a CO or parent has none).
   const [parentProposalWtcs, setParentProposalWtcs] = useState(null);
+  // Archive parents don't capture burden_rate — surface that to the user so empty
+  // rate fields don't look like a load bug.
+  const [parentIsArchive, setParentIsArchive] = useState(false);
 
   const effRate = bidding.prevailing_wage ? (bidding.pw_rate || 0) : (bidding.burden_rate || 0);
   const effOtRate = bidding.prevailing_wage ? (bidding.pw_ot_rate || 0) : (bidding.ot_burden_rate || 0);
@@ -1685,13 +1693,14 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       }
       const { data: parentProps } = await supabase
         .from("proposals")
-        .select("id")
+        .select("id, is_archive_proposal")
         .eq("call_log_id", prop.call_log.parent_job_id)
         .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(1);
       const parentProposalId = parentProps?.[0]?.id;
       if (!parentProposalId) { setParentProposalWtcs([]); return; }
+      setParentIsArchive(!!parentProps[0].is_archive_proposal);
       const { data: pwtcs } = await supabase
         .from("proposal_wtc")
         .select("work_type_id, burden_rate, ot_burden_rate, prevailing_wage, pw_rate, pw_ot_rate")
@@ -2023,7 +2032,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
           {(locked || proposalSold) && tab !== "summary" && (
             <div style={{ position: "absolute", inset: 0, borderRadius: 14, zIndex: 10, cursor: "not-allowed" }} onClick={() => {}} />
           )}
-          {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} />}
+          {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} showArchiveRateHint={parentIsArchive && !wtcId} />}
           {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={proposalSold ? undefined : v => { setLabor(v); setSaved(false); }} />}
           {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={proposalSold ? undefined : v => { setMaterials(v); setSaved(false); }} />}
           {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} onSave={handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} />}

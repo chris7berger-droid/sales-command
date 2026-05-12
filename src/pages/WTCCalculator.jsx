@@ -1519,6 +1519,8 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const [sow,      setSow]      = useState({ size: 0, unit: "SQFT", sales_sow: "", field_sow: [] });
   const [travel,   setTravel]   = useState({ drive_rate: 0, drive_miles: 0, fly_rate: 0, fly_tickets: 0, stay_rate: 0, stay_nights: 0, per_diem_rate: 0, per_diem_days: 0, per_diem_crew: 0 });
   const [discount, setDiscount] = useState({ amount: 0, reason: "" });
+  // CO inheritance: cached parent-proposal WTCs (null until loaded; [] when not a CO or parent has none).
+  const [parentProposalWtcs, setParentProposalWtcs] = useState(null);
 
   const effRate = bidding.prevailing_wage ? (bidding.pw_rate || 0) : (bidding.burden_rate || 0);
   const effOtRate = bidding.prevailing_wage ? (bidding.pw_ot_rate || 0) : (bidding.ot_burden_rate || 0);
@@ -1665,9 +1667,62 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   }, []);
 
   // ── Auto-load SOW template when work type selected ───────────────────────
+  // ── CO inheritance: load parent proposal's WTCs ─────────────────────────
+  // For a new WTC on a CO proposal, pull PW status from parent's first PW
+  // sibling (PW is uniform on a proposal); burden_rate is pulled per-work-type
+  // in handleWorkTypeChange below.
+  useEffect(() => {
+    if (!proposalId || wtcId) return;
+    async function loadParentWtcs() {
+      const { data: prop } = await supabase
+        .from("proposals")
+        .select("call_log_id, call_log(parent_job_id, is_change_order)")
+        .eq("id", proposalId)
+        .single();
+      if (!prop?.call_log?.is_change_order || !prop.call_log.parent_job_id) {
+        setParentProposalWtcs([]);
+        return;
+      }
+      const { data: parentProps } = await supabase
+        .from("proposals")
+        .select("id")
+        .eq("call_log_id", prop.call_log.parent_job_id)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const parentProposalId = parentProps?.[0]?.id;
+      if (!parentProposalId) { setParentProposalWtcs([]); return; }
+      const { data: pwtcs } = await supabase
+        .from("proposal_wtc")
+        .select("work_type_id, burden_rate, ot_burden_rate, prevailing_wage, pw_rate, pw_ot_rate")
+        .eq("proposal_id", parentProposalId);
+      const rows = pwtcs || [];
+      setParentProposalWtcs(rows);
+      const pwParent = rows.find(r => r.prevailing_wage);
+      if (pwParent) {
+        setBidding(b => {
+          if (b.prevailing_wage) return b;
+          return { ...b, prevailing_wage: true, pw_rate: pwParent.pw_rate || 0, pw_ot_rate: pwParent.pw_ot_rate || 0 };
+        });
+      }
+    }
+    loadParentWtcs();
+  }, [proposalId, wtcId]);
+
   const handleWorkTypeChange = async (newWorkTypeId) => {
     setSelectedWorkTypeId(newWorkTypeId);
     setSaved(false);
+    // CO inheritance: pull burden_rate from parent's matching work_type WTC.
+    if (!wtcId && parentProposalWtcs?.length) {
+      const match = parentProposalWtcs.find(w => String(w.work_type_id) === String(newWorkTypeId));
+      if (match && (match.burden_rate != null || match.ot_burden_rate != null)) {
+        setBidding(b => ({
+          ...b,
+          burden_rate: match.burden_rate ?? b.burden_rate,
+          ot_burden_rate: match.ot_burden_rate ?? b.ot_burden_rate,
+        }));
+      }
+    }
     if (!sow.sales_sow) {
       // Check tenant work type for sales_sow first
       const tenantWt = workTypes.find(w => String(w.id) === String(newWorkTypeId));

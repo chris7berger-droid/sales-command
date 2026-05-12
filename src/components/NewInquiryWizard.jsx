@@ -67,8 +67,10 @@ function buildStepList(jobType) {
   const steps = ["jobType"];
   if (jobType === "override") steps.push("manualNum");
   if (jobType === "co") { steps.push("parentJob"); steps.push("coTreatment"); }
-  steps.push("customerType");
-  steps.push("customerSelect");
+  if (jobType !== "co") {
+    steps.push("customerType");
+    steps.push("customerSelect");
+  }
   steps.push("projectName");
   steps.push("contactInfo");
   steps.push("addresses");
@@ -95,6 +97,51 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
         setNextJobNum(last && last.length > 0 ? (last[0].job_number || 9999) + 1 : 10000);
       });
   }, []);
+
+  // CO mode: pre-fill customer from parent job and skip customerType/customerSelect steps.
+  // Why: customer is invariant across parent + CO; showing those steps creates dead clicks.
+  // Null parent.customer_id (legacy archive-import parents) blocks via validateStep.
+  useEffect(() => {
+    if (data.jobType !== "co" || !data.parentJobId) return;
+    const parent = allJobs.find(j => String(j.id) === String(data.parentJobId));
+    if (!parent) return;
+    if (!parent.customer_id) {
+      setError("Parent job has no customer record. Add a customer to the parent before creating a CO.");
+      return;
+    }
+    const chosen = customers.find(c => c.id === parent.customer_id);
+    if (!chosen) {
+      setError("Parent job's customer record was not found.");
+      return;
+    }
+    setError(null);
+    const std = [5,15,30,45,60,90,120];
+    const cName = [chosen.first_name, chosen.last_name].filter(Boolean).join(" ");
+    setData(d => ({
+      ...d,
+      customerMode: "existing",
+      customerId: chosen.id,
+      customerType: chosen.customer_type,
+      ...(chosen.billing_terms
+        ? std.includes(chosen.billing_terms)
+          ? { billingTerms: String(chosen.billing_terms), billingTermsCustom: "" }
+          : { billingTerms: "custom", billingTermsCustom: String(chosen.billing_terms) }
+        : {}),
+      ...(chosen.business_address ? { businessAddress: chosen.business_address } : {}),
+      ...(chosen.business_city    ? { businessCity:    chosen.business_city    } : {}),
+      ...(chosen.business_state   ? { businessState:   chosen.business_state   } : {}),
+      ...(chosen.business_zip     ? { businessZip:     chosen.business_zip     } : {}),
+      contactName:  cName || "",
+      contactPhone: chosen.contact_phone || chosen.phone || "",
+      contactEmail: chosen.contact_email || chosen.email || "",
+      billingName:  chosen.billing_name  || "",
+      billingPhone: chosen.billing_phone || "",
+      billingEmail: chosen.billing_email || "",
+      requiresPayApp: !!chosen.requires_pay_app,
+      billingSourceContactId: null,
+      additionalContacts: [],
+    }));
+  }, [data.jobType, data.parentJobId, customers, allJobs]);
 
   const [data, setData] = useState({
     jobType: initialJobType,
@@ -145,7 +192,23 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     switch (currentKey) {
       case "jobType": if (!data.jobType) { setError("Select a job type"); return false; } return true;
       case "manualNum": if (!data.manualJobNum) { setError("Job number required"); return false; } return true;
-      case "parentJob": if (!data.parentJobId) { setError("Select a parent job"); return false; } return true;
+      case "parentJob": {
+        if (!data.parentJobId) { setError("Select a parent job"); return false; }
+        const parent = allJobs.find(j => String(j.id) === String(data.parentJobId));
+        if (!parent?.customer_id) {
+          setError("Parent job has no customer record. Add a customer to the parent before creating a CO.");
+          return false;
+        }
+        return true;
+      }
+      case "coTreatment": {
+        const parent = allJobs.find(j => String(j.id) === String(data.parentJobId));
+        if (!parent?.customer_id) {
+          setError("Parent job has no customer record. Add a customer to the parent before creating a CO.");
+          return false;
+        }
+        return true;
+      }
       case "customerSelect":
         if (!data.customerMode) { setError("Select an option"); return false; }
         if (data.customerMode === "existing" && !data.customerId) { setError("Select a customer"); return false; }
@@ -184,8 +247,13 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     return data.businessName.trim();
   };
 
-  const previewNum = data.jobType === "override" && data.manualJobNum ? data.manualJobNum : (nextJobNum || "####");
-  const previewCO = data.jobType === "co" && data.parentJobId ? " CO#" : "";
+  const coParent = data.jobType === "co" && data.parentJobId
+    ? allJobs.find(j => String(j.id) === String(data.parentJobId))
+    : null;
+  const previewNum = data.jobType === "override" && data.manualJobNum
+    ? data.manualJobNum
+    : (coParent ? coParent.job_number : (nextJobNum || "####"));
+  const previewCO = coParent ? " CO" : "";
   const previewName = data.projectName || custName() || "Customer";
   const previewDisplay = `${previewNum}${previewCO} - ${previewName}`;
 
@@ -207,6 +275,14 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     let jobNum;
     if (data.jobType === "override" && data.manualJobNum) {
       jobNum = parseInt(data.manualJobNum);
+    } else if (data.jobType === "co" && data.parentJobId) {
+      const parent = allJobs.find(j => String(j.id) === String(data.parentJobId));
+      if (!parent?.job_number) {
+        setError("Parent job is missing job_number. Cannot create CO.");
+        setSaving(false);
+        return;
+      }
+      jobNum = parent.job_number;
     } else {
       const { data: last } = await supabase.from("call_log").select("job_number").order("job_number", { ascending: false }).limit(1);
       jobNum = last && last.length > 0 ? (last[0].job_number || 9999) + 1 : 10000;

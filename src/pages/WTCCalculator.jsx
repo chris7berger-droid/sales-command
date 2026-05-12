@@ -323,7 +323,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         {!selectedWorkTypeId && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required</div>}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 20px", alignItems: "end" }}>
-        <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" error={rateMissing} errorMsg="Required" />
+        <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" error={rateMissing} />
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <Label>{pw ? "PW OT Rate" : "OT Burden Rate"}</Label>
@@ -346,16 +346,19 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
           <div style={{ position: "relative" }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.gray400, fontSize: 13, pointerEvents: "none" }}>$</span>
             <input type="number" value={otVal || ""} onChange={e => setOT(e.target.value)} placeholder="0"
-              style={{ width: "100%", border: `1.5px solid ${T.gray200}`, borderRadius: 8, padding: "8px 10px 8px 28px", fontSize: 14, color: T.gray900, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#bfb3a1" }}
+              style={{ width: "100%", border: `1.5px solid ${rateMissing ? T.red : T.gray200}`, borderRadius: 8, padding: "8px 10px 8px 28px", fontSize: 14, color: T.gray900, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#bfb3a1" }}
               onFocus={e => e.target.style.borderColor = T.green}
-              onBlur={e => e.target.style.borderColor = T.gray200} />
+              onBlur={e => e.target.style.borderColor = rateMissing ? T.red : T.gray200} />
           </div>
         </div>
         <Field label="Tax Rate" value={data.tax_rate} onChange={set("tax_rate")} suffix="%" type="number" />
       </div>
       {rateMissing && (
-        <div style={{ fontSize: 11.5, color: T.gray700, fontStyle: "italic", marginTop: -8, marginBottom: 12 }}>
-          Parent is an archive proposal — burden rate wasn't captured. Enter manually.
+        <div style={{ marginTop: -6, marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: T.red, fontWeight: 600, marginBottom: 2 }}>Required</div>
+          <div style={{ fontSize: 11.5, color: T.gray700, fontStyle: "italic" }}>
+            Parent is an archive proposal — burden rate wasn't captured. Enter manually.
+          </div>
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px", marginTop: 8 }}>

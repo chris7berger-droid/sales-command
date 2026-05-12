@@ -1,0 +1,270 @@
+SC Handoff v112 — 2026-05-12
+============================
+
+SESSION SUMMARY
+Bug-fix session that shipped two surfaces of the +Add CO flow. Started
+on feat/multi-gc-allocation (clean tree, planning phase closed); Chris
+opted out of starting Multi-GC build and instead surfaced two design
+bugs in NewInquiryWizard when invoked as +Add CO from a job page:
+(1) job-number preview reading "10093 CO# - Customer" instead of
+"6844 CO - <name>", and (2) dead-click customerType/customerSelect
+steps even though the parent's customer is already known. Audit
+terminal produced a ratified spec; build executed it. Then during
+test cycle Chris also caught jobsite-address not pre-filling and rates
+not inheriting on a new WTC, so the fix grew to cover those too and a
+"parent is archive proposal — burden rate wasn't captured" hint with
+red-border Required marker. PW inheritance was added per spec, then
+yanked when it turned out it couldn't fire for archive parents anyway
+(and a separate PW=true mystery surfaced that's NOT from this code).
+All 7 fix commits cherry-picked onto main and pushed; Vercel
+auto-deploying. Numbering jumps from v110 to v112 because v111 is
+already taken by the Multi-GC planning closeout on feat/multi-gc-allocation.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+Cherry-picked onto main from fix/co-wizard-prefill-and-jobnum
+(7 commits, in order):
+
+26de654 — fix: +Add CO wizard reuses parent job_number + skips redundant customer steps
+  NewInquiryWizard.jsx core fix. buildStepList no longer pushes
+  customerType/customerSelect when jobType==='co'. previewNum +
+  save()'s jobNum reuse parent.job_number (looked up in allJobs).
+  previewCO suffix renders " CO" (no number — actual co_number is
+  allocated in save() against the DB). validateStep at parentJob and
+  coTreatment blocks when parent.customer_id is null. Customer +
+  billing contact + business_address fields pre-fill via useEffect
+  that mirrors the existing SearchSelect onChange handler.
+
+195e4a2 — fix: move CO pre-fill useEffect after data useState (TDZ runtime error)
+  Original commit placed the new useEffect BEFORE the
+  `const [data, setData] = useState(...)` declaration. Dep array
+  `[data.jobType, data.parentJobId, ...]` evaluated `data` in the
+  temporal dead zone, blowing up /calllog/:id with "Cannot access 'x'
+  before initialization" on the preview deploy. Build did NOT catch
+  this — TDZ is a runtime check. Moved the effect to after data
+  declaration. Memory note created at feedback_useeffect_tdz.md.
+
+3dcd464 — fix: pre-fill jobsite address from parent in CO wizard
+  Original pre-fill only set businessAddress fields (from customer
+  record). jobsite_address lives on call_log, not customer; for a CO
+  the jobsite is invariant from the parent. Added four jobsite
+  fields to the pre-fill useEffect.
+
+9fe6d83 — fix: CO proposal's new WTC inherits PW + burden_rate from parent
+  WTCCalculator.jsx. Added parentProposalWtcs cache + parentIsArchive
+  flag, loaded via a new useEffect that walks proposals.call_log_id
+  → call_log.parent_job_id → most-recent non-deleted parent proposal
+  → its proposal_wtc rows. PW set from parent's first PW-on sibling;
+  burden_rate set in handleWorkTypeChange from the parent WTC with
+  matching work_type_id. Tenant defaults still load for new WTCs as
+  before. NOTE: PW inheritance block was removed in 846d97a — see
+  below.
+
+9963e66 — feat: show archive-rate hint when CO parent is an archive proposal
+  Initial archive-parent hint with `!wtcId` gate. Field component
+  gained optional error/errorMsg props for the red-border Required
+  treatment. Hint copy: "Parent is an archive proposal — burden rate
+  wasn't captured. Enter manually." This version flashed away on
+  autosave (~1.5s) because wtcId became non-null — superseded by
+  846d97a.
+
+846d97a — fix: archive-parent burden hint stays + remove PW inheritance
+  Two changes. (1) Audit-flagged non-PW gap: tenant default
+  DEFAULTS.default_burden_rate=56.50 silently filled the rate field
+  before rateMissing could fire. Option A (per audit) zeros out
+  burden_rate + ot_burden_rate on archive parent in the parent-load
+  effect; rateMissing = parentIsArchive && rateVal === 0 drives both
+  the hint and the Field error. (2) Removed PW autoset block from
+  parent-load — it couldn't help archive parents anyway (archive
+  proposals have no proposal_wtc rows). parentProposalWtcs cache
+  retained for non-archive burden_rate matching in
+  handleWorkTypeChange.
+
+8128108 — fix: rate row alignment + PW OT Required
+  Required text moved OUT of Field and rendered as a unified block
+  below the rate grid (alignItems:end on the grid was pushing PW
+  Rate's input up to make room for inline Required, throwing OT +
+  Tax out of line). PW OT Rate input gets the same red border when
+  rateMissing, matching the 1.5× auto-derivation behavior.
+
+Followup commit on main (not part of the 7-commit fix chain):
+
+2188e31 — docs: AUDIT_LOG row + notes for +Add CO wizard + archive-parent hint
+  AUDIT_LOG.md row appended (severity mix: 1 H runtime TDZ + 2 M
+  inheritance gaps + 1 L PW mystery; outcome: accepted-pending-changes).
+  Followed by a notes block summarizing all 7 commits, the four
+  findings, and the deferred PW investigation.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+- Cherry-pick the 7 fix commits onto main rather than merge the whole
+  fix/co-wizard-prefill-and-jobnum branch. Reason: the branch was
+  based on feat/multi-gc-allocation which carries 13 docs/plans
+  commits ahead of main (Multi-GC planning). Cherry-pick kept main's
+  history clean and left the planning docs on the feature branch
+  until implementation actually starts. Per [Cherry-Pick Contextual
+  Coupling] memory.
+
+- CO inheritance applies to BOTH wrap-into-parent AND standalone CO
+  treatments. Reason: schema has no concept of a different-customer
+  CO; standalone is just billing/tracking separation, not customer
+  identity separation. Audit ratified this scope before build started.
+
+- contactInfo edits during CO flow flow back to the parent customer
+  record (kept customerMode='existing' triggering save()'s update
+  block at :229-244). Matches non-CO existing-customer behavior. No
+  extra flag to gate it.
+
+- Parent proposal selected as "most-recent non-deleted" rather than
+  status-filtered (e.g., status='Sold'). Simple, matches how other
+  spots pick "the" proposal. If a parent had a draft + a sold, draft
+  could be picked — Chris confirmed 6844 only has the archive (Sold)
+  proposal so the question didn't bite; flagged for future revisit.
+
+- PW=true on fresh archive-parent CO WTC is NOT caused by this code.
+  Verified by removing the PW autoset block entirely — issue still
+  expected to surface, because archive proposals have no
+  proposal_wtc rows for my code to read. Likely sources: DB default
+  on proposal_wtc.prevailing_wage column, or another code path
+  somewhere. Deferred to a separate investigation session; not a
+  ship blocker.
+
+- Null parent.customer_id (legacy archive-import parents — see
+  project_archive_no_skeleton memory) blocks at parentJob/coTreatment
+  validateStep with a clear inline error, rather than falling back
+  to the customer-steps flow. Audit-recommended path; surfaces the
+  data gap explicitly.
+
+NEW BACKLOG ITEMS
+─────────────────
+None filed this session. The PW=true mystery is captured in the
+2188e31 AUDIT_LOG notes block and the v112 NEXT SESSION POINTERS
+below, but was not given a B-ID — it needs reproduction confirmation
+on a non-test job before being formally backlogged.
+
+CLOSED THIS SESSION
+───────────────────
+No tracked backlog items closed. The +Add CO bugs Chris flagged at
+session start were not on the BACKLOG — they were unfiled bug
+reports. Fixes shipped via the 7-commit chain (26de654..8128108).
+
+VERIFICATION
+────────────
+- Chris verified preview build 6e5266e (last commit before
+  cherry-pick to main) on a real archive-parent CO (6844 CO1):
+  burden rate field empty + red border + "Required" + italic
+  archive-parent hint visible. Typing a rate clears all three.
+  Alignment correct, OT field gets red border too.
+- Build (vite production) passed clean on every commit before push.
+- TDZ regression caught by Chris's first preview test on /calllog/3503
+  ("Something went wrong... Cannot access 'x' before initialization")
+  — fixed in 195e4a2 before Chris had to retry.
+- Production smoke at scmybiz.com: NOT YET COMPLETED at handoff
+  time. Vercel deploy from 2188e31 still in flight. Re-test +Add CO
+  on a real job + create-proposal-from-CO + open new WTC in prod
+  before marking the fix as fully verified.
+- PW=true on fresh archive-parent CO WTC: reproducible on preview
+  per Chris's screenshot. Not investigated. See NEXT SESSION
+  POINTERS #1.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+- Multi-GC planning code/docs. feat/multi-gc-allocation untouched;
+  branch state same as v110/v111. §10 implementation order not
+  started. fix/co-wizard-prefill-and-jobnum was branched FROM it but
+  doesn't alter any of its files.
+- All open T2/T3 backlog: B11, B12 #1, B13, B14, B16, H11, S2, F7,
+  O3.
+- O3 timer (H5 Migration B) — still on the ≥48h gate from
+  2026-05-11 02:09 UTC. Earliest start 2026-05-13 02:10 UTC. Not
+  touched this session.
+- ImportToLiveWizard.jsx — not touched; B16 root cause still
+  uncaptured.
+- supabase/.temp/* — gitignored carryforward, untouched.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. PW=true on fresh archive-parent CO WTC — investigate. ~10 min in
+   Supabase: (a) check column default on proposal_wtc.prevailing_wage
+   via information_schema.columns; (b) grep src/ for any other
+   setBidding-with-prevailing_wage-true paths I haven't traced
+   (handlePwToggle is intentional; checkSiblings effect can't fire
+   for first WTC of new proposal; my parent-load is yanked). If
+   column default is true, ALTER it false and migrate; if code path,
+   trace and fix. File as B-ID once reproduced cleanly.
+2. Prod smoke on the +Add CO fix. Vercel was still building at
+   handoff time. Walk: open existing job → +Add CO → flow goes
+   coTreatment → projectName → contactInfo (NOT customerType/
+   customerSelect), preview reads "<parent#> CO - <name>", addresses
+   pre-filled including jobsite, save writes display_job_number
+   "<parent#> CO1 - <label>". Then create proposal on the CO, open
+   first WTC: if parent is archive, rate field reads empty + red +
+   "Required" + hint. Type rate → all clears.
+3. Parent-proposal picker revisit. Currently "most-recent non-deleted"
+   — fine for 6844 (archive-only). If a future CO test case has a
+   parent with draft + sold proposals, the draft could win the
+   picker and inheritance would pull from the wrong source. Cheap
+   fix: prefer status IN ('Sold','Approved') if any exist, fall
+   back to most-recent. Park until a real case surfaces.
+4. Multi-GC §10 implementation can begin any time — feat/multi-gc-allocation
+   still planning-complete and one commit ahead of origin
+   (a07b8c6 B16 + handoff v111). The cherry-picks to main do NOT
+   conflict with anything on the planning branch (NewInquiryWizard
+   and WTCCalculator weren't touched on feat). When implementation
+   starts, rebase feat onto main to absorb the wizard + WTC fixes.
+5. O3 — still gated, earliest 2026-05-13 02:10 UTC. Before applying
+   Migration B query pg_stat_statements for any 1-arg
+   mark_proposal_signed traffic; require zero.
+6. fix/co-wizard-prefill-and-jobnum branch still exists locally and
+   on origin. After prod smoke (#2) confirms the cherry-picks work
+   in prod, delete the branch on both sides.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+src/components/NewInquiryWizard.jsx
+  — +Add CO flow now skips customerType/customerSelect, pre-fills
+    customer + jobsite from parent, reuses parent.job_number for the
+    CO row. validateStep gates parentJob/coTreatment on parent
+    customer_id presence.
+src/pages/WTCCalculator.jsx
+  — New parent-load useEffect caches parentProposalWtcs +
+    parentIsArchive. handleWorkTypeChange inherits burden_rate from
+    matching parent WTC. BiddingTab renders archive hint + Required
+    when parentIsArchive && rateVal===0. Field component gained
+    error/errorMsg props.
+docs/AUDIT_LOG.md
+  — New row + notes block for this session (2188e31). Pattern tag:
+    accepted-pending-changes.
+docs/handoffs/SC_Handoff_v111.txt
+  — Lives on feat/multi-gc-allocation, NOT on main. Covers
+    Multi-GC planning closeout from 2026-05-11. Don't be surprised
+    that main has v110 → v112 with no v111.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: main.
+- Working tree: clean (before this handoff commit).
+- Local main: up to date with origin/main at 2188e31 BEFORE the
+  handoff commit. After this handoff commit lands, 1 ahead of
+  origin/main until pushed.
+- Latest on origin/main: 2188e31 "docs: AUDIT_LOG row + notes for
+  +Add CO wizard + archive-parent hint".
+- Open PRs: none. No PR opened for this fix (cherry-picked direct
+  to main per Chris's call).
+- Local branches: feat/billing-contact-flag,
+  feat/import-wizard-customer-match, feat/multi-gc-allocation,
+  fix/co-wizard-prefill-and-jobnum (origin still has it),
+  fix/s1-get-user-tenant-id-no-fallback (remote gone, local stale),
+  main.
+- Remote branches with no local counterpart: claude/audit-2026-05-11.
+- Deployed this session: none (no edge functions, no migrations).
+  Vercel auto-deploy of main triggered by the 7 cherry-picks + the
+  AUDIT_LOG commit.
+- No DB migrations. No scratch projects. No /tmp artifacts.
+
+END STATE
+─────────
++Add CO wizard + CO archive-parent WTC hint shipped and merged to
+main via 7 cherry-picks. Vercel deploying. PW=true on fresh
+archive-parent WTC is a known issue NOT from this code, deferred.
+Prod smoke pending. Ready for fresh session.

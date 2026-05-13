@@ -2724,3 +2724,36 @@ Customers.jsx changes:
 - `/Users/chrisberger/sales-command/src/components/ProposalDetail.jsx` (C1 handleInternalApprove rewrite + customer_id fallback + sister sidebar UI)
 - `/Users/chrisberger/sales-command/src/pages/Customers.jsx` (S1 fallback via new RPCs at :253-260, :514, :516-519)
 - `/Users/chrisberger/sales-command/src/components/MultiGCWizard.jsx` (new — 4-screen wizard; entry from ProposalDetail + CallLogDetail)
+
+---
+
+## F16 Ratifications — 2026-05-13
+
+_Ratifies the 8 [DESIGN-OPEN] items surfaced by §5 Amendment 1 — 2026-05-13 and §10 step 6 Amendment 3 — 2026-05-13. **Does not edit prior amendment text** per [Schema Amendment Not Overwrite]; the upstream [DESIGN-OPEN] flags remain as the trail of how we got here, with the resolutions below as the authoritative answer. All items flip [DESIGN-OPEN] → [LOCKED] as of this block._
+
+| # | Item | Agent rec | Ratification | Notes |
+|---|---|---|---|---|
+| 1 | Multi-generation chain support | Defer to v1+ | **Reject (never, not deferred)** | Chains prohibited, not postponed. Enforced by #4. |
+| 2 | Migration 1b filename timestamp | Wait on O7 | **Accept (wait on O7)** | Fallback if O7 hasn't shipped at 6a build time: run `supabase migration list --linked` immediately before timestamp assignment; pick strictly greater than any ledger row in either repo. |
+| 3 | Clone RPC loop shape | Cosmetic, no strong rec | **Accept INSERT ... SELECT with id carry-through** | Single set-based statement. Per-row side effects (if ever needed) get a later amendment. |
+| 4 | Clone-of-clone gate | Explicit RAISE | **Accept hard block** — `RAISE EXCEPTION 'NESTED_CLONE_NOT_SUPPORTED'` when `v_source.cloned_from_proposal_id IS NOT NULL` | Enforces #1. Surfaces to UI as a user-readable error. No silent allow. |
+| 5 | Sync RPC outer-shape | Outer-source / inner-lineage | **Accept Option X** | Per-GC customization (extra/modified/deleted WTC per sibling) is first-class. "Missing on sibling" = graceful no-op, not join hole. |
+| 6 | Suppress empty-result modal | Accept suppress | **Reject suppress (modal always shows)** | Safety backstop for non-savvy estimators. Silent application erodes trust. Empty-state copy must explicitly confirm success; see #7(c). |
+| 7 | UX copy for preview modal | Defer concurrent-edit copy | **Accept five-part lock** — see notes | (a) User-facing term = **"GCs"**. (b) Modal names WTC + field + change, e.g. `"Drywall — Burden Rate (45 → 42)"`. (c) Empty-state copy is explicit confirmation: *"Saved. No GCs needed this update — your other proposals don't carry this WTC, or this field is locally edited everywhere."* (d) Defer concurrent-edit "silently lost" copy to v2 with a plan note. (e) **GC names rendered from `customers.name`** via JOIN on `proposals.customer_id`; sync RPC return shape adds `customer_name` per sibling. Fallback when unassigned: render proposal number. Edge: truncate names at ~30 chars; for 5+ siblings show first 3 + "and N more." |
+| 8 | `start_date` / `end_date` per-GC carry-over | Per-GC (not source-driven) per plan §4:548 | **Accept field-level "never sync"** + **carry parent's value at clone time** | Dates are inherently per-GC (different jobsite timelines). Schema-level rule, not row-level via `locally_edited_fields`. AUDIT_LOG had no prior ratification — verified during this round; plan §4:548 was the latest soft call. |
+
+**Step 6b additional spec from this ratification:**
+- Sync RPC return shape includes `customer_name` per sibling (one JOIN to `customers` on `proposals.customer_id`).
+- Modal copy is the source of truth from #7; build agent must not paraphrase.
+- Empty-result modal pops (per #6) with confirmation copy from #7(c).
+- `RAISE EXCEPTION 'NESTED_CLONE_NOT_SUPPORTED'` is a hard contract with the UI.
+- `start_date` / `end_date` are excluded from sync RPC's field iteration; clone RPC copies them directly.
+
+**Build readiness after this block:**
+- Step 6a (Migration 1b — `proposal_wtc.cloned_from_wtc_id` column + index) — unblocked; can ship.
+- Step 6b (RPC migration — clone + 2 sync RPCs) — unblocked once 6a applies to prod.
+
+**Items NOT touched by this ratification (flagged for separate work):**
+- §11 V9 verification (orphan-child after `ON DELETE SET NULL` on parent WTC) — prior noticed-but-not-touched.
+- `idx_proposals_cloned_from` in Migration 1a partiality — prior noticed-but-not-touched.
+- §4:548 [DESIGN-OPEN] flag itself: left in place per amendment discipline; #8 above is the authoritative answer.

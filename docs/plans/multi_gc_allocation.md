@@ -1316,6 +1316,86 @@ None of (a)/(b)/(c) crossed the "larger than leftover cleanup" line. Total addit
 
 Audit ratification miss: the 2026-05-11 Round-5 audit pass ratified the §5(c) resolution without challenging the load-bearing domain-fact premise. Audit owns the miss. See `docs/AUDIT_LOG.md` 2026-05-12 §5(c) reversal notes.
 
+### §5 Amendment 1 — 2026-05-13
+
+_Resolves F16 (T1). Closes the sync-identity gap left open by §5(c) Reversal. Replaces the `work_type_id`-as-join-key assumption that ran through Rounds 2–3 with a `proposal_wtc.cloned_from_wtc_id` self-FK lineage column. Step-6 wiring lives in its companion amendment at §10 step 6 Amendment 3 — 2026-05-13. **Does not edit any prior §5 text, including the Round-2 RPC bodies and the §5(c) Reversal subsection above.** Treat all prior `work_type_id`-keyed JOIN snippets in §5 Sync Semantics — Resolution §4 (the `preview_sync_to_sisters` and `apply_source_edit_to_sisters` bodies) as superseded by this amendment's join rule wherever they read `AND work_type_id = v_wtc_source.work_type_id`. The semantics those snippets encode (locally_edited_fields gating, conflict modal, A+ granularity) are untouched._
+
+#### What §5(c) Reversal didn't address that this amendment now addresses
+
+The Reversal subsection invalidated the old join key and named a replacement shape (`cloned_from_wtc_id uuid REFERENCES proposal_wtc(id) ON DELETE SET NULL`) but did not specify (a) which side owns clone-time population, (b) the exact JOIN semantics for siblings vs source row, (c) what happens for pre-Migration-1b proposals where the column is NULL, (d) the index strategy, (e) multi-generation chain semantics (clone-of-a-clone), (f) how this composes with the already-shipped `proposal_wtc.locally_edited_fields` array. This amendment locks (a)–(d) and (f), and explicitly defers (e). Reading §5 end-to-end after this amendment: §5 Sync Semantics — Resolution defines _what_ syncs and at _what granularity_ (Option A+); §5(c) Reversal records _why_ the old identity rule is wrong; this amendment defines _the new identity rule_ and how clone + sync wire it in.
+
+#### A. Lineage column spec
+
+**[LOCKED]** Column shape, taken from F16 backlog row + §5(c) Reversal recommendation, ratified by Chris on filing:
+
+```
+proposal_wtc.cloned_from_wtc_id uuid NULL REFERENCES proposal_wtc(id) ON DELETE SET NULL
+```
+
+- **`uuid` type** — mirrors `proposal_wtc.id`'s uuid PK shape (CLAUDE.md verified columns block). Not `text` like proposals.id; proposal_wtc PKs are uuid.
+- **`NULL`-able** — required for backward compatibility. Every `proposal_wtc` row that existed before Migration 1b will have NULL. Source proposals (those that have never been cloned _from_) will have NULL on all their WTC rows forever — that's the parent marker. Sisters' WTC rows will have NOT NULL after 1b ships.
+- **Self-FK to `proposal_wtc(id)`** — explicit reference, lets PostgREST and any downstream joiner walk lineage without a string-parse. Matches the `proposals.cloned_from_proposal_id text REFERENCES proposals(id)` precedent.
+- **`ON DELETE SET NULL`** — chosen over CASCADE and RESTRICT. Rationale: if a source proposal's WTC row is hard-deleted (rare; happens via WTCCalculator delete on an un-locked parent), surviving sister WTCs become orphans-of-sync but remain valid as standalone rows. CASCADE would silently destroy sister data the rep never asked to lose; RESTRICT would block legitimate parent-WTC deletion and force a confusing UX dialog. SET NULL is the same precedent set by `proposals.cloned_from_proposal_id` (V4 inventory line 2014–2018 confirms the proposals-level FK uses SET NULL; we match).
+
+**[DERIVED]** Backfill policy: **no backfill of pre-1b rows.** Justification: there are zero active sisters in prod today (multi-GC clone RPC has not shipped). All existing `proposal_wtc` rows are on parent proposals (`proposals.cloned_from_proposal_id IS NULL`). The correct value for a parent's WTC's `cloned_from_wtc_id` is NULL anyway. The column lands with `DEFAULT NULL` and migration 1b touches no existing rows.
+
+**[DERIVED]** Index strategy: **one btree index on `(cloned_from_wtc_id)`, partial `WHERE cloned_from_wtc_id IS NOT NULL`.** Rationale: the read pattern for sync is "given a source WTC's id, find all child rows with `cloned_from_wtc_id = $1`." That's a single-column equality lookup on a column where the majority of rows are NULL (every parent's WTC, plus every pre-1b row). Partial-NOT-NULL index keeps the index small and the lookup planner-friendly. Mirrors `idx_proposals_cloned_from` shape from Migration 1a line 33–34 (which is NOT partial, but for proposals the NULL-ratio rationale is identical; we can revisit whether 1a's index should also be partial in a separate scope-noted cleanup — not in this amendment).
+
+**[DERIVED]** No new RLS — `proposal_wtc` already has RLS scoped on parent `proposals.tenant_id`. The self-FK target is in the same table, so RLS already covers reads on both sides.
+
+#### B. Sync identity rule
+
+**[LOCKED]** Siblings join on **`child.cloned_from_wtc_id = parent.id`**. "Parent" is the **immediate predecessor** in the clone tree, not the root. Every row's `cloned_from_wtc_id` points to its direct source `proposal_wtc.id` at the moment of clone. The §5 sync RPCs read this column as the canonical join key, replacing every `AND work_type_id = v_wtc_source.work_type_id` predicate in the Round-2 bodies (lines 727–728, 737, 909, 934, 937, 940, 943, 946, 949, 952, 955, 963, 978–979).
+
+**[DESIGN-OPEN]** **Multi-generation chains deferred.** v1 sync assumes exactly two generations: a source proposal and its directly-cloned sisters (one clone event, `clone_proposal_to_gcs`). The plan doc has no flow that produces a clone-of-a-clone today (§4 takes one source + N targets; §6 award flow flips status, doesn't re-clone). If a future feature adds clone-of-a-clone (e.g. "fork this sister into its own multi-GC fan-out"), the sync RPCs need either (i) recursive WITH lineage walks, or (ii) a `parent_chain text[]` column. Either is a non-trivial schema + RPC change. **v1 scope:** sync walks one generation only. If a row has a `cloned_from_wtc_id` whose own `cloned_from_wtc_id` is non-NULL, the inner row is not visible to sync from the outer-most source. Document in the migration comment; surface in BACKLOG if/when needed. **Needs ratification before §10 step 6 build.**
+
+**[DERIVED]** "Sister missing this WTC" semantics survive intact. Round-2's `apply_source_edit_to_sisters` handles the case where the sister manually deleted a cloned WTC by emitting `reason='missing_on_sister'` in the `skipped[]` payload (lines 912–919). Under the new identity rule: the join `WHERE cloned_from_wtc_id = v_wtc_source.id` returns zero rows; the existing CONTINUE branch fires; same surface to the client. No UX change.
+
+**[DERIVED]** "Sister has WTC source never had" semantics. With work_type_id as join key, a sister could add a new WTC of a work_type the source didn't have, and the sync RPC would correctly not touch it (no matching source row). Under the new identity rule: a sister-added WTC row has `cloned_from_wtc_id = NULL` (it wasn't cloned from anything). The sync RPC walks source WTCs and looks for children — sister-added rows are invisible to that walk. Same correct outcome. Confirms the new join is at least as expressive as the old one for the cases that mattered.
+
+#### C. Interaction with `locally_edited_fields` (already shipped in Migration 1a)
+
+**[LOCKED]** `proposal_wtc.locally_edited_fields text[] NOT NULL DEFAULT '{}'` is already live on prod (Migration 1a line 52–53). This amendment does not touch the column shape, the field vocabulary defined in §5 Sync Semantics — Resolution §2 (line 620), or the auto-population trigger planned in §10 step 7.
+
+- **Sync-eligible fields** — same set as Round-2 locked: `intro` (proposals scope), `sales_sow`/`size`/`unit`/`discount`/`discount_reason` (WTC scalars), `field_sow`/`materials`/`sub_areas` (WTC jsonb at column granularity), `travel:<key>` (WTC travel at sub-key granularity). **No change.**
+- **Always-local fields** — fields that are explicitly per-GC and never sync: `customer_id`, `markup_override_pct`, `rfp_number`, `bid_due_date` (proposals); `regular_hours`, `ot_hours`, `markup_pct`, `burden_rate`, `ot_burden_rate`, `tax_rate`, `prevailing_wage`, `locked`, `locked_line_total`, `start_date`, `end_date` (proposal_wtc — confirmed by §4 clone INSERT shape, lines 502–515; start_date/end_date flagged DESIGN-OPEN at line 548 but Chris ratified per-GC during Round-3 audit pass per AUDIT_LOG, so assumed [LOCKED] as per-GC unless re-flagged). The new lineage column does not extend or contract this set.
+- **Conflict resolution under lineage join** — unchanged from Round-2: a child row's `locally_edited_fields[]` contains a field name → that field is "locally dirty" → parent edits to it return as `conflicts[]` in preview output and `reason='locked'` in apply output unless `p_force_overwrite[]` includes the `<sister_id>:<field>` key. Lineage only changes _which child row pairs with which source row_; it doesn't change _what gets compared_ on a pair.
+
+**[DERIVED]** New edge case the lineage column creates: **child with `cloned_from_wtc_id` pointing at a since-SET-NULL'd target** (i.e. source WTC was hard-deleted post-clone). Under SET NULL the orphan child has `cloned_from_wtc_id = NULL`. The sync RPC walking source WTCs sees no matching child (NULL never equals anything in a JOIN). Orphan is silently invisible to sync — it remains a valid standalone WTC row, no longer "a sister WTC." This is the right outcome: the source row that authorized the sister-link is gone, so sync should not fire. Surface in §8 edge cases (noticed-but-not-touched) — see Stay-Scoped note in final report.
+
+#### D. Migration 1b shape (DDL spec, not the file)
+
+Migration 1b adds two things, in this order, in one file:
+
+1. **Column ADD** on `proposal_wtc`:
+   - Adds `cloned_from_wtc_id uuid NULL`.
+   - Adds the FK constraint `proposal_wtc_cloned_from_wtc_id_fkey` referencing `proposal_wtc(id) ON DELETE SET NULL`.
+   - `ADD COLUMN IF NOT EXISTS` + `ADD CONSTRAINT IF NOT EXISTS` guards per repo convention.
+2. **Index CREATE** — partial btree on `(cloned_from_wtc_id)` `WHERE cloned_from_wtc_id IS NOT NULL`. Name: `idx_proposal_wtc_cloned_from_wtc_id`.
+3. **Comment block** at the top of the migration explaining: F16 closure, multi-generation deferral, no-backfill rationale, why SET NULL not CASCADE.
+
+**No PostgREST schema reload required for an additive column on an existing RLS-enabled table** — PostgREST picks up new columns on next request schema-cache refresh. The migration is safe to apply during a normal deploy window.
+
+**No data backfill.** Migration is purely DDL.
+
+**No RPC bodies in 1b.** The new RPCs (clone wiring + sync wiring) ship in a separate later migration along with `award_proposal` + `reverse_award` per §10 step 6. Reason: 1b is the schema substrate; step 6 is the functional rollout. Separating them lets us prove 1b's substrate against prod (read paths, trigger semantics) before committing to RPC bodies.
+
+**[DESIGN-OPEN]** **Migration filename timestamp** — left for cross-repo coordination per O7. sales-command and sch-command share Supabase project `pbgvgjjuhnpsumnowuym` and have no timestamp coordination convention. Naming convention so far: `YYYYMMDDHHMMSS_short_name.sql`. Proposed: `20260514HHMMSS_multi_gc_lineage.sql` _after_ confirming no sch-command migration is in flight at the chosen second. **Needs O7 resolution (pre-draft ledger query + pre-push hook) before the file lands.** If O7 hasn't shipped by the time Migration 1b is ready, run a manual `migration list --linked` immediately before assigning the timestamp.
+
+#### E. Confidence tag summary
+
+| Subsection | Tag | Notes |
+|---|---|---|
+| Column shape (type, nullability, self-FK, ON DELETE SET NULL) | [LOCKED] | Ratified on F16 filing; mirrors `proposals.cloned_from_proposal_id` precedent. |
+| Backfill policy (none) | [DERIVED] | Forced by zero-active-sisters fact. |
+| Index strategy (partial btree, NOT NULL) | [DERIVED] | Standard pattern for sparsely-populated lineage columns. |
+| Sync identity rule (lineage join, immediate-predecessor) | [LOCKED] | Direct corollary of column shape + §5(c) Reversal premise. |
+| Multi-generation chain deferral | [DESIGN-OPEN] | Needs Chris ratify before step 6 build. |
+| locally_edited_fields field set unchanged | [LOCKED] | Round-2 + Migration 1a. |
+| Always-local field set | [LOCKED] except start_date/end_date carry-over | start_date/end_date assumed per-GC per Round-3 AUDIT_LOG; re-confirm in step 6 ratification. |
+| Orphan-child-after-SET-NULL semantics | [DERIVED] | Direct consequence of FK behavior + sync RPC structure. |
+| Migration 1b DDL shape | [LOCKED] for column + FK + index; [DESIGN-OPEN] for filename timestamp | Filename gated on O7. |
+
 ---
 
 ## §6 Award flow
@@ -1946,6 +2026,58 @@ _Audit terminal ratified 2026-05-11. All 13 sub-DESIGN-OPENs surfaced by the §7
 6. **RPCs** — `clone_proposal_to_gcs`, `award_proposal`, `preview_sync_to_sisters`, `apply_source_edit_to_sisters`, `reverse_award`. Single migration, all SECURITY DEFINER, all check `NO_TENANT`.
    - **2026-05-12 amendment:** Blocked by O5/Migration 1b — UNIQUE `(proposal_id, work_type_id)` constraint must apply before §4 + §5 RPCs ship. Plan line 1214: both §4 clone and §5 sync RPCs join by `work_type_id`; without UNIQUE they are "silently wrong half the time." V8 pre-flight (2026-05-12) returned 17 dup pairs across 14 proposals; UNIQUE deferred to Migration 1b pending B17 (importer root-cause) + B18 (dup triage).
    - **2026-05-12 (second amendment):** First amendment (blocked-by-O5) is overturned. O5 closed Won't-Do (see §5(c) Reversal). §10 step 6 is now blocked on F16 (§5 sync-identity re-plan via `cloned_from_wtc_id` lineage column), NOT on Migration 1b UNIQUE constraint.
+   - **2026-05-13 (third amendment) — F16 closure (Amendment 3):** Step 6 now consumes the lineage column locked in §5 Amendment 1 — 2026-05-13. Build sequence for step 6 is updated below. **Does not edit prior amendments.** Companion to §5 Amendment 1; the two amendments must be ratified together before any RPC code lands.
+
+   **A3.1 Sequencing inside step 6.** Step 6 splits into two sub-steps:
+   - **6a. Migration 1b** — ships the `proposal_wtc.cloned_from_wtc_id` column + partial index per §5 Amendment 1 §D. **Must apply to prod before any 6b RPC body is authored.** Filename timestamp [DESIGN-OPEN] per O7 (cross-repo coordination). Rationale for splitting: lets the substrate exist on prod (PostgREST schema cache picks up the new column on next request, sync RPCs can be re-checked against actual schema before commit) without coupling the schema decision to the RPC-body decision.
+   - **6b. RPC migration** — `clone_proposal_to_gcs` (revised body per A3.2), `preview_sync_to_sisters` (revised body per A3.3), `apply_source_edit_to_sisters` (revised body per A3.3), `award_proposal`, `reverse_award`. Single migration. All `SECURITY DEFINER`, all check `NO_TENANT`. `award_proposal` and `reverse_award` are **unchanged** by F16 — they touch proposal-level status and don't join WTCs cross-sister (confirmed by §5 Sync Semantics — Resolution §6 line 1029: "No award-flow changes needed").
+
+   **A3.2 Clone RPC body changes (`clone_proposal_to_gcs`).**
+
+   - **Shape change.** The §4 INSERT-SELECT at lines 498–518 (which copies all parent `proposal_wtc` rows into the new sister using a single set-based SELECT) becomes incompatible with the lineage requirement, because it does not capture the source row's `id` per output row. **[LOCKED]** Replacement shape: replace the single INSERT-SELECT with a **row-by-row loop** over `SELECT id, work_type_id, sales_sow, … FROM proposal_wtc WHERE proposal_id = p_source_proposal_id`, where each loop iteration does an INSERT that includes `cloned_from_wtc_id = <source_row.id>` in the column list. Alternative considered and rejected: INSERT-SELECT with the source `id` carried through via `SELECT id AS cloned_from_wtc_id, …` — rejected only on readability grounds; the row-by-row loop matches the existing `FOR v_target IN jsonb_array_elements(p_targets)` style at §4 line 476 and is easier to audit. Decision is non-load-bearing; build can pick either; **[DESIGN-OPEN]** which one Chris prefers — flagging for ratification with §10 step 6 build.
+   - **New column in INSERT column list.** Add `cloned_from_wtc_id` between `locally_edited_fields` and the value list. The new VALUES tuple sets `cloned_from_wtc_id := <source_row.id>` (uuid passthrough; no cast).
+   - **Empty `locally_edited_fields` invariant preserved.** Sister WTC rows still ship with `locally_edited_fields = '{}'::text[]` (Round-2 locked + Migration 1a default). The lineage column is independent of the override-tracking array.
+   - **C2 invariants preserved.** `locked = false`, `locked_line_total = NULL` per the C2 fix at §4 line 515. The lineage column doesn't interact with locking.
+   - **Audit-row impact.** `proposal_clones` row (§4 line 525–532) is per-sister-proposal, not per-WTC. **No change.** If a future audit demands per-WTC clone events, it's a new table, not a column on `proposal_clones`. [Out of scope.]
+   - **Idempotency of clone.** Clone is not idempotent today (a second invocation creates a second set of sisters with new uuid PKs and new `cloned_from_wtc_id` values pointing at the same source rows). Acceptable: clone is invoked once per multi-GC wizard run; the wizard's "Send to N GCs" button has its own client-side double-invoke guard (§7 wizard scaffold, step 8). The lineage column doesn't change this posture.
+   - **What happens if the source row is a sister itself (clone-of-clone) at call time.** Per §5 Amendment 1 §B, v1 defers multi-generation chains. Step-6 build option: either (a) reject the call with `RAISE EXCEPTION 'NESTED_CLONE_NOT_SUPPORTED'` when `v_source.cloned_from_proposal_id IS NOT NULL`, or (b) silently allow and produce a grandchild with `cloned_from_wtc_id` pointing at the sister WTC (semantically valid, but sync RPC won't walk to the grandchild from the original parent). **[DESIGN-OPEN]** Recommend (a) — explicit rejection now, lift the gate when multi-generation lands. **Needs ratification before step 6b build.**
+
+   **A3.3 Sync RPC join-key change (`preview_sync_to_sisters` + `apply_source_edit_to_sisters`).**
+
+   The Round-2 RPC bodies (lines 632–996) read source WTCs in an outer loop and inner-look-up the sister's matching WTC by `work_type_id`. F16 inverts that to lineage. Two read shapes are possible; both produce the same output, both require the same edits, the choice is stylistic:
+
+   - **Outer source / inner lineage lookup** (closest to Round-2 shape). Outer loop is unchanged: `FOR v_wtc_source IN SELECT * FROM proposal_wtc WHERE proposal_id = p_source_proposal_id`. Inner lookup changes from `WHERE proposal_id = v_sister.id AND work_type_id = v_wtc_source.work_type_id` to `WHERE proposal_id = v_sister.id AND cloned_from_wtc_id = v_wtc_source.id`. Every subsequent `UPDATE` predicate in the apply RPC (lines 933, 936, 939, 942, 945, 948, 951, 954, 962–963, 976–979) changes the same way. **[LOCKED]**
+   - **Outer lineage walk** (alternate). Walk siblings via `FOR v_child IN SELECT * FROM proposal_wtc c JOIN proposal_wtc p ON c.cloned_from_wtc_id = p.id WHERE p.proposal_id = p_source_proposal_id AND c.proposal_id = v_sister.id`. More set-based; loses the explicit "missing on sister" surface (CONTINUE branch at line 731–733 / 912–919) which provides UX-relevant skipped-rows reporting.
+
+   **Build recommendation:** use the outer-source/inner-lineage shape to preserve the missing-on-sister surface. The line-count delta from Round-2 is small (one predicate change per query). **[DESIGN-OPEN]** for ratify-only — Chris confirms the shape choice during step 6b drafting.
+
+   **Read path (preview).** Unchanged at the level of "compute diff per source row × sister proposal × field, gate conflicts via locally_edited_fields[]." Only the JOIN predicate changes. Output schema (sisters[].pending[], sisters[].conflicts[], scope='wtc:<work_type_id>') is unchanged — `scope` still uses `work_type_id` because that's what surfaces in the UI conflict modal (the rep thinks in work-type names, not in lineage uuids). The conflict modal's field-label rendering doesn't need to know about `cloned_from_wtc_id`. **[LOCKED]**
+
+   **Write path (apply).** Same JOIN predicate change. The `v_locked` lookup at line 905–910 changes its WHERE clause; the UPDATE predicates at lines 933–965 change their WHERE clauses; the flag-removal UPDATE at lines 976–979 changes its WHERE clause. **No new branches.** **[LOCKED]**
+
+   **A3.4 Field-level sync direction & conflict rules.**
+
+   - **Direction: parent → siblings only.** Sync never propagates sibling → parent or sibling → sibling. **[LOCKED]** Already locked by Round-2; F16 doesn't disturb this.
+   - **Two siblings independently edit the same field.** Each sibling's WTC row gets its own `locally_edited_fields[]` array; the trigger at §10 step 7 fires per-row. There is no sibling-to-sibling comparison anywhere in the sync path. Each sibling's conflict state is purely its own field-override array versus the parent's current value. **[LOCKED]** by structure; no new rule needed.
+   - **Parent edits a field that's locally-dirty on sibling A but clean on sibling B.** Preview returns sibling A in `conflicts[]` and sibling B in `pending[]`. Apply (without force) writes B quietly and skips A with `reason='locked'`. Apply (with force on A) writes both and removes the flag from A's array. **[LOCKED]** — Round-2 §5 Sync Semantics §4 already encodes this exactly; lineage join doesn't change the per-sibling gating.
+   - **Parent has no siblings at all.** The outer `FOR v_sister IN SELECT … WHERE cloned_from_proposal_id = p_source_proposal_id …` loop is empty. Both RPCs return `{ sisters: [] }` and `{ synced: [], skipped: [] }` respectively. Client should suppress the conflict modal when preview returns empty `sisters[]` per Round-2 §5 line 1005. **[LOCKED]**
+   - **Parent has siblings but no WTC rows have any matching child (all SET NULL or all manually deleted).** Outer loop returns sibling rows; inner WTC walk yields zero matches; sibling appears in output with empty `pending[]` and empty `conflicts[]`. Client should suppress the modal in this case too (treat empty-pending-and-conflicts-across-all-sisters as "nothing to do"). **[DERIVED]** Already implicit in Round-2 §5 line 1005 ("if all sister responses have empty `conflicts[]`, skip the modal and silently call apply"); add a parallel check for empty `pending[]` AND empty `conflicts[]` to skip apply entirely. **[DESIGN-OPEN]** for the implicit-suppress logic — needs a 1-line addition to Round-2's client-side flow doc, flagging for ratification.
+
+   **A3.5 Idempotency & re-entrancy.**
+
+   - **Preview is idempotent.** It only reads. Two consecutive calls with the same `p_source_proposal_id` against an unchanged database return identical output. **[LOCKED]**
+   - **Apply is idempotent on no-op fields.** If a field is already in sync (parent value == sister value), the UPDATE writes the same value and `locally_edited_fields[]` is untouched. Second call is a no-op. **[LOCKED]**
+   - **Apply is non-idempotent on force-overwrite of a locked field.** First call: writes parent value, removes the flag. Second call with the same `p_force_overwrite[]` argument: writes parent value (no-op write), but `array_remove(locally_edited_fields, v_field)` is also a no-op (flag is gone). End state is the same; second call costs an unnecessary UPDATE per sister WTC but causes no semantic drift. **[DERIVED]** Acceptable; no client-side retry guard needed.
+   - **Re-entrancy under concurrent parent saves.** Both RPCs take row-level `FOR UPDATE` on the source proposal (Round-2 line 855) and on every sister proposal (Round-2 line 866). Two concurrent calls to apply serialize at the source row; the second call sees post-first-call WTC state and produces a smaller diff. No deadlock risk because lock order is deterministic (source first, then sisters in PK order via the same `SELECT … FOR UPDATE` set). **[LOCKED]** — Round-2 already locked this.
+   - **Re-entrancy: sister edited between preview and apply.** Preview returned sister X with conflict on `materials`. Rep clicks "Sync, overwrite materials on X." Between the preview call and the apply call, a different user edits X's materials (legitimate concurrent edit) — the trigger appends `'materials'` to X's `locally_edited_fields[]` (if not already there; it was already there per preview result) and updates `updated_at`. Apply (with `p_force_overwrite` containing `<X>:materials`) proceeds and overwrites X's now-newer materials with parent's value, removing the flag. **The concurrent edit is silently lost.** This is acceptable for v1 — same posture as any "preview then commit" UX. Document in §7 UX copy: "If another user edits this sister while you're choosing, your overwrite will replace their edit." **[DESIGN-OPEN]** for the UX copy ask; recommend defer to a future round (out of step 6 scope).
+
+   **A3.6 Out of scope for this amendment (noticed-but-not-touched per stay-scoped rule).**
+
+   - `award_proposal` / `reverse_award` bodies — unaffected by F16, ship in step 6b unchanged from §6's locked plan.
+   - `proposal_sync_events` audit table — deferred per §5 Leftover Cleanup (b); F16 doesn't change that posture.
+   - Multi-generation chain support — deferred per §5 Amendment 1 §B.
+   - Sister-added WTC rows (rows with `cloned_from_wtc_id IS NULL` on a sister proposal) visibility to sync — they are invisible to source-walked sync by structure; no surface needed in v1.
+   - Edit on `WTCCalculator.jsx` to call apply with new arg shape — already documented in §5 Sync Semantics — Resolution §6 line 1033; lineage column doesn't change the client-side arg shape (still `p_source_proposal_id text, p_changed_fields text[], p_force_overwrite text[]`).
 7. **DB trigger** for `locally_edited_fields` auto-population on proposal_wtc UPDATE.
 8. **Wizard component** — scaffold under feat/multi-gc-allocation. 4 screens. Local state only at first, then wire to RPCs.
 9. **UI surfaces** — sister sidebar in ProposalDetail, GCs panel in CallLogDetail, source-edit conflict modal, entry buttons. **Multi-GC count chip on CallLog.jsx must use a single PostgREST aggregate query (or a denormalized `active_proposal_count` field on call_log), NOT an N+1 fetch per row** — CallLog paginates at 1000 and N+1 would compound. Per Round 5 Ratification #11. Sister differentiator on Proposals.jsx: `↳` indent + `SISTER` chip; consider grouping by `call_log_id` if list ordering scatters sisters from source (per Ratification #12).

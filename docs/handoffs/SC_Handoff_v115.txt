@@ -1,0 +1,289 @@
+SC Handoff v115 — 2026-05-13
+============================
+
+SESSION SUMMARY
+A2-PrdEnv (production-environment audit) session against §10 step 3
+of the multi-GC allocation plan — "Client fallback pattern rollout."
+Goal: verify the §11 V5 inventory matches the current repo before
+Sweep-1 build kicks off. All 7 V5 sites confirmed line-for-line and
+the `get_public_proposal_view` RPC still carries the
+`c.id = cl.customer_id` predicate at mig `20260510120000:344`. Audit
+surfaced two structural gaps V5's `customer_id`-only frame missed —
+the joined `customers` object is stale at the same four Class A
+sites as the bare id, and `Customers.jsx:519` uses `call_log!inner`
+which forces a SQL INNER JOIN before any `.or()` can reach. Plus
+one line-cursor lint (V5's `qb-create-job:146` cite is now at `:160`).
+Drafted §10 step 3 Amendment 1 capturing both gaps + the lint with
+the same confidence-tagged structure as §5 Amendment 1, then ran
+all three [DESIGN-OPEN] items through ratification with Chris one
+at a time. ERD Loop #2 (inaugural §10 step 3 work) — locked 16:04,
+closed 16:23 — 19m elapsed against an 11h budget. No code, no
+migrations, no edge functions, no prod changes — pure plan layer.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+Commits on feat/multi-gc-allocation (chronological, both pushed to
+origin before this handoff lands):
+
+7183b36 — plan: §10 step 3 Amendment 1 — Section 3 audit deltas
+  Authored directly via Edit (mechanical write — audit findings
+  were already in hand, no agent spawn needed). Appended ~71 lines
+  to docs/plans/multi_gc_allocation.md as an inline amendment block
+  under §10 step 3, mirroring the §10 step 6 inline-amendment style
+  from v114. Sections: A1.1 (Class A `customers` join staleness),
+  A1.2 (Class B `!inner` blocker), A1.3 (line-cursor lint), A1.4
+  (confidence tag summary table), A1.5 (out-of-scope notes).
+  Confidence-tagged throughout ([LOCKED]/[DERIVED]/[DESIGN-OPEN]).
+  Append-only verified via git diff --stat (+71 / -0) before commit.
+
+061fc40 — plan: §10 step 3 Ratifications — 2026-05-13 — locks 3
+  DESIGN-OPEN items from Amendment 1
+  Authored directly via Edit (mechanical write — ratifications
+  conversation already complete). Appended ~23 lines to plan doc as
+  new section after the F16 Ratifications block (mirroring v114's
+  ratification commit shape). Canonical audit-pass table shape
+  (# / Item / Amendment rec / Ratification / Notes). All 3 items
+  flip [DESIGN-OPEN] → [LOCKED]; upstream Amendment 1's DESIGN-OPEN
+  flags intentionally left in place per [Schema Amendment Not
+  Overwrite]. Append-only verified (+23 / -0).
+
+Cumulative session diff: docs/plans/multi_gc_allocation.md (+94 / -0).
+No other files modified.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+Three [DESIGN-OPEN] items raised by Amendment 1, all ratified same-
+session via the walk-through pattern (one item, short context, lock,
+next):
+
+#1 Resolution helper placement — `useResolvedCustomer(p)` hook in
+   `src/lib/proposalCustomer.js`, NOT inline `??` per component.
+   Reasoning: the 2-line rule will appear in 3+ component files
+   (ProposalDetail, ProposalPDFModal, and any caller that resolves
+   customer off a proposal). Hook centralizes the rule; if Sweep-2
+   adds another fallback layer or the field set widens, one file
+   changes instead of N. Chris's framing was "safer per artifact" —
+   he was tracking the inverse mental model (B is less local, not
+   more) until clarified; correct conclusion either way. Locked B.
+
+#2 View name — `v_proposal_customer_resolved`, NOT
+   `proposals_with_effective_customer` or `v_proposals_customer`.
+   Reasoning: repo has exactly one existing view (`v_orphan_auth_users`)
+   so the `v_` prefix is convention. Picked the rule-naming over
+   entity-naming — the view's whole purpose is the resolution rule
+   (COALESCE customer_id chain), not the proposal+customer entity
+   shape. Reads honestly as "the customer after the ?? rule is
+   applied."
+
+#3 Schema-cache curl probe target — prod read-only via anon key,
+   NOT staging. Reasoning: sales-command has no staging Supabase
+   project. Migration 1a was applied direct to prod. Probe is one
+   `curl …select=id,customers!proposals_customer_id_fkey(id)&limit=1`
+   — single row, read-only by construction, same shape as every
+   Vercel-preview page load. Zero risk to verify against the actual
+   deploy target. Spinning up staging just for one curl is theatre.
+
+Other notable calls from the audit body itself (not ratifications,
+but worth flagging as the shape of the session):
+
+A1.1 — When V5 said "Class A derives single customer from a
+   proposal," it meant the bare id only. The `customers` join
+   object on the same 4 sites silently follows the same wrong
+   branch when `proposals.customer_id ≠ call_log.customer_id`.
+   Verified via direct read of all four call sites
+   (send-invoice:72-73, send-pay-app:181-182, ProposalDetail:282-287,
+   ProposalPDFModal:31-33). All four consume the joined `customers`
+   record for downstream reads (billing_email, contact_email,
+   customer_name, allowed-recipient set). Fix at id-line alone is
+   incomplete. Locked dual `customers` embed via the
+   `proposals_customer_id_fkey` FK (auto-named by Migration 1a
+   lines 19-21).
+
+A1.2 — `Customers.jsx:519`'s `call_log!inner(customer_id)` blocks
+   `.or()` from reaching proposals where `proposals.customer_id`
+   matches but `call_log.customer_id` doesn't. SQL INNER JOIN
+   resolves before PostgREST applies `.or()`. V5's
+   "`.or()` or refactor to a view" wording is correct in direction
+   but `.or()` alone won't fix `:519`. Locked the view path.
+
+VERIFICATION
+────────────
+Plan-doc only, no code touched. Verified via:
+- `git diff --stat` confirmed both commits limited to
+  `docs/plans/multi_gc_allocation.md`. Append-only verified before
+  each commit (+71 / -0 and +23 / -0).
+- Audit findings cross-checked against live repo: fresh
+  `grep -rn "call_log?.customer_id"` matched V5 inventory exactly
+  (5 Class A + 2 Class B + 1 Class C); the Class C site shifted
+  line cursor :146 → :160 (lint A1.3).
+- Migration 1a re-read to confirm `proposals_customer_id_fkey`
+  shape (lines 19-21: `ADD COLUMN IF NOT EXISTS customer_id uuid
+  REFERENCES public.customers(id) ON DELETE SET NULL`). FK exists,
+  embed shape is buildable.
+- All four A1.1 sites read directly (lines and surrounding context)
+  to confirm the `customers` join object is consumed downstream
+  not just the bare id.
+
+This is a **code-review-equivalent verification only** — no curl
+probe run yet, no edge-fn deploy, no migration applied. The schema-
+cache probe is spec'd in Amendment 1 for the build session to run
+as a one-shot pre-flight before patching edge fns.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+Carryforward from v114 — all still open:
+- O3 (H5 Migration B — drop 1-arg `mark_proposal_signed` compat
+  wrapper + legacy anon-insert policy). 48h gate now ~36h past;
+  still Open, still safe to drop.
+- O6 (migration history not replayable from zero).
+- O7 (multi-repo migration coordination). Still T1. The Amendment 1
+  view migration will hit this wall again — needs a timestamp from
+  `migration list --linked` immediately before draft.
+- v113 deferred prod smokes: scmybiz.com read path on existing
+  proposals (~30s) + trigger NO-OP on real prod parent (~1min).
+- §11 V9 verification (orphan-child after `ON DELETE SET NULL` on
+  parent WTC).
+- `idx_proposals_cloned_from` partiality flag in Migration 1a.
+- F16 step 6a (Migration 1b — `proposal_wtc.cloned_from_wtc_id`
+  column). Still highest-priority unstarted build per v114. This
+  session pivoted to step 3 instead; 6a is still build-unblocked
+  and waiting.
+
+Deliberately deferred this session:
+- `get_public_proposal_view` RPC update — step 3 original sentence
+  still requires it. Not in this audit's scope. Build session must
+  review the RPC return shape against Amendment 1 before authoring
+  the RPC migration.
+- Build-time grep for `call_log?.customers` outside the 4 named
+  A1.1 sites — recommended in Amendment 1 §A1.5 to close certainty
+  before patches land. ~30s of grep at build start.
+
+NEW BACKLOG ITEMS
+─────────────────
+None filed. Section 3 work is tracked inside the plan doc, not as a
+discrete BACKLOG row.
+
+CLOSED THIS SESSION
+───────────────────
+None. The §10 step 3 work itself is mid-flight — Amendment +
+ratifications land the plan layer, but the build is still pending.
+F16 stays T1 Open; F14/F15 stay T3 Open.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Read order: docs/BACKLOG.md → this handoff (v115) →
+   docs/plans/multi_gc_allocation.md (specifically: §10 step 3
+   original sentence + Amendment 1 + V5 inventory at §11 + §10
+   Step 3 Ratifications block at end of file).
+
+2. **Two roads diverge — choose first.**
+   - **Road A: F16 step 6a (Migration 1b).** Still v114's
+     highest-priority pointer. Author
+     `supabase/migrations/<ts>_multi_gc_1b_lineage.sql` per §5
+     Amendment 1 §D + F16 Ratifications. Timestamp protocol per
+     F16 Ratification #2: run `supabase migration list --linked`
+     immediately before assigning timestamp. Apply via
+     `supabase db push --linked`. Build-mode entry.
+   - **Road B: §10 step 3 Sweep-1 (Client fallback rollout).**
+     Now fully spec'd via Amendment 1 + Ratifications. Build
+     sequence:
+       1. Run prod read-only curl probe: `curl "$URL/rest/v1/
+          proposals?select=id,customers!proposals_customer_id_fkey
+          (id)&limit=1"` — expect `{customers: null}` on parents.
+          One-shot, no writes.
+       2. Author `src/lib/proposalCustomer.js` with
+          `useResolvedCustomer(p)` hook (returns `{ custId,
+          customer }` per Amendment 1 §A1.1).
+       3. Edge fn patches: `send-invoice` and `send-pay-app`. Add
+          dual `customers` embed via `proposals_customer_id_fkey`.
+          Resolve via `??`. Deploy with `--no-verify-jwt` per
+          memory.
+       4. Client component patches: `ProposalDetail.jsx`,
+          `ProposalPDFModal.jsx`, plus callers in `Proposals.jsx`
+          and `Home.jsx`. Mirror the embed in the page-level
+          selects.
+       5. **`ProposalDetail.jsx:287` state-mutation revision** —
+          when `p.customers` is non-NULL, mutate `prev.customers`;
+          else fall back to `prev.call_log.customers`.
+       6. View migration: `CREATE OR REPLACE VIEW
+          public.v_proposal_customer_resolved …`. New migration
+          file, run `migration list --linked` first per O7.
+       7. `Customers.jsx:258` and `:519` switch to view via
+          `.eq("effective_customer_id", customer.id)`.
+       8. `get_public_proposal_view` RPC update — COALESCE
+          customer chain in RPC body. Same review pass: verify
+          which customer fields the RPC returns, ensure no stale
+          `customers` join.
+       9. Pre-commit: re-grep V5 sites for line-cursor drift
+          (per Amendment 1 §A1.3).
+
+3. Owed from v113: prod read-path smoke (~30s) + trigger NO-OP
+   smoke (~1min). Either safe to run cold; do them before either
+   road's first deploy.
+
+4. O3 — 48h gate well past. Drop the 1-arg `mark_proposal_signed`
+   compat wrapper + legacy anon-insert policy. Should not stay
+   open another session.
+
+5. O7 — cross-repo migration coordination is now a load-bearing
+   concern for **two** pending migrations (F16 step 6a Migration
+   1b + step 3 view migration). Worth its own planning loop. Both
+   workarounds (manual `migration list --linked` immediately
+   before timestamp) survive without it, but the friction
+   compounds with each one.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+docs/plans/multi_gc_allocation.md
+  — +94 / -0 this session. New blocks: §10 Step 3 Amendment 1
+    (inline under step 3 at line ~2025), §10 Step 3 Ratifications
+    (appended at end of file, after F16 Ratifications). Read both
+    in order before step 3 build. The pre-existing §5 Amendment 1
+    (line ~1319), §10 step 6 Amendment 3 (line ~2029), and F16
+    Ratifications block from v114 also still required reading for
+    F16 step 6a build.
+
+src/lib/proposalCustomer.js
+  — Does not exist yet. Build session creates it as the home for
+    `useResolvedCustomer(p)`. Per Amendment 1 §A1.1 ratification.
+
+docs/BACKLOG.md
+  — No edits this session. F16 (T1) Open. O3 (carryforward) Open.
+    O7 (carryforward) Open.
+
+supabase/migrations/20260513000000_multi_gc_allocation.sql
+  — Migration 1a, live on prod. Reference for `proposals.customer_id`
+    column shape + FK name (lines 19-21, FK auto-named
+    `proposals_customer_id_fkey`). Required for both Amendment 1
+    §A1.1 embed shape and Amendment 1 §A1.2 view base.
+
+~/erd-loop/LOG.md
+  — Lives on Chris's home, NOT in this repo. Loop #2 CLOSED.
+    13 loops remaining to SDK extraction attempt at loop #15.
+
+GIT STATE ON CLOSE
+──────────────────
+- sales-command branch feat/multi-gc-allocation: 2 new commits
+  this session (7183b36, 061fc40), both pushed to origin. Tip is
+  061fc40 prior to this handoff commit. After this handoff commits,
+  tip will be 3 commits ahead of v114's b897c75; first two already
+  pushed.
+- sales-command main: unchanged. Migration 1a still lives only on
+  feat/multi-gc-allocation.
+- Working tree: 4 modified files in supabase/.temp/*
+  (cli-latest, gotrue-version, storage-migration, storage-version).
+  Intentional carryforward per v114; not included in any commit
+  this session. Stays in working tree across handoff commit.
+- No open PRs touched this session.
+- No scratch projects created or deleted.
+
+END STATE
+─────────
+§10 step 3 (Client fallback pattern rollout) plan layer fully
+spec'd via Amendment 1 + Ratifications, pushed to
+feat/multi-gc-allocation. Build-unblocked for hook + edge fns +
+client components + view migration + RPC update — sequence in
+NEXT SESSION POINTERS. F16 step 6a (Migration 1b) still highest-
+priority unstarted build from v114. ERD Loop #2 closed cleanly
+(19m elapsed vs 11h predicted). Ready for fresh session — pick
+Road A (F16 6a) or Road B (step 3 Sweep-1) at /decide.

@@ -2828,3 +2828,26 @@ _Ratifies the 8 [DESIGN-OPEN] items surfaced by §5 Amendment 1 — 2026-05-13 a
 - §11 V9 verification (orphan-child after `ON DELETE SET NULL` on parent WTC) — prior noticed-but-not-touched.
 - `idx_proposals_cloned_from` in Migration 1a partiality — prior noticed-but-not-touched.
 - §4:548 [DESIGN-OPEN] flag itself: left in place per amendment discipline; #8 above is the authoritative answer.
+
+---
+
+### §10 Step 3 Ratifications — 2026-05-13
+
+_Locks the three [DESIGN-OPEN] items raised by §10 Step 3 Amendment 1 — Section 3 pre-Sweep-1 audit deltas. Audit-pass conversation 2026-05-13 between Chris and Opus 4.7 audit session. Upstream amendment's DESIGN-OPEN flags intentionally left in place per [Schema Amendment Not Overwrite]; this block is the authoritative answer._
+
+| # | Item | Amendment rec | Ratification | Notes |
+|---|---|---|---|---|
+| 1 | A1.1 — Resolution helper placement | `useResolvedCustomer(p)` hook vs inline `??` (defer) | **Accept hook** — `useResolvedCustomer(p)` in `src/lib/proposalCustomer.js` | One shared template over three+ component sites. Uniformity, not locality, is the goal: if Sweep-2 adds another fallback layer, one file changes. Chris: "safer ... per artifact" — read as one-template-vs-three-copies after rule-location clarified. |
+| 2 | A1.2 — View name | `proposals_with_effective_customer` vs shorter (`v_proposals_customer`, etc.) | **Accept `v_proposal_customer_resolved`** | Repo view-naming convention is `v_` prefix (only existing view: `v_orphan_auth_users`). Name describes the **rule** (resolution), not the entity shape — matches what the view does, not what it returns. |
+| 3 | A1.1 — Schema-cache curl probe target | Staging vs prod read-only (defer) | **Accept prod read-only** | No staging Supabase project exists for sales-command. Migration 1a was applied direct to prod. Probe is `curl …select=id,customers!proposals_customer_id_fkey(id)&limit=1` — anon key, single-row read, no writes. Same shape as every Vercel-preview page load already does. Zero risk to verify against the actual deploy target. |
+
+**Step 3 build-readiness after this block:**
+- A1.1 edge-fn patches (`send-invoice`, `send-pay-app`) — unblocked. Verify prod schema cache one-shot before patch, then apply embed + resolution rule.
+- A1.1 client-component patches (`ProposalDetail`, `ProposalPDFModal`, callers in `Proposals.jsx` / `Home.jsx`) — unblocked. Author `src/lib/proposalCustomer.js` first; components consume.
+- A1.2 view migration — unblocked. Single `CREATE OR REPLACE VIEW` in a new migration; no dependency on Migration 1b. Both `Customers.jsx:258` and `:519` switch to the view post-apply.
+- A1.3 — instruction lives in the amendment; build session re-greps V5 sites at start.
+
+**Items NOT touched by this ratification (flagged for separate work):**
+- The `get_public_proposal_view` RPC update (step 3 original sentence, "§11 v98 finding still valid") — still required by step 3 build but not in this audit's scope. Build session reviews RPC return shape against this amendment before authoring the RPC migration.
+- A build-time grep for `call_log?.customers` (outside the 4 named A1.1 sites) — recommended in A1.5 to close certainty; deferred to build session.
+- §10 step 3 original sentence and §11 V5 inventory: left in place per [Schema Amendment Not Overwrite]. This block + Amendment 1 are the authoritative spec.

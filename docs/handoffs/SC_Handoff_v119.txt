@@ -1,0 +1,238 @@
+SC Handoff v119 — 2026-05-14
+============================
+
+SESSION SUMMARY
+A2-PrdEnv (audit + make-it-live) session running in parallel with the
+build terminal that produced v118. Audited the C1 (§10 step 5) build
+output, caught that the build closeout's 10/10 success was overstated —
+code was correct but not actually in prod (commit on feature branch,
+migration unapplied, edge fn not redeployed). Filed B22 as the
+make-it-live tracking row, then drove the full make-it-live sequence
+from this terminal: merge feat/multi-gc-allocation → main (resolved a
+BACKLOG.md conflict and a v117 handoff add/add collision by renaming
+feat's v117 to v118), supabase db push of migration 20260514000000,
+edge fn deploy of proposal-signed, Vercel main build. Ran the smoke
+matrix on TEST customers — multi-GC path passed first try; single-GC
+path blocked on a stale proposal that surfaced two latent signing-flow
+bugs (B23, B24) pre-existing since H5 shipped 2026-05-11; re-ran on a
+fresh TEST proposal and single-GC passed. Closed B22, re-amended Loop
+#6 success back to honest 10/10, filed B23 + B24 as T2 follow-ups.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+Commits on feat/multi-gc-allocation (this session):
+
+aa6b1d9 — backlog: file B22 — C1 built but not live (pending make-it-
+  live + smoke). Filed during the audit before merge, with full make-
+  it-live checklist + smoke matrix inline. Touches B22.
+
+Commits on main (this session, in order):
+
+1738370 — Merge feat/multi-gc-allocation: C1 sister-aware
+  mark_proposal_signed + 'Signed' status (B22). Merge commit. Two
+  conflicts resolved: BACKLOG.md "Last updated" line combined to
+  capture both B21 closure and C1 build; SC_Handoff_v117.txt
+  add/add resolved by renaming feat's v117 → v118 to preserve both
+  sessions' handoffs.
+
+f62c1c0 — backlog: file B23 (Pull Back doesn't clear
+  signing_token_consumed_at) + B24 (PublicSigningPage silent fail UI).
+  Both pre-existing, not C1 regressions. Touches B22 B23 B24.
+
+71893e6 — Closes B22: C1 fix shipped + verified in prod (multi-GC +
+  single-GC smoke passed). Closes B22.
+
+DEPLOYED
+────────
+Project ref: pbgvgjjuhnpsumnowuym
+- Migration 20260514000000_c1_mark_proposal_signed_sister_aware.sql
+  applied via `supabase db push --include-all`. The --include-all
+  flag was needed because the migration's 00:00:00 timestamp is
+  earlier than 20260514130000 (B21 fix already applied 13:00 today);
+  the two migrations touch different objects, no conflict. PostgREST
+  schema cache reloaded via the migration's terminal NOTIFY pgrst.
+- Edge function `proposal-signed` redeployed via
+  `supabase functions deploy proposal-signed --no-verify-jwt`. New
+  body surfaces became_sold from the RPC and uses it to gate the
+  qb-create-job invoke in the customer-side signing path.
+- Vercel main build: deployment J9nyaaow1 (commit 1738370), Ready /
+  Production / Current, built in 6s. salescommand.app + scmybiz.com
+  now serve the 'Signed' status + filter tab.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+1. Honest closeout amendment over silent rewrite. Loop #6 had a 10/10
+   success closeout from the build terminal at 14:16. Auditing prod
+   state showed C1 was not actually live — commit on feature branch
+   only, migration unapplied, edge fn unredeployed. Wrote an
+   AMENDMENT block bringing success down to 5/10 with the prod-state
+   evidence, instead of silently editing the original closeout.
+   Followed [[feedback_schema_amendment_not_overwrite]] discipline.
+
+2. Drove make-it-live from the audit terminal rather than asking
+   Chris to switch contexts. The full sequence (merge, db push, fn
+   deploy) is prod-affecting; broke it into explicit gates with
+   confirmation before each prod-affecting step (push to main, db
+   push, fn deploy). Lower context-switch cost for Chris than
+   handing him 5 commands to run in his own shell.
+
+3. Renamed feat's v117 handoff to v118 instead of squashing one
+   into the other. The two terminals each wrote their own v117
+   because they had no visibility of each other. Both handoffs are
+   load-bearing context — main's v117 documents the B21 closure,
+   feat's documents the C1 build. Renaming preserves both as
+   audit-trail.
+
+4. Filed B22 (in-progress C1 tracking) on feat branch before the
+   merge so the row exists on the source side of the make-it-live
+   cycle. Closed B22 in a separate commit on main after smoke
+   passed — clean Touches → Closes commit history per the
+   sales-command CLAUDE.md convention.
+
+5. Filed B23 + B24 separately rather than bundling into a single
+   "signing flow latent bugs" row. Different surfaces (handler
+   logic vs UI surfacing), different fixes, different blast
+   radius. Bundling would hide the UI bug (B24) under the more-
+   obvious handler bug (B23).
+
+6. Re-ran Test 2 on a fresh proposal instead of force-clearing
+   `signing_token_consumed_at` on the broken test proposal. The
+   force-clear would have been faster but would have masked B23
+   under a "Test 2 passed" — wanted to surface B23 as a real
+   open item rather than make it disappear.
+
+NEW BACKLOG ITEMS
+─────────────────
+- B22 — T2 — C1 fix built but not live (filed In Progress, closed
+  same session). Tracked the make-it-live + smoke cycle.
+- B23 — T2 — Pull Back does not clear signing_token_consumed_at,
+  permanently breaking re-sign on any pulled-back proposal.
+  Pre-existing since H5 (2026-05-11). Smoking-gun row in notes.
+- B24 — T2 — PublicSigningPage shows success to customer even when
+  DB rejects the sign (e.g. 409 ALREADY_SIGNED). Pre-existing.
+  Worse-than-bug class — customer-facing silent failure on a
+  money-bearing surface.
+
+CLOSED THIS SESSION
+───────────────────
+- B22 — closed in commit 71893e6 on main. C1 fix shipped and
+  verified in prod across multi-GC and single-GC paths.
+
+VERIFICATION
+────────────
+Smoke on TEST customers (job_name contains "test" → QB gate stays
+out by ProposalDetail.jsx isTest check):
+
+- Test 1 (multi-GC). PASSED. Proposal on a call_log with ≥2 active
+  sisters. Signed via public URL. Verified in Supabase: proposal
+  status='Signed' (not 'Sold'), approved_at set,
+  signing_token_consumed_at set; call_log.stage='Has Bid'
+  (unchanged); proposal_signatures has one row. QB: no new sub-
+  customer. UI at scmybiz.com: pill renders "Signed", Proposals
+  page filter tab "Signed" present between "Sent" and "Sold".
+
+- Test 2 (single-GC regression). PASSED on second attempt. First
+  attempt blocked by B23 (the chosen TEST proposal had stale
+  signing_token_consumed_at from the H5 prod smoke). Re-ran on a
+  fresh TEST proposal: status='Sold', call_log.stage='Sold',
+  byte-for-byte unchanged from pre-C1 behavior.
+
+NOT directly verified in prod this session:
+- proposal-signed edge fn became_sold response body (verified by
+  the multi-GC smoke succeeding end-to-end, but no explicit log
+  inspection).
+- 1-arg compatibility wrapper still resolves (no traffic to it
+  expected; if it were broken, the 5-arg path is what every
+  client calls).
+- pg_stat_statements traffic to the new RPC (H5's monitoring
+  pattern from O3 — not re-run this session, the O3 gate is on
+  the old 1-arg wrapper which is unaffected by C1).
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+Carried over from v118 — all still open:
+- §10 step 3 (Client fallback rollout) — NOT STARTED.
+- §10 step 4 (S1 fix — Customers.jsx RPCs) — NOT STARTED.
+- §10 step 6a (Migration 1b — cloned_from_wtc_id) — build-unblocked.
+- §10 step 6b (RPCs) — BLOCKED on 6a.
+- §10 step 7 (locally_edited_fields trigger), step 8 (wizard),
+  step 9 (UI surfaces), step 10/11 (smoke + merge).
+- O3 (drop 1-arg wrapper) — safe to pick up; C1 migration landed
+  first as required by sequencing decision in v118.
+- O7 (multi-repo migration coordination) — still T1.
+- B19 (merge_customers gap) — still T2.
+- B23, B24 — filed this session, deferred to next loop.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Read order: docs/BACKLOG.md → this handoff (v119) → v118 (the
+   build session that paired with v119) → docs/plans/
+   multi_gc_allocation.md §10.
+
+2. First action (your call): pick B23 fix as the next loop —
+   you flagged frustration this session about proposal-flow bugs
+   piling up. B23 is a one-line UPDATE in ProposalDetail.jsx
+   handlePullBack to clear signing_token_consumed_at; companion
+   DB cleanup query is in the B23 row of BACKLOG. B24 likely
+   pairs naturally — surfacing the 409 to the customer is a UI
+   tweak in PublicSigningPage.jsx.
+
+3. Or: continue Multi-GC §10 sequence — step 3 (Client fallback
+   rollout) and step 6a (Migration 1b) are both build-unblocked
+   with no dependency on step 5. Step 3 is 6 sites per §A1.1
+   Extension; step 6a is a column add + partial index per §5
+   Amendment 1 §D.
+
+4. Pre-flight before B23 fix: read ProposalDetail.jsx
+   handlePullBack body (line numbers shifted with C1, grep first)
+   to confirm what fields it currently clears, before adding
+   signing_token_consumed_at to the list. Per
+   [[feedback_minimal_fix_first]] — prove what's broken before
+   touching.
+
+5. O3 — now both the 48h gate AND the C1-first sequencing gate
+   are satisfied. Safe to drop the 1-arg wrapper any time.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+docs/BACKLOG.md
+  — B22 closed, B23 + B24 filed. "Last updated" rewritten to
+    reflect all three events of the day.
+
+docs/handoffs/SC_Handoff_v118.txt
+  — feat's v117 renamed to v118 during the merge. Documents the
+    build session that produced commit 615c189.
+
+supabase/migrations/20260514000000_c1_mark_proposal_signed_sister_aware.sql
+  — Live in prod as of this session. DO NOT edit — write a new
+    migration if mark_proposal_signed needs further changes.
+
+supabase/functions/proposal-signed/index.ts
+  — Deployed this session. Surfaces became_sold to clients.
+
+src/components/ProposalDetail.jsx
+  — handlePullBack is the target for B23. Around the line range
+    that v118 documented for handleInternalApprove (~595–700).
+
+src/pages/PublicSigningPage.jsx
+  — B24 fix target. Edge fn / RPC fallback paths need to surface
+    400/409 to the customer-facing UI instead of rendering success.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: main, in sync with origin/main, working tree clean.
+- Branch feat/multi-gc-allocation: pushed to origin, tip aa6b1d9
+  (the B22 filing commit from this session before merge).
+- ERD-loop repo (~/erd-loop): 2 commits this session on main —
+  Loop #6 amendments + formal close. Local-only by design; Chris
+  pushes erd-loop on his own cadence.
+- Vercel: J9nyaaow1 is the live production deployment.
+- Supabase: migration ledger now shows 20260514000000 applied.
+- No open PRs.
+
+END STATE
+─────────
+C1 fix (§10 step 5) shipped, deployed, and verified in prod across
+both signing paths. Loop #6 closed at honest 10/10. Two latent
+signing-flow bugs filed (B23, B24) for next loop. Ready for a fresh
+session on B23 fix, B24 fix, or continuing the Multi-GC §10 sequence.

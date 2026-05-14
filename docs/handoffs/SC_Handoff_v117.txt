@@ -1,0 +1,177 @@
+SC Handoff v117 — 2026-05-14
+============================
+
+SESSION SUMMARY
+Build session on §10 step 5 (C1 fix) — sister-aware
+mark_proposal_signed + 'Signed' status. Drafted the migration
+(DROP+CREATE of both 5-arg and 1-arg overloads with new
+became_sold return column), updated the proposal-signed edge
+function to surface became_sold, then swept all 10 client files
+for backward-compat per the §2801–§2828 audit in the plan doc.
+Ran a parallel A1-Code audit terminal that caught two issues:
+(1) CREATE OR REPLACE fails when return type changes — needs
+DROP+CREATE, and (2) RPC fallback path in PublicSigningPage
+needed ?? true for deploy-window safety. Both fixed and re-
+audited to Accept. Migration not yet applied to prod — this is
+on feat/multi-gc-allocation only. ERD Loop #6 (#5-C1-fix)
+closed: 59m elapsed vs 1hr predicted, success 10/10.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+Commits on feat/multi-gc-allocation (chronological):
+
+615c189 — Touches C1: sister-aware mark_proposal_signed +
+  'Signed' status. Single commit carrying the full step 5
+  surface: new migration (DROP+CREATE both overloads with
+  v_has_sisters branching + became_sold return), edge fn update
+  (became_sold in all JSON responses + conditional email text),
+  and 10 client files (PROP_C entry, STATUS_TABS, 3 SalesDash
+  arrays, Managers SENT_STATUSES, Home sent filter, WTCCalculator
+  lock, Customers color, ProposalDetail handleInternalApprove
+  rewrite + 6 backward-compat tweaks, ProposalPDFModal Send
+  exclusion, PublicSigningPage accepted gate + became_sold QB
+  sync gate on both edge fn and RPC fallback paths). Build
+  passes clean. A1-Code audit: 6 Accept, 2 fixed (DROP+CREATE
+  and ?? true), re-audited to Accept.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+1. DROP+CREATE over CREATE OR REPLACE — PostgreSQL does not
+   allow CREATE OR REPLACE FUNCTION when the return type
+   changes. The 1-arg wrapper is dropped first (it depends on
+   the 5-arg), then the 5-arg, then both recreated with GRANT
+   TO anon re-issued. Surfaced by A1-Code audit item #2.
+
+2. ?? true fallback on both became_sold paths — edge fn success
+   path uses fnData?.became_sold ?? true; RPC fallback path
+   uses rpcRows[0].became_sold ?? true. Ensures QB sync fires
+   correctly during the deploy window when old RPC (without
+   became_sold column) is still live. Edge fn path surfaced
+   during build; RPC fallback path surfaced by A1-Code audit
+   item #4.
+
+3. O3 sequencing — O3 (drop 1-arg wrapper) must land AFTER
+   this C1 migration. C1 updates both overloads; O3 drops the
+   1-arg. The migration file timestamps enforce correct order
+   (20260514 > 20260510). Confirmed safe in both orderings by
+   audit item #7.
+
+4. NOTIFY outside BEGIN/COMMIT — intentional. The NOTIFY fires
+   after the DDL transaction commits, ensuring PostgREST reloads
+   against the committed schema. Matches the pattern in
+   20260510120000.
+
+VERIFICATION
+────────────
+- vite build passes clean (no errors, chunk warning only).
+- A1-Code audit (parallel terminal) checked 8 items:
+  SQL correctness (Accept), RETURNS TABLE semantics (Reject →
+  fixed → Accept), edge fn became_sold (Accept), deploy-window
+  QB sync (Flag → fixed → Accept), PostgREST filter syntax
+  (Accept), backward-compat completeness (Accept — all 18 sites
+  per §2801–§2828), O3 interaction (Accept), NOTIFY placement
+  (Accept).
+- Migration NOT applied to prod. Not deployed. This is
+  code-review + build-verification only.
+- Edge function NOT deployed. The proposal-signed update
+  ships with the migration as a coordinated deploy.
+- No localhost smoke of the signing flow — migration must
+  apply first. Signing flow smoke is a deploy-time gate.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+Carryforward from v116 — all still open:
+- §10 step 3 (Client fallback rollout) — NOT STARTED.
+- §10 step 4 (S1 fix — Customers.jsx RPCs) — NOT STARTED.
+- §10 step 6a (Migration 1b — cloned_from_wtc_id) — NOT STARTED.
+- §10 step 6b (RPCs) — BLOCKED on 6a.
+- O3 (drop 1-arg wrapper) — now sequencing-dependent on C1
+  migration landing first. Still safe to pick up.
+- O7 (multi-repo migration coordination) — still T1.
+- B19 (merge_customers gap) — still T2.
+- v113 deferred prod smokes.
+
+NEW BACKLOG ITEMS
+─────────────────
+None filed this session.
+
+CLOSED THIS SESSION
+───────────────────
+None. Step 5 code landed on feature branch but is not deployed
+or merged.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Read order: docs/BACKLOG.md → this handoff (v117) →
+   docs/plans/multi_gc_allocation.md §2516 (C1 Resolution).
+
+2. Step 5 is code-complete on the branch. The remaining C1
+   client-side items from §2704 (handleInternalApprove in
+   ProposalDetail.jsx:3c) and §2746 (PublicSigningPage:3d) are
+   done. The §2768 Mark Awarded surface (award_proposal
+   interaction) is confirmed no-change-needed per §2770.
+
+3. Next build steps from §10 sequence:
+   - Step 3 (Client fallback rollout) — build-unblocked, 6
+     sites per A1.1 Extension. No dependency on step 5.
+   - Step 6a (Migration 1b — cloned_from_wtc_id) — build-
+     unblocked per F16 ratifications.
+   - Step 4 (S1 fix) — BLOCKED on step 3 view migration.
+
+4. Deploy coordination when merging to main: the C1 migration
+   + edge fn update must deploy together. Sequence:
+   (a) supabase db push the migration
+   (b) deploy proposal-signed edge fn (--no-verify-jwt)
+   (c) NOTIFY pgrst 'reload schema' (in migration, auto)
+   (d) Vercel deploy picks up client changes
+   (e) Smoke: sign a TEST proposal, verify status='Sold'
+       (single-GC backward compat).
+
+5. O3 — now >72h past the 48h gate. Safe to drop the 1-arg
+   wrapper, but must land AFTER C1 migration since C1
+   DROP+CREATEs both overloads. If O3 runs first it drops the
+   old 1-arg; C1 then tries to DROP the already-dropped 1-arg
+   (IF EXISTS handles this). Either order works, but C1-first
+   is cleaner.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+supabase/migrations/20260514000000_c1_mark_proposal_signed_sister_aware.sql
+  — New this session. DROP+CREATE of both mark_proposal_signed
+    overloads. v_has_sisters branching, became_sold return,
+    GRANT TO anon, NOTIFY pgrst.
+
+supabase/functions/proposal-signed/index.ts
+  — Updated: reads became_sold from RPC, surfaces in all JSON
+    responses, conditional "Sold"/"Signed" in email text.
+
+src/components/ProposalDetail.jsx
+  — handleInternalApprove rewritten with sister query + status
+    branch. 6 backward-compat tweaks (checklist, Pull Back,
+    Internal Approve, Send Proposal, Download Signed PDF gating).
+
+src/pages/PublicSigningPage.jsx
+  — accepted-state gate includes 'Signed'. became_sold gates
+    QB sync on both edge fn success + RPC fallback paths.
+
+src/lib/mockData.js
+  — 'Signed' entry in PROP_C.
+
+src/pages/Proposals.jsx
+  — 'Signed' in STATUS_TABS.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch feat/multi-gc-allocation: tip 615c189, pushed to
+  origin. This handoff commit will be 1 ahead after commit.
+- main: unchanged.
+- Working tree: clean (no supabase/.temp/* noise this session).
+- No open PRs.
+
+END STATE
+─────────
+§10 step 5 (C1 fix) code-complete on feat/multi-gc-allocation.
+Migration + edge fn + 10 client files committed and pushed.
+A1-Code audited (8/8 Accept after 2 fixes). Not deployed to
+prod — deploy is a coordinated step at merge time. Ready for
+fresh session on step 3 or step 6a.

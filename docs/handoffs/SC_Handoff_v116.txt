@@ -1,0 +1,429 @@
+SC Handoff v116 — 2026-05-14
+============================
+
+SESSION SUMMARY
+A2-PrdEnv (production-environment audit) session against §10 step 4
+of the multi-GC allocation plan — the S1 fix (Customers.jsx invisible-
+sister regression). Goal: verify the plan's recommendation (b) RPC
+body shape against current repo + prod schema substrate before any
+code lands. All 3 plan-cited Customers.jsx sites match line-for-line
+at audit time (`:253-263`, `:511-515`, `:516-520`). Audit surfaced one
+transitive scope dependency (invoices fetch at `:521-525`), one
+substrate-sharing decision with step 3's locked view
+`v_proposal_customer_resolved`, four RPC-body shape questions (role
+gate, top-of-body guards, defense-in-depth tenant filter, soft-delete
+column), one pagination concern (`fetchAll` doesn't paginate `.rpc()`),
+one adjacent write-side bug (`merge_customers` RPC misses
+`proposals.customer_id`), and one cross-amendment gap (step 3 A1.1
+inventory missed two pay-app modal sites). Drafted §10 Step 4
+Amendment 1 with full plpgsql body shapes for both RPCs, ratified
+8 design-opens one at a time with Chris, then wrote Step 4
+Ratifications block. Cross-amendment finding filed as §A1.1 Extension
+under step 3 (not edit). Adjacent write-side bug filed as BACKLOG B19.
+ERD Loop #4 (inaugural §10 step 4 audit) — locked 10:23, closed 11:03
+— 40m elapsed against a 2-hour budget. Success rated 10/10. No code,
+no migrations, no edge functions, no prod changes — pure plan layer.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+Commits on feat/multi-gc-allocation (chronological, all pushed to
+origin before this handoff lands):
+
+a388a49 — plan: §10 step 4 Amendment 1 — Section 4 pre-build audit
+  deltas. Authored directly via Edit (mechanical write — audit
+  findings already in hand). Appended ~163 lines to
+  docs/plans/multi_gc_allocation.md as an inline amendment block
+  under §10 step 4, mirroring the §10 step 3 Amendment 1 style from
+  v115. Sections: A2.1 (site cursor verification), A2.2 (transitive
+  invoices dependency), A2.3 (substrate sharing with view), A2.4
+  (RPC body shape — full plpgsql for both `customer_jobs` and
+  `customer_proposals`), A2.5 (pagination via `fetchAllRpc`), A2.6
+  (out of scope: B19 + step 3 §A1.1 Extension). Confidence-tagged
+  throughout ([LOCKED]/[DERIVED]). Append-only verified
+  (+163 / -0) before commit.
+
+00e77f1 — plan: §10 step 4 Ratifications — 2026-05-14 — locks 8
+  items from Amendment 1. Authored directly via Edit (ratifications
+  conversation already complete). Appended ~26 lines to plan doc as
+  new section after the §10 Step 3 Ratifications block (mirroring
+  v115's ratification commit shape). Canonical audit-pass table
+  shape (# / Item / Amendment rec / Ratification / Notes). All 8
+  items flip [DESIGN-OPEN] → [LOCKED]; upstream Amendment 1's flags
+  intentionally left in place per [Schema Amendment Not Overwrite].
+  Append-only verified (+26 / -0).
+
+e761bc1 — plan: §10 step 3 Amendment 1 §A1.1 Extension — 2
+  additional sites surfaced during step 4 audit. Surfaced by Pass 3
+  wider-site sweep (the build-time grep yesterday's A1.5 had
+  recommended). NewPayAppModal.jsx:39 + PayAppDetailModal.jsx:66
+  read customer via call_log only, ignoring proposals.customer_id —
+  same A1.1 class as the original 4 sites. Site count delta: 4 → 6.
+  Locked fix shape mirrors original A1.1 (useResolvedCustomer hook
+  or parallel `customers` embed). Does NOT edit upstream A1.1 text
+  per [Schema Amendment Not Overwrite]; original inventory + this
+  extension together are the authoritative full set. Append-only
+  verified (+13 / -0).
+
+82be9b6 — backlog: file B19 — merge_customers RPC drops sister
+  proposal lineage. Surfaced during Pass 3. Migration 20260430120000
+  (customer_delete_merge) pre-dates Migration 1a's
+  proposals.customer_id column; merge body re-points 3 FK children
+  but not proposals, then DELETEs the duplicate which fires
+  ON DELETE SET NULL on sister proposals' customer_id. Functionally
+  OK via COALESCE fallback (sister resolves to survivor via
+  call_log after step 1 of merge), but explicit lineage is lost.
+  Fix is one UPDATE before the DELETE. Filed T2 in separate
+  migration per Step 4 Ratifications row #6 (write-side gap, own
+  migration). +1 / -0.
+
+Cumulative session diff: docs/plans/multi_gc_allocation.md
+(+202 / -0), docs/BACKLOG.md (+1 / -0). No other files modified.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+Eight [DESIGN-OPEN] items raised by Amendment 1, all ratified same-
+session via the walk-through pattern (one item, short context, lock,
+next). Full table in §10 Step 4 Ratifications block.
+
+#1 A2.2 Invoices transitive dependency — plan-hygiene note only,
+   no code change. The `:521-525` invoices fetchAll has no
+   customer_id filter; customer scoping happens at `:530` via
+   `jobIds.has(...)` intersection. When site #2 swaps to
+   `customer_jobs` per recommendation (b), the intersection auto-
+   heals. Captured as plan addendum so future invoice-by-customer
+   surfaces don't bypass the intersection.
+
+#2 A2.3 `customer_proposals` substrate sharing — SELECT FROM
+   `v_proposal_customer_resolved` (step 3's view), not inlined
+   COALESCE. Same reasoning as Step 3 Ratification #1 (centralized
+   over inlined). One resolution rule lives in one schema object.
+   Build-order coupling: step 3 view migration must land before
+   step 4 RPC migration (already correct in §10 order).
+
+#3 A2.4 Role gate — none. Read-only surface consumed by every
+   authenticated user (incl. Sales). Matches
+   `archive_filter_options_rpc` precedent (read = no gate; money =
+   gate). Adding `is_admin_or_manager()` here would lock sales reps
+   out of their own customers' jobs overnight.
+
+#4 A2.4 Top-of-body guards — NO_TENANT raise + customer-tenant
+   match check. Mirrors `delete_customer:119-138`. Surfaces config
+   errors loudly instead of silent empty results (which would be
+   visually identical to "customer has no jobs"). Defense-in-depth
+   for F7 multi-tenant.
+
+#5 A2.4 Defense-in-depth tenant filter — explicit
+   `AND tenant_id = v_tenant_id` inside the final SELECT (on
+   call_log for customer_jobs, on the view for customer_proposals,
+   AND inside the EXISTS sub-SELECT on proposals). SECURITY DEFINER
+   bypasses RLS; explicit predicate is the only protection against
+   tenant leak under data drift. Belt + suspenders.
+
+#6 A2.6 merge_customers gap scope — separate T2 BACKLOG row (B19)
+   + own migration. Step 4 is read-side, merge is write-side;
+   different concerns → different migrations → cleaner rollback
+   granularity. Filed same session.
+
+#7 A2.6 NewPayAppModal + PayAppDetailModal scope — append as A1.1
+   Extension to step 3 amendment, not pull into step 4. Step 3
+   class of bug; extension block lives under step 3 so step 3
+   build session sees it first. Filed per [Schema Amendment Not
+   Overwrite] — new block, not edit of upstream A1.1 text.
+
+#8 A2.5 Pagination helper shape — sibling `fetchAllRpc(name, args,
+   opts)` in src/lib/supabaseHelpers.js. Mirrors `fetchAll` shape
+   exactly; loops `.range()` around `supabase.rpc(name, args)`.
+   Centralizes the truncation guard in one place; keeps
+   Customers.jsx call sites one-line swaps from `fetchAll` →
+   `fetchAllRpc`.
+
+Other notable session decisions (not ratifications, but worth
+flagging):
+
+A2.4 — Return type `SETOF public.v_proposal_customer_resolved` for
+   `customer_proposals`. Postgres registers views in pg_type, so
+   SETOF <view> is valid. PostgREST surfaces view-typed RPC returns
+   the same as table-typed. Client receives one extra column per
+   row (`effective_customer_id`) which is harmless; existing
+   Customers.jsx selects only the columns it consumes. Fallback if
+   PostgREST view-typed return errors at build: change return type
+   to SETOF public.proposals and route predicate through
+   `WHERE id IN (SELECT id FROM v_proposal_customer_resolved …)`.
+   Same substrate-sharing intent; one extra sub-SELECT.
+
+ERD discipline — Loop #3 (#4 S1 fix) was reopened from yesterday's
+   discovery and closed honestly with success 1/10, 0 commits, 0
+   files (loop never produced work — yesterday's overrun discovered
+   a new problem mid-flight and the locked expectation never
+   matched the work). Loop #4 (#4-S1-fix-prd-env-audit) opened with
+   a distinguishing task name per ERD discipline.
+
+Ratification framing — Chris flagged the first-pass technical
+   explanations as wall-of-text mid-loop. Pattern switched to
+   plain-English, context-based, 2-bullets-per-option framing.
+   Loop #4 success cited this as the win-maker. Pattern saved to
+   user-memory (feedback_plain_english_choices).
+
+VERIFICATION
+────────────
+Plan-doc + BACKLOG only, no code touched. Verified via:
+- `git diff --stat` confirmed each of 4 commits limited to its
+  target file. Append-only verified before each commit (+163 / -0,
+  +26 / -0, +13 / -0, +1 / -0).
+- Audit findings cross-checked against live repo: fresh grep on
+  `customer_id` filters across `src/` + `supabase/functions/`
+  matched plan-cited sites line-for-line (no cursor drift today).
+  Wider grep surfaced the 2 pay-app modal sites for the §A1.1
+  Extension and the merge_customers gap for B19.
+- Migration substrate checked: `get_user_tenant_id` exists
+  (`20260509120000`), `is_admin_or_manager` exists (`20260416210000`),
+  SECURITY DEFINER convention is well-established (7+ existing
+  migrations), `delete_customer` body at `20260430120000:106-163`
+  confirmed as the precedent template for step 4's RPCs.
+- View body for `v_proposal_customer_resolved` (locked yesterday in
+  Step 3 Ratifications row #2) verified to expose `p.*` —
+  `proposals.tenant_id` flows through, enabling step 4's tenant
+  filter via the view.
+- `call_log.deleted_at` confirmed NOT to exist (grep + CLAUDE.md
+  verified-columns block). `customer_jobs` body must not add a
+  soft-delete filter on call_log; matches reality.
+- merge_customers body (`20260430120000:192-330`) read line-by-line
+  to confirm B19 scope: re-points call_log + customer_contacts +
+  customer_pay_app_templates, then DELETEs duplicate. No
+  proposals.customer_id update anywhere in the body.
+- Anon-key prod probe attempted for empirical row count — RLS
+  hides counts (returns `*/0`); not empirically verified. Reasoned:
+  sub-contractor business unlikely to have >1000 call_logs per
+  customer in foreseeable future. `fetchAllRpc` future-proofs.
+
+This is a **code-review-equivalent verification only** — no curl
+probe run against prod for RPC reachability, no SQL run against
+prod schema, no migration drafted. The schema-cache probe is
+spec'd in Amendment 1 §A2.4 / Step 4 Ratifications protocol for
+build session to run as pre-flight.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+Carryforward from v115 — all still open:
+- O3 (H5 Migration B — drop 1-arg `mark_proposal_signed` compat
+  wrapper + legacy anon-insert policy). 48h gate now well past
+  (~60h+); still Open, still safe to drop.
+- O6 (migration history not replayable from zero).
+- O7 (multi-repo migration coordination). Still T1. Step 4 RPC
+  migration will hit this wall — needs
+  `supabase migration list --linked` immediately before draft.
+  Now load-bearing for 3 pending migrations (F16 step 6a, step 3
+  view, step 4 RPCs).
+- v113 deferred prod smokes: scmybiz.com read path on existing
+  proposals (~30s) + trigger NO-OP on real prod parent (~1min).
+- §11 V9 verification (orphan-child after `ON DELETE SET NULL` on
+  parent WTC).
+- `idx_proposals_cloned_from` partiality flag in Migration 1a.
+- F16 step 6a (Migration 1b — `proposal_wtc.cloned_from_wtc_id`
+  column). Still build-unblocked and waiting.
+- §10 step 3 Sweep-1 (Client fallback rollout) — full build
+  sequence in v115's NEXT SESSION POINTERS. Build-unblocked and
+  now extended via A1.1 Extension to 6 sites. This session pivoted
+  to step 4 audit instead.
+
+Deliberately deferred this session:
+- B19 (merge_customers gap) — filed but not fixed; separate
+  migration per Step 4 Ratifications row #6. ~30 min.
+- §10 step 3 §A1.1 Extension fix (the 2 pay-app modal sites) —
+  folded into step 3 build session, not patched this session.
+- `get_public_proposal_view` RPC update — still required by step 3
+  build, not in this audit's scope.
+- Build-time grep for non-audit-named `call_log.customers` reads —
+  Pass 3 covered the bulk of it; build session does the final
+  mechanical sweep before patches land.
+
+NEW BACKLOG ITEMS
+─────────────────
+- **B19** (T2, Open) — `merge_customers` RPC drops sister proposal
+  lineage. `proposals.customer_id` silently nulled on merge via
+  ON DELETE SET NULL FK cascade. Fix is one UPDATE before the
+  DELETE in step 6 of merge_customers body. ~30 min, separate
+  migration. **Blocks:** nothing critical (COALESCE fallback
+  resolves correctly), but explicit lineage loss compounds with
+  multi-GC adoption.
+
+CLOSED THIS SESSION
+───────────────────
+None. The §10 step 4 work is mid-flight — Amendment + Ratifications
+land the plan layer, but the build is still pending. F16 stays T1
+Open; F14/F15 stay T3 Open; B11/B14/B12/B1/B2/B3/B4/B5/B7/B15/B16
+stay Open.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Read order: docs/BACKLOG.md → this handoff (v116) →
+   docs/plans/multi_gc_allocation.md (§10 Step 3 Amendment 1 +
+   §A1.1 Extension + Step 3 Ratifications + §10 Step 4 Amendment 1
+   + Step 4 Ratifications). The two amendment + ratification pairs
+   together are the spec for steps 3 and 4 build.
+
+2. **Three roads diverge — choose at /decide.**
+   - **Road A: F16 step 6a (Migration 1b).** Still v114's
+     highest-priority unstarted build. Author
+     `supabase/migrations/<ts>_multi_gc_1b_lineage.sql` per §5
+     Amendment 1 §D + F16 Ratifications. Timestamp protocol per
+     F16 Ratification #2: run `supabase migration list --linked`
+     immediately before assigning timestamp. Build-mode entry.
+   - **Road B: §10 step 3 Sweep-1 (Client fallback rollout).**
+     Spec fully ratified including A1.1 Extension's 2 additional
+     sites. Build sequence (extended to 6 sites + 1 RPC update):
+       1. Run prod read-only curl probe per Step 3 Ratifications
+          row #3.
+       2. Author `src/lib/proposalCustomer.js` with
+          `useResolvedCustomer(p)` hook per Step 3 Ratification #1.
+       3. Edge fn patches: `send-invoice` + `send-pay-app` (dual
+          `customers` embed via `proposals_customer_id_fkey`,
+          deploy `--no-verify-jwt` per memory).
+       4. Client component patches: `ProposalDetail.jsx`,
+          `ProposalPDFModal.jsx`, `NewPayAppModal.jsx` (per A1.1
+          Extension), `PayAppDetailModal.jsx` (per A1.1 Extension),
+          plus callers in `Proposals.jsx` and `Home.jsx`.
+       5. **`ProposalDetail.jsx:287` state-mutation revision** —
+          when `p.customers` is non-NULL, mutate `prev.customers`;
+          else fall back to `prev.call_log.customers`.
+       6. View migration: `CREATE OR REPLACE VIEW
+          public.v_proposal_customer_resolved …`. Timestamp via
+          `migration list --linked` first per O7.
+       7. `Customers.jsx:258` and `:519` switch to view via
+          `.eq("effective_customer_id", customer.id)`.
+       8. `get_public_proposal_view` RPC update per step 3
+          original sentence (COALESCE customer chain).
+       9. Pre-commit: re-grep V5 sites for line-cursor drift.
+   - **Road C: §10 step 4 (S1 fix).** Spec fully ratified.
+     **Depends on Road B's view migration having landed first.**
+     Build sequence:
+       1. Author `fetchAllRpc(name, args, opts)` in
+          `src/lib/supabaseHelpers.js` per Step 4 Ratifications
+          row #8.
+       2. Authoring RPC migration — timestamp via
+          `supabase migration list --linked` immediately before
+          draft (per O7). Body: full plpgsql for both
+          `customer_jobs` and `customer_proposals` per Amendment 1
+          §A2.4 + REVOKE/GRANT pairs.
+       3. Apply via `supabase db push --linked`.
+       4. Customers.jsx swap: `:256-260`, `:511-515`, `:516-520`
+          to `fetchAllRpc("customer_jobs" | "customer_proposals",
+          { p_customer_id: ... })`. Site `:521-525` (invoices)
+          does NOT change.
+       5. Pre-commit: prod curl probe to confirm RPC reachable
+          via PostgREST schema cache (parallels Step 3 protocol).
+
+3. Owed from v113: prod read-path smoke (~30s) + trigger NO-OP
+   smoke (~1min). Either safe to run cold; do them before any
+   deploy.
+
+4. O3 — gate well past. Drop the 1-arg `mark_proposal_signed`
+   compat wrapper + legacy anon-insert policy. Should not stay
+   open another session.
+
+5. O7 — cross-repo migration coordination is load-bearing for
+   three pending migrations (F16 step 6a Migration 1b, step 3
+   view migration, step 4 RPC migration). Worth resolving with
+   its own planning loop. Workaround (manual `migration list
+   --linked` immediately before timestamp) survives but friction
+   compounds.
+
+6. B19 — separate migration to add `UPDATE public.proposals SET
+   customer_id = p_survivor_id WHERE customer_id = p_dup_id`
+   before DELETE in step 6 of `merge_customers`. ~30 min. Add
+   `v_proposals_moved int` diagnostics to mirror existing pattern
+   at lines 264/269/289. One-line code diff to the migration
+   body, but a new migration file to ship it cleanly.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+docs/plans/multi_gc_allocation.md
+  — +202 / -0 this session. New blocks: §10 Step 3 §A1.1 Extension
+    (inline after step 3 Amendment 1 §A1.5), §10 Step 4 Amendment 1
+    (inline under step 4 sentence), §10 Step 4 Ratifications
+    (appended at end of file). Together with the §10 Step 3
+    Amendment 1 + Ratifications from v115 and the §5 Amendment 1 +
+    F16 Ratifications from v114, the plan layer for steps 3, 4,
+    and 6a is build-unblocked.
+
+docs/BACKLOG.md
+  — +1 / -0 this session. New row B19 (T2, Open).
+
+src/lib/supabaseHelpers.js
+  — Existing `fetchAll` helper (lines 11-31). Build session adds
+    sibling `fetchAllRpc(name, args, opts)` per Step 4
+    Ratifications row #8.
+
+src/pages/Customers.jsx
+  — Step 4 build target. Three sites to swap: `:256-260`
+    (PayAppTemplateModal proposals), `:511-515` (jobs fetchAll),
+    `:516-520` (proposals fetchAll). Site `:521-525` (invoices)
+    does NOT change (transitive dependency per Amendment 1 §A2.2).
+
+src/components/NewPayAppModal.jsx
+  — Step 3 §A1.1 Extension target. `:39` reads customer via
+    call_log only; needs `useResolvedCustomer(p)` per Step 3
+    Ratification #1.
+
+src/components/PayAppDetailModal.jsx
+  — Step 3 §A1.1 Extension target. `:66` same shape as
+    NewPayAppModal:39; embedded `customers(*)` flows downstream
+    into `:80-92` and `:103-110`.
+
+supabase/migrations/20260430120000_customer_delete_merge.sql
+  — B19 target. Single-line addition (`UPDATE public.proposals
+    SET customer_id = p_survivor_id WHERE customer_id = p_dup_id`)
+    before DELETE in step 6 of `merge_customers` body
+    (`:192-330`). To ship in a new migration, not as edit to this
+    file.
+
+supabase/migrations/20260513000000_multi_gc_allocation.sql
+  — Migration 1a, live on prod. Reference for `proposals.customer_id`
+    column shape + FK name (`proposals_customer_id_fkey`,
+    ON DELETE SET NULL). Source of the silent-null behavior B19
+    fixes.
+
+~/erd-loop/LOG.md
+  — Lives on Chris's home, NOT in this repo. Loop #4 CLOSED (40m
+    elapsed vs 2 hrs predicted, success 10/10). Loop #3 (#4 S1
+    fix) closed honestly at success 1/10 — yesterday's overrun
+    discovered new problem mid-flight; today's audit was a
+    re-locked loop with distinguishing task name. 11 loops
+    remaining to SDK extraction attempt at loop #15.
+
+GIT STATE ON CLOSE
+──────────────────
+- sales-command branch feat/multi-gc-allocation: 4 new commits
+  this session (a388a49, 00e77f1, e761bc1, 82be9b6), all pushed
+  to origin before this handoff. Tip is 82be9b6 prior to this
+  handoff commit. After this handoff commits, tip will be 5
+  commits ahead of v115's 0d85f4e; first four already pushed.
+- sales-command main: unchanged. Migration 1a still lives only
+  on feat/multi-gc-allocation.
+- Working tree: 4 modified files in supabase/.temp/*
+  (cli-latest, gotrue-version, storage-migration, storage-version).
+  Intentional carryforward per v114/v115; not included in any
+  commit this session. Stays in working tree across handoff
+  commit.
+- No open PRs touched this session.
+- No scratch projects created or deleted.
+- Cross-repo: sch-command/CLAUDE.md received a RESUME ALERT block
+  this session (commit 116e7a9, pushed to origin/main) capturing
+  ledger reconciliation prerequisite + cross-repo migration
+  timestamp coordination (O7 surface) before any future
+  `supabase db push` in that repo. Unrelated to multi-GC work;
+  standalone tripwire. Documented for cross-repo awareness; not
+  load-bearing for sales-command sessions.
+
+END STATE
+─────────
+§10 step 4 (S1 fix) plan layer fully spec'd via Amendment 1 +
+Ratifications, pushed to feat/multi-gc-allocation. Build-unblocked
+for `fetchAllRpc` helper + RPC migration + Customers.jsx swap —
+sequence in NEXT SESSION POINTERS Road C. Step 3 spec also
+extended to 6 sites total via A1.1 Extension. B19 filed for the
+merge_customers write-side gap. ERD Loop #4 closed cleanly (40m
+elapsed vs 2 hrs predicted, success 10/10). Ready for fresh
+session — pick Road A (F16 6a) or Road B (step 3 Sweep-1) or
+Road C (step 4 S1 fix) at /decide. Note: Road C depends on Road
+B's view migration having landed first.

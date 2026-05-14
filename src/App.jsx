@@ -82,21 +82,27 @@ const BOOT_LOADER_MIN_MS = 3000;
 
 function SalesCommandApp() {
   // Customer-facing public routes must skip the boot loader — a 3s radar
-  // animation in the middle of a signing flow looks like an error to a customer.
-  const isCustomerSigningRoute = window.location.pathname.startsWith("/sign/");
+  // animation in the middle of a customer flow looks like an error to them.
+  // Covers signing (/sign/:token), invoice viewing (/invoice/:token), and
+  // post-payment landing (/invoice-paid).
+  const path = window.location.pathname;
+  const isCustomerFacingRoute =
+    path.startsWith("/sign/") ||
+    path.startsWith("/invoice/") ||
+    path.startsWith("/invoice-paid");
 
   const [open,       setOpen]       = useState(true);
   const [showTOC,    setShowTOC]    = useState(false);
   const [subPage,    setSubPage]    = useState(null);
   const [session,    setSession]    = useState(undefined);
   const [teamMember, setTeamMember] = useState(undefined);
-  const [bootMinElapsed, setBootMinElapsed] = useState(BOOT_LOADER_MIN_MS === 0 || isCustomerSigningRoute);
+  const [bootMinElapsed, setBootMinElapsed] = useState(BOOT_LOADER_MIN_MS === 0 || isCustomerFacingRoute);
 
   useEffect(() => {
-    if (BOOT_LOADER_MIN_MS === 0 || isCustomerSigningRoute) return;
+    if (BOOT_LOADER_MIN_MS === 0 || isCustomerFacingRoute) return;
     const t = setTimeout(() => setBootMinElapsed(true), BOOT_LOADER_MIN_MS);
     return () => clearTimeout(t);
-  }, [isCustomerSigningRoute]);
+  }, [isCustomerFacingRoute]);
 
   // Clean up stale hash fragments (leftover from Supabase auth redirects)
   useEffect(() => {
@@ -153,7 +159,7 @@ function SalesCommandApp() {
     return () => sub.unsubscribe();
   }, []);
 
-  if ((session === undefined || !bootMinElapsed) && !isCustomerSigningRoute) {
+  if ((session === undefined || !bootMinElapsed) && !isCustomerFacingRoute) {
     return <><style>{GLOBAL_CSS}</style><RadarLoader /></>;
   }
 
@@ -176,7 +182,7 @@ function SalesCommandApp() {
   }
 
   // Wait for team member data before rendering the app
-  if ((teamMember === undefined || !bootMinElapsed) && !isCustomerSigningRoute) {
+  if ((teamMember === undefined || !bootMinElapsed) && !isCustomerFacingRoute) {
     return <><style>{GLOBAL_CSS}</style><RadarLoader /></>;
   }
 

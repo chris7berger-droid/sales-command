@@ -228,7 +228,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
       .insert([{
         id: nextId,
         job_id: jobNum,
-        call_log_id: selProposal.call_log?.id,
+        call_log_id: selProposal.call_log_id,
         job_name: jobName,
         status: "New",
         amount: Math.round(finalAmount * 100) / 100,

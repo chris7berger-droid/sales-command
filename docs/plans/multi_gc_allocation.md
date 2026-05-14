@@ -2093,6 +2093,169 @@ _Audit terminal ratified 2026-05-11. All 13 sub-DESIGN-OPENs surfaced by the §7
    - Any other surface that reads `…call_log.customers` outside the 4 named sites — V5 inventory is for `call_log.customer_id` derivation; the parallel inventory for the `customers` join object was not run. Reasonable assumption: same surface, since `customers` is always joined via `call_log` today and the 4 sites are the same as Class A. But a build-time grep for `call_log?.customers` would close the certainty gap. Recommend running it.
 
 4. **S1 fix** — pick one of (a)/(b)/(c) below, ship before any sister can be created with a divergent customer_id.
+
+   - **2026-05-14 amendment (Amendment 1) — Section 4 pre-build audit deltas (RPC body shape + transitive dependency + pagination + cross-section gaps).** Pre-build audit (2026-05-14) confirms all 3 S1-cited Customers.jsx sites match the repo line-for-line at `:253-263` (PayAppTemplateModal), `:511-515` (jobs fetchAll), `:516-520` (proposals fetchAll). Surfaces: one transitive scope dependency (`:521-525` invoices), one substrate-sharing decision for `customer_proposals` vs step 3's locked `v_proposal_customer_resolved` view, four RPC-body shape questions (role gate, top-of-body guards, defense-in-depth tenant filter, soft-delete column), one pagination concern (`fetchAll` does not paginate `.rpc()`), one adjacent write-side bug (`merge_customers` RPC misses `proposals.customer_id`), and one cross-amendment finding (step 3's A1.1 inventory missed two pay-app modal sites). **Does not edit step 4's original sentence or the S1 section at lines 2726-2763** per [Schema Amendment Not Overwrite]; the option (a/b/c) menu and recommended (b) remain authoritative. This amendment specifies the (b) build shape, defers two findings to separate work (B19 + step 3 §A1.1 Extension same session), and instruments the pagination guard.
+
+   **A2.1 Site cursor verification (no drift at audit time).**
+
+   All three plan-cited Customers.jsx sites match the repo line-for-line as of 2026-05-14:
+   - `:253-263` — PayAppTemplateModal useEffect (plan cites `:253-260`; current useEffect body runs through `:263`)
+   - `:511-515` — jobs fetchAll (plan cites `:514`, the filter-argument line — exact match)
+   - `:516-520` — proposals fetchAll (plan cites `:516-519`, the body — exact match)
+
+   No A1.3-style cursor-drift lint needed today. **Build instruction (mechanical safeguard, mirrors §A1.3):** re-grep these sites immediately before patch authoring in case of drift between this amendment and build start.
+
+   **A2.2 Transitive scope dependency — `Customers.jsx:521-525` invoices fetch.**
+
+   The S1 section enumerates jobs + proposals call sites only. The invoices fetch at `:521-525` is transitively affected by S1 but not named:
+
+   ```js
+   // :521-525
+   fetchAll("invoices",
+     "id, amount, status, sent_at, paid_at, job_id, job_name, invoice_lines(proposal_wtc(work_types(name)))",
+     { filters: [["is", "deleted_at", null]], order: ... })
+   // :530 — client-side filter
+   setInvoices(i.filter(inv => jobIds.has(inv.job_id)));
+   ```
+
+   The query has no `customer_id` filter; customer scoping happens at `:530` via intersection with `jobIds` (derived from site #2's call_log fetchAll). For a sister proposal where `proposals.customer_id = X` but `call_log.customer_id ≠ X`, the parent call_log never enters `j` → not in `jobIds` → invoice silently disappears from the customer detail page.
+
+   **[LOCKED] No direct fix required.** When site #2 swaps to `rpc("customer_jobs", …)` per recommendation (b), `jobIds` returns sister-parent call_logs and the invoice intersection auto-heals. **Plan-hygiene addendum:** any future invoice-by-customer surface that bypasses the `jobIds.has(...)` intersection (e.g., a future "all invoices for customer X" tab on Invoices.jsx) must use `customer_jobs(...)` first and intersect, OR get its own RPC. The "4 client-call-site changes" count at S1 line 2756 stays accurate only because invoices is downstream of site #2.
+
+   **A2.3 Substrate sharing — `customer_proposals` SELECTs from `v_proposal_customer_resolved`.**
+
+   Step 3 (Step 3 Ratifications row #2, 2026-05-13) locks the view `v_proposal_customer_resolved` to encode `effective_customer_id = COALESCE(p.customer_id, cl.customer_id)`. Step 4 recommendation (b) ships `customer_proposals(p_customer_id)` which encodes the same rule.
+
+   **[LOCKED] Share substrate.** `customer_proposals` body routes the customer-resolution predicate through the view (not inlined). The COALESCE rule lives in exactly one schema object; if §5 / §7 ever extends the resolution chain, the RPC follows automatically. **Build-order coupling:** step 3's view migration must apply before step 4's RPC migration (already correct in §10 order — step 3 → step 4).
+
+   **View tenant_id availability confirmed.** View body exposes `p.*` (see step 3 Amendment 1 §A1.2, lines 2056-2062) — `proposals.tenant_id` flows through transparently, so the RPC body's `AND tenant_id = v_tenant_id` predicate resolves against the view-flowed column.
+
+   `customer_jobs` does NOT share substrate (it returns `SETOF public.call_log`; the predicate joins through `proposals` directly — see A2.4 body shape).
+
+   **A2.4 RPC body shape — guards, role gate, tenant filter, soft-delete column.**
+
+   Four body-shape questions ratified against existing precedent (`delete_customer` at `20260430120000_customer_delete_merge.sql:106-163`; `archive_filter_options_rpc` at `20260417120000`; `get_user_tenant_id` at `20260509120000`):
+
+   - **[LOCKED] No role gate.** Both `customer_jobs` and `customer_proposals` are read-only surfaces consumed by every authenticated user (incl. Sales). Match `archive_filter_options_rpc` (read-only, tenant-filtered only). Do **NOT** add `IF NOT public.is_admin_or_manager() THEN RAISE 'FORBIDDEN' ...`.
+   - **[LOCKED] Top-of-body guards.** Mirror `delete_customer:119-138`: `RAISE 'NO_TENANT'` if `get_user_tenant_id()` is NULL; `RAISE 'TENANT_MISMATCH'` if the passed-in customer's tenant ≠ caller's tenant. Surfaces config errors loudly instead of silent empty results (which would be visually identical to "customer has no jobs").
+   - **[LOCKED] Defense-in-depth tenant filter inside the final SELECT.** Even with the customer-tenant check, both RPC bodies add `AND tenant_id = v_tenant_id` predicates inside the work SELECT (on `call_log` for `customer_jobs`; on the view for `customer_proposals`; AND inside the EXISTS sub-SELECT on `proposals` for `customer_jobs`). SECURITY DEFINER bypasses RLS; an explicit predicate is the only protection against tenant leak under data drift (e.g., a sister proposal whose `tenant_id` somehow ≠ parent call_log's `tenant_id`). Belt + suspenders.
+   - **[LOCKED] `call_log.deleted_at` does NOT exist.** Verified via migration grep + CLAUDE.md verified-columns block. The current `:511-515` fetchAll has no soft-delete filter on call_log; matches reality. `customer_jobs` body must NOT add such a filter. (`proposals.deleted_at` exists and IS filtered, per the EXISTS sub-SELECT below.)
+
+   `customer_jobs` body shape (locked predicate; full plpgsql framing mirrors `delete_customer`):
+
+   ```sql
+   CREATE OR REPLACE FUNCTION public.customer_jobs(p_customer_id uuid)
+     RETURNS SETOF public.call_log
+     LANGUAGE plpgsql
+     STABLE
+     SECURITY DEFINER
+     SET search_path = public
+   AS $$
+   DECLARE
+     v_tenant_id uuid;
+     v_customer  public.customers%ROWTYPE;
+   BEGIN
+     v_tenant_id := public.get_user_tenant_id();
+     IF v_tenant_id IS NULL THEN
+       RAISE EXCEPTION 'NO_TENANT';
+     END IF;
+
+     SELECT * INTO v_customer
+       FROM public.customers
+      WHERE id = p_customer_id;
+     IF NOT FOUND THEN
+       RAISE EXCEPTION 'NOT_FOUND';
+     END IF;
+     IF v_customer.tenant_id <> v_tenant_id THEN
+       RAISE EXCEPTION 'TENANT_MISMATCH';
+     END IF;
+
+     RETURN QUERY
+       SELECT cl.*
+         FROM public.call_log cl
+        WHERE cl.tenant_id = v_tenant_id
+          AND (
+            cl.customer_id = p_customer_id
+            OR EXISTS (
+              SELECT 1 FROM public.proposals p
+               WHERE p.call_log_id = cl.id
+                 AND p.tenant_id = v_tenant_id
+                 AND COALESCE(p.customer_id, cl.customer_id) = p_customer_id
+                 AND p.deleted_at IS NULL
+            )
+          );
+   END;
+   $$;
+
+   REVOKE ALL ON FUNCTION public.customer_jobs(uuid) FROM public;
+   GRANT EXECUTE ON FUNCTION public.customer_jobs(uuid) TO authenticated;
+   ```
+
+   `customer_proposals` body shape (locked predicate; view-backed per A2.3):
+
+   ```sql
+   CREATE OR REPLACE FUNCTION public.customer_proposals(p_customer_id uuid)
+     RETURNS SETOF public.v_proposal_customer_resolved
+     LANGUAGE plpgsql
+     STABLE
+     SECURITY DEFINER
+     SET search_path = public
+   AS $$
+   DECLARE
+     v_tenant_id uuid;
+     v_customer  public.customers%ROWTYPE;
+   BEGIN
+     v_tenant_id := public.get_user_tenant_id();
+     IF v_tenant_id IS NULL THEN
+       RAISE EXCEPTION 'NO_TENANT';
+     END IF;
+
+     SELECT * INTO v_customer
+       FROM public.customers
+      WHERE id = p_customer_id;
+     IF NOT FOUND THEN
+       RAISE EXCEPTION 'NOT_FOUND';
+     END IF;
+     IF v_customer.tenant_id <> v_tenant_id THEN
+       RAISE EXCEPTION 'TENANT_MISMATCH';
+     END IF;
+
+     RETURN QUERY
+       SELECT v.*
+         FROM public.v_proposal_customer_resolved v
+        WHERE v.effective_customer_id = p_customer_id
+          AND v.tenant_id = v_tenant_id
+          AND v.deleted_at IS NULL;
+   END;
+   $$;
+
+   REVOKE ALL ON FUNCTION public.customer_proposals(uuid) FROM public;
+   GRANT EXECUTE ON FUNCTION public.customer_proposals(uuid) TO authenticated;
+   ```
+
+   **[DERIVED] Return type `SETOF public.v_proposal_customer_resolved`.** Postgres registers views in `pg_type`, so `SETOF <view>` is a valid function return type. PostgREST surfaces view-typed RPC returns the same as table-typed (columns + RLS-bypassed reads). Client receives one extra column per row (`effective_customer_id`) which is harmless; existing Customers.jsx selects only the columns it consumes. **Fallback if PostgREST view-typed return errors at build:** change return type to `SETOF public.proposals` and route the predicate through `WHERE id IN (SELECT id FROM v_proposal_customer_resolved WHERE …)`. Same substrate-sharing intent; one extra sub-SELECT. Non-blocking.
+
+   **A2.5 Pagination — `fetchAll` does not cover `.rpc()` calls.**
+
+   Current `Customers.jsx:511-515` uses `fetchAll("call_log", …)` (helper at `src/lib/supabaseHelpers.js:11-31`) which loops `.range()` to bypass PostgREST's 1000-row cap. Swapping naïvely to `supabase.rpc("customer_jobs", { p_customer_id: X })` **silently drops pagination**: the helper is hardcoded to `supabase.from(table)` and does not branch on `.rpc()`.
+
+   **Empirical (prod count):** Anon-key probe returns `*/0` (RLS hides counts from unauthenticated reads); not directly verifiable without a logged-in session. Reasoned product context: a sub-contractor business is unlikely to have any single GC with >1000 call_logs in the foreseeable future. The cap doesn't realistically bite today.
+
+   **[LOCKED] Build fix — sibling `fetchAllRpc(name, args, opts)` helper in `src/lib/supabaseHelpers.js`.** Mirrors `fetchAll`'s shape exactly; loops `.range()` around `supabase.rpc(name, args)` until a page returns short. Three call sites switch:
+
+   - `Customers.jsx:256-260` (PayAppTemplateModal proposals fetch) → `fetchAllRpc("customer_proposals", { p_customer_id: customerId })`
+   - `Customers.jsx:511-515` (jobs fetchAll) → `fetchAllRpc("customer_jobs", { p_customer_id: customer.id })`
+   - `Customers.jsx:516-520` (proposals fetchAll) → `fetchAllRpc("customer_proposals", { p_customer_id: customer.id })`
+
+   Site `:521-525` (invoices fetchAll) does NOT change (per A2.2). Centralizing the truncation guard in one helper matches the existing pattern; per-site `.range()` loops would scatter the same logic 3+ times.
+
+   **A2.6 Out of scope (noticed-but-not-touched per stay-scoped rule).**
+
+   - **`merge_customers` RPC misses `proposals.customer_id` re-pointing.** Surfaced during Pass 3 wider-site sweep. Migration `20260430120000_customer_delete_merge.sql:192-330` was authored before Migration 1a added `proposals.customer_id`. The merge body re-points `call_log`, `customer_contacts`, `customer_pay_app_templates`, then `DELETE FROM customers WHERE id = p_dup_id` — which fires `ON DELETE SET NULL` on the new FK, silently nulling any sister proposal's explicit pointer. Functionally OK via COALESCE fallback (sister resolves to survivor via call_log after step 1 of merge), but explicit lineage is lost — audit/history forgets the proposal was ever a sister. **Filed as BACKLOG B19** (separate T2 row + own migration per Step 4 Ratifications row #6). Outside step 4 scope (read-side fix vs write-side gap; cleaner rollback granularity in separate migrations).
+   - **`NewPayAppModal.jsx:39` + `PayAppDetailModal.jsx:66` pre-populate customer from `call_log` only.** Same A1.1 class as step 3's amendment (sister proposals load wrong GC's pay-app templates because the modal reads customer via the call_log join, ignoring `proposals.customer_id`). **Filed as §10 Step 3 §A1.1 Extension — 2026-05-14** (separate amendment block following [Schema Amendment Not Overwrite]). Outside step 4 scope (step 3 surface; fix lives in step 3's hook).
+   - **PostgREST schema cache reload for new RPCs** — verified at build time via curl probe (parallels Step 3 Amendment 1 §A1.1 schema-cache protocol). Build session runs the one-shot before deploy.
+   - **O7 (multi-repo migration timestamp coordination)** — load-bearing again for step 4's RPC migration. Same workaround applies: `supabase migration list --linked` immediately before timestamp assignment. Still T1 in BACKLOG.
+
 5. **C1 fix** — modify `mark_proposal_signed` (5-arg) + replace ProposalDetail.handleInternalApprove path. Migration B-style two-step to stay compat-safe.
 6. **RPCs** — `clone_proposal_to_gcs`, `award_proposal`, `preview_sync_to_sisters`, `apply_source_edit_to_sisters`, `reverse_award`. Single migration, all SECURITY DEFINER, all check `NO_TENANT`.
    - **2026-05-12 amendment:** Blocked by O5/Migration 1b — UNIQUE `(proposal_id, work_type_id)` constraint must apply before §4 + §5 RPCs ship. Plan line 1214: both §4 clone and §5 sync RPCs join by `work_type_id`; without UNIQUE they are "silently wrong half the time." V8 pre-flight (2026-05-12) returned 17 dup pairs across 14 proposals; UNIQUE deferred to Migration 1b pending B17 (importer root-cause) + B18 (dup triage).

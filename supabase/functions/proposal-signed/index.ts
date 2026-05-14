@@ -95,13 +95,14 @@ serve(async (req) => {
     }
 
     const proposalId = signedRows[0].proposal_id;
-    const callLogId = signedRows[0].call_log_id;
+    const callLogId  = signedRows[0].call_log_id;
+    const becameSold = signedRows[0].became_sold ?? true;
 
-    console.log("proposal-signed: marked sold", { proposalId, callLogId, proposalNumber, signerName });
+    console.log("proposal-signed: marked", { proposalId, callLogId, becameSold, proposalNumber, signerName });
 
     if (!repEmail) {
       console.log("proposal-signed: no rep email, skipping notification but status updated");
-      return jsonResp(200, { success: true, message: "Status updated, no email sent" }, corsHeaders);
+      return jsonResp(200, { success: true, became_sold: becameSold, message: "Status updated, no email sent" }, corsHeaders);
     }
 
     if (!RESEND_API_KEY) {
@@ -129,7 +130,7 @@ serve(async (req) => {
             <p>Great news — <strong>${customerName}</strong> has signed Proposal #${proposalNumber} for <strong>${jobName}</strong>.</p>
             <p>Signed by: <strong>${signerName}</strong><br/>
             Date: ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
-            <p>The proposal status has been updated to <strong>Sold</strong>. You can download the signed PDF from the Proposals page.</p>
+            <p>The proposal status has been updated to <strong>${becameSold ? "Sold" : "Signed"}</strong>. You can download the signed PDF from the Proposals page.</p>
             <p style="color: #887c6e; font-size: 12px; margin-top: 24px;">— Sales Command</p>
           </div>
         `,
@@ -143,7 +144,7 @@ serve(async (req) => {
       return jsonResp(500, { error: `Email failed: ${resBody}` }, corsHeaders);
     }
 
-    return jsonResp(200, { success: true }, corsHeaders);
+    return jsonResp(200, { success: true, became_sold: becameSold }, corsHeaders);
 
   } catch (error) {
     console.error("proposal-signed error:", (error as Error).message);

@@ -132,7 +132,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep" 
       const ytdSold = filteredProps.filter(p => p.status === "Sold" && getEndDate(p)?.startsWith(year));
       const ytdBill = ytdSold.reduce((sum, p) => sum + (p.total || 0), 0);
 
-      const sentList = filteredProps.filter(p => ["Sent","Viewed","Approved","Sold","Lost"].includes(p.status));
+      const sentList = filteredProps.filter(p => ["Sent","Viewed","Approved","Signed","Sold","Lost"].includes(p.status));
 
       setBilling(monthBill);
       setYtd(ytdBill);

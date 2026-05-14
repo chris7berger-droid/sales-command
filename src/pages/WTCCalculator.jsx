@@ -1905,7 +1905,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
         .eq("id", proposalId)
         .single();
       if (data?.proposal_number) setProposalNumber(data.proposal_number);
-      if (data?.status === "Sold") setProposalSold(true);
+      if (["Sold","Signed"].includes(data?.status)) setProposalSold(true);
       if (data) {
         const cl = data.call_log;
         const cust = cl?.customers;

@@ -426,8 +426,8 @@ async function deletePropAttachment(fullName) {
       { l: "Size / unit filled in",    done: !!(wtc.size && wtc.unit),                              tab: "sow" },
       { l: "Locked",                   done: !!wtc.locked,                                           tab: "summary" },
       { l: "Proposal built",           done: allWtcsLocked },
-      { l: "Proposal sent",            done: ["Sent", "Sold"].includes(p.status) },
-      { l: "Proposal approved",        done: p.status === "Sold" },
+      { l: "Proposal sent",            done: ["Sent", "Signed", "Sold"].includes(p.status) },
+      { l: "Proposal approved",        done: ["Signed", "Sold"].includes(p.status) },
     ];
   }
 
@@ -598,16 +598,25 @@ async function deletePropAttachment(fullName) {
   async function handleInternalApprove() {
     if (!approveBy.trim()) { alert("Approved By is required."); return; }
     if (!approveReason.trim()) { alert("Reason is required."); return; }
+
+    const { data: siblings } = await supabase
+      .from("proposals")
+      .select("id")
+      .eq("call_log_id", p.call_log_id)
+      .neq("id", p.id)
+      .is("deleted_at", null)
+      .not("status", "in", "(Lost)");
+    const hasSisters = (siblings?.length || 0) > 0;
+
     await supabase.from("proposals").update({
-      status: "Sold",
+      status: hasSisters ? "Signed" : "Sold",
       approved_at: new Date().toISOString(),
       internal_approval: true,
       approved_by: approveBy.trim(),
       approval_reason: approveReason.trim(),
     }).eq("id", p.id);
-    if (p.call_log_id) {
+    if (p.call_log_id && !hasSisters) {
       await supabase.from("call_log").update({ stage: "Sold" }).eq("id", p.call_log_id);
-      // Sync job to QuickBooks (skip if test job)
       const isTest = (p.call_log?.job_name || "").toLowerCase().includes("test");
       !isTest && supabase.functions.invoke("qb-create-job", { body: { callLogId: p.call_log_id, proposalId: p.id } })
         .catch(() => {});
@@ -675,7 +684,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           {canDelete && (
             <Btn sz="sm" v="ghost" onClick={handleDelete} style={{ color: C.red, borderColor: C.red }}>🗑 Delete</Btn>
           )}
-          {(p.status === "Sent" || p.status === "Sold") && (
+          {(p.status === "Sent" || p.status === "Signed" || p.status === "Sold") && (
             <Btn sz="sm" v="ghost" onClick={handlePullBack} style={{ color: C.amber, borderColor: C.amber }}>↩ Pull Back</Btn>
           )}
           {p.status === "Sold" && (
@@ -687,11 +696,11 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           {p.status === "Sold" && (
             <Btn sz="sm" onClick={() => navigate("/invoices", { state: { newInvoiceProposalId: p.id } })}>+ Create Invoice</Btn>
           )}
-          {p.status !== "Sold" && (
+          {p.status !== "Sold" && p.status !== "Signed" && (
             <Btn sz="sm" v="ghost" onClick={() => setShowApproveModal(true)} style={{ color: C.green, borderColor: C.green }}>✓ Internal Approve</Btn>
           )}
           <Btn sz="sm" v="ghost" onClick={() => { setPdfMode("preview"); setShowPDF(true); }}>Generate PDF</Btn>
-          {p.status !== "Sold" && p.status !== "Sent" && wtcs.length > 0 && wtcs.every(w => w.locked) && <Btn sz="sm" onClick={() => { setPdfMode("send"); setShowPDF(true); }}>Send Proposal</Btn>}
+          {p.status !== "Sold" && p.status !== "Signed" && p.status !== "Sent" && wtcs.length > 0 && wtcs.every(w => w.locked) && <Btn sz="sm" onClick={() => { setPdfMode("send"); setShowPDF(true); }}>Send Proposal</Btn>}
         </div>
       </div>
 
@@ -1134,7 +1143,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               </div>
             )}
 
-            {p.status === "Sold" && (
+            {["Sold","Signed"].includes(p.status) && (
               <div style={{ marginTop: 14 }}>
                 {signedPdfUrl && !p.internal_approval ? (
                   <a href={signedPdfUrl} target="_blank" rel="noopener noreferrer" style={{ display: "block", textAlign: "center", background: C.teal, color: C.dark, borderRadius: 8, padding: "10px 0", fontSize: 12, fontWeight: 800, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none" }}>

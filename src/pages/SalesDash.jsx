@@ -10,7 +10,7 @@ import SectionHeader from "../components/SectionHeader";
 import Btn from "../components/Btn";
 
 // Any proposal that was actually sent to a customer
-const SENT_STATUSES = ["Sent","Viewed","Approved","Sold","Lost"];
+const SENT_STATUSES = ["Sent","Viewed","Approved","Signed","Sold","Lost"];
 
 function GoalCard({ label, actual, goal, fmt = v => v, items = [] }) {
   const pct   = Math.min(Math.round((actual / goal) * 100), 100);
@@ -151,7 +151,7 @@ export default function SalesDash({ displayName, displayRole }) {
       ]);
 
       // Cash Flow Forecast — Sold + pipeline (Has Bid / Sent statuses)
-      const forecastStatuses = ["Sold", "Sent", "Viewed", "Approved Internally", "Approved"];
+      const forecastStatuses = ["Sold", "Signed", "Sent", "Viewed", "Approved Internally", "Approved"];
       const forecastProps = filteredProps.filter(p => forecastStatuses.includes(p.status));
       const yr = now.getFullYear();
       const months = Array.from({ length: 12 }, (_, i) => ({
@@ -433,7 +433,7 @@ function AnalyticsModal({ onClose, selectedRep }) {
   const filteredWtc = wtcData.filter(pw => {
     const prop = pw.proposals;
     if (!prop) return false;
-    if (!["Sent","Viewed","Approved Internally","Approved","Sold"].includes(prop.status)) return false;
+    if (!["Sent","Viewed","Approved Internally","Approved","Signed","Sold"].includes(prop.status)) return false;
     const d = pw.end_date || pw.start_date || prop.created_at?.slice(0, 10);
     if (d && (d < dateFrom || d > dateTo)) return false;
     if (filterRep !== "__all__" && prop.call_log?.sales_name !== filterRep) return false;

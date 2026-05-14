@@ -64,7 +64,7 @@ export default function Proposals({ teamMember, setSubPage }) {
 
   useEffect(() => { load(); }, []);
 
-  const STATUS_TABS = ["All", "Draft", "Sent", "Sold", "Lost"];
+  const STATUS_TABS = ["All", "Draft", "Sent", "Signed", "Sold", "Lost"];
   const filteredProposals = proposals.filter(p => {
     if (statusFilter !== "All" && p.status !== statusFilter) return false;
     if (filters.sales && p.call_log?.sales_name !== filters.sales) return false;

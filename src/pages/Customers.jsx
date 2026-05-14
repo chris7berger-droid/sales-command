@@ -684,7 +684,7 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
                 >
                   <td style={{ ...tdBase, fontWeight: 800, color: C.tealDark, fontFamily: F.display }}>{p.proposal_number || p.id}</td>
                   <td style={{ ...tdBase, color: C.textMuted, fontSize: 12 }}>{wtNames(p.proposal_wtc) || "—"}</td>
-                  <td style={tdBase}><span style={{ fontSize: 11, fontWeight: 700, color: stageColor(p.status === "Sold" ? "Sold" : p.status === "Lost" ? "Lost" : "Has Bid"), fontFamily: F.display, textTransform: "uppercase" }}>{p.status}</span></td>
+                  <td style={tdBase}><span style={{ fontSize: 11, fontWeight: 700, color: stageColor(p.status === "Sold" || p.status === "Signed" ? "Sold" : p.status === "Lost" ? "Lost" : "Has Bid"), fontFamily: F.display, textTransform: "uppercase" }}>{p.status}</span></td>
                   <td style={{ ...tdBase, textAlign: "right", fontWeight: 700, color: C.textHead }}>{fmt$(p.total)}</td>
                   <td style={{ ...tdBase, color: C.textMuted }}>{p.created_at ? new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
                 </tr>

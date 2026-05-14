@@ -66,7 +66,7 @@ export default function PublicSigningPage() {
         if (reps?.[0]) setRepInfo(reps[0]);
       }
 
-      if (view.status === "Sold") {
+      if (["Sold","Signed"].includes(view.status)) {
         setSigned(true);
         setProposal(view);
         setWtc(view.wtc || []);
@@ -334,7 +334,7 @@ export default function PublicSigningPage() {
         const { data: reps } = await supabase.rpc("get_rep_contact", { rep_name: salesName });
         repEmail = reps?.[0]?.email || "";
       }
-      const { error: fnError } = await supabase.functions.invoke("proposal-signed", {
+      const { data: fnData, error: fnError } = await supabase.functions.invoke("proposal-signed", {
         body: {
           repEmail,
           repName: salesName,
@@ -347,16 +347,9 @@ export default function PublicSigningPage() {
           signing_token: token,
         },
       });
-      // ALREADY_SIGNED (HTTP 409) from the edge function indicates a
-      // race — the proposal was signed in another tab / by a
-      // double-click. The existing signature is authoritative; render
-      // Accepted silently and skip QB sync (winning tab handled it).
-      //
-      // supabase-js v2 surfaces non-2xx responses as fnError with the
-      // raw Response on fnError.context — same pattern as
-      // src/components/QBLinkModal.jsx for parsing edge fn error bodies.
       let alreadySigned = false;
       let fallbackNeeded = false;
+      let becameSold = false;
       if (fnError) {
         const errBody = await fnError.context?.json?.().catch(() => null);
         if (errBody?.error === "ALREADY_SIGNED") {
@@ -364,16 +357,12 @@ export default function PublicSigningPage() {
         } else {
           fallbackNeeded = true;
         }
+      } else {
+        becameSold = fnData?.became_sold ?? true;
       }
       let qbBlocked = alreadySigned;
       if (fallbackNeeded) {
-        // Fallback when the edge fn round-trip itself fails (network,
-        // 5xx, etc — NOT ALREADY_SIGNED, which we already handled).
-        // Call the same 5-arg RPC directly. IP captured here is
-        // degraded (client-side ipify) since PostgREST doesn't surface
-        // the real x-forwarded-for to the RPC's request-headers
-        // context the way the edge function does.
-        const { error: rpcErr } = await supabase.rpc("mark_proposal_signed", {
+        const { data: rpcRows, error: rpcErr } = await supabase.rpc("mark_proposal_signed", {
           p_token:        token,
           p_signer_name:  name.trim(),
           p_signer_email: null,
@@ -386,13 +375,12 @@ export default function PublicSigningPage() {
           } else {
             throw rpcErr;
           }
+        } else if (rpcRows?.[0]) {
+          becameSold = rpcRows[0].became_sold ?? true;
         }
       }
-      // QB job sync (non-blocking, skip test jobs). Don't re-trigger on
-      // a race-collapsed ALREADY_SIGNED — qb-create-job would have
-      // already fired (or be about to fire) from the winning tab.
       const isTest = (proposal.customer || "").toLowerCase().includes("test");
-      if (!qbBlocked && proposal.call_log_id && !isTest) {
+      if (!qbBlocked && proposal.call_log_id && !isTest && becameSold) {
         supabase.functions.invoke("qb-create-job", { body: { callLogId: proposal.call_log_id, proposalId: proposal.id } }).catch(() => {});
       }
 

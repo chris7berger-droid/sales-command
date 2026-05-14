@@ -1,0 +1,248 @@
+SC Handoff v114 — 2026-05-13
+============================
+
+SESSION SUMMARY
+Plan-mode session that produced the durable resolution for F16: §5
+sync identity is now keyed off a new `proposal_wtc.cloned_from_wtc_id`
+self-FK lineage column, replacing the work_type_id-as-join-key
+assumption that ran through Rounds 2–3 and broke when §5(c) was
+reversed last session. One plan-agent round (general-purpose, not the
+Plan subagent — Plan can't write) produced §5 Amendment 1 + §10 step 6
+Amendment 3 in a single shot per scope decision B. Then walked the 8
+[DESIGN-OPEN] items the amendment surfaced through ratification with
+Chris one-at-a-time; all 8 locked, including one Chris-added refinement
+(GC names rendered from `customers.name`, not GC-A/B/C labels). Final
+ratification block appended as a third amendment landing. No code, no
+migrations, no edge functions, no prod changes — pure plan layer. Step
+6a (Migration 1b) is now build-unblocked; step 6b unblocked after 6a
+hits prod. This was also the inaugural ERD loop (Loop #1 in
+~/erd-loop/LOG.md), locked at 12:56, closed at 14:28 — 1h 32m elapsed
+against a 15h predicted budget, which is itself a process datum.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+Commits on feat/multi-gc-allocation (chronological, both already
+pushed to origin):
+
+7629203 — plan(F16): §5 Amendment 1 + §10 step 6 Amendment 3 —
+  cloned_from_wtc_id lineage sync identity   (Touches F16)
+  General-purpose agent round (~8m of agent execution) appending two
+  amendments to docs/plans/multi_gc_allocation.md. §5 Amendment 1
+  spec'd the lineage column shape, sync join rule, sync direction
+  (parent → siblings only), interaction with locally_edited_fields,
+  Migration 1b shape (timestamp [DESIGN-OPEN] per O7). §10 step 6
+  Amendment 3 split step 6 into 6a (Migration 1b schema, ships first)
+  + 6b (RPC migration, authored after 6a hits prod). Append-only
+  verified (+132 / -0). Confidence-tagged throughout
+  ([LOCKED]/[DERIVED]/[DESIGN-OPEN]/[BLOCKED]).
+
+0b5730f — plan(F16): Ratifications — 2026-05-13 — locks 8
+  DESIGN-OPEN items from §5 Amendment 1 + §10 step 6 Amendment 3
+  (Touches F16)
+  Authored directly via Edit (no agent — mechanical write). Appended
+  "F16 Ratifications — 2026-05-13" block to plan doc with canonical
+  audit-pass table shape (# / Item / Agent rec / Ratification /
+  Notes). Append-only (+33 / -0). All 8 items flip [DESIGN-OPEN] →
+  [LOCKED] via this block; upstream amendments' DESIGN-OPEN flags
+  intentionally left in place per [Schema Amendment Not Overwrite].
+
+Cumulative session diff: docs/plans/multi_gc_allocation.md (+165 / -0).
+No other files modified.
+
+DEPLOYED
+────────
+Nothing. No edge functions, no migrations, no Vercel rebuilds. Pure
+plan-layer session.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+Plan-agent shape: general-purpose, not Plan subagent. The Plan
+subagent (per its spec) lacks Edit/Write/NotebookEdit tools, so it
+can return a plan as a message but cannot persist it. The file-as-
+memory planning pattern requires durable amendment in the plan doc
+on the feature branch, which only general-purpose can satisfy. Chris
+ratified this framing before the spawn.
+
+Scope picked B over A and C. A = §5 amendment only; B = §5 + §10 step
+6 amendments same round; C = plan + write Migration 1b SQL. B because
+(a) F16's stated unblock is step 6, and leaving step 6 text stale
+creates a future trap where a fresh build agent reads the old
+work_type_id-keyed join and ships a broken sync RPC, (b) one fresh-
+context round is cheaper than two with reload, (c) one-shipping-
+agent's-context > two amendment passes on cognitive load. C was
+explicitly rejected as discipline violation (Loop #1 was locked in
+plan mode; writing migration SQL is build territory) and as a
+correctness risk (Migration 1b shape decisions — ON DELETE behavior,
+NULL semantics, index partial-vs-full — emerge during the plan; writing
+SQL while those are soft is exactly the bridge-then-fix anti-pattern).
+
+8 ratifications, locked verbatim into plan doc — summary of the
+notable calls (not the cosmetic ones):
+
+#1 Multi-gen chain support REJECTED, not deferred. Chris pushed
+   harder than the agent's "defer to v1+" rec: chains are *prohibited*,
+   not postponed, and #4 enforces that at the clone gate.
+
+#4 Hard block on clone-of-clone via
+   `RAISE EXCEPTION 'NESTED_CLONE_NOT_SUPPORTED'` when
+   `v_source.cloned_from_proposal_id IS NOT NULL`. No silent allow.
+   Pairs with #1.
+
+#6 Empty-result modal REJECTED suppression — modal always pops, even
+   when sync produced zero pending and zero conflicts. Chris's
+   reasoning: estimators are not computer-savvy; silent application
+   erodes trust; the empty modal acts as safety backstop. This
+   reshaped #7(c) — empty-state copy now needs explicit confirmation
+   text, not "0 siblings will receive this" (which reads as
+   "did anything happen?"). Locked copy:
+   "Saved. No GCs needed this update — your other proposals don't
+   carry this WTC, or this field is locally edited everywhere."
+
+#7(e) Chris-added during walkthrough — GC names rendered from
+   `customers.name` via JOIN on proposals.customer_id (already
+   shipped in Migration 1a). Sync RPC return shape must include
+   `customer_name` per sibling. Fallback when customer unassigned:
+   render proposal number. Edge cases: truncate names at ~30 chars;
+   for 5+ siblings show first 3 + "and N more." Was implicit in
+   the data model; making it explicit prevents the build agent from
+   shipping GC-A/B/C labels.
+
+#8 Verified Round-3 AUDIT_LOG before locking. Agent's amendment
+   claimed "AUDIT_LOG implied ratification" on start_date/end_date
+   per-GC carry-over; grep of AUDIT_LOG showed zero mention. The
+   plan doc itself at §4:548 had the soft "Suggest: per-GC, not
+   source-driven — but ask Chris" — that was the latest call. Locked:
+   field-level "never sync" rule + clone carries parent's value at
+   clone time (estimator has a default to adjust per-GC).
+
+The B-vs-A scope decision and Chris's #1/#6/#7(e) interventions are
+worth flagging because they all shifted the v1 surface in ways the
+agent wouldn't have produced unprompted.
+
+ERD methodology — Loop #1 (inaugural). Locked 12:56, closed 14:28.
+1h 32m elapsed vs 15h predicted. Deltas: mindset 10 → 8 (Δ -2),
+concern 3 → 9 (Δ +6 — huge positive shift), potential 9 → 10
+(Δ +1), success 9/10. Loop log lives at ~/erd-loop/LOG.md, not in
+this repo. SDK-extraction attempt at loop #15 (14 to go). 4 erdnotes
+captured mid-session, all insight-class realizations about the meta
+process. The methodology held.
+
+NEW BACKLOG ITEMS
+─────────────────
+None filed this session. F16 progressed but did not change shape.
+
+CLOSED THIS SESSION
+───────────────────
+None. F16 stays T1 Open — the plan layer is now fully ratified and
+build-ready, but the work item closes only when 6a + 6b ship.
+
+VERIFICATION
+────────────
+Plan doc only, no code touched. `git diff --stat 22b05f0..HEAD`
+confirmed both commits limited to docs/plans/multi_gc_allocation.md
+(+165 / -0). Append-only verified via diff inspection before each
+commit. No scratch projects, no migrations applied, no edge fn deploys,
+no Vercel rebuilds.
+
+This is a **code-review-equivalent verification only** — there is
+nothing to live-smoke until step 6a's Migration 1b ships. The
+ratifications themselves are decisions, not testable artifacts.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+- O3 (H5 Migration B — drop 1-arg mark_proposal_signed compat wrapper
+  + legacy anon-insert policy). 48h gate from 2026-05-11 02:09 UTC
+  passed 2026-05-13 02:10 UTC. Now significantly past gate, still Open.
+- O6 (migration history not replayable from zero). No remediation
+  attempted.
+- O7 (multi-repo migration coordination). Filed last session as T1;
+  F16 Ratification #2 explicitly waits on O7 with documented fallback
+  (`supabase migration list --linked` immediately before Migration 1b
+  timestamp assignment). O7 itself is not progressed.
+- Deferred v113 prod smokes: scmybiz.com read path on existing
+  proposals (~30s) + trigger NO-OP on real prod parent (~1min). Both
+  still safe to run any time post-deploy.
+- §11 V9 verification (orphan-child after ON DELETE SET NULL on
+  parent WTC). Agent flagged as noticed-but-not-touched; this round
+  did not address it.
+- `idx_proposals_cloned_from` in Migration 1a partiality flag. Same
+  noticed-but-not-touched status from prior round.
+- All T2/T3 backlog beyond F16.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Read order: docs/BACKLOG.md → this handoff (v114) →
+   docs/plans/multi_gc_allocation.md (specifically: §5 Amendment 1,
+   §10 step 6 Amendment 3, and F16 Ratifications — 2026-05-13).
+2. Highest priority: **F16 step 6a — Migration 1b**. Author
+   `supabase/migrations/<ts>_multi_gc_1b_lineage.sql` per §5 Amendment
+   1 §D + ratifications. **Timestamp protocol** (per Ratification #2):
+   run `supabase migration list --linked` IMMEDIATELY before assigning
+   the timestamp; pick a value strictly greater than every ledger row
+   in both sales-command and sch-command. Apply to prod via
+   `supabase db push --linked`. This is the build-mode entry to step 6.
+3. After 6a hits prod, **F16 step 6b** is unblocked — author the
+   clone + 2 sync RPCs per all locked specs (INSERT-SELECT clone,
+   outer-source/inner-lineage sync, hard RAISE on clone-of-clone,
+   modal-always-pops, customer_name in return shape, dates excluded
+   from sync iteration, etc.). 6b is a separate session.
+4. Owed from v113: prod read-path smoke (~30s) + trigger NO-OP smoke
+   (~1min). Either safe to run cold; do them before step 6b lands
+   if they slipped past 6a.
+5. O3 — 48h gate now well past. Drop the 1-arg
+   `mark_proposal_signed` compat wrapper + legacy anon-insert policy.
+   Should have been done this session or last; gate is no longer the
+   blocker.
+6. O7 cross-repo coordination — worth its own planning loop given the
+   structural impact. F16 step 6a unblocks without it (via documented
+   fallback), but the next migration on either repo will hit this
+   wall again.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+docs/plans/multi_gc_allocation.md
+  — +165 / -0 this session. Three new sections: §5 Amendment 1
+    (line ~1319), §10 step 6 Amendment 3 (line ~2029), and the
+    F16 Ratifications block at the end (line 2727+). Read these
+    three in order before step 6a build.
+
+docs/BACKLOG.md
+  — F16 (T1) Open. Migration 1b shipping (step 6a) does not close
+    F16 — the row closes when the full clone+sync RPC set is live.
+
+docs/AUDIT_LOG.md
+  — No edits this session. Checked during #8 ratification (grep
+    confirmed zero mention of start_date/end_date — agent's
+    "AUDIT_LOG implied ratification" was inaccurate, plan §4:548
+    was the actual prior soft call).
+
+supabase/migrations/20260513000000_multi_gc_allocation.sql
+  — Migration 1a from last session, live on prod. Step 6a's
+    Migration 1b lands on top of this; review the
+    `proposal_wtc.locally_edited_fields` shape here before authoring
+    step 6b's RPCs.
+
+~/erd-loop/LOG.md
+  — Lives on Chris's home, NOT in this repo. Loop #1 CLOSED. Read
+    if continuing the methodology discipline next session.
+
+GIT STATE ON CLOSE
+──────────────────
+- sales-command branch feat/multi-gc-allocation: 2 new commits this
+  session (7629203, 0b5730f), both pushed to origin. Tip is 0b5730f.
+- sales-command main: unchanged. Migration 1a still lives only on
+  feat/multi-gc-allocation pending the rest of §10 implementation.
+- Working tree: 4 modified files in supabase/.temp/*
+  (cli-latest, gotrue-version, storage-migration, storage-version).
+  Intentional carryforward — Supabase CLI churn that should not be
+  committed. Stays in working tree across the handoff commit; will
+  carry forward to next session.
+- No open PRs touched this session.
+- No scratch projects created or deleted.
+
+END STATE
+─────────
+F16 plan layer fully ratified, pushed to feat/multi-gc-allocation.
+Step 6a (Migration 1b) is build-unblocked; step 6b unblocked after
+6a hits prod. F16 itself stays T1 Open until both ship. ERD Loop #1
+closed cleanly. Ready for fresh session.

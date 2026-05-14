@@ -23,6 +23,7 @@ export const PROP_C = {
   "Sent":                { bg:"rgba(142,68,173,0.10)", text:"#5b2d7a" },
   "Viewed":              { bg:"rgba(48,207,172,0.15)", text:"#1a8a72" },
   "Approved Internally": { bg:"rgba(67,160,71,0.12)",  text:"#1e5e22" },
+  "Signed":              { bg:"rgba(67,160,71,0.10)",  text:"#1e5e22" },
   "Sold":                { bg:"rgba(67,160,71,0.15)",  text:"#1e5e22" },
   "Lost":                { bg:"rgba(229,57,53,0.10)",  text:"#8b1a18" },
 };

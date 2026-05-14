@@ -14,7 +14,7 @@ function buildMonthRows(callLog, proposals) {
   (callLog || []).forEach(r => { if (r.created_at) monthSet.add(r.created_at.slice(0, 7)); });
   (proposals || []).forEach(p => { if (p.created_at) monthSet.add(p.created_at.slice(0, 7)); });
 
-  const SENT_STATUSES     = ["Sent", "Viewed", "Approved Internally", "Approved"];
+  const SENT_STATUSES     = ["Sent", "Viewed", "Approved Internally", "Approved", "Signed"];
   const ACCEPTED_STATUSES = ["Approved Internally", "Approved"];
 
   return [...monthSet].sort().reverse().map(month => {

@@ -1,0 +1,353 @@
+SC Handoff v111 — 2026-05-11
+============================
+
+SESSION SUMMARY
+Documentation + git-hygiene session. Closed out the Multi-GC
+Proposal Allocation planning phase across 5 fresh-spawned Plan
+agent rounds + an audit-terminal ratification pass, then
+cherry-picked two parallel-session commits from
+feat/multi-gc-allocation onto main so they're visible from
+trunk. No application code changed — no migrations applied,
+no edge functions deployed, no UI work. The durable artifacts
+are docs/plans/multi_gc_allocation.md (2502 lines on
+1d64ec6) and the memory file
+project_multi_gc_planning_agent.md, both updated to reflect
+closeout. Implementation phase opens in a fresh session by
+following §10 in the plan doc.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+Commits on feat/multi-gc-allocation (chronological):
+
+d61d99b — docs(plans): multi-GC allocation design — round 1 outline
+  §1–§12 outline + C1–S1 resolution proposals. Tagged with
+  [LOCKED]/[DERIVED]/[DESIGN-OPEN]/[BLOCKED] throughout.
+  Re-derived from v98 handoff + post-v98 landscape deltas.
+
+7ce6a74 — docs(plans): multi-GC §5 sync semantics resolved
+  Round 1 (technically round 1.5, ran in same session).
+  Option A+: column-level granularity for the three jsonb
+  arrays (materials/field_sow/sub_areas), sub-key granularity
+  for travel. Full bodies for preview_sync_to_sisters +
+  apply_source_edit_to_sisters RPCs. Avoided the multi-day
+  jsonb-id stabilization migration that row-level merge would
+  have required.
+
+d3f124c — Plan: C1 status-model resolution + C3 verification
+  Round 2. Introduce 'Signed' as a proposals.status value
+  (Option I). First sister to sign → 'Signed', not 'Sold'.
+  call_log.stage stays at 'Has Bid' until Mark Awarded.
+  qb-create-job fires once on the award_proposal-driven
+  'Sold' transition. Single-GC fast-path inside
+  mark_proposal_signed preserves today's flow byte-for-byte.
+  C3 resolved as side deliverable: proposals.status and
+  call_log.stage are both text (no enum, no CHECK).
+
+d24795a — Plan: §5 leftover cleanup (intro flag + sync audit
+table + duplicate work_type_id)
+  Round 3. (a) Ship proposals.locally_edited_fields text[]
+  sibling column + BEFORE UPDATE OF intro trigger that fires
+  only on sisters. (b) Defer proposal_sync_events audit table
+  to post-v1; locked spec documented for clean later ship.
+  (c) Add UNIQUE (proposal_id, work_type_id) on proposal_wtc
+  with pre-flight V8 verification + WTCCalculator dropdown
+  UX guard.
+
+73d8429 — Plan: §3 markup arithmetic resolution (Sweep-2
+semantics)
+  Round 4. Option A — additive, floor-clamped at zero,
+  labor-only:
+    effective_markup_pct = max(0, wtc.markup_pct + p.markup_override_pct)
+  Adds optional markup_override_pct param to calcWtcPrice +
+  calcWtcBreakdown defaulting to 0 (zero-impact rollout).
+  New calcProposalTotal wrapper. Backward-compat audit
+  covers 14 call sites across 7 files.
+
+b0a6d63 — B15: discount sanity follow-up from Multi-GC §3
+markup analysis
+  Filed alongside Round 4. Pre-existing pathology surfaced
+  (NOT introduced) — calc.js:73 has no floor at zero on
+  calcWtcPrice return; steep discount on low-markup WTC can
+  produce negative totals. T3 polish.
+
+e5c1d02 — Plan: §7 wizard re-spec (final planning round)
+  Round 5. Complete 4-screen wizard textual spec replacing
+  the deleted-mockup §7 stub. New components:
+  MultiGCWizard.jsx + SyncConflictModal.jsx. Layout mirrors
+  NewInquiryWizard.jsx with widened modal (720) for
+  side-by-side sister cards. Surfaces every prior-round
+  decision with a UI footprint: Q1, Q2, Q4, C1 'Signed',
+  §3 markup, §5 sync, §5 cleanup (a) + (c). Flagged 13
+  post-Round-5 sub-DESIGN-OPENs for audit ratification.
+
+1d64ec6 — Plan: Round 5 ratifications + §3 schema amendment
+(planning phase closed)
+  Closeout commit. All 13 sub-DESIGN-OPENs ratified. New
+  "## §3 Schema Amendment — Round 5 Surfaced" block adds
+  proposals.rfp_number + proposals.bid_due_date (Sweep-2
+  commerce fields surfaced by Screen 2 spec).
+  billing_terms_override REJECTED — customers.billing_terms
+  via Sweep-1's proposals.customer_id already covers it.
+  Round 5 Ratifications table captures all 13 decisions
+  with agent rec + ratification + notes. §10 step 9
+  amended with the CallLog count-chip N+1 hazard.
+
+1dfe71a — BACKLOG: F14 + F15 from Multi-GC §7 wizard re-spec
+ratifications
+  F14 multi-viewer recipients deferred to v1.1. F15
+  Replace Commercial-as-GC heuristic with explicit GC flag
+  on customers.
+
+Cherry-picks landed on main (parallel-session commits moved
+from feat/multi-gc-allocation):
+
+d20bb3a (was a07b8c6) — B16 cherry-pick (B16 line only,
+B15 dropped)
+  B16: QB doubled DisplayName regression — PR #22
+  dedupRepeated() did not catch the real-world pattern.
+  Verified in prod after qb-create-job deploy; doubled
+  DisplayName still landing. Conflict resolved per audit
+  decision Option A: B15 stays on feat/multi-gc-allocation
+  (Multi-GC-planning-derived; references §3 Round 4 work
+  not yet on main), B16 only on main.
+
+c5a1f57 (was 2b2523e) — handoff v110 cherry-pick
+  Clean — net-new file docs/handoffs/SC_Handoff_v110.txt,
+  no overlap with main.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+Reference, not duplicate. The plan doc carries the full
+reasoning for every decision below; this section is the
+pointer.
+
+Locked from v98 (still hold): Q1 (one call_log per project,
+sisters stacked, Mark Awarded triggers Sold/Lost), Q2
+(source-driven content, per-GC commerce,
+locally_edited_fields[] override model), Q4 (two entry
+points, single wizard), Q5 (forward-only, no retro-link),
+Sweep-1 (proposals.customer_id nullable FK), Sweep-2
+(proposals.markup_override_pct numeric).
+
+Round-level resolutions landed this session:
+- C1 → Option I (introduce 'Signed' status)
+- C3 → text columns, no enum / no CHECK needed
+- §5 sync → Option A+ (column-level for arrays, sub-key
+  for travel)
+- §5 cleanup (a) → sibling proposals.locally_edited_fields
+  text[]
+- §5 cleanup (b) → audit table deferred to post-v1
+- §5 cleanup (c) → UNIQUE (proposal_id, work_type_id) +
+  dropdown UX guard
+- §3 markup → Option A (additive, floor-clamped, labor-only)
+- §7 wizard re-spec → 4-screen spec finalized
+
+13 post-Round-5 sub-DESIGN-OPENs ratified by audit terminal.
+Full table at docs/plans/multi_gc_allocation.md
+"## Round 5 Ratifications". Headline ratifications:
+- proposals.rfp_number + bid_due_date accepted;
+  billing_terms_override rejected.
+- Clone RPC needs intro_override param + inline
+  locally_edited_fields := ARRAY['intro'] on INSERT (trigger
+  fires on UPDATE only).
+- Multi-viewer recipients deferred to v1.1; v1 signer-only.
+- Conflict modal copy: "Local version" / "Updated source"
+  (not adversarial).
+- "pp" suffix on markup override input accepted.
+- CallLog multi-GC count chip requires aggregate query,
+  NOT N+1 per row (flagged in §10 step 9).
+
+Cherry-pick conflict on a07b8c6 resolved per audit decision
+Option A (B16 only, B15 stays on feat branch). Rationale:
+B15 references Multi-GC §3 Round 4 work that doesn't exist
+on main — landing it there would create a backlog row
+pointing at a section nobody on main can navigate to. B16
+is a real prod regression with no Multi-GC coupling.
+
+NEW BACKLOG ITEMS
+─────────────────
+Filed this session:
+- B15 (T3) — Discount sanity: WTC price can go negative
+  with steep discount on low-markup WTC. Pre-existing,
+  surfaced by Multi-GC §3 markup analysis. Lives on
+  feat/multi-gc-allocation.
+- B16 (T2) — QB doubled DisplayName regression: PR #22
+  dedupRepeated() did not catch the real-world pattern.
+  Filed by parallel session; cherry-picked to main this
+  session.
+- F14 (T3) — Multi-viewer recipients on sister proposals,
+  deferred from §7 Round 5 to v1.1. Lives on
+  feat/multi-gc-allocation.
+- F15 (T3) — Replace customer_type='Commercial' heuristic
+  with explicit GC flag on customers. Lives on
+  feat/multi-gc-allocation.
+
+Both F14 and F15 anchor at docs/plans/multi_gc_allocation.md
+"## Round 5 Ratifications" so future sessions can trace
+back.
+
+CLOSED THIS SESSION
+───────────────────
+None.
+
+VERIFICATION
+────────────
+- No application code changed; no smoke tests run.
+- Cherry-pick verified clean: B16 staged diff confirmed
+  to be a single line addition with no B15 leak and no
+  conflict-marker residue before --continue. Handoff v110
+  cherry-pick was a net-new file (200 lines), no peripheral
+  files touched.
+- Plan doc verified at 2502 lines on 1d64ec6, durable on
+  origin/feat/multi-gc-allocation.
+- Memory file project_multi_gc_planning_agent.md verified
+  current: description frontmatter points at closeout state,
+  obsolete "DO NOT spawn a new Plan agent" line removed,
+  Next deliverables section points at §10 implementation
+  order. MEMORY.md index entry updated.
+- main push verified: 7cd5633..c5a1f57 (not forced).
+- feat/multi-gc-allocation unchanged on origin (1dfe71a
+  was the last push before cherry-picks; cherry-picks
+  landed on main only).
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+- src/, supabase/migrations/, supabase/functions/ — no
+  changes. This session was design + git only.
+- No migrations applied to local or prod.
+- H-C2 (send-proposal trust boundary) — referenced as an
+  interlock for the wizard's Create-and-Send CTA (deferred
+  to post-H-C2) and for §4 clone RPC signature. Not
+  addressed.
+- H-B2 (job-attachments storage delete policy) — flagged
+  in §8 edge cases for the shared-storage-between-sisters
+  scenario. Not addressed.
+- O3 (H5 Migration B) — still on ≥48h gate from
+  2026-05-11 02:09 UTC; earliest start 2026-05-13 02:10 UTC.
+- All other T2 backlog: B11, B13, H11, S2. No code touched.
+
+NEXT SESSION POINTERS
+─────────────────────
+Fresh session opens implementation phase per §10 in
+docs/plans/multi_gc_allocation.md.
+
+1. Read order on session start (per CLAUDE.md): docs/BACKLOG.md
+   → this handoff (v111) → docs/plans/multi_gc_allocation.md.
+
+2. §10 step 1 — pre-flight verifications V1–V8 (queries
+   listed in §11). Run via psql against prod; expect zero
+   rows where §11 spec calls for it. V8 (UNIQUE
+   proposal_id, work_type_id pre-check) is the
+   highest-risk verification — if it returns rows, the
+   migration must split into a two-stage path (ship the
+   WTCCalculator dropdown guard first, triage duplicates,
+   then ship the UNIQUE).
+
+3. §10 step 2 — schema migration. Single file at
+   supabase/migrations/<timestamp>_multi_gc_allocation.sql
+   with ALL DDL consolidated: §3 (Sweep-1 customer_id,
+   Sweep-2 markup_override_pct, cloned_from_proposal_id,
+   lost_reason, lost_at, locally_edited_fields on
+   proposal_wtc, proposal_clones audit table) + §3
+   Amendment (rfp_number, bid_due_date) + §5 cleanup (a)
+   proposals.locally_edited_fields + intro trigger + §5
+   cleanup (c) UNIQUE constraint + proposal_wtc
+   locally_edited_fields trigger.
+
+4. §10 step 3 onward: S1 fix (customer_jobs RPC) →
+   C1 fix (mark_proposal_signed rewrite +
+   ProposalDetail.jsx:598-617 + qb-create-job gating
+   via became_sold) → RPCs (clone_proposal_to_gcs,
+   preview_sync_to_sisters, apply_source_edit_to_sisters,
+   award_proposal, reverse_award) → triggers →
+   wizard component (MultiGCWizard.jsx +
+   SyncConflictModal.jsx) → UI surfaces (entry points,
+   list differentiator, status pills, WTCCalculator
+   dropdown guard) → preview deploy → smoke per §9 →
+   merge.
+
+5. Audit terminal gates each step before progression.
+   Each step is its own task with its own audit pass.
+
+6. Cross-reference pair flagged for post-H-C2 re-open:
+   §4 clone RPC BLOCKED-on-H-C2 note + Screen 4
+   Create-and-Send CTA deferral. Both re-open together
+   when H-C2 lands.
+
+7. O3 timer — earliest 2026-05-13 02:10 UTC. Before
+   applying Migration B, query pg_stat_statements for
+   any 1-arg mark_proposal_signed traffic; require zero.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+docs/plans/multi_gc_allocation.md (2502 lines on 1d64ec6)
+  — Primary design reference. §1–§12 outline + 6
+    resolution blocks + Round 5 ratifications table at
+    the end.
+
+docs/handoffs/SC_Handoff_v98.txt
+  — Original planning session brief (2026-05-06). Some
+    file:line citations have drifted; post-v98 landscape
+    deltas captured in the plan doc's READ FIRST sections.
+
+~/.claude/projects/-Users-chrisberger/memory/project_multi_gc_planning_agent.md
+  — Memory file. Points at the plan doc as the durable
+    model. Describes the file-as-memory pattern used
+    across the 5 rounds.
+
+supabase/migrations/20260507120000_call_log_merge.sql
+  — RPC pattern precedent (SECURITY DEFINER, NO_TENANT
+    guard, audit logging conventions) for the §4 + §5
+    + §6 RPCs.
+
+supabase/migrations/20260510120000_signing_token_expiry_and_consume.sql:439-533
+  — Current mark_proposal_signed body. C1 surface for
+    the multi-GC sister-aware rewrite.
+
+src/components/ProposalDetail.jsx:598-617
+  — handleInternalApprove. C1 client-side update site.
+
+src/lib/calc.js
+  — Markup math surface. Round 4 specifies the
+    effectiveLaborMarkupPct + calcProposalTotal additions.
+
+src/pages/Customers.jsx:253-260, :514, :516-519
+  — S1 surface. Filter-by-call_log.customer_id sites
+    that need the customer_jobs / customer_proposals RPC
+    swap.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: feat/multi-gc-allocation, clean working tree.
+- Top 5 on feat/multi-gc-allocation:
+    1dfe71a BACKLOG: F14 + F15 from Multi-GC §7 wizard re-spec ratifications
+    1d64ec6 Plan: Round 5 ratifications + §3 schema amendment (planning phase closed)
+    2b2523e docs: session handoff v110
+    a07b8c6 B16: log QB doubled DisplayName regression — PR #22 dedupe didn't match actual pattern
+    b0a6d63 B15: discount sanity follow-up from Multi-GC §3 markup analysis
+- Top 5 on main:
+    c5a1f57 docs: session handoff v110
+    d20bb3a B16: log QB doubled DisplayName regression — PR #22 dedupe didn't match actual pattern
+    7cd5633 fix(qb): dedupe "X - X" job_name pattern before pushing to QB DisplayName (#22)
+    45a15cf Touches B12: persistent QB Skip pill + Resume button on CallLogDetail (#21)
+    b8677b1 docs: session handoff v109
+- Both branches pushed to origin.
+- No open PRs touched this session. PR #21 + PR #22
+  were merged to main pre-session (they show as 45a15cf
+  + 7cd5633 above).
+- No edge function deploys. No migrations. No memory
+  writes after the closeout (memory file verified
+  current pre-handoff).
+
+END STATE
+─────────
+Multi-GC Proposal Allocation planning phase closed.
+docs/plans/multi_gc_allocation.md (2502 lines) is the
+durable design artifact. All 5 round-level resolutions
+plus 13 post-Round-5 sub-DESIGN-OPENs landed. Two
+parallel-session commits cherry-picked to main so B16
+and handoff v110 are visible from trunk. Working tree
+clean on feat/multi-gc-allocation. Implementation phase
+opens in a fresh session by reading BACKLOG → this
+handoff → plan doc, then beginning §10 step 1
+(pre-flight verifications V1–V8 via psql).

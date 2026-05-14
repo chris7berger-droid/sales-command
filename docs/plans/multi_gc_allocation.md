@@ -3014,3 +3014,29 @@ _Locks the three [DESIGN-OPEN] items raised by §10 Step 3 Amendment 1 — Secti
 - The `get_public_proposal_view` RPC update (step 3 original sentence, "§11 v98 finding still valid") — still required by step 3 build but not in this audit's scope. Build session reviews RPC return shape against this amendment before authoring the RPC migration.
 - A build-time grep for `call_log?.customers` (outside the 4 named A1.1 sites) — recommended in A1.5 to close certainty; deferred to build session.
 - §10 step 3 original sentence and §11 V5 inventory: left in place per [Schema Amendment Not Overwrite]. This block + Amendment 1 are the authoritative spec.
+
+### §10 Step 4 Ratifications — 2026-05-14
+
+_Locks the audit decisions raised by §10 Step 4 Amendment 1 — Section 4 pre-build audit deltas. Audit-pass conversation 2026-05-14 between Chris and Opus 4.7 audit session. Upstream amendment's items intentionally remain in place per [Schema Amendment Not Overwrite]; this block is the authoritative answer._
+
+| # | Item | Amendment rec | Ratification | Notes |
+|---|---|---|---|---|
+| 1 | A2.2 — Invoices site scope (`Customers.jsx:521-525`) | Plan-hygiene note (no code change) | **Accept plan-hygiene note** | Auto-heals via site #2's `customer_jobs` swap through the existing `jobIds.has(...)` intersection. Note in amendment captures the transitive dependency so future invoice-by-customer surfaces don't bypass it. |
+| 2 | A2.3 — `customer_proposals` substrate | Share `v_proposal_customer_resolved` view | **Accept share substrate** | One resolution rule, one location. Same reasoning as Step 3 Ratification #1 (centralized over inlined). Build-order: step 3's view migration must land before step 4's RPC migration (already correct in §10 order). |
+| 3 | A2.4 — Role gate the new RPCs | No role gate | **Accept no role gate** | Read-only surface, consumed by every authenticated user (incl. Sales). Matches `archive_filter_options_rpc` precedent (read = no gate; money = gate). |
+| 4 | A2.4 — Top-of-body guards | NO_TENANT + customer-tenant match | **Accept both guards** | Mirrors `delete_customer:119-138`. Surfaces config errors loudly; defense-in-depth for F7 multi-tenant. Silent empty results would be visually identical to "customer has no jobs." |
+| 5 | A2.4 — Defense-in-depth tenant filter | Explicit `AND tenant_id = v_tenant_id` inside final SELECT | **Accept explicit tenant filter** | SECURITY DEFINER bypasses RLS; explicit predicate is the only protection against tenant leak under data drift. Belt + suspenders. |
+| 6 | A2.6 — `merge_customers` write-side gap | Separate T2 BACKLOG row + own migration | **Accept separate row** | Step 4 is read-side; merge is write-side. Different concerns → different migrations → cleaner rollback granularity. Filed as B19 same session. |
+| 7 | A2.6 — `NewPayAppModal` + `PayAppDetailModal` (step 3 class) | Append as A1.1 Extension to step 3 amendment | **Accept A1.1 Extension** | Step 3 class of bug (reads customer via call_log only), not step 4. Extension block lives under step 3 so step 3 build session sees it first. Filed same session per [Schema Amendment Not Overwrite] (new block, not edit). |
+| 8 | A2.5 — Pagination helper shape | `fetchAllRpc(name, args, opts)` sibling to `fetchAll` | **Accept sibling helper** | Mirrors `fetchAll` shape exactly; centralizes the truncation guard in one place. Keeps Customers.jsx call sites one-line swaps from `fetchAll` → `fetchAllRpc`. |
+
+**Step 4 build-readiness after this block:**
+- Migration: single file under `supabase/migrations/`, timestamp via `supabase migration list --linked` immediately before draft (per O7). Body: `CREATE OR REPLACE FUNCTION public.customer_jobs(uuid)` + `CREATE OR REPLACE FUNCTION public.customer_proposals(uuid)` + REVOKE/GRANT pair for each. Depends on step 3 view migration having landed first. Bodies fully drafted in Amendment 1 §A2.4.
+- Client patches: `src/lib/supabaseHelpers.js` adds `fetchAllRpc`; `Customers.jsx:256-260, :511-515, :516-520` swap to `fetchAllRpc("customer_jobs"|"customer_proposals", { p_customer_id: ... })`. Site `:521-525` (invoices) does NOT change (per A2.2).
+- Pre-flight: curl probe against prod to confirm RPCs reachable via PostgREST schema cache (parallels Step 3 Ratification #3 protocol — anon key, single-row, read-only).
+
+**Items NOT touched by this ratification (flagged for separate work):**
+- **B19** — `merge_customers` RPC re-points sister proposals. Filed same session in BACKLOG.
+- **§10 Step 3 §A1.1 Extension — 2026-05-14** — two pay-app modal sites missing from step 3's A1.1 inventory. Filed same session as a step 3 amendment block (not an edit to upstream A1.1 text).
+- **O7** — cross-repo migration coordination still T1; workaround survives at build time.
+- **§10 Step 4 original sentence and the S1 section at lines 2726-2763** (recommendation (b), the option a/b/c menu): left in place per [Schema Amendment Not Overwrite]. This block + Amendment 1 are the authoritative spec.

@@ -279,7 +279,15 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       })
       .eq("id", job.id);
     setSaving(false);
-    if (err) { setError(err.message); return; }
+    if (err) {
+      const isDup = err.code === "23505" || /duplicate key|unique constraint/i.test(err.message || "");
+      const msg = isDup
+        ? `Job Number ${form.job_number} is already in use by another active job. Pick a different number or merge the duplicate.`
+        : `Save failed: ${err.message}`;
+      setError(msg);
+      alert(msg);
+      return false;
+    }
 
     // Save customer info (address, terms, main contact — NOT billing contact)
     if (job.customer_id) {
@@ -325,6 +333,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
     onSaved && onSaved();
+    return true;
   }
 
   const sc = stageColor(form.stage);
@@ -416,7 +425,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           {!editing && <Btn sz="sm" v="ghost" onClick={() => setEditing(true)}>Edit</Btn>}
           {editing && (
             <button
-              onClick={async () => { await handleSave(); setEditing(false); }}
+              onClick={async () => { const ok = await handleSave(); if (ok) setEditing(false); }}
               disabled={saving}
               style={{ background: C.teal, border: "none", borderRadius: 8, padding: "7px 20px", color: C.dark, fontWeight: 800, fontSize: 12, cursor: saving ? "not-allowed" : "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", opacity: saving ? 0.6 : 1 }}
             >
@@ -871,7 +880,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           {error && <div style={{ color: C.red, fontSize: 13, fontFamily: F.ui, marginBottom: 10 }}>{error}</div>}
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <button
-              onClick={async () => { await handleSave(); setEditing(false); }}
+              onClick={async () => { const ok = await handleSave(); if (ok) setEditing(false); }}
               disabled={saving}
               style={{ background: C.teal, border: "none", borderRadius: 8, padding: "10px 28px", color: C.dark, fontWeight: 800, fontSize: 14, cursor: saving ? "not-allowed" : "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", opacity: saving ? 0.6 : 1 }}
             >

@@ -134,7 +134,8 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
     const [{ data: wtcData }, { data: linesData }] = await Promise.all([
       supabase.from("proposal_wtc")
         .select("*, work_types(name)")
-        .eq("proposal_id", p.id),
+        .eq("proposal_id", p.id)
+        .order("created_at", { ascending: true }),
       supabase.from("invoice_lines")
         .select("proposal_wtc_id, billing_pct")
         .in("invoice_id",
@@ -414,19 +415,22 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
             })()}
 
             {!selProposal.is_archive_proposal && <div style={{ flex: 1, overflowY: "auto", maxHeight: 380 }}>
-              {wtcs.map(w => {
+              {wtcs.map((w, i) => {
                 const total = calcWtcPrice(w);
                 const billed = getBilledPct(w.id);
                 const remaining = getRemainingPct(w.id);
                 const pctVal = parseFloat(billingPcts[w.id]) || 0;
                 const lineAmt = total * (pctVal / 100);
+                const typeName = w.work_types?.name;
 
                 return (
                   <div key={w.id} style={{ background: C.linenDeep, borderRadius: 10, padding: 16, marginBottom: 10, border: `1px solid ${C.border}` }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                       <div>
-                        <div style={{ fontWeight: 800, fontSize: 14, color: C.textHead, fontFamily: F.display }}>{w.work_types?.name || `WTC ${w.id}`}</div>
-                        <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>Total: {money(total)}</div>
+                        <div style={{ fontWeight: 800, fontSize: 15, color: C.textHead, fontFamily: F.display }}>
+                          {`WTC ${i + 1}`}{typeName ? ` — ${typeName}` : ""}
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginTop: 4 }}>{money(total)}</div>
                       </div>
                       <div style={{ textAlign: "right" }}>
                         <div style={{ fontSize: 11, fontFamily: F.ui, color: billed > 0 ? C.amber : C.textFaint }}>

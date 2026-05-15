@@ -249,11 +249,14 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   async function handleSave() {
     setSaving(true);
     setError(null);
-    // Rebuild display_job_number from job_number + job_name
-    const numPart = form.job_number || (job.display_job_number || "").split(/ - | CO/)[0].trim();
-    const oldDisplay = job.display_job_number || "";
-    const coMatch = oldDisplay.match(/ (CO\d+)/);
-    const coTag = coMatch ? ` ${coMatch[1]}` : "";
+    // Rebuild display_job_number from canonical columns (job_number, co_number, job_name).
+    // Never regex the old display string — that path cemented stray "CO\d+" tokens (e.g.,
+    // ones that leaked in via Project Name free text) into display permanently, even when
+    // the row was never a CO at the relational level. Use parseInt on the form input so
+    // free-text "6618 CO1" in the Job Number field can't leak back into display either.
+    const parsedJobNum = form.job_number ? parseInt(form.job_number) : job.job_number;
+    const numPart = (parsedJobNum != null && !Number.isNaN(parsedJobNum)) ? String(parsedJobNum) : "";
+    const coTag = job.co_number ? ` CO${job.co_number}` : "";
     const namePart = form.job_name || "";
     const newDisplay = namePart ? `${numPart}${coTag} - ${namePart}` : `${numPart}${coTag}`;
 

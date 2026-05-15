@@ -298,6 +298,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
   const otOverridden = pw ? data.pw_ot_overridden : data.ot_overridden;
   const otIsAuto = !otOverridden && Math.abs(otVal - rateVal * 1.5) < 0.02;
   const rateMissing = showArchiveRateHint && rateVal === 0;
+  const pwRateLocked = pw && !isFirstWtc;
 
   const setDate = k => v => onChange({ ...data, [k]: v });
   return (
@@ -318,13 +319,13 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         {!selectedWorkTypeId && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required</div>}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 20px", alignItems: "end" }}>
-        <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" error={rateMissing} />
+        <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" error={rateMissing} readOnly={pwRateLocked} />
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <Label>{pw ? "PW OT Rate" : "OT Burden Rate"}</Label>
             {otIsAuto
               ? <span style={{ fontSize: 10, fontWeight: 600, color: T.gray700, letterSpacing: "0.04em" }}>AUTO (1.5×)</span>
-              : <button onClick={() => {
+              : (!pwRateLocked && <button onClick={() => {
                   if (pw) {
                     onChange({ ...data, pw_ot_rate: Math.round((data.pw_rate || 0) * 1.5 * 100) / 100, pw_ot_overridden: false });
                   } else {
@@ -335,15 +336,16 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
                   onMouseEnter={e => e.target.style.color = T.green}
                   onMouseLeave={e => e.target.style.color = T.gray400}>
                   ↺ Reset to 1.5×
-                </button>
+                </button>)
             }
           </div>
           <div style={{ position: "relative" }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.gray400, fontSize: 13, pointerEvents: "none" }}>$</span>
             <input type="number" value={otVal || ""} onChange={e => setOT(e.target.value)} placeholder="0"
-              style={{ width: "100%", border: `1.5px solid ${rateMissing ? T.red : T.gray200}`, borderRadius: 8, padding: "8px 10px 8px 28px", fontSize: 14, color: T.gray900, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#bfb3a1" }}
-              onFocus={e => e.target.style.borderColor = T.green}
-              onBlur={e => e.target.style.borderColor = rateMissing ? T.red : T.gray200} />
+              readOnly={pwRateLocked}
+              style={{ width: "100%", border: `1.5px solid ${pwRateLocked ? "transparent" : (rateMissing ? T.red : T.gray200)}`, borderRadius: 8, padding: "8px 10px 8px 28px", fontSize: 14, color: T.gray900, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: pwRateLocked ? "rgba(28,24,20,0.08)" : "#bfb3a1", cursor: pwRateLocked ? "default" : "text" }}
+              onFocus={e => { if (!pwRateLocked) e.target.style.borderColor = T.green; }}
+              onBlur={e => { e.target.style.borderColor = pwRateLocked ? "transparent" : (rateMissing ? T.red : T.gray200); }} />
           </div>
         </div>
         <Field label="Tax Rate" value={data.tax_rate} onChange={set("tax_rate")} suffix="%" type="number" />
@@ -354,6 +356,16 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
           <div style={{ fontSize: 11.5, color: T.gray700, fontStyle: "italic" }}>
             Parent is an archive proposal — burden rate wasn't captured. Enter manually.
           </div>
+        </div>
+      )}
+      {pw && pwRateLocked && (
+        <div style={{ fontSize: 11.5, color: T.gray700, fontStyle: "italic", marginTop: -6, marginBottom: 12 }}>
+          PW Rate is set on WTC 1 — it applies to all WTCs on this proposal.
+        </div>
+      )}
+      {pw && isFirstWtc && (
+        <div style={{ fontSize: 11.5, color: T.gray700, fontStyle: "italic", marginTop: -6, marginBottom: 12 }}>
+          Changes to PW Rate apply to all WTCs on this proposal.
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px", marginTop: 8 }}>

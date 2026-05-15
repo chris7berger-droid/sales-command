@@ -1,0 +1,177 @@
+SC Handoff v122 — 2026-05-15
+============================
+
+SESSION SUMMARY
+Single-loop session on a feature branch. Loop #10 locked at 13:32 to fix
+a labeling/hierarchy bug in the "Select Billing %" modal (the WTC
+invoice wizard): when a proposal has multiple WTCs of the same work
+type, each card showed only the type name (e.g., three "Flake Epoxy"
+rows with no way to tell them apart), and the visual hierarchy didn't
+match what ProposalDetail uses. Chris framed it as "a design flaw, not
+a bug — quick easy fix." Shipped 09e1fe4 on a feature branch in 14m
+vs 15m predicted, success 10/10.
+
+Session also strengthened the feedback_preview_deploys memory after the
+assistant defaulted to suggesting `npm run dev` for testing — a
+repeat violation Chris has called out 100+ times. The memory now reads
+as a hard rule: no localhost suggestions, ever; Vercel preview deploys
+on feature branches are the only test path.
+
+Branch fix/wtc-label-billing-modal pushed to origin, preview URL
+shared, Chris verified "Perfect!" — not yet merged to main.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+Commits on fix/wtc-label-billing-modal (this session, in order):
+
+09e1fe4 — Match billing % modal WTC hierarchy to Proposal Detail.
+  In `src/pages/Invoices.jsx`:
+  - Added `.order("created_at", { ascending: true })` to the WTC fetch
+    on the Create Invoice flow so the index numbering matches
+    ProposalDetail's display order.
+  - Changed the .map callback from `(w)` to `(w, i)` and pulled
+    `typeName` into a local.
+  - Each row now renders `WTC ${i+1}${typeName ? ` — ${typeName}` : ""}`
+    as the primary label at fontSize 15 / fontWeight 800 (was just
+    `${typeName}` with a `WTC ${w.id}` UUID fallback at 14/800).
+  - Price line bumped to fontSize 13 / fontWeight 700 and dropped the
+    "Total:" prefix so the bottom-row reads the same as ProposalDetail's
+    WTC card (`ProposalDetail.jsx:728-731`).
+
+DEPLOYED
+────────
+Project ref: pbgvgjjuhnpsumnowuym
+
+No edge functions or migrations changed. Vercel built a preview deploy
+on push of fix/wtc-label-billing-modal:
+  https://sales-command-git-fix-wtc-label-billing-modal-chris7berger-droids-projects.vercel.app
+
+Not merged to main. Not on prod (scmybiz.com) at session close.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+1. Used the exact label pattern from ProposalDetail.jsx:728-731 —
+   `WTC N — TypeName` with the dash only when TypeName exists. Picked
+   verbatim over inventing a new shape so the two surfaces look
+   consistent (Chris's stated ask).
+
+2. Added the `.order("created_at", ...)` clause even though Chris only
+   asked for labels. Without it, the WTC sort order in the billing
+   modal could diverge from ProposalDetail (which already orders by
+   created_at) — so "WTC 1" in the modal could mean a different row
+   than "WTC 1" on the proposal. Cheap to fix at the same time.
+
+3. Did NOT change the input `name` attribute, the billingPcts state
+   keying (`pcts[w.id]`), or anything below the header — only the
+   visible label hierarchy. Chris asked for "quick easy fix" and the
+   underlying logic was already correct.
+
+4. Used a feature branch (fix/wtc-label-billing-modal) instead of
+   committing directly to main, per the Never Push Discovery to Main
+   rule. The branch was created after the change was already staged on
+   main — switched without losing the diff.
+
+5. Memory update: feedback_preview_deploys.md rewritten with hard-rule
+   language ("NEVER suggest localhost, `npm run dev`, dev servers")
+   after the assistant suggested `npm run dev` for testing this fix.
+   Chris's response made it clear the existing memory wasn't strong
+   enough to override the default.
+
+NEW BACKLOG ITEMS
+─────────────────
+None filed.
+
+CLOSED THIS SESSION
+───────────────────
+None on the BACKLOG. The WTC label bug was a same-loop discovery and
+fix, not on the open list before today.
+
+VERIFICATION
+────────────
+- Preview deploy URL shared with Chris; he confirmed "Perfect!" after
+  testing the multi-Flake-Epoxy proposal — labels now distinguish the
+  three rows, hierarchy matches ProposalDetail.
+- No automated tests, no smoke run beyond Chris's manual verify on the
+  preview deploy.
+- NOT verified on prod (scmybiz.com / main) — branch not yet merged.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+Carried over from v121 — all still open:
+- §10 step 3 (Client fallback rollout) — NOT STARTED.
+- §10 step 4 (S1 fix — Customers.jsx RPCs) — NOT STARTED.
+- §10 step 6a (Migration 1b — cloned_from_wtc_id) — build-unblocked.
+- §10 step 6b (RPCs) — BLOCKED on 6a.
+- §10 step 7/8/9/10/11.
+- O3 (drop 1-arg wrapper) — safe to pick up.
+- O7 (multi-repo migration coordination) — still T1.
+- B19 (merge_customers gap) — still T2.
+- B23 (Pull Back doesn't clear signing_token_consumed_at) — T2.
+- B24 (PublicSigningPage silent success on edge fn error) — T2.
+
+PW Rate carry-through investigation parked from v121 — still parked.
+Sync no-op on first save of new WTC — still latent, not exposed.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Read order: docs/BACKLOG.md → this handoff (v122) → v121 → relevant
+   plan docs.
+
+2. First action: decide whether to merge fix/wtc-label-billing-modal
+   to main, or pick up additional work on the branch first. The change
+   is small and safe, but unmerged at session close.
+
+3. If merging: standard `git checkout main && git merge
+   fix/wtc-label-billing-modal && git push origin main` is fine.
+   Vercel will auto-build main. No migrations, no edge fns, no smoke
+   needed beyond a single proposal-→-create-invoice click on prod.
+
+4. If picking the next loop instead, same three obvious paths as v121:
+   - B23 + B24 (signing-flow latent bugs, T2, paired naturally).
+   - §10 step 3 (Client fallback rollout). Build-unblocked.
+   - Manager Override removal as a separate small UX cleanup (still
+     logged in B26 Notes, still open product question).
+
+5. Drift prevention reminder: feedback_preview_deploys.md is now a
+   hard rule — never suggest localhost. If a test path is requested,
+   the answer is the preview deploy URL for the current branch.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+src/pages/Invoices.jsx
+  — WTC fetch now orders by created_at ascending.
+  — Billing % modal row label now reads "WTC N — TypeName" at
+    fontSize 15 / fontWeight 800; price line is fontSize 13 /
+    fontWeight 700 and no longer prefixed "Total:".
+  — Pattern matches ProposalDetail.jsx:728-731.
+
+docs/BACKLOG.md
+  — No row changes this session.
+
+~/erd-loop/LOG.md
+  — Loop #10 closed at 13:46 (14m vs 15 min predicted, success 10/10,
+    mindset +1, concern +1, potential 0). Floating Notes unchanged.
+
+~/.claude/projects/-Users-chrisberger/memory/feedback_preview_deploys.md
+  — Hardened with explicit "NEVER suggest localhost" rule after the
+    assistant violated it this session.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: fix/wtc-label-billing-modal, pushed to origin and tracking.
+  1 commit shipped: 09e1fe4 (+ this handoff to follow).
+- main: untouched this session. v121 is the latest handoff on main.
+- Working tree noise: supabase/.temp/cli-latest auto-bumped by the
+  supabase CLI — gitignored by intent, left untracked.
+- ERD-loop repo (~/erd-loop): in sync with origin after loop #10
+  lock + closeout commits pushed.
+- No open PRs. Feature branch exists on origin but no PR opened.
+- No deployed migrations or edge functions this session.
+
+END STATE
+─────────
+One small frontend label/hierarchy fix shipped to a feature branch and
+verified on Vercel preview by Chris. Branch fix/wtc-label-billing-modal
+open, ready to merge to main when Chris decides. Loop #10 closed
+success 10/10 — fast clean win, 14m vs 15m predicted. Memory hardened
+to prevent the localhost-default drift from repeating.

@@ -251,6 +251,15 @@ This applies to both the CallLog wizard upload and CallLogDetail upload.
 - `src/lib/config.js` — Tenant config (getTenantConfig, DEFAULTS)
 - `src/App.jsx` — Root nav + auth state
 
+## Pushing Migrations
+
+Always use `npm run db:push` instead of raw `supabase db push`. The wrapper
+runs a collision check against the prod ledger before pushing — it catches
+timestamp collisions across repos sharing the same Supabase project. If it
+reports a collision, rename your migration file to the next free timestamp.
+If the ledger is unreachable, re-auth with `supabase login` and
+`supabase link --project-ref pbgvgjjuhnpsumnowuym`.
+
 ## Production
 
 - URL: https://www.scmybiz.com

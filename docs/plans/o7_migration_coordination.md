@@ -4,6 +4,7 @@
 **Status:** Round 1 — design surfacing only; no code, no migrations, no scripts written.
 **Round 2 changelog:** §1–§9 unchanged. Audit findings F1–F4 addressed in [§10 Round 2 Amendments](#10-round-2-amendments-audit-f1f4) at the bottom. New Phase 0 and Phase 1.5 introduced there; convention rule in §3 conditionally gated on Phase 0 outcome.
 **Round 3 changelog:** §10.F1 extended with sub-blocks R3-1 (Phase 1 vs Phase 1.5 doc-edit boundary), R3-2 (Phase 1.5 acceptance gate), and R3-ratify (AR-skip-if-missing promoted [LOCKED]). §10.F3 extended with R3-out-of-scope. §10.F4 extended with R3-zero-rows split. New [§11 Phase 0 results](#11-phase-0-results-round-3) appended — Phase 0 ledger sanity-read executed READ-ONLY against `pbgvgjjuhnpsumnowuym`; §4.2 collision rule **superseded** (see §11).
+**Round 4 changelog:** §11.5 promoted [DESIGN-OPEN] → [LOCKED] via new sub-block §11.5.R4-locked (embeds filename-shape validation in pseudocode, cites Supabase CLI source `apps/cli-go/pkg/migration/file.go` regex `^([0-9]+)_(.*)\.sql$` as the second ratification source alongside Phase 0). §10.F4 outcome table extended with R4 row (slug-only `name`, confirmed). §3 forward-only stance explicitly reconfirmed in §12 (no amendment needed; collision key is the timestamp `version`, not the filename). Plan is implementation-ready — next session is a fresh /erd-start to BUILD the wrapper.
 **Tag legend:** [LOCKED] stated by user / proven from repo · [DERIVED] inference · [DESIGN-OPEN] needs user decision next round · [BLOCKED] needs external input
 
 ---
@@ -425,9 +426,9 @@ Local filenames (no path, no extension) for the same 5 timestamps:
 
 [LOCKED] **§4.2 collision rule is [SUPERSEDED — see §11].** The line `if matching_row exists AND matching_row.name != local_filename_without_extension` will produce a **false positive on every single row** if shipped as-written, because the ledger `name` will never equal `<timestamp>_<slug>` — it only ever equals `<slug>`. The hook would fail-loud on every push, mis-reporting universal collisions when in fact zero exist. Shipping the wrapper without correcting this would block all migration pushes across SC + SCH + FC simultaneously (post-Phase 1.5).
 
-### 11.5 Proposed corrected collision rule [DESIGN-OPEN]
+### 11.5 Proposed corrected collision rule [DESIGN-OPEN → resolved [LOCKED] in §11.5.R4-locked]
 
-[DESIGN-OPEN] Proposed correction for §4.2 pseudocode line, to ratify in round 4 before any code is written:
+[DESIGN-OPEN → resolved [LOCKED] in §11.5.R4-locked] Proposed correction for §4.2 pseudocode line, to ratify in round 4 before any code is written:
 
 ```
 function slug_of(local_filename):
@@ -450,8 +451,92 @@ for each local file F:
 
 ### 11.6 New round-3-surfaced items
 
-- [DESIGN-OPEN] §11.5 corrected collision rule — needs ratification in round 4.
-- [DESIGN-OPEN] Slug-extraction parity with `supabase db push`'s own ledger-insert behaviour — should be verified empirically (e.g. by inspecting one freshly-applied row's `name` value vs. the local filename it came from) before locking §11.5.
+- [DESIGN-OPEN → resolved [LOCKED] in §11.5.R4-locked] §11.5 corrected collision rule — ratified in round 4.
+- [DESIGN-OPEN → resolved [LOCKED] in §11.5.R4-locked] Slug-extraction parity with `supabase db push`'s own ledger-insert behaviour — ratified in round 4 via CLI source review (`apps/cli-go/pkg/migration/file.go`, regex `^([0-9]+)_(.*)\.sql$`).
 - No new [BLOCKED] items surfaced; no [DESIGN-OPEN] items from §3 / §7 were closed by Phase 0.
+
+### 11.5.R4-locked — Final collision rule with embedded shape validation [LOCKED]
+
+[LOCKED] Locks §11.5 with embedded filename-shape validation. Original §11.5 prose preserved above with `→ resolved [LOCKED] in §11.5.R4-locked` pointer for history visibility, not deleted.
+
+**Ratification sources (two independent evidence streams):**
+
+(a) **Phase 0 empirical observation** (see §11.1 — 5 rows queried READ-ONLY from `pbgvgjjuhnpsumnowuym`'s `supabase_migrations.schema_migrations` table on 2026-05-18). All 5 ledger `name` values were slug-only (no 14-char timestamp prefix, no `.sql` extension). 5/5 match — strong but small-N empirical signal.
+
+(b) **Supabase CLI source review** (round 4, 2026-05-18). Repo `supabase/cli`, branch `develop`. File: `apps/cli-go/pkg/migration/file.go`, function `NewMigrationFromFile`. The CLI parses filenames with the regex `migrateFilePattern = regexp.MustCompile(\`^([0-9]+)_(.*)\.sql$\`)`. Capture group 1 → `MigrationFile.Version` (digits before first underscore). Capture group 2 → `MigrationFile.Name` (everything between first underscore and `.sql` — i.e. the slug). The INSERT to the ledger lives in `apps/cli-go/pkg/migration/history.go` as constant `INSERT_MIGRATION_VERSION`: `INSERT INTO supabase_migrations.schema_migrations(version, name, statements) VALUES($1, $2, $3)`, supplied by `MigrationFile.Version` / `MigrationFile.Name`. The CLI authoritatively confirms the hook's slug-extractor must produce capture-group-2 to match.
+
+Together (a)+(b) give the rule LOCKED status. No empirical write-test (e.g. push a probe migration) was attempted, as that's circular — the hook exists to prevent the very class of ledger writes such a test would perform.
+
+**Locked pseudocode (this replaces §4.2's collision rule AND §11.5's draft):**
+
+```
+function slug_of(local_filename):
+    # FAIL-LOUD shape validation FIRST — never produce a garbage slug silently.
+    if not match /^\d{14}_.+\.sql$/  →  HALT with explicit error
+                                         "malformed migration filename: <local_filename>"
+    slug = local_filename[15:-4]   # drop "<14-digit timestamp>_" prefix and ".sql" suffix
+    return slug
+
+function check_migration_collision():
+    local_files = list "supabase/migrations/*.sql" sorted by name
+
+    ledger_rows = query prod: "SELECT version, name FROM supabase_migrations.schema_migrations"
+                  via [supabase CLI | pooler-url | env-var DB URL]
+                  with timeout 10s
+
+    if query failed:
+        print "COULD NOT VERIFY LEDGER: <reason>. Re-run with --skip-collision-check to override."
+        exit non-zero
+
+    for each local file F in local_files:
+        # Shape validation happens inside slug_of(); a malformed filename HALTS
+        # the entire check (not just that file) — operator must fix or remove
+        # the bad file before any migration in this repo can be pushed.
+        local_slug = slug_of(F)                          # may HALT
+        V = first 14 chars of F's filename
+        matching_row = ledger_rows where row.version == V
+        if matching_row exists AND matching_row.name != local_slug:
+            print "COLLISION: local file <F> at timestamp <V>, but prod ledger has a different migration name '<matching_row.name>' at that version. Rename your file to the next free timestamp."
+            exit non-zero
+
+    print "Ledger check OK. <N> local migrations, <M> already in ledger, no collisions."
+    exit zero
+```
+
+**Failure-mode summary for this rule:**
+- Malformed filename (regex non-match) → HALT with `"malformed migration filename: <name>"`. FAIL-LOUD; the hook never silently produces a garbage slug. Operator must rename or remove the file.
+- Well-formed local file, ledger has a different slug at same version → COLLISION (exit non-zero, name both sides).
+- Well-formed local file, ledger version absent → silently allowed (this is the normal "next push will apply it" state, per §10.F3.R3-out-of-scope).
+- Well-formed local file, ledger version present with matching slug → silently allowed (already applied).
+
+[LOCKED] §4.2 pseudocode is superseded by this block. Implementation in BUILD session must reference §11.5.R4-locked, not §4.2.
+
+### 10.F4.R4 — Phase 0 outcome verdict [LOCKED, added Round 4]
+
+[LOCKED, added Round 4] Round 4 amendment to §10.F4's outcome table. The original §10.F4 table is preserved above; this is an additive row capturing what Phase 0 actually observed (none of the original table's rows precisely matched — §11.3 documented the closest-fit reasoning, but the true observed format is its own row):
+
+| Observed `name` format | Meaning | Phase 1 action |
+|---|---|---|
+| Ledger stores slug only (no 14-char timestamp prefix, no `.sql` extension, no path) — e.g. ledger `name = 'work_types_public_read'` for filename `20260515150000_work_types_public_read.sql` | Confirmed by both Phase 0 (5/5 rows, §11.1) AND Supabase CLI source review (`apps/cli-go/pkg/migration/file.go` regex capture-group-2, §11.5.R4-locked source (b)) | [LOCKED] Use the §11.5.R4-locked pseudocode (slug-extraction with embedded shape validation). Collision rule updated; do NOT use §4.2's draft. |
+
+---
+
+## 12. Round 4 close-out — §3 forward-only stance reconfirmed [LOCKED]
+
+[LOCKED] Round 2's changelog noted §3's forward-only convention (`<UTC_timestamp>_<app>_<slug>.sql` going forward; SC's existing 47 files NOT renamed; SCH's existing 3 files NOT renamed) was "conditionally gated on Phase 0 outcome." Round 4 explicitly confirms: **§3 needs NO amendment.**
+
+Rationale (one line): the COLLISION key is the 14-digit timestamp `version`, not the filename — and the ledger's `name` column stores slug-only (Phase 0 §11.1 + CLI source §11.5.R4-locked), so renaming legacy files to add an `_sc_` / `_sch_` prefix would change ONLY the slug stored in the ledger going forward, not the collision-detection key. Existing rows are already in the ledger with their existing slugs; retro-renaming local files without a parallel ledger `migration repair` would itself create artificial mismatches and trip the new hook. Forward-only is the correct stance and remains [LOCKED].
+
+The slug-prefix convention's value is purely human-discovery (per §3 "Why a light (b)") — it makes `SELECT name FROM …` ledger forensics easier. Legacy slug-only rows interoperate fine with the hook because the hook compares **exact slug match at the same version**, and both legacy and new files are uniquely keyed by their timestamps.
+
+### 12.1 Final state of design-opens (round 4 close)
+
+- §11.5 → [LOCKED] via §11.5.R4-locked (slug-extraction + embedded shape validation, two-source ratification).
+- §3 → [LOCKED] (unchanged, explicitly reconfirmed here in §12).
+- §4.2 → [SUPERSEDED] by §11.5.R4-locked (per §11.4 + §11.5.R4-locked); BUILD session implements §11.5.R4-locked, NOT §4.2.
+- §10.F4 outcome-table → [LOCKED] with added R4 row (§10.F4.R4) capturing the observed slug-only format.
+- All other §10 sub-blocks remain in their round-3 LOCKED state.
+
+The plan is implementation-ready. Next session opens a fresh `/erd-start` to BUILD the wrapper script per §11.5.R4-locked pseudocode + §10.F2 parallel-install rollout + §10.F3 dry-run halt rule.
 
 ---

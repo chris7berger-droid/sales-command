@@ -260,6 +260,22 @@ reports a collision, rename your migration file to the next free timestamp.
 If the ledger is unreachable, re-auth with `supabase login` and
 `supabase link --project-ref pbgvgjjuhnpsumnowuym`.
 
+## Migration push discipline
+
+Before any `supabase db push`, run `scripts/check-migration-safety.sh`. Before
+any `supabase migration repair`, run the same script. The git pre-push hook
+(`scripts/git-hooks/pre-push`) enforces the first rule mechanically — do not
+bypass with `--no-verify`.
+
+`repair --status reverted` is ONLY correct for ledger entries with no
+corresponding migration file anywhere in the repo (across all branches). When
+`supabase migration list` shows remote-only entries, the right answer is almost
+always `git merge origin/main` — not a ledger rewrite. On 2026-05-18 three live
+migrations were incorrectly marked reverted because a feature branch was behind
+main; the ledger had to be manually restored.
+
+New clones: run `scripts/install-git-hooks.sh` once to install the pre-push hook.
+
 ## Production
 
 - URL: https://www.scmybiz.com

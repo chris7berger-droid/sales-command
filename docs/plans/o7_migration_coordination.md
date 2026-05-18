@@ -2,6 +2,7 @@
 
 **Branch:** `feat/o7-migration-coordination`
 **Status:** Round 1 — design surfacing only; no code, no migrations, no scripts written.
+**Round 2 changelog:** §1–§9 unchanged. Audit findings F1–F4 addressed in [§10 Round 2 Amendments](#10-round-2-amendments-audit-f1f4) at the bottom. New Phase 0 and Phase 1.5 introduced there; convention rule in §3 conditionally gated on Phase 0 outcome.
 **Tag legend:** [LOCKED] stated by user / proven from repo · [DERIVED] inference · [DESIGN-OPEN] needs user decision next round · [BLOCKED] needs external input
 
 ---
@@ -254,3 +255,102 @@ function check_migration_collision():
 - **Changes to `supabase_migrations.schema_migrations` itself.** Forbidden by constraint #3 — never proposed.
 - **Migration content review** (RLS, search_path, etc.) — separate discipline, separate audit.
 - **A2-PrdEnv audit of the shared project for orphan/stale ledger rows.** Useful but a separate audit task, not part of O7's coordination convention.
+
+---
+
+## 10. Round 2 Amendments (audit F1–F4)
+
+[DERIVED] These amendments respond to a parallel audit pass (findings F1–F4). §1–§9 above remain unchanged; this section is additive and authoritative wherever it overlaps. Per the standing rule on schema amendment vs overwrite, conflicts between §1–§9 and §10 are resolved in favour of §10.
+
+### 10.F1 — Reconciling §5's "Cross-repo coordination doc" with §6 risk #1
+
+[LOCKED] §5's "Cross-repo coordination doc" sub-section proposes editing `CLAUDE.md` in sch-command, field-command, and AR-Command-Center to point at this plan. §6 risk #1 simultaneously asserts Phase 1 makes "no edits to sch-command, field-command, AR-Command-Center." Both statements as written cannot be true. Audit F1 is correct.
+
+**Resolution chosen: (b) — split CLAUDE.md edits into a new Phase 1.5 with its own rollback covering all 3 repos.**
+
+[DERIVED] Tradeoff (2–3 lines):
+- (a) Folding into Phase 1 muddies the "sales-command only, prove it, then propagate" frame of §5. Phase 1 becomes a 4-repo change masquerading as 1-repo, and the §6 risk #1 statement loses meaning. Cleaner to keep Phase 1 truly single-repo.
+- (b) A dedicated Phase 1.5 has its own atomic rollback (revert 3 doc edits, nothing else) and is explicitly text-only — no scripts, no `package.json` changes, no enforcement, just pointer notes in 3 `CLAUDE.md` files. Lower risk than (a) and preserves §5's narrative.
+
+[DESIGN-OPEN] **Phase 1.5 — Documentation pointer fan-out (text-only)**
+- Trigger: ships AFTER Phase 1 acceptance test passes (a real `npm run db:push` from sales-command).
+- Scope: edit `~/sch-command/CLAUDE.md`, `~/field-command/CLAUDE.md`, and `~/AR-Command-Center/CLAUDE.md` (latter may not exist — if not, skip and pick up in Phase 4) to add a one-line pointer to `~/sales-command/docs/plans/o7_migration_coordination.md`.
+- Sch-command's existing top-of-CLAUDE.md ledger-repair note is preserved verbatim; the new pointer is appended below it, not replacing it.
+- Acceptance: 3 doc edits committed on 3 separate branches (one per repo), each PR-able independently. No code changes.
+- **Rollback (Phase 1.5):** `git revert` the doc commit in each of the 3 repos. Phase 1 (sales-command wrapper) is unaffected. No shared state to clean up — this phase touches only repo-local markdown.
+
+[LOCKED] §6 risk #1 is now narrowed to: "Phase 1 makes no edits to other repos. Phase 1.5 makes pointer-only `CLAUDE.md` edits in 3 other repos with an atomic per-repo revert path."
+
+### 10.F2 — Gap-period risk + parallel-install decision
+
+[LOCKED] Audit F2 surfaced a real gap. Adding this to §6's risk list:
+
+> **Risk 13 (Round 2) — Gap-period exposure, both directions.** [DERIVED] Until each repo ships its own wrapper install, that repo's operators continue to use raw `supabase db push` and remain exposed to the original silent-skip bug. The REVERSE case also exists: if sales-command pushes a migration via the new hook (Phase 1 active), and sch-command's raw `db push` (no hook installed yet) happens next with a colliding timestamp, sch-command's push will still silently skip its own DDL — the SC-side hook cannot protect SCH-side pushes. The bug class is symmetric; protection is per-repo, not central. Mitigation: minimise the gap period by installing the wrapper in SCH and FC IN PARALLEL with Phase 1 (see decision below).
+
+**Decision chosen: PARALLEL install of the wrapper in sales-command, sch-command, and field-command (Phase 1 ships to 3 repos simultaneously).** AR-Command-Center stays on Phase 4 since it has no `supabase/` directory yet.
+
+[DERIVED] Justification (2–3 lines):
+- Parallel install closes the symmetric gap period to ~zero. The wrapper is purely additive (per §5 Phase 1 rollback), so installing it where there are no pending pushes is risk-free for the install itself.
+- Sch-command's first **verified** `npm run db:push` is still gated on O8 (the outstanding `migration repair --status applied 20260512120000 20260512120100` documented in `~/sch-command/CLAUDE.md`) — the wrapper installs and is usable, but the acceptance test (a real push that surfaces zero collisions) waits until O8 lands. This is the right ordering: install the safety net first, then resolve the known pre-existing collision under its protection.
+- Field-command has zero migrations today, so acceptance is "wrapper present + no-op run on an empty migrations dir returns exit 0" (matches §4.4 "No `supabase/migrations/` dir" branch).
+
+[DESIGN-OPEN] **Phase 1 (revised) — Parallel install to SC + SCH + FC.** Steps 1–3 of §5 Phase 1 apply per repo. Step 5 (real `db push` acceptance) only runs in sales-command; SCH's first verified push waits on O8; FC's acceptance is the empty-dir no-op. Original §5 Phase 2 (sch-command install) and §5 Phase 3 (field-command install) collapse into this revised Phase 1. §5 Phase 4 (AR-Command-Center) is unchanged.
+
+[LOCKED] Rollback for revised Phase 1 is per-repo and independent: revert the wrapper commit in any single repo without affecting the others.
+
+### 10.F3 — Fail-loud branch in Phase 1 step 4 (dry-run)
+
+[LOCKED] §5 Phase 1 step 4 ("Run the check against current local migrations + prod ledger") needs an explicit halt-and-investigate rule. Adding this as a concrete decision rule (not advice):
+
+> **Decision rule (Phase 1 step 4 dry-run).** [LOCKED] If the dry-run reports ANY mismatch where a local file's 14-character timestamp prefix matches a ledger row's `version` but the local filename-without-extension does NOT equal that ledger row's `name`, the operator MUST:
+> 1. HALT Phase 1 immediately. Do not proceed to step 5 (real `npm run db:push`).
+> 2. NOT auto-normalize by renaming the local file.
+> 3. NOT auto-edit or `migration repair` the ledger row.
+> 4. Open the mismatch as an investigation item: capture (a) the local filename, (b) the ledger row's `version` + `name`, (c) `git log -- <local-file>` to see who/when authored it, (d) any recent `migration repair` notes in the four repos' `CLAUDE.md` files.
+> 5. Resolve by human judgement only. The mismatch is a signal that the ledger has drifted from local truth (or vice versa) — it is data, not noise. Either the local file was renamed without a ledger repair, or the ledger row was authored by a different repo with a colliding timestamp, or someone hand-edited the ledger. None of those are safe to auto-resolve.
+> 6. Phase 1 may resume only after the mismatch is explained AND either (a) the local file is intentionally renamed by the operator with a fresh free timestamp, or (b) the ledger drift is documented and a separate repair plan is opened.
+
+[DERIVED] This rule applies to revised Phase 1 in all three repos in parallel (per F2). If any of the three repos surfaces a mismatch in its own dry-run, only that repo halts; the other two may continue independently.
+
+### 10.F4 — Phase 0 sanity-read of ledger `name` column format
+
+[LOCKED] §4.2 pseudocode line `if matching_row exists AND matching_row.name != local_filename_without_extension` assumes the ledger's `name` column stores filenames without extension and without path. Audit F4 is right: this assumption has not been verified against the actual ledger. Adding a Phase 0 before Phase 1.
+
+**Phase 0 — Ledger name-format sanity read (must complete before revised Phase 1 begins)**
+
+[DESIGN-OPEN] Concrete steps:
+
+1. **Query (read-only, no writes):**
+   ```
+   SELECT version, name
+   FROM supabase_migrations.schema_migrations
+   ORDER BY version DESC
+   LIMIT 5;
+   ```
+   Run via the same auth path the hook will use (see §4.3 — try `supabase` CLI shell-out first since it's already authenticated). Capture full output to a local scratch file (NOT committed) for the operator to inspect.
+
+2. **Compare** the returned `name` values against the actual sales-command migration filenames. [LOCKED] Five known recent SC filenames (from `/Users/chrisberger/sales-command/supabase/migrations/`):
+   - `20260515150000_work_types_public_read.sql`
+   - `20260515140000_proposal_wtc_public_view_token.sql`
+   - `20260514130000_invoices_call_log_id_fk.sql`
+   - `20260416200000_materials_catalog.sql`
+   - `20260416175646_billing_schedule_and_archive_links.sql`
+
+   The expected mapping under the hook's current assumption is: ledger `version` = `20260515150000`, ledger `name` = `20260515150000_work_types_public_read` (filename minus `.sql`, no path).
+
+3. **Outcomes and what each means for revised Phase 1:**
+
+   | Observed `name` format | Meaning | Phase 1 action |
+   |---|---|---|
+   | Exactly `<timestamp>_<slug>` (no extension, no path) | Assumption holds. | [LOCKED] Proceed to Phase 1 with §4.2 pseudocode as-written. |
+   | Includes `.sql` extension (e.g. `20260515150000_work_types_public_read.sql`) | Format differs. | [DESIGN-OPEN] LOCK the hook's collision rule to strip `.sql` from `matching_row.name` OR append `.sql` to local filename before comparing. Pick one and document. |
+   | Includes path prefix (e.g. `supabase/migrations/20260515150000_…`) | Format differs significantly. | [DESIGN-OPEN] LOCK the hook to strip leading directory from `matching_row.name`. |
+   | Uses different separator (e.g. dash instead of underscore between timestamp and slug) | Format differs significantly. | [DESIGN-OPEN] LOCK the hook to normalise both sides to a canonical form before comparing. Document the canonicalisation in §4.2. |
+   | Only `version` matches, `name` is something else entirely (e.g. empty, hash, or hand-written description) | Assumption is wrong; comparison key needs rethink. | [BLOCKED] HALT before Phase 1. Open as a design question to user — possibly the collision detector can only key on `version` and must surface ALL version matches for human review rather than mismatching-name autodetect. |
+   | Query returns zero rows | Ledger is empty or query auth failed. | [BLOCKED] HALT. Diagnose auth (§4.4 failure modes) before Phase 1. |
+
+4. **Output of Phase 0:** a short note appended to this plan doc as `## 11. Phase 0 result` (or as a per-section amendment under §4.2) recording (a) the observed name format, (b) which row in the outcome table applied, (c) the locked comparison rule for the hook, and (d) date/operator. No code is written in Phase 0 — it is a read-only design-grounding step.
+
+[DERIVED] Phase 0 cost: one SELECT, ~30 seconds. Skipping it risks shipping a hook whose collision rule never fires (false negatives) because it's comparing against the wrong field shape.
+
+---

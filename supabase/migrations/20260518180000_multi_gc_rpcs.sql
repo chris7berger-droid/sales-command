@@ -50,10 +50,10 @@ BEGIN
   SELECT id INTO v_performed_by
     FROM public.team_members WHERE auth_id = auth.uid() LIMIT 1;
 
-  SELECT COALESCE(MAX(proposal_number), 0) INTO v_next_n
-    FROM public.proposals
-   WHERE call_log_id = v_source.call_log_id
-     AND deleted_at IS NULL;
+  SELECT COALESCE(MAX(p.proposal_number), 0) INTO v_next_n
+    FROM public.proposals p
+   WHERE p.call_log_id = v_source.call_log_id
+     AND p.deleted_at IS NULL;
 
   FOR v_target IN SELECT * FROM jsonb_array_elements(p_targets)
   LOOP
@@ -539,16 +539,19 @@ BEGIN
    WHERE id = p_winner_proposal_id;
 
   -- Capture + flip sisters
-  UPDATE public.proposals
-     SET pre_lost_status = status,
-         status = 'Lost',
-         lost_reason = p_lost_reason,
-         lost_at = now()
-   WHERE call_log_id = v_call_log_id
-     AND id <> p_winner_proposal_id
-     AND deleted_at IS NULL
-     AND status NOT IN ('Sold','Lost')
-   RETURNING id INTO v_sister_ids;
+  WITH lost AS (
+    UPDATE public.proposals
+       SET pre_lost_status = status,
+           status = 'Lost',
+           lost_reason = p_lost_reason,
+           lost_at = now()
+     WHERE call_log_id = v_call_log_id
+       AND id <> p_winner_proposal_id
+       AND deleted_at IS NULL
+       AND status NOT IN ('Sold','Lost')
+     RETURNING id
+  )
+  SELECT array_agg(id) INTO v_sister_ids FROM lost;
 
   UPDATE public.call_log SET stage = 'Sold' WHERE id = v_call_log_id;
 
@@ -602,17 +605,20 @@ BEGIN
    RETURNING id INTO v_winner_id;
 
   -- Revert sisters (the Lost proposals from this award)
-  UPDATE public.proposals
-     SET status = COALESCE(pre_lost_status, 'Sent'),
-         pre_lost_status = NULL,
-         lost_reason = NULL,
-         lost_at = NULL
-   WHERE call_log_id = p_call_log_id
-     AND status = 'Lost'
-     AND pre_lost_status IS NOT NULL
-     AND deleted_at IS NULL
-     AND tenant_id = v_tenant_id
-   RETURNING id INTO v_reverted_ids;
+  WITH reverted AS (
+    UPDATE public.proposals
+       SET status = COALESCE(pre_lost_status, 'Sent'),
+           pre_lost_status = NULL,
+           lost_reason = NULL,
+           lost_at = NULL
+     WHERE call_log_id = p_call_log_id
+       AND status = 'Lost'
+       AND pre_lost_status IS NOT NULL
+       AND deleted_at IS NULL
+       AND tenant_id = v_tenant_id
+     RETURNING id
+  )
+  SELECT array_agg(id) INTO v_reverted_ids FROM reverted;
 
   UPDATE public.call_log SET stage = 'Has Bid' WHERE id = p_call_log_id;
 

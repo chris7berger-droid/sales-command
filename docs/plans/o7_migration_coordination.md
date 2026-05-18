@@ -3,6 +3,7 @@
 **Branch:** `feat/o7-migration-coordination`
 **Status:** Round 1 — design surfacing only; no code, no migrations, no scripts written.
 **Round 2 changelog:** §1–§9 unchanged. Audit findings F1–F4 addressed in [§10 Round 2 Amendments](#10-round-2-amendments-audit-f1f4) at the bottom. New Phase 0 and Phase 1.5 introduced there; convention rule in §3 conditionally gated on Phase 0 outcome.
+**Round 3 changelog:** §10.F1 extended with sub-blocks R3-1 (Phase 1 vs Phase 1.5 doc-edit boundary), R3-2 (Phase 1.5 acceptance gate), and R3-ratify (AR-skip-if-missing promoted [LOCKED]). §10.F3 extended with R3-out-of-scope. §10.F4 extended with R3-zero-rows split. New [§11 Phase 0 results](#11-phase-0-results-round-3) appended — Phase 0 ledger sanity-read executed READ-ONLY against `pbgvgjjuhnpsumnowuym`; §4.2 collision rule **superseded** (see §11).
 **Tag legend:** [LOCKED] stated by user / proven from repo · [DERIVED] inference · [DESIGN-OPEN] needs user decision next round · [BLOCKED] needs external input
 
 ---
@@ -272,12 +273,31 @@ function check_migration_collision():
 - (a) Folding into Phase 1 muddies the "sales-command only, prove it, then propagate" frame of §5. Phase 1 becomes a 4-repo change masquerading as 1-repo, and the §6 risk #1 statement loses meaning. Cleaner to keep Phase 1 truly single-repo.
 - (b) A dedicated Phase 1.5 has its own atomic rollback (revert 3 doc edits, nothing else) and is explicitly text-only — no scripts, no `package.json` changes, no enforcement, just pointer notes in 3 `CLAUDE.md` files. Lower risk than (a) and preserves §5's narrative.
 
-[DESIGN-OPEN] **Phase 1.5 — Documentation pointer fan-out (text-only)**
+[DESIGN-OPEN → resolved [LOCKED] in §10.F1.R3-ratify] **Phase 1.5 — Documentation pointer fan-out (text-only)**
 - Trigger: ships AFTER Phase 1 acceptance test passes (a real `npm run db:push` from sales-command).
 - Scope: edit `~/sch-command/CLAUDE.md`, `~/field-command/CLAUDE.md`, and `~/AR-Command-Center/CLAUDE.md` (latter may not exist — if not, skip and pick up in Phase 4) to add a one-line pointer to `~/sales-command/docs/plans/o7_migration_coordination.md`.
 - Sch-command's existing top-of-CLAUDE.md ledger-repair note is preserved verbatim; the new pointer is appended below it, not replacing it.
 - Acceptance: 3 doc edits committed on 3 separate branches (one per repo), each PR-able independently. No code changes.
 - **Rollback (Phase 1.5):** `git revert` the doc commit in each of the 3 repos. Phase 1 (sales-command wrapper) is unaffected. No shared state to clean up — this phase touches only repo-local markdown.
+
+#### 10.F1.R3-1 — Edit-boundary between Phase 1 and Phase 1.5 [LOCKED]
+
+[LOCKED] Phase 1 (revised, per §10.F2) and Phase 1.5 both edit `CLAUDE.md` files. The boundary is:
+
+- **Phase 1 per-repo CLAUDE.md edits (SC + SCH + FC, in each repo's own file):** operator-facing usage doc. Specifically, a short "How to push migrations" section instructing operators to use `npm run db:push` (never raw `supabase db push`) in THIS repo, what the wrapper does at a one-sentence level, and how to interpret a fail-loud collision message. This is *local-operator-facing* prose tied to the wrapper that was just installed in THAT repo.
+- **Phase 1.5 cross-repo CLAUDE.md edits (SCH + FC + AR, pointer fan-out):** *canonical-reference pointer only*. A single line (no usage prose, no design content, no convention restatement) pointing at `~/sales-command/docs/plans/o7_migration_coordination.md` as the canonical convention doc. Per the canonical-docs-first pattern (point, don't duplicate).
+
+[DERIVED] Concretely: SCH's `CLAUDE.md` gets two distinct edits, one in Phase 1 ("use `npm run db:push`") and one in Phase 1.5 (pointer to this plan). They land on separate commits and are independently revertible. SC's `CLAUDE.md` only gets the Phase 1 edit (it already IS the canonical doc's repo). AR's `CLAUDE.md` only gets the Phase 1.5 pointer if it exists, since AR has no wrapper to use in revised Phase 1.
+
+#### 10.F1.R3-2 — Phase 1.5 acceptance gate [LOCKED]
+
+[LOCKED] **Chosen: (a) — Phase 1.5 starts only after SC's Phase 1 acceptance passes.**
+
+[DERIVED] Rationale: SC is the only repo running the real `npm run db:push` acceptance in revised Phase 1 (per §10.F2: SCH waits on O8, FC is empty-dir no-op). Gating Phase 1.5 on the only acceptance that actually exercises the hook against live ledger traffic is sufficient evidence the wrapper works; waiting on (b) all-three would block on O8 and is unnecessary because Phase 1.5 only ships markdown pointers (zero coupling to wrapper correctness in SCH/FC). (c) decoupled is unsafe because the pointers tell readers "the canonical convention lives here" — pointing at unproven convention is worse than not pointing yet.
+
+#### 10.F1.R3-ratify — AR skip-if-missing promoted to [LOCKED]
+
+[LOCKED] Phase 1.5 skips AR-Command-Center entirely if `~/AR-Command-Center/CLAUDE.md` does not exist at the time of fan-out. AR's pointer is added later as part of Phase 4 (AR-Command-Center bootstrap), when AR also gains a `supabase/` directory and the wrapper itself. This avoids creating an AR `CLAUDE.md` file solely to host an O7 pointer when no other AR session rules exist yet to anchor it. The original [DESIGN-OPEN] tag on the Phase 1.5 sub-block above is preserved with an inline `→ resolved [LOCKED] in §10.F1.R3-ratify` pointer for history visibility, not deleted.
 
 [LOCKED] §6 risk #1 is now narrowed to: "Phase 1 makes no edits to other repos. Phase 1.5 makes pointer-only `CLAUDE.md` edits in 3 other repos with an atomic per-repo revert path."
 
@@ -311,6 +331,10 @@ function check_migration_collision():
 > 6. Phase 1 may resume only after the mismatch is explained AND either (a) the local file is intentionally renamed by the operator with a fresh free timestamp, or (b) the ledger drift is documented and a separate repair plan is opened.
 
 [DERIVED] This rule applies to revised Phase 1 in all three repos in parallel (per F2). If any of the three repos surfaces a mismatch in its own dry-run, only that repo halts; the other two may continue independently.
+
+#### 10.F3.R3-out-of-scope — What the hook does NOT detect [LOCKED]
+
+[LOCKED] The hook does NOT detect locally-present migration files whose timestamps are **missing from the ledger** (i.e. unapplied or never-pushed migrations). That diagnostic belongs to the per-repo migration-repair workflow (e.g. `migration repair --status applied <ts>` documented in `~/sch-command/CLAUDE.md`, tracked as the O8 follow-up). The hook's collision rule fires only when local-timestamp + ledger-version match with non-matching name shape; the inverse case (local timestamp absent from ledger) is silently allowed because that's the normal "next push will apply it" state.
 
 ### 10.F4 — Phase 0 sanity-read of ledger `name` column format
 
@@ -352,5 +376,82 @@ function check_migration_collision():
 4. **Output of Phase 0:** a short note appended to this plan doc as `## 11. Phase 0 result` (or as a per-section amendment under §4.2) recording (a) the observed name format, (b) which row in the outcome table applied, (c) the locked comparison rule for the hook, and (d) date/operator. No code is written in Phase 0 — it is a read-only design-grounding step.
 
 [DERIVED] Phase 0 cost: one SELECT, ~30 seconds. Skipping it risks shipping a hook whose collision rule never fires (false negatives) because it's comparing against the wrong field shape.
+
+#### 10.F4.R3-zero-rows — Split of the "zero rows" outcome [LOCKED]
+
+[LOCKED] The §10.F4 outcome-table row "Query returns zero rows | Ledger is empty or query auth failed. | [BLOCKED] HALT. Diagnose auth (§4.4 failure modes) before Phase 1." conflates two distinct failure modes. Splitting:
+
+| Observed `name` format | Meaning | Phase 1 action |
+|---|---|---|
+| Auth/connection failed (no rows AND error reported) | Query itself failed — credentials rejected, pooler unreachable, CLI not authenticated. | [BLOCKED] HALT. Diagnose auth per §4.4 failure modes (rotated password, expired keychain, missing `supabase link`). Re-run Phase 0 after auth is repaired. |
+| Genuinely empty ledger (no rows AND no error) | Query succeeded but `supabase_migrations.schema_migrations` is empty. | [BLOCKED] HALT. This **contradicts known applied migrations** (SC alone has 47 migrations on record per §2.2). Possible causes: queried wrong project, ledger was wiped, schema is in a non-default location. Do NOT proceed; surface to user immediately. |
+
+[DERIVED] The distinction matters because the remediation paths are entirely different: an auth failure is recoverable via §4.4; a genuinely-empty ledger when the repo has 47 known applied migrations is a much more serious finding (wrong project linked, ledger destroyed, or hidden schema migration) and must not be diagnosed as "just an auth issue."
+
+---
+
+## 11. Phase 0 results (Round 3)
+
+[LOCKED] Phase 0 ledger sanity-read executed 2026-05-18 from `~/sales-command` via `supabase db query --linked` (auth path: supabase CLI's existing keychain session, per §4.3 fallback chain option 1; no new secret required). Query was READ-ONLY, 5 rows max, exact statement per §10.F4 step 1.
+
+### 11.1 Observed rows
+
+| version | name |
+|---|---|
+| `20260515150000` | `work_types_public_read` |
+| `20260515140000` | `proposal_wtc_public_view_token` |
+| `20260514130000` | `invoices_call_log_id_fk` |
+| `20260514000000` | `c1_mark_proposal_signed_sister_aware` |
+| `20260513000000` | `multi_gc_allocation` |
+
+(The CLI wrapped the rows in a JSON envelope with an untrusted-data warning boundary; the substantive payload is the 5 rows above. All 5 ledger versions correspond 1:1 to known SC migration filenames.)
+
+### 11.2 Comparison against local filenames
+
+Local filenames (no path, no extension) for the same 5 timestamps:
+- `20260515150000_work_types_public_read`
+- `20260515140000_proposal_wtc_public_view_token`
+- `20260514130000_invoices_call_log_id_fk`
+- `20260514000000_c1_mark_proposal_signed_sister_aware`
+- `20260513000000_multi_gc_allocation`
+
+[LOCKED] The ledger's `name` column stores **only the slug after the timestamp underscore** — not the full filename-without-extension. Concretely: ledger `name = 'work_types_public_read'`, local filename-without-extension = `'20260515150000_work_types_public_read'`. The 14-char timestamp prefix + underscore is **absent** from the ledger `name` field.
+
+### 11.3 Outcome-table verdict
+
+[LOCKED] The applicable §10.F4 outcome-table row is: **"Uses different separator (e.g. dash instead of underscore between timestamp and slug) | Format differs significantly. | [DESIGN-OPEN] LOCK the hook to normalise both sides to a canonical form before comparing."** — though strictly the observed difference is structural (missing-timestamp-prefix), not separator-flavoured. The closest match is the "format differs significantly" branch; the row "Includes `.sql` extension" does NOT apply (no extension observed); the "Exactly `<timestamp>_<slug>` (no extension, no path)" row does NOT apply (the ledger name is just `<slug>`, no timestamp).
+
+### 11.4 §4.2 assumption status
+
+[LOCKED] **§4.2 collision rule is [SUPERSEDED — see §11].** The line `if matching_row exists AND matching_row.name != local_filename_without_extension` will produce a **false positive on every single row** if shipped as-written, because the ledger `name` will never equal `<timestamp>_<slug>` — it only ever equals `<slug>`. The hook would fail-loud on every push, mis-reporting universal collisions when in fact zero exist. Shipping the wrapper without correcting this would block all migration pushes across SC + SCH + FC simultaneously (post-Phase 1.5).
+
+### 11.5 Proposed corrected collision rule [DESIGN-OPEN]
+
+[DESIGN-OPEN] Proposed correction for §4.2 pseudocode line, to ratify in round 4 before any code is written:
+
+```
+function slug_of(local_filename):
+    # strip .sql extension, strip 14-char timestamp prefix, strip leading underscore
+    base = local_filename without ".sql" suffix
+    return base[15:]   # drop "YYYYMMDDHHMMSS_"
+
+for each local file F:
+    V = first 14 chars of F's filename
+    matching_row = ledger_rows where row.version == V
+    if matching_row exists AND matching_row.name != slug_of(F):
+        print "COLLISION: local file <F> at timestamp <V>, but prod ledger has a different migration name '<matching_row.name>' at that version. Rename your file to the next free timestamp."
+        exit non-zero
+```
+
+[DERIVED] Edge cases the corrected rule needs to handle (open for round 4):
+- Filenames that do NOT match the `<14-char-timestamp>_<slug>.sql` pattern (e.g. operator typo, legacy file with no underscore). The slug-extractor should detect malformed names and surface them rather than silently producing a garbage slug. Recommend: validate filename shape FIRST, fail-loud if shape is non-conforming, then run the collision check.
+- The convention proposal in §3 ("`<UTC_timestamp>_<app>_<slug>.sql`") would put `_sc_` / `_sch_` / `_fc_` / `_ar_` into the slug portion. The ledger would then store e.g. `sc_work_types_public_read` going forward, while legacy SC rows stay as `work_types_public_read`. The hook collision-comparison must handle both legacy and new naming without false positives. Recommend: compare exact-match only; a legacy-vs-new mismatch at the same version is a real collision worth flagging.
+- Confirm whether `supabase db push` itself extracts the slug the same way the hook proposes to. If the CLI inserts the row using a different slug-extraction (e.g. taking everything after the first underscore, including extra underscores in multi-word slugs), the hook's slug-extractor must match exactly. Worth verifying empirically before locking the rule.
+
+### 11.6 New round-3-surfaced items
+
+- [DESIGN-OPEN] §11.5 corrected collision rule — needs ratification in round 4.
+- [DESIGN-OPEN] Slug-extraction parity with `supabase db push`'s own ledger-insert behaviour — should be verified empirically (e.g. by inspecting one freshly-applied row's `name` value vs. the local filename it came from) before locking §11.5.
+- No new [BLOCKED] items surfaced; no [DESIGN-OPEN] items from §3 / §7 were closed by Phase 0.
 
 ---

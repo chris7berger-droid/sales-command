@@ -12,6 +12,7 @@ import Btn from "../components/Btn";
 import FilterBar from "../components/FilterBar";
 import NewProposalModal from "../components/NewProposalModal";
 import ProposalDetail from "../components/ProposalDetail";
+import MultiGCWizard from "../components/MultiGCWizard"; // TEMP dev-mount — revert after preview test
 
 export default function Proposals({ teamMember, setSubPage }) {
   const navigate = useNavigate();
@@ -90,8 +91,18 @@ export default function Proposals({ teamMember, setSubPage }) {
     onNavigateInvoice={id => navigate(`/invoices/${id}`)}
   />;
 
+  // TEMP dev-mount — revert after preview test
+  const multigcId = new URLSearchParams(location.search).get("multigc");
+
   return (
     <>
+      {multigcId && (
+        <MultiGCWizard
+          sourceProposalId={multigcId}
+          onClose={() => navigate("/proposals")}
+          onSaved={() => { navigate("/proposals"); load(); }}
+        />
+      )}
       {showModal && (
         <NewProposalModal
           onClose={() => { setShowModal(false); setPreselectedJob(null); }}

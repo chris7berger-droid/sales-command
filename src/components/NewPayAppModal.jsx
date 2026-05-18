@@ -180,6 +180,7 @@ export default function NewPayAppModal({ schedule, lines, proposal, onClose, onC
         .insert([{
           id: nextId,
           job_id: jobNum,
+          call_log_id: proposal.call_log_id,
           job_name: jobName,
           status: "New",
           amount: Math.round(grossThisBilling * 100) / 100,

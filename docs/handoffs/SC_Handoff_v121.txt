@@ -1,0 +1,192 @@
+SC Handoff v121 — 2026-05-15
+============================
+
+SESSION SUMMARY
+Single-loop session, scope pivoted mid-loop. Loop #9 locked to fix the
+WTC PW status/rate carry-through bug (PW status carries to siblings but
+PW Rate doesn't — Chris had "fixed it once this week already"). While
+the assistant was deep in code analysis trying to root-cause, the bug
+self-resolved during Chris's parallel work — he saw the rate carry
+through with the PW checkbox. Scope pivoted: prevent the bug class from
+recurring by making PW Rate editable only on WTC 1 and read-only on
+siblings, mirroring the existing PW-toggle pattern. Shipped 135ea57.
+
+The session burned ~20 minutes on a hypothesis tree the user didn't ask
+for (dragged old CO/job-6618 session context in as an interpretation
+frame) before Chris course-corrected. Two feedback memories captured
+to prevent the drift pattern from repeating.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+Commits on main (this session, in order):
+
+135ea57 — fix: lock PW Rate to WTC 1 — siblings show read-only with
+  hint. In `src/pages/WTCCalculator.jsx` BiddingTab: when
+  prevailing_wage is on and `isFirstWtc=false`, PW Rate and PW OT Rate
+  inputs render readOnly with grey styling; the "Reset to 1.5×" affordance
+  is hidden on locked siblings. Italic hint under the rate row:
+    - sibling: "PW Rate is set on WTC 1 — it applies to all WTCs on
+      this proposal."
+    - WTC 1:   "Changes to PW Rate apply to all WTCs on this proposal."
+  Sync block at handleSave :1941 already propagates the rate from WTC 1
+  to siblings on save, so locking the sibling fields enforces the
+  invariant Chris named: every WTC on a PW proposal must carry the
+  identical pay rate.
+
+DEPLOYED
+────────
+Project ref: pbgvgjjuhnpsumnowuym
+
+Vercel auto-built main on 135ea57 (deployment not verified by ID, but
+no edge functions or migrations were changed — pure frontend).
+
+DECISIONS / CHOICES MADE
+────────────────────────
+1. Original loop bug (PW Rate not carrying through to siblings) was NOT
+   root-caused. It self-resolved during Chris's work — most likely the
+   existing sibling auto-fill at WTCCalculator.jsx :1761 eventually
+   populated correctly once the async fetch completed. Did not dig
+   further once Chris signaled the symptom was gone — see Not Touched
+   for parked investigation.
+
+2. Scope pivoted from "fix the carry-through bug" (which self-resolved)
+   to "make the bug class structurally impossible by locking PW Rate
+   editing to WTC 1." Read-only siblings + canonical-source-on-WTC-1
+   matches the existing PW-toggle UX where only WTC 1 can remove PW.
+
+3. OT Rate input on siblings also went read-only (not just PW Rate).
+   Reason: OT is derived from PW Rate (1.5× auto), so a sibling editing
+   OT would create the same divergence. Hiding the "Reset to 1.5×"
+   button on locked siblings keeps the UI honest about who controls it.
+
+4. Did NOT touch the sync block at handleSave :1941. The known latent
+   issue there — `.neq("id", wtcId)` no-ops when wtcId is null on first
+   save of a brand-new WTC because PostgREST treats `<> NULL` as
+   never-true — was investigated but not fixed. Locking sibling edits
+   removes the practical exposure (siblings can't write a different
+   rate now), so the sync-no-op-on-first-save is now belt-without-
+   suspenders. Logged below as a parked finding.
+
+5. Two feedback memories captured to prevent today's drift pattern:
+   - feedback_dont_drag_in_past_context.md — when Chris names a job/
+     feature, treat it as a pointer not a frame. Don't pull past-session
+     memory to reshape his words.
+   - feedback_no_hypothesis_trees.md — one code read max; if root cause
+     unclear, probe or ask. Don't print 5 speculative scenarios.
+
+NEW BACKLOG ITEMS
+─────────────────
+None filed. The PW Rate lock was an in-session enhancement of an
+already-working sync pattern, not a discrete bug. No new bugs surfaced.
+
+CLOSED THIS SESSION
+───────────────────
+None. Loop #9's original success criteria ("fix the carry-through bug")
+was rated 4/10 by Chris — the bug self-resolved without root cause, and
+the lock-to-WTC-1 work was scope-shift, not the named goal.
+
+VERIFICATION
+────────────
+- PW Rate lock change verified on localhost (Vite dev server) by Chris.
+  Open a PW proposal; WTC 1 shows editable PW Rate with the "applies to
+  all" hint; sibling WTC shows read-only PW Rate with the "set on WTC 1"
+  hint. Edits on WTC 1 propagate to siblings via the existing sync block.
+
+NOT directly verified:
+- Behavior on prod (Vercel auto-build assumed succeeded; not pulled up
+  by deployment ID).
+- Read-only behavior when an existing proposal already has rate
+  drift between siblings (e.g., a sibling was saved with a different
+  rate before this fix shipped). The lock prevents NEW drift; existing
+  drift would still need a manual save on WTC 1 to propagate.
+
+PARKED / NOT TOUCHED
+────────────────────
+- Original PW carry-through bug — self-resolved, not root-caused.
+  Suspected mechanism: sibling auto-fill at WTCCalculator.jsx :1761
+  reads `pwSibling.pw_rate || 0` and the oldest PW sibling may have
+  been saved with pw_rate=0 if autosave fired before the user typed the
+  rate. Auto-fill faithfully inherits 0. If this resurfaces, check the
+  DB state of WTC 1 before assuming auto-fill is broken.
+- Sync no-op on first save of new WTC — `handleSave` :1941 filters
+  `.neq("id", wtcId)` where wtcId is null on a new-WTC INSERT (closure
+  captures null even after setWtcId(newRow.id) queues). PostgREST
+  translates `id=neq.null` as always-false; sync matches zero rows.
+  Locking sibling edits makes this a no-op in practice now, but the
+  bug is still latent. If sibling editability is ever re-introduced,
+  fix the sync to use `newRow.id` as the exclude key.
+
+Carried over from v120 — all still open:
+- §10 step 3 (Client fallback rollout) — NOT STARTED.
+- §10 step 4 (S1 fix — Customers.jsx RPCs) — NOT STARTED.
+- §10 step 6a (Migration 1b — cloned_from_wtc_id) — build-unblocked.
+- §10 step 6b (RPCs) — BLOCKED on 6a.
+- §10 step 7/8/9/10/11.
+- O3 (drop 1-arg wrapper) — safe to pick up.
+- O7 (multi-repo migration coordination) — still T1.
+- B19 (merge_customers gap) — still T2.
+- B23 (Pull Back doesn't clear signing_token_consumed_at) — T2.
+- B24 (PublicSigningPage silent success on edge fn error) — T2.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Read order: docs/BACKLOG.md → this handoff (v121) → v120 → relevant
+   plan docs.
+
+2. First action (your call). Same three obvious paths as v120, no
+   change:
+   - B23 + B24 (signing-flow latent bugs, T2, paired naturally).
+   - §10 step 3 (Client fallback rollout). Build-unblocked.
+   - Manager Override removal as a separate small UX cleanup (still
+     logged in B26 Notes, still open product question).
+
+3. If PW Rate carry-through bug resurfaces: do NOT spelunk the auto-
+   fill code first. Verify the DB state of WTC 1's pw_rate — most
+   likely scenario is sibling has pw_rate=0 in DB and auto-fill is
+   inheriting it faithfully. Fix at the WRITE side (handleSave +
+   autosave gating), not the read side.
+
+4. Drift prevention: feedback memories captured this session
+   (dont-drag-in-past-context, no-hypothesis-trees) load on every
+   future session. If you see the assistant going deep on a code
+   hypothesis without a probe, interrupt early — that's the pattern.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+src/pages/WTCCalculator.jsx
+  — BiddingTab now computes `pwRateLocked = pw && !isFirstWtc` and
+    threads it through the PW Rate Field (readOnly), the PW OT Rate
+    raw input (readOnly + style), and the OT reset button (hidden).
+    Two italic hint blocks below the rate row guide the user.
+  — Sync block at :1941 still has the `.neq("id", null)` no-op on new-
+    WTC first save. Latent, not currently exposed because siblings
+    can't write a competing rate now. Fix when sibling editability
+    returns or when proven needed.
+
+docs/BACKLOG.md
+  — No row changes this session. Last updated stays at Loop #8 entry.
+
+~/erd-loop/LOG.md
+  — Loop #9 closed at 13:24 (34m vs 30 min predicted, success 4/10,
+    mindset 0, concern +3, potential -1). Floating Notes unchanged.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: main, ahead of origin/main by the handoff commit only
+  (135ea57 already pushed). Working tree noise:
+  supabase/.temp/cli-latest auto-bumped by the supabase CLI —
+  gitignored by intent, left untracked.
+- 1 commit shipped on main this session: 135ea57.
+- ERD-loop repo (~/erd-loop): pushed to origin after each loop event
+  (lock + closeout). In sync.
+- No open PRs.
+- No deployed migrations or edge functions this session.
+
+END STATE
+─────────
+One small frontend fix shipped to prevent a recurring bug class. The
+underlying carry-through bug was not root-caused (self-resolved). Two
+feedback memories captured to prevent the analysis-drift pattern that
+ate ~20 minutes of the loop. Loop #9 closed at success 4/10 — Chris's
+honest rating reflects the scope pivot and the drift, not the
+correctness of the shipped change.

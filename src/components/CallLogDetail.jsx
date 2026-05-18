@@ -249,11 +249,14 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   async function handleSave() {
     setSaving(true);
     setError(null);
-    // Rebuild display_job_number from job_number + job_name
-    const numPart = form.job_number || (job.display_job_number || "").split(/ - | CO/)[0].trim();
-    const oldDisplay = job.display_job_number || "";
-    const coMatch = oldDisplay.match(/ (CO\d+)/);
-    const coTag = coMatch ? ` ${coMatch[1]}` : "";
+    // Rebuild display_job_number from canonical columns (job_number, co_number, job_name).
+    // Never regex the old display string — that path cemented stray "CO\d+" tokens (e.g.,
+    // ones that leaked in via Project Name free text) into display permanently, even when
+    // the row was never a CO at the relational level. Use parseInt on the form input so
+    // free-text "6618 CO1" in the Job Number field can't leak back into display either.
+    const parsedJobNum = form.job_number ? parseInt(form.job_number) : job.job_number;
+    const numPart = (parsedJobNum != null && !Number.isNaN(parsedJobNum)) ? String(parsedJobNum) : "";
+    const coTag = job.co_number ? ` CO${job.co_number}` : "";
     const namePart = form.job_name || "";
     const newDisplay = namePart ? `${numPart}${coTag} - ${namePart}` : `${numPart}${coTag}`;
 
@@ -279,7 +282,15 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       })
       .eq("id", job.id);
     setSaving(false);
-    if (err) { setError(err.message); return; }
+    if (err) {
+      const isDup = err.code === "23505" || /duplicate key|unique constraint/i.test(err.message || "");
+      const msg = isDup
+        ? `Job Number ${form.job_number} is already in use by another active job. Pick a different number or merge the duplicate.`
+        : `Save failed: ${err.message}`;
+      setError(msg);
+      alert(msg);
+      return false;
+    }
 
     // Save customer info (address, terms, main contact — NOT billing contact)
     if (job.customer_id) {
@@ -325,6 +336,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
     onSaved && onSaved();
+    return true;
   }
 
   const sc = stageColor(form.stage);
@@ -416,7 +428,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           {!editing && <Btn sz="sm" v="ghost" onClick={() => setEditing(true)}>Edit</Btn>}
           {editing && (
             <button
-              onClick={async () => { await handleSave(); setEditing(false); }}
+              onClick={async () => { const ok = await handleSave(); if (ok) setEditing(false); }}
               disabled={saving}
               style={{ background: C.teal, border: "none", borderRadius: 8, padding: "7px 20px", color: C.dark, fontWeight: 800, fontSize: 12, cursor: saving ? "not-allowed" : "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", opacity: saving ? 0.6 : 1 }}
             >
@@ -871,7 +883,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           {error && <div style={{ color: C.red, fontSize: 13, fontFamily: F.ui, marginBottom: 10 }}>{error}</div>}
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <button
-              onClick={async () => { await handleSave(); setEditing(false); }}
+              onClick={async () => { const ok = await handleSave(); if (ok) setEditing(false); }}
               disabled={saving}
               style={{ background: C.teal, border: "none", borderRadius: 8, padding: "10px 28px", color: C.dark, fontWeight: 800, fontSize: 14, cursor: saving ? "not-allowed" : "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", opacity: saving ? 0.6 : 1 }}
             >

@@ -2,176 +2,298 @@ SC Handoff v117 — 2026-05-14
 ============================
 
 SESSION SUMMARY
-Build session on §10 step 5 (C1 fix) — sister-aware
-mark_proposal_signed + 'Signed' status. Drafted the migration
-(DROP+CREATE of both 5-arg and 1-arg overloads with new
-became_sold return column), updated the proposal-signed edge
-function to surface became_sold, then swept all 10 client files
-for backward-compat per the §2801–§2828 audit in the plan doc.
-Ran a parallel A1-Code audit terminal that caught two issues:
-(1) CREATE OR REPLACE fails when return type changes — needs
-DROP+CREATE, and (2) RPC fallback path in PublicSigningPage
-needed ?? true for deploy-window safety. Both fixed and re-
-audited to Accept. Migration not yet applied to prod — this is
-on feat/multi-gc-allocation only. ERD Loop #6 (#5-C1-fix)
-closed: 59m elapsed vs 1hr predicted, success 10/10.
+Build session that started as a customer-side bug report and turned
+into a full structural fix. Tim Milton (problem customer? no — Lepori
+is the problem customer; Tim was just the one who emailed) clicked his
+invoice email's "View Full Invoice" link and saw "Oops · Invoice not
+found" with a 400 in devtools. Plan-mode investigation found the
+public invoice page query had been failing for 100% of anon viewers
+since 20260502130000 shipped — two RLS policies cast
+`i.job_id::int = call_log.id` but `invoices.job_id` stores
+descriptive display strings (intentional denormalized copy used by 8
+readers including QB sync edge functions), not stringified call_log
+PKs. Cast threw inside the predicate, PostgREST returned 400.
+Stripe Pay Now button never went through the broken path, so payments
+kept going through while the View link was silently dead. Chose the
+best-practices fix over the shortcut: added `invoices.call_log_id`
+integer NOT NULL FK as the canonical pointer, backfilled from
+proposals.call_log_id, rewrote both policies to use the clean FK.
+Hard-deleted one orphan invoice + Draft proposal pair that blocked
+the NOT NULL backfill. Two follow-up hotfixes shipped to main after
+the migration landed: (a) writer was setting call_log_id from an
+embed object that didn't include id, fix used the scalar column
+proposals.call_log_id directly; (b) /invoice/ and /invoice-paid
+customer routes were hitting the 3-second boot radar because the
+gate variable only checked /sign/. Smoke clean across 7 invoices,
+5 random proposals, and 9 Lepori signing links — all 200 OK as anon.
+Numbering jumps to v117 because v113–v116 are on feat/multi-gc-allocation.
 
 CHANGES SHIPPED
 ─────────────────────────────────────────────────────────────────
-Commits on feat/multi-gc-allocation (chronological):
+Commits on main (chronological, all pushed to origin):
 
-615c189 — Touches C1: sister-aware mark_proposal_signed +
-  'Signed' status. Single commit carrying the full step 5
-  surface: new migration (DROP+CREATE both overloads with
-  v_has_sisters branching + became_sold return), edge fn update
-  (became_sold in all JSON responses + conditional email text),
-  and 10 client files (PROP_C entry, STATUS_TABS, 3 SalesDash
-  arrays, Managers SENT_STATUSES, Home sent filter, WTCCalculator
-  lock, Customers color, ProposalDetail handleInternalApprove
-  rewrite + 6 backward-compat tweaks, ProposalPDFModal Send
-  exclusion, PublicSigningPage accepted gate + became_sold QB
-  sync gate on both edge fn and RPC fallback paths). Build
-  passes clean. A1-Code audit: 6 Accept, 2 fixed (DROP+CREATE
-  and ?? true), re-audited to Accept.
+8079912 — Closes B21: invoices.call_log_id FK + RLS rewrite (fixes 400 on public invoice links)
+  Migration 20260514130000_invoices_call_log_id_fk.sql + writer
+  updates. New column invoices.call_log_id integer NOT NULL, FK to
+  call_log(id), index. Backfill via proposals.call_log_id (36/36
+  live invoices resolved cleanly). RLS policies call_log_public_view_token
+  and the viewing branch of customers_public_read_token rewritten
+  to JOIN i.call_log_id = cl.id (clean int=int, no cast). Code
+  writers in Invoices.jsx:228 + NewPayAppModal.jsx:180 add
+  call_log_id on insert; job_id unchanged (still the display copy
+  used by qb-sync-invoice, qb-record-payment, qb-void-invoice,
+  invoicePdf.js, PublicInvoicePage display, Invoices list display,
+  Customers page filter — 8 readers total). Migration also
+  hard-deletes invoice 09121 + proposal 3273564d-* (orphan pair
+  soft-deleted 2026-05-11 within 15 seconds of each other; $2.19
+  Stripe test charge, no QB sync, Draft never had a call_log_id).
+  BACKLOG entry: B21 in Completed Log, B20 T3 filed for the 36
+  historical descriptive-string job_id rows.
+
+c7e95e0 — Bring 20260513000000_multi_gc_allocation into main's migration set
+  Pure file-copy commit. The Multi-GC Migration 1a is already
+  applied to prod (ledger entry from feat/multi-gc-allocation on
+  2026-05-12) but the file itself only lived on the feature branch.
+  `supabase db push --linked` from main refused to proceed because
+  local-vs-remote migration set diverged. Copying the file content
+  satisfies the consistency check; push then skipped 20260513
+  (already applied) and applied 20260514. Identical file on both
+  branches = no merge conflict when feat/multi-gc-allocation
+  eventually merges. Decided per [Stop on Ambiguous Conflict] +
+  [Cherry-Pick Contextual Coupling] memories — surfaced as a
+  ratification rather than improvised.
+
+16320fd — Fix B21 follow-up: use proposal.call_log_id scalar, not embed.id
+  My initial patch in 8079912 wrote `selProposal.call_log?.id` and
+  `proposal.call_log?.id` — but the SELECT in Invoices.jsx:68 embeds
+  call_log(display_job_number, customer_name, job_name, show_cents)
+  WITHOUT `id`, so .call_log.id was undefined → Supabase wrote NULL
+  → NOT NULL violation on the freshly-added column. Caught by Chris
+  hitting Create Invoice in prod immediately after the migration
+  applied. Both proposal objects already carry the scalar
+  `call_log_id` column directly (Invoices.jsx loads it at :68;
+  NewPayAppModal receives it on the proposal prop and uses it at
+  :39). Switching the writes to `proposal.call_log_id` resolves
+  cleanly with no SELECT change.
+
+51cdaab — Skip 3s boot radar on /invoice/ and /invoice-paid customer routes
+  App.jsx:86 had `isCustomerSigningRoute =
+  window.location.pathname.startsWith("/sign/")`. Comment on line 84
+  describes intent for "customer-facing public routes" (plural) —
+  but the impl only covered /sign/. /invoice/:token and /invoice-paid
+  are the same class of route, both were hitting the 3s RadarLoader
+  before rendering. Renamed isCustomerSigningRoute →
+  isCustomerFacingRoute, broadened the check to /sign/, /invoice/,
+  and /invoice-paid. Customers no longer see a radar animation
+  before their invoice loads.
+
+DEPLOYED
+────────
+- Migration 20260514130000_invoices_call_log_id_fk.sql applied to
+  prod via `supabase db push --linked` against project
+  pbgvgjjuhnpsumnowuym (Command Suite DB).
+- No edge functions modified or deployed this session.
+- Vercel auto-deploys triggered on each push to main; final deploy
+  from 51cdaab confirmed via Chris's UI smoke test ("smoke test
+  passed").
 
 DECISIONS / CHOICES MADE
 ────────────────────────
-1. DROP+CREATE over CREATE OR REPLACE — PostgreSQL does not
-   allow CREATE OR REPLACE FUNCTION when the return type
-   changes. The 1-arg wrapper is dropped first (it depends on
-   the 5-arg), then the 5-arg, then both recreated with GRANT
-   TO anon re-issued. Surfaced by A1-Code audit item #2.
+- Best-practices fix over shortcut. Initial plan proposed routing
+  RLS through proposals.call_log_id (no schema change) as the
+  minimal fix. Discovery during grep showed `job_id` is
+  intentionally a denormalized display copy used by 8 readers
+  including 4 QB edge functions — removing or repurposing it would
+  cascade. Real cleanest shape is a SEPARATE clean FK alongside
+  job_id, not a replacement of it. Chris ratified
+  "Commit + push all 5 + patch" route (full fix in this session)
+  over the shortcut. Per [Build It Right] memory.
 
-2. ?? true fallback on both became_sold paths — edge fn success
-   path uses fnData?.became_sold ?? true; RPC fallback path
-   uses rpcRows[0].became_sold ?? true. Ensures QB sync fires
-   correctly during the deploy window when old RPC (without
-   became_sold column) is still live. Edge fn path surfaced
-   during build; RPC fallback path surfaced by A1-Code audit
-   item #4.
+- Hard-delete the orphan invoice 09121 + proposal 3273564d-* inside
+  the migration. Both were soft-deleted on 2026-05-11 within 15s of
+  each other. Invoice was a $2.19 Stripe test charge with no QB
+  sync; proposal was a Draft that never had a call_log_id assigned.
+  Leaving them would have forced call_log_id nullable forever (or a
+  later cleanup). Chris OKed the destructive op explicitly via
+  AskUserQuestion before the SQL was written. Migration body
+  documents the rationale inline so a future re-reader has the
+  forensic trail.
 
-3. O3 sequencing — O3 (drop 1-arg wrapper) must land AFTER
-   this C1 migration. C1 updates both overloads; O3 drops the
-   1-arg. The migration file timestamps enforce correct order
-   (20260514 > 20260510). Confirmed safe in both orderings by
-   audit item #7.
+- Cherry-pick the 20260513000000 migration file onto this branch
+  instead of merging feat/multi-gc-allocation to main. Reason:
+  feat/multi-gc-allocation is mid-plan (§10 step 4 just ratified);
+  not ready to merge. The file IS the conceptual change needed for
+  ledger consistency, no branch-local coupling to drop. Per
+  [Cherry-Pick Contextual Coupling] memory.
 
-4. NOTIFY outside BEGIN/COMMIT — intentional. The NOTIFY fires
-   after the DDL transaction commits, ensuring PostgREST reloads
-   against the committed schema. Matches the pattern in
-   20260510120000.
+- Two follow-up hotfixes (16320fd, 51cdaab) shipped directly to main
+  with no preview branch. Reason: both were fixing regressions just
+  shipped to main minutes earlier. Time-to-fix mattered. Per
+  [Minimal Fix First] — fix the new code first, no detour through
+  preview-deploy ceremony when we're correcting our own just-shipped
+  bug.
 
-VERIFICATION
-────────────
-- vite build passes clean (no errors, chunk warning only).
-- A1-Code audit (parallel terminal) checked 8 items:
-  SQL correctness (Accept), RETURNS TABLE semantics (Reject →
-  fixed → Accept), edge fn became_sold (Accept), deploy-window
-  QB sync (Flag → fixed → Accept), PostgREST filter syntax
-  (Accept), backward-compat completeness (Accept — all 18 sites
-  per §2801–§2828), O3 interaction (Accept), NOTIFY placement
-  (Accept).
-- Migration NOT applied to prod. Not deployed. This is
-  code-review + build-verification only.
-- Edge function NOT deployed. The proposal-signed update
-  ships with the migration as a coordinated deploy.
-- No localhost smoke of the signing flow — migration must
-  apply first. Signing flow smoke is a deploy-time gate.
-
-NOT TOUCHED THIS SESSION
-────────────────────────
-Carryforward from v116 — all still open:
-- §10 step 3 (Client fallback rollout) — NOT STARTED.
-- §10 step 4 (S1 fix — Customers.jsx RPCs) — NOT STARTED.
-- §10 step 6a (Migration 1b — cloned_from_wtc_id) — NOT STARTED.
-- §10 step 6b (RPCs) — BLOCKED on 6a.
-- O3 (drop 1-arg wrapper) — now sequencing-dependent on C1
-  migration landing first. Still safe to pick up.
-- O7 (multi-repo migration coordination) — still T1.
-- B19 (merge_customers gap) — still T2.
-- v113 deferred prod smokes.
+- Renamed `isCustomerSigningRoute` → `isCustomerFacingRoute` even
+  though [Stay Scoped] memory pushes against scope expansion. The
+  rename matches the existing comment's intent verbatim
+  ("Customer-facing public routes must skip the boot loader") and
+  prevents the next added public route from re-introducing the same
+  gap. Two-line edit, no behavior change beyond what the bug fix
+  required.
 
 NEW BACKLOG ITEMS
 ─────────────────
-None filed this session.
+B20 T3 — 36 historical invoices have `job_id` storing full
+descriptive strings instead of plain display_job_number. Found
+during B21 investigation. Current live writers (Invoices.jsx:221,
+NewPayAppModal.jsx:176) correctly use
+`display_job_number || job_name`, so new invoices look fine; the
+36 came from a removed code path or an import script. Downstream
+impact: QB sync edge functions look up call_log via
+`display_job_number = invoice.job_id` — they silently no-op for
+these 36 if triggered. Customer-facing impact already closed by
+B21. Cleanup path: `UPDATE invoices SET job_id =
+split_part(job_id, ' - ', 1) WHERE job_id ~ ' - ';` then sanity-join
+back to call_log.display_job_number. ~30 min.
 
 CLOSED THIS SESSION
 ───────────────────
-None. Step 5 code landed on feature branch but is not deployed
-or merged.
+B21 — Public invoice page (/invoice/:token) returned 400 for 100%
+of customers since 20260502130000 shipped. Filed and closed in
+this session. Where done: migration
+20260514130000_invoices_call_log_id_fk.sql + commit 8079912 +
+follow-ups 16320fd + 51cdaab. Branch fix/invoices-call-log-id-fk
+(already merged via fast-forward to main).
+
+VERIFICATION
+────────────
+- PostgREST anon smoke: hit /rest/v1/invoices with anon publishable
+  key + x-viewing-token header for Tim Milton's specific link → 200
+  OK with full embedded payload (call_log_id=3541, customer name,
+  total $21,535.72, sales rep name). Pre-fix would have returned
+  400.
+- Broader smoke: 5 random additional invoice tokens (Pellett,
+  Plenium x2, Martin Harris, Cambell Strange) — all 200 OK with
+  full embed. Plus the original Tim + first random Pellett = 7/7
+  in total.
+- Class-of-bug audit on proposals: 5 random active proposal signing
+  tokens (Washoe County, Harvest Family, JMA Ventures, Apex,
+  Cambell Strange) — all 200 OK via anon + x-signing-token. No
+  remaining ::int casts in any anon policy after the migration.
+- Lepori-specific smoke (per Chris's "Lepori is our problem
+  customer" callout): 9/9 of their active signing links resolved
+  clean. No invoices anywhere for Lepori (worth flagging
+  separately — see NEXT SESSION POINTERS).
+- Browser-level smoke: Chris confirmed "smoke test passed" after
+  the boot-radar fix shipped — the invoice page now jumps straight
+  to "Loading invoice..." inline text instead of the 3-second
+  radar.
+- Migration DDL verification: information_schema confirms
+  invoices.call_log_id type=integer, is_nullable=NO. 36/36 live
+  invoices have call_log_id populated. Orphan 09121 confirmed
+  hard-deleted (no rows).
+- NOT tested: a brand new invoice being created via the prod UI
+  AND emailed AND clicked by an actual external customer end-to-end.
+  Chris's test invoice via Create Invoice did exercise the new
+  writer at 16320fd post-fix — but I observed only the network
+  signal Chris reported, not the resulting record. Worth doing a
+  full email-send-and-click round next time he sends a real
+  invoice.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+- Multi-GC planning code/docs. feat/multi-gc-allocation untouched
+  (still 4 commits ahead of main carrying §10 step 4 amendment +
+  ratifications + step 3 §A1.1 extension + B19 filing). §10
+  implementation order not started.
+- B20 cleanup of the 36 historical descriptive-string job_id rows.
+  Filed this session, deferred — customer impact already closed.
+- O3 — H5 Migration B compat-wrapper drop. 48h gate elapsed
+  2026-05-13 02:10 UTC; pg_stat_statements verification still
+  pending before applying.
+- B16, B11, B14, H11, S2, F7 — all open, not touched.
+- supabase/.temp/* — gitignored carryforward, untouched.
 
 NEXT SESSION POINTERS
 ─────────────────────
-1. Read order: docs/BACKLOG.md → this handoff (v117) →
-   docs/plans/multi_gc_allocation.md §2516 (C1 Resolution).
-
-2. Step 5 is code-complete on the branch. The remaining C1
-   client-side items from §2704 (handleInternalApprove in
-   ProposalDetail.jsx:3c) and §2746 (PublicSigningPage:3d) are
-   done. The §2768 Mark Awarded surface (award_proposal
-   interaction) is confirmed no-change-needed per §2770.
-
-3. Next build steps from §10 sequence:
-   - Step 3 (Client fallback rollout) — build-unblocked, 6
-     sites per A1.1 Extension. No dependency on step 5.
-   - Step 6a (Migration 1b — cloned_from_wtc_id) — build-
-     unblocked per F16 ratifications.
-   - Step 4 (S1 fix) — BLOCKED on step 3 view migration.
-
-4. Deploy coordination when merging to main: the C1 migration
-   + edge fn update must deploy together. Sequence:
-   (a) supabase db push the migration
-   (b) deploy proposal-signed edge fn (--no-verify-jwt)
-   (c) NOTIFY pgrst 'reload schema' (in migration, auto)
-   (d) Vercel deploy picks up client changes
-   (e) Smoke: sign a TEST proposal, verify status='Sold'
-       (single-GC backward compat).
-
-5. O3 — now >72h past the 48h gate. Safe to drop the 1-arg
-   wrapper, but must land AFTER C1 migration since C1
-   DROP+CREATEs both overloads. If O3 runs first it drops the
-   old 1-arg; C1 then tries to DROP the already-dropped 1-arg
-   (IF EXISTS handles this). Either order works, but C1-first
-   is cleaner.
+1. End-to-end real customer flow: next time you send a real invoice
+   from prod, walk it the whole way: New Invoice → email lands →
+   click View Full Invoice → confirm the page renders clean and
+   the customer can navigate to Pay Now from there. The infra-level
+   smoke covered everything I can verify from this side, but a
+   real customer round closes the last bit.
+2. Lepori has 0 invoices but 3 Sold proposals (Bill Pearce Volvo
+   `6194`, Waterproofing Commital `7141`, Epoxy Flake `10057` —
+   all dated 2026-04-23 to 2026-05-11). Either unbilled Sold work
+   sitting there, or historical hard-deletes. Worth a quick sanity
+   pass before the next billing cycle.
+3. B20 (36 descriptive-string job_ids) — if/when QB sync starts
+   misbehaving on any of the 36 affected invoices, run the cleanup
+   `UPDATE invoices SET job_id = split_part(job_id, ' - ', 1)
+   WHERE job_id ~ ' - ';` first. Otherwise defer.
+4. fix/invoices-call-log-id-fk branch — fast-forwarded into main,
+   safe to delete on origin and locally once you're sure prod is
+   stable. Same with the supabase/migrations/20260513000000 file
+   coexistence (no action required; will resolve naturally when
+   feat/multi-gc-allocation merges).
+5. The B20 entry references a future cleanup that touches QB sync
+   behavior — if/when that gets picked up, smoke each of the 4 QB
+   edge functions (qb-create-job, qb-record-payment, qb-void-invoice,
+   qb-sync-invoice) against an updated job_id row to confirm they
+   resolve via display_job_number cleanly.
+6. O3 — H5 Migration B compat-wrapper drop. 48h gate has elapsed
+   (2026-05-13 02:10 UTC). Before applying: query
+   pg_stat_statements for any 1-arg mark_proposal_signed traffic;
+   require zero. ~15 min once green.
 
 FILES TO PROBABLY KNOW ABOUT NEXT SESSION
 ─────────────────────────────────────────
-supabase/migrations/20260514000000_c1_mark_proposal_signed_sister_aware.sql
-  — New this session. DROP+CREATE of both mark_proposal_signed
-    overloads. v_has_sisters branching, became_sold return,
-    GRANT TO anon, NOTIFY pgrst.
-
-supabase/functions/proposal-signed/index.ts
-  — Updated: reads became_sold from RPC, surfaces in all JSON
-    responses, conditional "Sold"/"Signed" in email text.
-
-src/components/ProposalDetail.jsx
-  — handleInternalApprove rewritten with sister query + status
-    branch. 6 backward-compat tweaks (checklist, Pull Back,
-    Internal Approve, Send Proposal, Download Signed PDF gating).
-
-src/pages/PublicSigningPage.jsx
-  — accepted-state gate includes 'Signed'. became_sold gates
-    QB sync on both edge fn success + RPC fallback paths.
-
-src/lib/mockData.js
-  — 'Signed' entry in PROP_C.
-
-src/pages/Proposals.jsx
-  — 'Signed' in STATUS_TABS.
+supabase/migrations/20260514130000_invoices_call_log_id_fk.sql
+  — The migration. ADD COLUMN call_log_id integer NOT NULL FK,
+    backfill via proposals, drop+recreate two RLS policies,
+    NOTIFY pgrst. One-off orphan hard-delete baked in. Migration
+    body has the forensic trail.
+supabase/migrations/20260513000000_multi_gc_allocation.sql
+  — File-copy from feat/multi-gc-allocation for ledger consistency.
+    Already applied to prod; copy on main is a no-op at push time.
+    Identical to feat branch's copy; future merge won't conflict.
+src/pages/Invoices.jsx:231
+  — Insert now writes `call_log_id: selProposal.call_log_id`.
+    NOT call_log?.id — proposals SELECT at :68 embeds call_log
+    without `id`, so the embed object's .id is undefined.
+src/components/NewPayAppModal.jsx:183
+  — Same pattern: `call_log_id: proposal.call_log_id`. Proposal
+    prop already carries the scalar column.
+src/App.jsx:86-93
+  — Boot loader gate. isCustomerFacingRoute covers /sign/,
+    /invoice/, /invoice-paid. Next public-facing route added must
+    also extend this check (or the customer hits a 3s radar before
+    their page renders).
+docs/BACKLOG.md
+  — B20 added T3. B21 added to Completed Log. "Last updated"
+    line updated to 2026-05-14. Note: B19 is on
+    feat/multi-gc-allocation; main's BACKLOG doesn't have it yet
+    (will arrive when that branch merges).
 
 GIT STATE ON CLOSE
 ──────────────────
-- Branch feat/multi-gc-allocation: tip 615c189, pushed to
-  origin. This handoff commit will be 1 ahead after commit.
-- main: unchanged.
-- Working tree: clean (no supabase/.temp/* noise this session).
-- No open PRs.
+- Branch: main.
+- Working tree: clean (before this handoff commit).
+- Local main: up to date with origin/main at 51cdaab BEFORE the
+  handoff commit. After this handoff commit lands, 1 ahead of
+  origin/main until pushed.
+- Open branches:
+    fix/invoices-call-log-id-fk — fast-forwarded into main, safe to
+      delete on origin and locally once prod is stable for a day.
+    feat/multi-gc-allocation — unchanged this session; still
+      carrying v113–v116 handoffs + §10 step 4 amendments +
+      ratifications + B19 filing + Migration 1a.
+- Open PRs: none.
+- Scratch projects: none active this session.
+- ERD: Loop #5 (invoice-link-400-tim-milton) closed in
+  ~/erd-loop/LOG.md at 12:51, pushed to origin/erd-loop main as
+  5296ef7. 5/15 loops toward SDK extraction attempt.
 
 END STATE
 ─────────
-§10 step 5 (C1 fix) code-complete on feat/multi-gc-allocation.
-Migration + edge fn + 10 client files committed and pushed.
-A1-Code audited (8/8 Accept after 2 fixes). Not deployed to
-prod — deploy is a coordinated step at merge time. Ready for
-fresh session on step 3 or step 6a.
+Merged, deployed, smoke verified, ready for fresh session.

@@ -134,7 +134,8 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
     const [{ data: wtcData }, { data: linesData }] = await Promise.all([
       supabase.from("proposal_wtc")
         .select("*, work_types(name)")
-        .eq("proposal_id", p.id),
+        .eq("proposal_id", p.id)
+        .order("created_at", { ascending: true }),
       supabase.from("invoice_lines")
         .select("proposal_wtc_id, billing_pct")
         .in("invoice_id",
@@ -228,6 +229,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
       .insert([{
         id: nextId,
         job_id: jobNum,
+        call_log_id: selProposal.call_log_id,
         job_name: jobName,
         status: "New",
         amount: Math.round(finalAmount * 100) / 100,
@@ -413,19 +415,22 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
             })()}
 
             {!selProposal.is_archive_proposal && <div style={{ flex: 1, overflowY: "auto", maxHeight: 380 }}>
-              {wtcs.map(w => {
+              {wtcs.map((w, i) => {
                 const total = calcWtcPrice(w);
                 const billed = getBilledPct(w.id);
                 const remaining = getRemainingPct(w.id);
                 const pctVal = parseFloat(billingPcts[w.id]) || 0;
                 const lineAmt = total * (pctVal / 100);
+                const typeName = w.work_types?.name;
 
                 return (
                   <div key={w.id} style={{ background: C.linenDeep, borderRadius: 10, padding: 16, marginBottom: 10, border: `1px solid ${C.border}` }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                       <div>
-                        <div style={{ fontWeight: 800, fontSize: 14, color: C.textHead, fontFamily: F.display }}>{w.work_types?.name || `WTC ${w.id}`}</div>
-                        <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui }}>Total: {money(total)}</div>
+                        <div style={{ fontWeight: 800, fontSize: 15, color: C.textHead, fontFamily: F.display }}>
+                          {`WTC ${i + 1}`}{typeName ? ` — ${typeName}` : ""}
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginTop: 4 }}>{money(total)}</div>
                       </div>
                       <div style={{ textAlign: "right" }}>
                         <div style={{ fontSize: 11, fontFamily: F.ui, color: billed > 0 ? C.amber : C.textFaint }}>
@@ -532,7 +537,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 }
 
 // ── Invoice PDF Modal ─────────────────────────────────────────────────────
-function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false, teamMember }) {
+function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideSend = false, teamMember }) {
   const money = invoice.show_cents ? fmt$c : fmt$;
   const fmtPct = (n) => {
     const v = parseFloat(n) || 0;
@@ -766,8 +771,8 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false, te
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr style={{ borderBottom: "2px solid #1c1814" }}>
-                      {["Description", "Amount", "Billing %", "Line Total"].map(h => (
-                        <th key={h} style={{ padding: "8px 12px", textAlign: h === "Description" ? "left" : "right", fontWeight: 700, fontSize: 10.5, color: "#887c6e", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</th>
+                      {["WTC", "Description", "Amount", "Billing %", "Line Total"].map(h => (
+                        <th key={h} style={{ padding: "8px 12px", textAlign: (h === "Description" || h === "WTC") ? "left" : "right", fontWeight: 700, fontSize: 10.5, color: "#887c6e", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -782,6 +787,8 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false, te
                         : isArchiveLine
                           ? (archiveCtx.workTypes || "—")
                           : (wtc?.work_types?.name || l.description || "—");
+                      const wtcNum = wtc ? wtcIndex[wtc.id] : null;
+                      const wtcCell = wtcNum ? `WTC ${wtcNum}` : "—";
                       const rowTotal = isSov
                         ? (parseFloat(sov.scheduled_value) || 0)
                         : isArchiveLine
@@ -792,6 +799,7 @@ function InvoicePDFModal({ invoice, lines, onClose, onSent, hideSend = false, te
                         : (parseFloat(l.billing_pct) || 0);
                       return (
                         <tr key={l.id} style={{ borderBottom: "1px solid rgba(28,24,20,0.1)" }}>
+                          <td style={{ padding: "10px 12px", fontWeight: 700, whiteSpace: "nowrap" }}>{wtcCell}</td>
                           <td style={{ padding: "10px 12px", fontWeight: 600 }}>{lineLabel}</td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(rowTotal)}</td>
                           <td style={{ padding: "10px 12px", textAlign: "right" }}>{fmtPct(billingPct)}</td>
@@ -912,6 +920,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [inv, setInv] = useState(invoice);
   const [lines, setLines] = useState([]);
   const [wtcMap, setWtcMap] = useState({});
+  const [wtcIndex, setWtcIndex] = useState({});
   const [linkedPayApp, setLinkedPayApp] = useState(null);
   const [billingProposal, setBillingProposal] = useState(null);
   const [billingSummary, setBillingSummary] = useState(null);
@@ -980,6 +989,18 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         if (l.proposal_wtc) map[l.proposal_wtc_id] = l.proposal_wtc;
       });
       setWtcMap(map);
+
+      // Build WTC index map (proposal_wtc_id -> WTC #) for line item labeling
+      if (inv.proposal_id) {
+        const { data: wtcRows } = await supabase
+          .from("proposal_wtc")
+          .select("id")
+          .eq("proposal_id", inv.proposal_id)
+          .order("created_at", { ascending: true });
+        const idxMap = {};
+        (wtcRows || []).forEach((w, i) => { idxMap[w.id] = i + 1; });
+        setWtcIndex(idxMap);
+      }
 
       // Check if this invoice is linked from a Pay App (canonical send path lives there)
       const { data: payApp } = await supabase
@@ -1398,7 +1419,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: F.ui }}>
               <thead>
                 <tr style={{ background: C.dark }}>
-                  {["Line Item", "Line Value", "Billing %", "Line Amount"].map(h => (
+                  {["WTC", "Line Item", "Line Value", "Billing %", "Line Amount"].map(h => (
                     <th key={h} style={{ padding: "11px 15px", textAlign: "left", fontWeight: 700, fontSize: 10.5, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: `1px solid ${C.darkBorder}` }}>{h}</th>
                   ))}
                 </tr>
@@ -1412,12 +1433,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                   const lineLabel = isSov
                     ? (sov.line_code ? `${sov.line_code} — ${sov.description}` : sov.description)
                     : (wtc?.work_types?.name || l.description || (isArchiveLine ? "Archive Invoice" : "—"));
+                  const wtcNum = wtc ? wtcIndex[wtc.id] : null;
+                  const wtcCell = wtcNum ? `WTC ${wtcNum}` : "—";
                   const storedAmt = parseFloat(l.amount) || 0;
                   const rowTotal = isSov ? (parseFloat(sov.scheduled_value) || 0) : (wtc ? calcWtcPrice(wtc) : (isArchiveLine ? (editing ? (parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : storedAmt) : 0));
                   const editPct = parseFloat(editPcts[l.id]) || 0;
                   const editAmt = isArchiveLine ? rowTotal : rowTotal * (editPct / 100);
                   return (
                     <tr key={l.id} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? C.linenLight : C.linen }}>
+                      <td style={{ padding: "12px 15px", fontWeight: 700, color: C.textHead, whiteSpace: "nowrap" }}>{wtcCell}</td>
                       <td style={{ padding: "12px 15px", fontWeight: 700, color: C.textHead }}>{lineLabel}</td>
                       <td style={{ padding: "12px 15px", fontVariantNumeric: "tabular-nums" }}>{money(rowTotal)}</td>
                       <td style={{ padding: "12px 15px" }}>
@@ -1526,6 +1550,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         <InvoicePDFModal
           invoice={inv}
           lines={lines}
+          wtcIndex={wtcIndex}
           teamMember={teamMember}
           onClose={() => setShowPaidPDF(false)}
         />
@@ -1535,6 +1560,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         <InvoicePDFModal
           invoice={inv}
           lines={lines}
+          wtcIndex={wtcIndex}
           teamMember={teamMember}
           hideSend={!!linkedPayApp}
           onClose={() => setShowPDF(false)}

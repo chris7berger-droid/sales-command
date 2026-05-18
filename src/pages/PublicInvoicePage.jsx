@@ -15,6 +15,7 @@ export default function PublicInvoicePage() {
   const [error, setError] = useState(null);
   const [config, setConfig] = useState(DEFAULTS);
   const [repContact, setRepContact] = useState({ phone: "", email: "" });
+  const [wtcIndex, setWtcIndex] = useState({});
 
   useEffect(() => {
     supabase.rpc("get_public_tenant_config").then(({ data }) => {
@@ -42,6 +43,18 @@ export default function PublicInvoicePage() {
         .select("*, proposal_wtc(*, work_types(name))")
         .eq("invoice_id", inv.id);
       setLines(lineData || []);
+
+      // Build WTC index map (proposal_wtc_id -> WTC #) so each line shows its WTC #
+      if (inv.proposal_id) {
+        const { data: wtcRows } = await supabase
+          .from("proposal_wtc")
+          .select("id")
+          .eq("proposal_id", inv.proposal_id)
+          .order("created_at", { ascending: true });
+        const map = {};
+        (wtcRows || []).forEach((w, i) => { map[w.id] = i + 1; });
+        setWtcIndex(map);
+      }
 
       // Load rep contact
       const salesName = inv.proposals?.call_log?.sales_name;
@@ -176,8 +189,8 @@ export default function PublicInvoicePage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: "2px solid #1c1814" }}>
-                  {["Description", "Amount", "Billing %", "Line Total"].map(h => (
-                    <th key={h} style={{ padding: "8px 12px", textAlign: h === "Description" ? "left" : "right", fontWeight: 700, fontSize: 10.5, color: "#887c6e", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</th>
+                  {["WTC", "Description", "Amount", "Billing %", "Line Total"].map(h => (
+                    <th key={h} style={{ padding: "8px 12px", textAlign: (h === "Description" || h === "WTC") ? "left" : "right", fontWeight: 700, fontSize: 10.5, color: "#887c6e", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -186,12 +199,15 @@ export default function PublicInvoicePage() {
                   const wtc = l.proposal_wtc;
                   const isArchiveLine = !wtc && isArchive;
                   const lineLabel = isArchiveLine ? (archiveWorkTypes || "—") : (wtc?.work_types?.name || "—");
+                  const wtcNum = wtc ? wtcIndex[wtc.id] : null;
+                  const wtcCell = wtcNum ? `WTC ${wtcNum}` : "—";
                   const rowAmount = isArchiveLine ? archiveSold : (wtc ? calcWtcPrice(wtc) : 0);
                   const billingPct = isArchiveLine
                     ? (archiveSold > 0 ? ((parseFloat(l.amount) || 0) / archiveSold) * 100 : 0)
                     : (parseFloat(l.billing_pct) || 0);
                   return (
                     <tr key={l.id} style={{ borderBottom: "1px solid rgba(28,24,20,0.1)" }}>
+                      <td style={{ padding: "10px 12px", fontWeight: 700, whiteSpace: "nowrap" }}>{wtcCell}</td>
                       <td style={{ padding: "10px 12px", fontWeight: 600 }}>{lineLabel}</td>
                       <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(rowAmount)}</td>
                       <td style={{ padding: "10px 12px", textAlign: "right" }}>{fmtPct(billingPct)}</td>

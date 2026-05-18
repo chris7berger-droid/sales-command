@@ -1,0 +1,252 @@
+SC Handoff v120 — 2026-05-15
+============================
+
+SESSION SUMMARY
+Bug-hunt session, two bugs closed end-to-end. B25: CallLogDetail edit
+Save Changes silently dropped duplicate job_number writes (23505) —
+error was set in state but the Save button unconditionally flipped
+`setEditing(false)` after handleSave returned, unmounting the
+`{editing && ...}` block that hosts the error <div> before the user
+could read it. B26: phantom CO bug on job 6618. Customer signed a
+$13,170 CO1 proposal but the row had no parent, no co_number, and
+`is_change_order=false` in the DB — display said "6618 CO1 - ..." but
+the relational columns all disagreed. Root-caused with Joe: he typed
+"CO1 - Lakes Crossing - Underlayment" into Project Name (free text);
+the wizard built display="6618 - CO1 - Lakes Crossing - Underlayment"
+correctly; a later CallLogDetail edit normalized the Project Name to
+strip "CO1 -" but `handleSave` regex-extracted " CO1" out of the OLD
+display and cemented it into the new display. The same sticky-tag
+regex would re-apply on every future edit. Rebuilt the data out-of-
+band via supabase CLI (Management API path, no Docker) — inserted
+parent 6618 as id 3601, slid 3512 into CO slot, linked. Then shipped
+the class fix in handleSave: rebuild display from canonical columns
+(job_number + co_number + job_name), never from regex on old display.
+Two ERD loops ran — first bug-hunt (B25) was no-protocol (lesson
+captured to Floating Notes + ETET principle: Every Terminal Every
+Time); second (B26 + 6618 rebuild) was Loop #7, locked and closed.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+Commits on main (this session, in order):
+
+9787a29 — fix(call-log-detail): surface 23505 on Save Changes + don't
+  drop edit mode on failure. handleSave now returns true/false; both
+  Save buttons (top-bar pill + bottom save block) only call
+  setEditing(false) on success. 23505 mapped to plain-English
+  message; alert() popup mirrors existing alert pattern at :161
+  for delete failures.
+
+ccc3235 — Closes B25: CallLogDetail edit Save Changes silently
+  dropped duplicate job_number (23505). Filed B25 retroactively with
+  full searchable-keyword block so future grep hits find it fast.
+  Closes B25.
+
+5805ec7 — Closes B26: rebuild display_job_number from canonical
+  columns, not old-display regex. Replaces the regex-based CO tag
+  extraction with `job.co_number ? \` CO${job.co_number}\` : ""`.
+  Adds parseInt on form.job_number so free-text in the Job Number
+  field can't leak back into display either (the input is
+  type="text" at :478). Phantom-CO rows now self-heal on next save.
+  Closes B26. Also updated docs/BACKLOG.md (B26 row + Last updated).
+
+DEPLOYED
+────────
+Project ref: pbgvgjjuhnpsumnowuym
+
+Out-of-band data rebuild for job 6618 (call_log id 3512 + new
+parent 3601). Executed via `supabase db query --linked` (Management
+API, no Docker required, no migration written — this was a
+one-shot data fix, not schema):
+
+  Step 1: UPDATE call_log SET co_number=1, is_change_order=true
+          WHERE id=3512   (slides 3512 from slot (6618, 0) into
+          slot (6618, 1) to free the parent slot)
+
+  Step 2: INSERT INTO call_log (...) SELECT ... FROM call_log
+          WHERE id=3512   (mirrors tenant_id/customer_id/sales/
+          addresses; overrides display='6618 - Lakes Crossing -
+          Underlayment', co_number=NULL, is_change_order=false,
+          parent_job_id=NULL, co_standalone=false, stage='New
+          Inquiry')  → new parent id 3601
+
+  Step 3: UPDATE call_log SET parent_job_id=3601 WHERE id=3512
+
+No migration was written for the data rebuild — it's a one-off
+fix for a single corrupted row pair. Vercel auto-built main on
+ccc3235 and 5805ec7 (deployments not checked by ID).
+
+DECISIONS / CHOICES MADE
+────────────────────────
+1. SQL-only path for the 6618 rebuild instead of having Chris do
+   step 2 via the wizard UI. Chris's stated state was mindset 2,
+   concern 10, potential 4 — drained. Less context switching =
+   better. Pre-checked the call_log schema for NOT NULLs
+   (job_name, tenant_id, qb_skip_sync) before writing the INSERT;
+   all three preserved by SELECT ... FROM call_log WHERE id=3512.
+   Risk was a constraint violation rolling back the transaction;
+   acceptable since the partial state was reversible.
+
+2. Filed B25 retroactively as Closed-in-same-session rather than
+   skipping the row. Chris asked for "language that makes it easy
+   to find because we keep fixing old bugs" — wrote the row with
+   a dedicated **Symptom (searchable)** block listing the natural-
+   language phrases the next grep would use ("silent save fail",
+   "no error popup", "edit mode dropped", "changes don't persist
+   after Save Changes").
+
+3. Class fix in handleSave shipped same session as the data
+   rebuild — not deferred. Without the class fix, the same row
+   would re-cement "CO1" on its next edit. Pairing the class fix
+   with the data fix makes both stick.
+
+4. parseInt-on-form.job_number hardening was a regression check on
+   my own first draft. First version of the class fix used
+   `form.job_number || String(job.job_number)` — but the Job
+   Number input is type="text" at :478, so free-text "6618 CO1"
+   would leak into numPart and produce "6618 CO1 CO1 - ..." on
+   save. Caught it before commit and tightened to
+   `parseInt(form.job_number) || job.job_number`.
+
+5. Did NOT remove the Manager Override button. Chris asked about
+   it after Joe's recall; the wizard's manualJobNum input is
+   type="number" so "CO1" can't be typed there. Removing the
+   button wouldn't have prevented this bug class — the Standard
+   Job + free-text Project Name path has the same exposure.
+   Logged as an open companion product question in the B26 row's
+   Notes rather than acting on it.
+
+6. ERD-discipline lesson captured to Floating Notes (not as a
+   memory) — ETET, "Every Terminal Every Time." Chris started
+   the bug-hunt outside protocol because the day began with a
+   protocol-verification task and his brain auto-extended the
+   "no-protocol" mode. The first bug fix shipped without an ERD
+   loop. Mid-second-bug, Chris recognized the drift and started
+   Loop #7. Captured as a floating note + erdnote inside Loop #7.
+
+NEW BACKLOG ITEMS
+─────────────────
+- B25 — T2 — CallLogDetail Save Changes silently dropped
+  duplicate job_number; error set in state then unmounted by the
+  setEditing(false) tear-down. Filed Closed same session.
+- B26 — T2 — CallLogDetail sticky-tag bug; handleSave regexed
+  CO\d+ out of old display and pasted it back, cementing
+  phantom CO tags into rows that never were COs. Filed Closed
+  same session. Companion product question (Manager Override
+  removal / Project Name validation / "CO of work outside the
+  system" wizard branch) logged in Notes, NOT a separate row.
+
+CLOSED THIS SESSION
+───────────────────
+- B25 — closed in commit ccc3235 (filing) backed by code commit
+  9787a29 (fix). Verified live on prod by Chris.
+- B26 — closed in commit 5805ec7. Verified live on prod by Chris
+  (parent + CO render correctly; CO badge tracks is_change_order).
+
+VERIFICATION
+────────────
+- B25 fix — verified live on prod by Chris. Repro: CallLogDetail
+  → Edit → change Job Number to a value in use on another active
+  job → Save Changes → popup names the conflict, edit mode stays
+  open, other changes preserved.
+- B26 fix — verified live on prod by Chris. Job 6618 (id 3601)
+  renders as parent with no CO badge; job 6618 CO1 (id 3512)
+  renders with CO badge (is_change_order=true now). Edit-and-
+  save on either row rebuilds display from the canonical columns.
+- 6618 data rebuild — verified via final SELECT query showing
+  both rows in the expected state (parent: co_number=NULL,
+  parent_job_id=NULL; CO: co_number=1, is_change_order=true,
+  parent_job_id=3601). UI render verified by Chris.
+
+NOT directly verified:
+- Self-healing behavior on other phantom-CO rows (if any exist).
+  None searched for — the only known case was 3512, and that one
+  was rebuilt directly, not relied on for self-heal. If other
+  rows exist with display containing "CO\d+" while co_number
+  IS NULL, they'll self-heal on next edit.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+Carried over from v119 — all still open:
+- §10 step 3 (Client fallback rollout) — NOT STARTED.
+- §10 step 4 (S1 fix — Customers.jsx RPCs) — NOT STARTED.
+- §10 step 6a (Migration 1b — cloned_from_wtc_id) — build-unblocked.
+- §10 step 6b (RPCs) — BLOCKED on 6a.
+- §10 step 7 (locally_edited_fields trigger), step 8 (wizard),
+  step 9 (UI surfaces), step 10/11 (smoke + merge).
+- O3 (drop 1-arg wrapper) — safe to pick up.
+- O7 (multi-repo migration coordination) — still T1.
+- B19 (merge_customers gap) — still T2.
+- B23 (Pull Back doesn't clear signing_token_consumed_at) — T2.
+- B24 (PublicSigningPage silent success on edge fn error) — T2.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Read order: docs/BACKLOG.md → this handoff (v120) → v119 →
+   docs/plans/multi_gc_allocation.md §10 if returning to multi-GC.
+
+2. First action (your call). Three obvious paths:
+   - B23 + B24 (signing-flow latent bugs, T2, paired naturally).
+     Both filed v119. B23 is one-line fix in
+     ProposalDetail.handlePullBack; B24 is UI surfacing in
+     PublicSigningPage.jsx.
+   - §10 step 3 (Client fallback rollout). Build-unblocked.
+   - Manager Override removal as a separate small UX cleanup,
+     IF you still want it after the B26 fix changes your
+     thinking. Logged in B26 Notes as an open product question.
+
+3. Pre-flight before any bug-hunt: ETET. Lock an ERD loop before
+   touching code. Floating note from this session captures the
+   anti-pattern of skipping protocol because the day "started in
+   no-protocol mode."
+
+4. Pre-flight before B23: read ProposalDetail.jsx handlePullBack
+   body to confirm what fields it clears. Cleanup query for
+   already-broken rows is in the B23 row of BACKLOG.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+src/components/CallLogDetail.jsx
+  — handleSave was rewritten twice this session. Display
+    construction now uses parseInt(form.job_number || job.job_number)
+    + (` CO${job.co_number}` if non-null) + form.job_name. Save
+    button onClick is `if (ok) setEditing(false)` not unconditional.
+    23505 errors get a plain-English alert + error <div>.
+
+docs/BACKLOG.md
+  — B25 + B26 rows added (both Closed same session). "Last updated"
+    rewritten. Companion product question on Manager Override is in
+    the B26 Notes block, not its own row — promote if/when you
+    decide to act on it.
+
+call_log rows 3512 + 3601 (prod data)
+  — Not a file, but worth knowing: row 3601 is a placeholder parent
+    you created intentionally with empty WTCs. Stage = "New Inquiry".
+    Build out the parent's scope when you're ready, advance the
+    stage normally. Row 3512 carries the customer-signed CO1
+    proposal ($13,170 Underlayment) — leave its proposal alone.
+
+~/erd-loop/LOG.md
+  — Loop #7 closed at 11:09 (35m vs 3hrs predicted, success 10/10,
+    mindset +7, concern -9, potential +3). Floating Notes section
+    has the ETET anti-pattern + the "ask Joe" win.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: main, ahead of origin/main by the handoff commit only
+  (everything else already pushed). Working tree noise:
+  supabase/.temp/cli-latest auto-bumped by the supabase CLI —
+  gitignored by intent, left untracked.
+- 3 commits shipped on main this session: 9787a29, ccc3235, 5805ec7.
+- ERD-loop repo (~/erd-loop): pushed to origin after each loop event
+  (lock + closeout). In sync.
+- No open PRs.
+- No deployed migrations or edge functions this session (Vercel
+  auto-built main from the two main-bound commits).
+
+END STATE
+─────────
+Two bugs closed and shipped. One real-world data corruption (job 6618
+phantom CO) rebuilt to a clean parent + CO structure. Class fix in
+handleSave prevents the bug class from recurring and makes any other
+phantom-CO rows self-heal on next edit. Ready for a fresh session on
+B23 + B24, §10 step 3, or whatever you pick.

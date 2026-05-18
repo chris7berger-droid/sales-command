@@ -141,31 +141,13 @@ function SectionHeader({ label, hint, color }) {
   );
 }
 
-function MaterialPicker({ onSelect, onAddCustom }) {
+function MaterialPicker({ onSelect, onAddCustom, onEdit, catalog }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
-  const [catalog, setCatalog] = useState([]);
   const ref = useRef();
 
-  useEffect(() => {
-    (async () => {
-      const rows = await fetchAll("materials_catalog", "id, tenant_id, name, kit_size, price, coverage, supplier", {
-        filters: [["eq", "active", true]],
-        order: { column: "name" },
-      });
-      // Dedupe by (name+kit_size), tenant rows winning over system defaults.
-      const byKey = new Map();
-      for (const r of rows) {
-        const key = `${(r.name || "").toLowerCase()}|${(r.kit_size || "").toLowerCase()}`;
-        const prev = byKey.get(key);
-        if (!prev || (prev.tenant_id == null && r.tenant_id != null)) byKey.set(key, r);
-      }
-      setCatalog([...byKey.values()]);
-    })();
-  }, []);
-
   const results = q.length > 0
-    ? catalog.filter(m => (m.name + " " + (m.kit_size || "")).toLowerCase().includes(q.toLowerCase())).slice(0, 12)
+    ? catalog.filter(m => (m.name + " " + (m.kit_size || "") + " " + (m.supplier || "")).toLowerCase().includes(q.toLowerCase())).slice(0, 12)
     : [];
 
   useEffect(() => {
@@ -201,7 +183,20 @@ function MaterialPicker({ onSelect, onAddCustom }) {
               onMouseLeave={e => e.currentTarget.style.background = T.white}
             >
               <span style={{ fontWeight: 500 }}>{m.name}</span>
-              <span style={{ fontSize: 11, color: T.gray400, whiteSpace: "nowrap" }}>{m.kit_size || ""} · {fmt(m.price)} · {m.supplier || ""}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
+                <span style={{ fontSize: 11, color: T.gray400 }}>{m.kit_size || ""} · {fmt(m.price)} · {m.supplier || ""}</span>
+                {onEdit && m.tenant_id != null && (
+                  <button
+                    onClick={e => { e.stopPropagation(); onEdit(m); setOpen(false); }}
+                    title="Edit this material (price, supplier, etc.)"
+                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, padding: "2px 4px", lineHeight: 1, color: T.gray400 }}
+                    onMouseEnter={e => e.currentTarget.style.color = T.greenDark}
+                    onMouseLeave={e => e.currentTarget.style.color = T.gray400}
+                  >
+                    ✎
+                  </button>
+                )}
+              </span>
             </div>
           ))}
           {onAddCustom && (
@@ -303,6 +298,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
   const otOverridden = pw ? data.pw_ot_overridden : data.ot_overridden;
   const otIsAuto = !otOverridden && Math.abs(otVal - rateVal * 1.5) < 0.02;
   const rateMissing = showArchiveRateHint && rateVal === 0;
+  const pwRateLocked = pw && !isFirstWtc;
 
   const setDate = k => v => onChange({ ...data, [k]: v });
   return (
@@ -323,13 +319,13 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         {!selectedWorkTypeId && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required</div>}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 20px", alignItems: "end" }}>
-        <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" error={rateMissing} />
+        <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" error={rateMissing} readOnly={pwRateLocked} />
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <Label>{pw ? "PW OT Rate" : "OT Burden Rate"}</Label>
             {otIsAuto
               ? <span style={{ fontSize: 10, fontWeight: 600, color: T.gray700, letterSpacing: "0.04em" }}>AUTO (1.5×)</span>
-              : <button onClick={() => {
+              : (!pwRateLocked && <button onClick={() => {
                   if (pw) {
                     onChange({ ...data, pw_ot_rate: Math.round((data.pw_rate || 0) * 1.5 * 100) / 100, pw_ot_overridden: false });
                   } else {
@@ -340,15 +336,16 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
                   onMouseEnter={e => e.target.style.color = T.green}
                   onMouseLeave={e => e.target.style.color = T.gray400}>
                   ↺ Reset to 1.5×
-                </button>
+                </button>)
             }
           </div>
           <div style={{ position: "relative" }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.gray400, fontSize: 13, pointerEvents: "none" }}>$</span>
             <input type="number" value={otVal || ""} onChange={e => setOT(e.target.value)} placeholder="0"
-              style={{ width: "100%", border: `1.5px solid ${rateMissing ? T.red : T.gray200}`, borderRadius: 8, padding: "8px 10px 8px 28px", fontSize: 14, color: T.gray900, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "#bfb3a1" }}
-              onFocus={e => e.target.style.borderColor = T.green}
-              onBlur={e => e.target.style.borderColor = rateMissing ? T.red : T.gray200} />
+              readOnly={pwRateLocked}
+              style={{ width: "100%", border: `1.5px solid ${pwRateLocked ? "transparent" : (rateMissing ? T.red : T.gray200)}`, borderRadius: 8, padding: "8px 10px 8px 28px", fontSize: 14, color: T.gray900, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: pwRateLocked ? "rgba(28,24,20,0.08)" : "#bfb3a1", cursor: pwRateLocked ? "default" : "text" }}
+              onFocus={e => { if (!pwRateLocked) e.target.style.borderColor = T.green; }}
+              onBlur={e => { e.target.style.borderColor = pwRateLocked ? "transparent" : (rateMissing ? T.red : T.gray200); }} />
           </div>
         </div>
         <Field label="Tax Rate" value={data.tax_rate} onChange={set("tax_rate")} suffix="%" type="number" />
@@ -359,6 +356,16 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
           <div style={{ fontSize: 11.5, color: T.gray700, fontStyle: "italic" }}>
             Parent is an archive proposal — burden rate wasn't captured. Enter manually.
           </div>
+        </div>
+      )}
+      {pw && pwRateLocked && (
+        <div style={{ fontSize: 11.5, color: T.gray700, fontStyle: "italic", marginTop: -6, marginBottom: 12 }}>
+          PW Rate is set on WTC 1 — it applies to all WTCs on this proposal.
+        </div>
+      )}
+      {pw && isFirstWtc && (
+        <div style={{ fontSize: 11.5, color: T.gray700, fontStyle: "italic", marginTop: -6, marginBottom: 12 }}>
+          Changes to PW Rate apply to all WTCs on this proposal.
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px", marginTop: 8 }}>
@@ -415,6 +422,52 @@ function LaborTab({ data, bidding, sow, onChange }) {
 
 function MaterialsTab({ items, taxRate, onChange }) {
   const [savingCatalogId, setSavingCatalogId] = useState(null);
+  const [justSavedId, setJustSavedId] = useState(null);
+  const [catalog, setCatalog] = useState([]);
+  const [editingCatalog, setEditingCatalog] = useState(null);
+  const [editingSaving, setEditingSaving] = useState(false);
+
+  const loadCatalog = async () => {
+    const rows = await fetchAll("materials_catalog", "id, tenant_id, name, kit_size, price, coverage, supplier", {
+      filters: [["eq", "active", true]],
+      order: { column: "name" },
+    });
+    // Dedupe by (name+kit_size), tenant rows winning over system defaults.
+    const byKey = new Map();
+    for (const r of rows) {
+      const key = `${(r.name || "").toLowerCase()}|${(r.kit_size || "").toLowerCase()}`;
+      const prev = byKey.get(key);
+      if (!prev || (prev.tenant_id == null && r.tenant_id != null)) byKey.set(key, r);
+    }
+    setCatalog([...byKey.values()]);
+  };
+
+  useEffect(() => { loadCatalog(); }, []);
+
+  async function saveCatalogEdit() {
+    if (!editingCatalog?.name?.trim()) return;
+    setEditingSaving(true);
+    try {
+      const { error } = await supabase
+        .from("materials_catalog")
+        .update({
+          name:     editingCatalog.name.trim(),
+          kit_size: editingCatalog.kit_size?.trim() || null,
+          price:    parseFloat(editingCatalog.price) || 0,
+          coverage: editingCatalog.coverage?.trim() || null,
+          supplier: editingCatalog.supplier?.trim() || null,
+        })
+        .eq("id", editingCatalog.id);
+      if (error) throw error;
+      await loadCatalog();
+      setEditingCatalog(null);
+    } catch (e) {
+      alert("Could not save material: " + (e?.message || e));
+    } finally {
+      setEditingSaving(false);
+    }
+  }
+
   const updateItem = (id, key, val) => {
     const isText = ["product", "kit_size", "coverage_rate", "supplier"].includes(key);
     const coerced = isText ? val : (typeof val === "string" && val.endsWith(".") ? val : parseFloat(val) || 0);
@@ -440,10 +493,17 @@ function MaterialsTab({ items, taxRate, onChange }) {
         active: true,
       });
       if (error) throw error;
-      onChange(items.map(i => i.id === item.id ? { ...i, from_catalog: true } : i));
+      await loadCatalog();
+      setSavingCatalogId(null);
+      setJustSavedId(item.id);
+      setTimeout(() => {
+        // Functional setter via onChange: derive from latest items so
+        // concurrent edits to other fields aren't reverted.
+        onChange(curr => curr.map(i => i.id === item.id ? { ...i, from_catalog: true } : i));
+        setJustSavedId(null);
+      }, 1500);
     } catch (e) {
       alert("Could not save to catalog: " + (e?.message || e));
-    } finally {
       setSavingCatalogId(null);
     }
   }
@@ -474,7 +534,7 @@ function MaterialsTab({ items, taxRate, onChange }) {
         </span>
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: items.length > 0 ? 4 : 16 }}>
-        <MaterialPicker onSelect={addFromDB} onAddCustom={addCustom} />
+        <MaterialPicker onSelect={addFromDB} onAddCustom={addCustom} catalog={catalog} onEdit={m => setEditingCatalog({ ...m, price: m.price == null ? "" : String(m.price) })} />
         <Btn onClick={() => addCustom()} variant="secondary" small>+ Custom</Btn>
       </div>
       {items.length > 0 && (
@@ -502,7 +562,11 @@ function MaterialsTab({ items, taxRate, onChange }) {
                     {cellInput(item, "markup_pct", "number", 65)}
                     <td style={{ ...td, fontWeight: 700, color: T.greenDark, width: 90, fontSize: 13 }}>{fmt(totals[idx])}</td>
                     <td style={{ ...td, width: 32, whiteSpace: "nowrap" }}>
-                      {!item.from_catalog && item.product?.trim() && (
+                      {justSavedId === item.id ? (
+                        <span style={{ color: T.greenDark, fontSize: 9.5, fontWeight: 700, padding: "2px 6px", letterSpacing: "0.04em", textTransform: "uppercase", marginRight: 4 }}>
+                          ✓ Saved
+                        </span>
+                      ) : !item.from_catalog && item.product?.trim() ? (
                         <button
                           onClick={() => saveCustomToCatalog(item)}
                           disabled={savingCatalogId === item.id}
@@ -511,7 +575,7 @@ function MaterialsTab({ items, taxRate, onChange }) {
                         >
                           {savingCatalogId === item.id ? "…" : "Save"}
                         </button>
-                      )}
+                      ) : null}
                       <button onClick={() => removeItem(item.id)} style={{ background: "none", border: "none", color: T.gray400, cursor: "pointer", fontSize: 16, padding: "2px 4px", lineHeight: 1 }}>×</button>
                     </td>
                   </tr>
@@ -525,6 +589,61 @@ function MaterialsTab({ items, taxRate, onChange }) {
           </div>
         </>
       )}
+
+      {editingCatalog && (
+        <CatalogEditModal
+          editing={editingCatalog}
+          setEditing={setEditingCatalog}
+          onSave={saveCatalogEdit}
+          onCancel={() => setEditingCatalog(null)}
+          saving={editingSaving}
+        />
+      )}
+    </div>
+  );
+}
+
+function CatalogEditModal({ editing, setEditing, onSave, onCancel, saving }) {
+  const set = (k, v) => setEditing(e => ({ ...e, [k]: v }));
+  const label = { fontSize: 10, fontWeight: 700, color: T.gray400, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 };
+  const input = { width: "100%", border: `1px solid ${T.gray200}`, borderRadius: 6, padding: "8px 10px", fontSize: 13, outline: "none", fontFamily: "inherit", background: "#bfb3a1", boxSizing: "border-box" };
+  return (
+    <div onClick={onCancel}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}
+    >
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: "#d6c9b2", borderRadius: 10, padding: 24, width: 480, maxWidth: "92vw", boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 700, color: T.gray900, marginBottom: 16 }}>Edit Material</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <div style={label}>Material Name</div>
+            <input style={input} value={editing.name || ""} onChange={e => set("name", e.target.value)} autoFocus />
+          </div>
+          <div>
+            <div style={label}>Kit Size</div>
+            <input style={input} value={editing.kit_size || ""} onChange={e => set("kit_size", e.target.value)} />
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <div style={label}>$ / Unit</div>
+            <input style={input} type="number" value={editing.price ?? ""} onChange={e => set("price", e.target.value)} />
+          </div>
+          <div>
+            <div style={label}>Coverage Rate</div>
+            <input style={input} value={editing.coverage || ""} onChange={e => set("coverage", e.target.value)} />
+          </div>
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <div style={label}>Supplier</div>
+          <input style={input} value={editing.supplier || ""} onChange={e => set("supplier", e.target.value)} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <Btn variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Btn>
+          <Btn onClick={onSave} disabled={saving || !editing.name?.trim()}>{saving ? "Saving…" : "Save"}</Btn>
+        </div>
+      </div>
     </div>
   );
 }

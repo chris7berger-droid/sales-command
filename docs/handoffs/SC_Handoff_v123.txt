@@ -1,0 +1,160 @@
+SC Handoff v123 — 2026-05-15
+============================
+
+SESSION SUMMARY
+Continuation of Loop #11 (format-add-to-invoice-template). The prior
+session (v122) shipped the WTC label hierarchy fix to the billing modal
+and left feat/invoice-wtc-column with WTC # column code + one RLS
+migration. This session picked up the remaining bug: customers saw "—"
+in the Description column on the public invoice because the
+proposal_wtc → work_types(name) join returned null for anon. Root
+cause: work_types had no anon SELECT policy (and possibly no RLS
+enabled at all). Added a second RLS migration for work_types, applied
+it to prod, verified Description column populated on the Vercel preview,
+then merged feat/invoice-wtc-column to main and pushed. Chris verified
+the full end-to-end flow — sent invoice email, clicked the link in
+Gmail, confirmed "Flake Epoxy" showing in Description and WTC # column
+present on the prod invoice at salescommand.app. Loop #11 closed
+success 10/10.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+All commits on feat/invoice-wtc-column, now merged to main:
+
+c47c499 — Add WTC # column to public invoice line items
+  Added WTC # as first column in the LINE ITEMS table on
+  PublicInvoicePage.jsx. Builds a wtcIndex map from proposal_wtc
+  ordered by created_at to assign sequential WTC numbers.
+
+0547ddb — Add WTC # column to internal invoice detail + PDF preview
+  Added matching WTC # column to InvoiceDetail and InvoicePDFModal
+  in Invoices.jsx. Same wtcIndex pattern, consistent across all
+  three invoice surfaces.
+
+5430a41 — Add viewing-token RLS branch to proposal_wtc
+  New migration 20260515140000. Added a second SELECT policy on
+  proposal_wtc gated by x-viewing-token via EXISTS on invoices +
+  invoice_lines. Fixed the $0.00 Amount bug — anon could read
+  invoice_lines but not the joined proposal_wtc rows.
+
+af5259b — Add anon + authenticated SELECT policies on work_types
+  New migration 20260515150000. work_types is pure reference data
+  (id, name, cost_code) with no tenant scoping. Added USING (true)
+  SELECT for both anon and authenticated. Fixed the "—" Description
+  bug — the proposal_wtc → work_types(name) join now resolves for
+  anon.
+
+DEPLOYED
+────────
+Project ref: pbgvgjjuhnpsumnowuym
+
+Two RLS migrations applied to prod via `supabase db push --include-all`:
+  - 20260515140000_proposal_wtc_public_view_token.sql (applied prior session)
+  - 20260515150000_work_types_public_read.sql (applied this session)
+
+Main branch pushed → Vercel auto-deployed to scmybiz.com.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+1. Used USING (true) for work_types instead of a token-gated EXISTS
+   pattern. work_types has no tenant_id, no sensitive data — it's a
+   reference table of 40 work type names and cost codes. Token gating
+   would be overhead with no security value.
+
+2. Added an authenticated SELECT policy alongside the anon one. If
+   RLS was previously disabled on work_types, enabling it without an
+   authenticated policy would lock out the internal app. The DROP IF
+   EXISTS + CREATE is idempotent either way.
+
+3. Merged to main mid-session rather than holding the branch. Chris
+   needed the email → invoice link flow to work on prod to verify,
+   since the invoice email hardcodes salescommand.app as the domain.
+   Preview deploys can't intercept that path.
+
+NEW BACKLOG ITEMS
+─────────────────
+None filed.
+
+CLOSED THIS SESSION
+───────────────────
+No formal backlog items. The WTC # column + RLS fixes were same-loop
+work from Loop #11, not on the open backlog.
+
+VERIFICATION
+────────────
+- Chris verified on prod (scmybiz.com) via the full email flow: sent
+  invoice 10038 (HDSP, Washoe Painting, 6618 Lakes Crossing) to test
+  billing email, clicked "View" link in Gmail, confirmed Description
+  column shows "Flake Epoxy" on all three lines and WTC # column is
+  present. Screenshot captured.
+- RLS migration applied and verified — no NOTICE errors beyond the
+  expected "policy does not exist, skipping" from DROP IF EXISTS.
+- Internal app not re-verified this session (authenticated SELECT
+  policy added defensively). Should be fine — USING (true) is
+  permissive.
+
+NOT TOUCHED THIS SESSION
+────────────────────────
+Carried over from v122 — all still open:
+- §10 step 3 (Client fallback rollout) — NOT STARTED.
+- §10 step 4 (S1 fix — Customers.jsx RPCs) — NOT STARTED.
+- §10 step 6a (Migration 1b — cloned_from_wtc_id) — build-unblocked.
+- §10 step 6b (RPCs) — BLOCKED on 6a.
+- §10 step 7/8/9/10/11.
+- O3 (drop 1-arg wrapper) — safe to pick up.
+- O7 (multi-repo migration coordination) — still T1.
+- B19 (merge_customers gap) — still T2.
+- B23 (Pull Back doesn't clear signing_token_consumed_at) — T2.
+- B24 (PublicSigningPage silent success on edge fn error) — T2.
+
+PW Rate carry-through investigation parked from v121 — still parked.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Read order: docs/BACKLOG.md → this handoff (v123) → v122 if needed.
+
+2. First action: quick smoke on the internal invoice detail view —
+   confirm WTC # column renders and work_types names still resolve
+   for authenticated users (the new authenticated policy should cover
+   this, but wasn't explicitly verified this session).
+
+3. feat/invoice-wtc-column branch is fully merged to main. Safe to
+   delete the remote branch if desired:
+   `git push origin --delete feat/invoice-wtc-column`
+
+4. Same open paths as v122 for next loop:
+   - B23 + B24 (signing-flow latent bugs, T2, paired naturally).
+   - §10 step 3 (Client fallback rollout). Build-unblocked.
+   - B11 (requires_pay_app routing gap). T2.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────
+src/pages/PublicInvoicePage.jsx
+  — WTC # column added (line 192). wtcIndex map built from
+    proposal_wtc ordered by created_at.
+
+src/pages/Invoices.jsx
+  — WTC # column added to InvoiceDetail (~line 774) and
+    InvoicePDFModal (~line 1422). Same wtcIndex pattern.
+
+supabase/migrations/20260515140000_proposal_wtc_public_view_token.sql
+  — viewing-token SELECT policy on proposal_wtc. Gated by EXISTS
+    on invoices + invoice_lines + request_viewing_token().
+
+supabase/migrations/20260515150000_work_types_public_read.sql
+  — USING (true) SELECT for anon + authenticated on work_types.
+
+GIT STATE ON CLOSE
+──────────────────
+- Branch: main, up to date with origin/main at af5259b.
+- feat/invoice-wtc-column: merged, still exists on origin. Safe to
+  delete.
+- Working tree noise: supabase/.temp/cli-latest (gitignored).
+- ERD-loop repo: in sync with origin after loop #11 closeout.
+- No open PRs.
+
+END STATE
+─────────
+Merged and deployed to prod. WTC # column + Description fix verified
+end-to-end by Chris via email → invoice link on scmybiz.com. Loop #11
+closed 10/10. Ready for fresh session.

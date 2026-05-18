@@ -71,19 +71,17 @@ while IFS='|' read -r local_col remote_col _rest; do
 
   if [ -n "$remote_ts" ] && [ -z "$local_ts" ]; then
     # Remote has it, local doesn't
-    DIVERGENT=1
     BRANCH_HITS=$(git log --all --oneline -- "supabase/migrations/${remote_ts}"* 2>/dev/null || echo "")
     if [ -n "$BRANCH_HITS" ]; then
       BRANCH_NAME=$(echo "$BRANCH_HITS" | head -1 | awk '{print $1}')
-      CONTAINING=$(git branch --all --contains "$BRANCH_NAME" 2>/dev/null | head -3)
-      PROBLEMS="${PROBLEMS}\n  ${remote_ts} — EXISTS on another branch. Do NOT mark reverted.\n"
-      PROBLEMS="${PROBLEMS}    Commits: $(echo "$BRANCH_HITS" | head -3 | tr '\n' ' ')\n"
-      PROBLEMS="${PROBLEMS}    Branches: $(echo "$CONTAINING" | tr '\n' ', ')\n"
-      PROBLEMS="${PROBLEMS}    FIX: merge that branch first.\n"
+      CONTAINING=$(git branch --all --contains "$BRANCH_NAME" 2>/dev/null | head -3 | xargs)
+      echo "  INFO: ${remote_ts} is on branch ${CONTAINING} (unmerged) — not a divergence."
     else
+      DIVERGENT=1
       PROBLEMS="${PROBLEMS}\n  ${remote_ts} — no matching file found on ANY branch.\n"
-      PROBLEMS="${PROBLEMS}    This MAY be a stray ledger entry. If you are certain the DDL\n"
-      PROBLEMS="${PROBLEMS}    was never applied, you can mark it reverted — but confirm first.\n"
+      PROBLEMS="${PROBLEMS}    This script will NOT mark anything reverted automatically.\n"
+      PROBLEMS="${PROBLEMS}    If you have manually confirmed the DDL was never applied to prod,\n"
+      PROBLEMS="${PROBLEMS}    run \`supabase migration repair --status reverted ${remote_ts}\` by hand.\n"
     fi
   elif [ -n "$local_ts" ] && [ -z "$remote_ts" ]; then
     # Local has it, remote doesn't — this is normal (pending push)
@@ -95,8 +93,8 @@ if [ "$DIVERGENT" -eq 1 ]; then
   echo ""
   echo "  FAIL — remote ledger has entries not present locally:"
   echo -e "$PROBLEMS"
-  echo "  Do NOT run \`supabase migration repair --status reverted\` on entries"
-  echo "  that exist on other branches. Merge those branches first."
+  echo "  Do NOT run \`supabase migration repair --status reverted\` without"
+  echo "  manually confirming the DDL was never applied to prod."
   exit 1
 else
   echo "  PASS — remote ledger and local files are aligned."

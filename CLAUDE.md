@@ -274,6 +274,9 @@ always `git merge origin/main` — not a ledger rewrite. On 2026-05-18 three liv
 migrations were incorrectly marked reverted because a feature branch was behind
 main; the ledger had to be manually restored.
 
+The safety script never invokes `repair`; if a true stray ledger entry needs
+reverting, do it manually after confirming with prod.
+
 New clones: run `scripts/install-git-hooks.sh` once to install the pre-push hook.
 
 ## Production

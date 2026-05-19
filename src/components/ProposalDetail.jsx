@@ -718,8 +718,8 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           {!p.cloned_from_proposal_id && !p.is_archive_proposal && !p.deleted_at &&
            ["Draft","Sent","Has Bid","Signed"].includes(p.status) && (
             <Btn sz="sm" v="secondary" onClick={() => setShowMultiGC(true)}
-              disabled={wtcs.length > 0 && !wtcs.some(w => w.locked)}
-              title={wtcs.length > 0 && !wtcs.some(w => w.locked) ? "Lock at least one WTC before cloning to additional GCs." : undefined}
+              disabled={!wtcs.some(w => w.locked)}
+              title={!wtcs.some(w => w.locked) ? "Lock at least one WTC before cloning to additional GCs." : undefined}
             >+ Send to Additional GCs</Btn>
           )}
           <Btn sz="sm" v="ghost" onClick={() => { setPdfMode("preview"); setShowPDF(true); }}>Generate PDF</Btn>

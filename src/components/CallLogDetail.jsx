@@ -441,11 +441,15 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           {onNewProposal && (
             <Btn sz="sm" onClick={onNewProposal}>+ New Proposal</Btn>
           )}
-          {!job.is_change_order && !job.archived && !editing &&
-           !["Sold","Lost"].includes(job.stage) &&
-           linkedProposals.some(lp => !lp.cloned_from_proposal_id && !lp.is_archive_proposal && !["Sold","Lost"].includes(lp.status)) && (
-            <Btn sz="sm" v="secondary" onClick={() => setShowMultiGC(true)}>+ Add Another GC</Btn>
-          )}
+          {(() => {
+            const eligibleSources = linkedProposals.filter(lp =>
+              !lp.cloned_from_proposal_id && !lp.is_archive_proposal && !["Sold","Lost"].includes(lp.status)
+            );
+            return !job.is_change_order && !job.archived && !editing &&
+              !["Sold","Lost"].includes(job.stage) && eligibleSources.length === 1 ? (
+              <Btn sz="sm" v="secondary" onClick={() => setShowMultiGC(true)}>+ Add Another GC</Btn>
+            ) : null;
+          })()}
           {onAddCO && !job.is_change_order && !editing && (
             <Btn sz="sm" v="secondary" onClick={onAddCO}>+ Add CO</Btn>
           )}
@@ -903,18 +907,18 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       )}
 
       {showMultiGC && (() => {
-        const sources = linkedProposals.filter(lp =>
+        const eligibleSources = linkedProposals.filter(lp =>
           !lp.cloned_from_proposal_id && !lp.is_archive_proposal &&
           !["Sold","Lost"].includes(lp.status)
         );
-        const sourceId = sources.length === 1 ? sources[0].id : sources[0]?.id;
-        return sourceId ? (
+        if (eligibleSources.length !== 1) return null;
+        return (
           <MultiGCWizard
-            sourceProposalId={sourceId}
+            sourceProposalId={eligibleSources[0].id}
             onClose={() => setShowMultiGC(false)}
             onSaved={() => setShowMultiGC(false)}
           />
-        ) : null;
+        );
       })()}
     </div>
   );

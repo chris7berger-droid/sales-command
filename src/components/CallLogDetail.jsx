@@ -7,6 +7,7 @@ import { supabase } from "../lib/supabase";
 import ArchiveProposalModal from "./ArchiveProposalModal";
 import QBActionModal from "./QBActionModal";
 import MergeJobModal from "./MergeJobModal";
+import MultiGCWizard from "./MultiGCWizard";
 
 const STAGES = ["New Inquiry", "Wants Bid", "Has Bid", "Sold", "Lost"];
 
@@ -103,6 +104,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [showMultiGC, setShowMultiGC] = useState(false);
   const [showQBActionModal, setShowQBActionModal] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
   const [resuming, setResuming] = useState(false);
@@ -182,7 +184,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         }
       }
       const [{ data: props }, { data: invs }] = await Promise.all([
-        supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
+        supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, cloned_from_proposal_id, is_archive_proposal, customer_id, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
         jobNumbers.length
           ? supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).in("job_id", jobNumbers).order("sent_at", { ascending: false })
           : Promise.resolve({ data: [] }),
@@ -439,6 +441,15 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           {onNewProposal && (
             <Btn sz="sm" onClick={onNewProposal}>+ New Proposal</Btn>
           )}
+          {(() => {
+            const eligibleSources = linkedProposals.filter(lp =>
+              !lp.cloned_from_proposal_id && !lp.is_archive_proposal && !["Sold","Lost"].includes(lp.status)
+            );
+            return !job.is_change_order && !job.archived && !editing &&
+              !["Sold","Lost"].includes(job.stage) && eligibleSources.length === 1 ? (
+              <Btn sz="sm" v="secondary" onClick={() => setShowMultiGC(true)}>+ Add Another GC</Btn>
+            ) : null;
+          })()}
           {onAddCO && !job.is_change_order && !editing && (
             <Btn sz="sm" v="secondary" onClick={onAddCO}>+ Add CO</Btn>
           )}
@@ -895,6 +906,20 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         </>
       )}
 
+      {showMultiGC && (() => {
+        const eligibleSources = linkedProposals.filter(lp =>
+          !lp.cloned_from_proposal_id && !lp.is_archive_proposal &&
+          !["Sold","Lost"].includes(lp.status)
+        );
+        if (eligibleSources.length !== 1) return null;
+        return (
+          <MultiGCWizard
+            sourceProposalId={eligibleSources[0].id}
+            onClose={() => setShowMultiGC(false)}
+            onSaved={() => setShowMultiGC(false)}
+          />
+        );
+      })()}
     </div>
   );
 }

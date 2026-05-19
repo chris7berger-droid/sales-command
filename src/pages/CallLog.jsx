@@ -89,6 +89,21 @@ export default function CallLog({ teamMember, setSubPage }) {
       if (data.length < PAGE) break;
       from += PAGE;
     }
+    const pcData = await fetchAll("proposals", "call_log_id, customer_id", {
+      filters: [["is", "deleted_at", null]],
+    });
+    const clById = new Map(allLog.map(cl => [cl.id, cl]));
+    const gcsByJob = new Map(allLog.map(cl => [cl.id, new Set()]));
+    for (const row of pcData) {
+      const set = gcsByJob.get(row.call_log_id);
+      if (!set) continue;
+      const effective = row.customer_id || clById.get(row.call_log_id)?.customer_id;
+      if (effective) set.add(effective);
+    }
+    for (const cl of allLog) {
+      cl._gcCount = gcsByJob.get(cl.id)?.size || 0;
+    }
+
     setRows(allLog);
     setTeam(tm || []);
     setCustomers(allCx);
@@ -251,6 +266,9 @@ export default function CallLog({ teamMember, setSubPage }) {
                       <span title="Job site address missing — required before proposal" style={{ fontSize: 10, fontWeight: 700, background: "rgba(230,168,0,0.13)", color: "#8a6200", padding: "2px 7px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(230,168,0,0.3)", cursor: "default" }}>
                         ⚠ No Site Addr
                       </span>
+                    )}
+                    {row._gcCount >= 2 && (
+                      <span style={{ fontSize: 10, fontWeight: 700, background: "rgba(48,207,172,0.12)", color: C.tealDeep, padding: "2px 7px", borderRadius: 10, fontFamily: F.ui }}>{row._gcCount} GCS</span>
                     )}
                   </div>
                 )},

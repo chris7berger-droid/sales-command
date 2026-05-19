@@ -10,6 +10,8 @@ import WTCCalculator from "../pages/WTCCalculator";
 import Btn from "./Btn";
 import Pill from "./Pill";
 import ProposalPDFModal from "./ProposalPDFModal";
+import MultiGCWizard from "./MultiGCWizard";
+import SyncConflictModal from "./SyncConflictModal";
 
 function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember, onNavigateJob, onNavigateInvoice }) {
   const [p, setP] = useState(pInit);
@@ -47,6 +49,8 @@ const [newContactOpen, setNewContactOpen] = useState(false);
 const [editingPrimary, setEditingPrimary] = useState(false);
 const [primaryDraft, setPrimaryDraft] = useState("");
 const [linkedInvoices, setLinkedInvoices] = useState([]);
+const [showMultiGC, setShowMultiGC] = useState(false);
+const [syncConflict, setSyncConflict] = useState(null);
 const navigate = useNavigate();
 
 useEffect(() => {
@@ -85,10 +89,22 @@ useEffect(() => {
 
 async function saveIntro() {
   setIntroSaving(true);
+  const oldIntro = p.intro;
   await supabase.from("proposals").update({ intro }).eq("id", p.id);
+  setP(prev => ({ ...prev, intro }));
   setIntroSaving(false);
   setIntroSaved(true);
   setTimeout(() => setIntroSaved(false), 2000);
+
+  if (intro !== oldIntro && !p.cloned_from_proposal_id) {
+    const { count } = await supabase.from("proposals")
+      .select("id", { count: "exact", head: true })
+      .eq("cloned_from_proposal_id", p.id)
+      .is("deleted_at", null);
+    if (count > 0) {
+      setSyncConflict({ changedFields: ["intro"] });
+    }
+  }
 }
 
 // Auto-refresh when proposal is Sent (waiting for customer signature)
@@ -628,7 +644,11 @@ async function deletePropAttachment(fullName) {
     setApproveReason("");
   }
 
-if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} onInternalApprove={p.status === "Sent" ? async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowApproveModal(true); } : undefined} />;
+if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initialTab={wtcInitialTab} onBackToList={onBack} onSyncCheck={async () => {
+  if (p.cloned_from_proposal_id) return;
+  const { count } = await supabase.from("proposals").select("id", { count: "exact", head: true }).eq("cloned_from_proposal_id", p.id).is("deleted_at", null);
+  if (count > 0) setSyncConflict({ changedFields: ["sales_sow","size","unit","field_sow","sub_areas","materials","discount","discount_reason","travel:drive_rate","travel:drive_miles","travel:fly_rate","travel:fly_tickets","travel:stay_rate","travel:stay_nights","travel:per_diem_rate","travel:per_diem_days","travel:per_diem_crew"] });
+}} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} onInternalApprove={p.status === "Sent" ? async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowApproveModal(true); } : undefined} />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -698,6 +718,13 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           )}
           {p.status !== "Sold" && p.status !== "Signed" && (
             <Btn sz="sm" v="ghost" onClick={() => setShowApproveModal(true)} style={{ color: C.green, borderColor: C.green }}>✓ Internal Approve</Btn>
+          )}
+          {!p.cloned_from_proposal_id && !p.is_archive_proposal && !p.deleted_at &&
+           ["Draft","Sent","Has Bid","Signed"].includes(p.status) && (
+            <Btn sz="sm" v="secondary" onClick={() => setShowMultiGC(true)}
+              disabled={!wtcs.some(w => w.locked)}
+              title={!wtcs.some(w => w.locked) ? "Lock at least one WTC before cloning to additional GCs." : undefined}
+            >+ Send to Additional GCs</Btn>
           )}
           <Btn sz="sm" v="ghost" onClick={() => { setPdfMode("preview"); setShowPDF(true); }}>Generate PDF</Btn>
           {p.status !== "Sold" && p.status !== "Signed" && p.status !== "Sent" && wtcs.length > 0 && wtcs.every(w => w.locked) && <Btn sz="sm" onClick={() => { setPdfMode("send"); setShowPDF(true); }}>Send Proposal</Btn>}
@@ -1201,6 +1228,23 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             </div>
           </div>
         </div>
+      )}
+      {showMultiGC && (
+        <MultiGCWizard
+          sourceProposalId={p.id}
+          onClose={() => setShowMultiGC(false)}
+          onSaved={(results) => {
+            setShowMultiGC(false);
+          }}
+        />
+      )}
+      {syncConflict && (
+        <SyncConflictModal
+          sourceProposalId={p.id}
+          changedFields={syncConflict.changedFields}
+          onClose={() => setSyncConflict(null)}
+          onApplied={() => setSyncConflict(null)}
+        />
       )}
     </div>
   );

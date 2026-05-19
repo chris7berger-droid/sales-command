@@ -1,0 +1,161 @@
+SC Handoff v124 — 2026-05-18
+============================
+
+SESSION SUMMARY
+Loop #15 (multi-gc-build). ERD locked at 19:15. Three deliverables
+shipped on feat/multi-gc-allocation:
+
+1. §10 Step 7 — proposal_wtc locally_edited_fields trigger
+2. Migration push guardrails (PR #24, merged to main)
+3. §10 Step 8 — MultiGCWizard scaffold (4 screens, local state)
+
+Step 8 verified end-to-end on Vercel preview deploy. Payload shape
+from Screen 4 CTA matches §4 RPC contract:
+  { p_source_proposal_id: '9050832b-...', p_targets: Array(2) }
+
+TEMP dev-mount committed, pushed, tested, reverted — clean history.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+feat/multi-gc-allocation:
+
+25b22ef — Touches F16: §10 step 7 — proposal_wtc locally_edited_fields trigger
+  Migration 20260518185000. BEFORE UPDATE trigger on proposal_wtc that
+  auto-populates locally_edited_fields[] by diffing NEW vs source WTC
+  (looked up via cloned_from_wtc_id → cloned_from_proposal_id cross-table
+  join). Handles scalars, jsonb columns (field_sow, materials, sub_areas),
+  and 9 travel sub-keys. Applied to prod.
+
+9ebbfb6 — Touches F17: §10 step 8 — MultiGCWizard scaffold (4 screens, local state)
+  New file src/components/MultiGCWizard.jsx (~480 lines).
+  Screen 1: Pick GCs (customer search + add/remove).
+  Screen 2: Per-GC Details (signer contact, intro override, rfp/bid_due/billing_terms).
+  Screen 3: Pricing (WTC table with markup_override_pct slider per GC).
+  Screen 4: Review (per-GC summary cards, CTA console.logs payload).
+  Local calc helpers _calcWtcPriceWithOverride and _calcProposalTotal
+  scaffolded inline (GAP 1 — calc.js extension deferred to step 9).
+  6 OPENs documented at top of file, filed as F18/F19/F20 in BACKLOG.
+
+138d72d — TEMP: dev-mount MultiGCWizard on /proposals?multigc=<id>
+a4aaa32 — Revert "TEMP: dev-mount MultiGCWizard on /proposals?multigc=<id>"
+
+main (via PR #24):
+
+f4089a7 — Migration push guardrails (prevent ledger divergence) (#24)
+  Three artifacts:
+  - scripts/git-hooks/pre-push — blocks push when branch is behind main
+    on migrations
+  - scripts/check-migration-safety.sh — Check A (branch behind main) +
+    Check B (remote ledger vs local files, INFO for unmerged feature
+    branch migrations, FAIL only for true stray entries)
+  - scripts/install-git-hooks.sh — symlinks pre-push hook
+  npm run db:push chain updated to run safety script before collision
+  check before push. CLAUDE.md updated with migration push discipline.
+
+DEPLOYED
+────────
+Project ref: pbgvgjjuhnpsumnowuym
+
+Migration 20260518185000_proposal_wtc_track_local_edits.sql applied to
+prod via supabase db push. All 51 migrations match Local/Remote.
+
+Migration guardrails merged to main → Vercel auto-deployed.
+MultiGCWizard scaffold on feat/multi-gc-allocation only (not on main).
+
+DECISIONS / CHOICES MADE
+────────────────────────
+1. Filed new F17 (T1, In Progress) for wizard surface (§10 steps 8-11)
+   rather than reopening F16 (which was specifically about the
+   cloned_from_wtc_id re-plan, now closed).
+
+2. Local calc helpers in MultiGCWizard.jsx instead of extending calc.js
+   immediately. GAP 1: calc.js needs override-param signatures (calcLabor
+   with override_pct, calcWtcPrice with override_pct, new
+   calcProposalTotal). Deferred to step 9 to keep step 8 scaffold-only.
+
+3. Screen 4 CTA logs payload only — no RPC wiring. Step 9 scope.
+
+4. Migration push guardrails built as separate scope on
+   chore/migration-push-guardrails, merged to main via PR #24, then
+   main merged back into feat/multi-gc-allocation before step 8.
+
+INCIDENT — MIGRATION LEDGER DIVERGENCE (2026-05-18)
+────────────────────────────────────────────────────
+During step 7, `supabase db push` failed because feat/multi-gc-allocation
+was behind main (missing 3 migrations from the v123 session). I
+incorrectly ran `supabase migration repair --status reverted` on 3 live,
+applied migrations (20260514130000, 20260515140000, 20260515150000).
+This marked them as "never ran" in the prod ledger.
+
+Remediation (from Chris):
+1. Restored all 3 as applied via `migration repair --status applied`
+2. Merged origin/main into feature branch
+3. Verified all 51 migrations match Local/Remote
+4. Built prevention guardrails (PR #24)
+
+Key lesson: when db push fails because remote has entries local doesn't,
+the answer is `git merge origin/main`, NOT `repair --status reverted`.
+
+NEW / CLOSED BACKLOG ITEMS
+──────────────────────────
+Filed:
+  F17 (T1, In Progress) — Multi-GC wizard surface (§10 steps 8-11)
+  F18 (T3) — Screen 2 schema adds (rfp_number, bid_due_date, billing_terms_override)
+  F19 (T3) — clone RPC intro_override param + locally_edited_fields['intro']
+  F20 (T3) — GC picker Commercial-only default + CO gate
+  F21 (T3) — Screen 1 selected GCs disappear on search filter
+  F22 (T3) — Screen 2 no inline "Add new primary contact" affordance
+  F23 (T3) — Screen 1 search scope too narrow
+
+Closed:
+  F16 (T1) — Closed 2026-05-18 (steps 1-7 complete, lineage columns shipped)
+
+VERIFICATION
+────────────
+- npm run build: clean (both scaffold-only and dev-mount builds)
+- Vercel preview deploy: all 4 wizard screens walked end-to-end
+- Screen 4 payload shape matches §4 RPC contract
+- TEMP dev-mount reverted cleanly
+- All 51 migrations match Local/Remote after ledger restoration
+
+NOT TOUCHED
+───────────
+- No Supabase mutations from wizard (step 9)
+- No entry-point buttons wired (step 10)
+- No SyncConflictModal (step 10)
+- No CallLog chip (step 11)
+- No schema changes for F18 columns (step 9)
+- No calc.js extension (step 9)
+
+NEXT SESSION POINTERS
+─────────────────────
+1. §10 Step 9 — RPC wiring. Wire Screen 4 CTA to clone_proposal_to_gcs
+   RPC. Requires: calc.js extension (GAP 1), F18 schema migration
+   (rfp_number, bid_due_date, billing_terms_override columns), F19
+   intro_override RPC param.
+
+2. F21/F22/F23 — UX polish items from walkthrough. Bundle into step 9
+   or defer to step 10 polish pass.
+
+3. O3 — H5 Migration B (drop 1-arg compat wrapper). 48h timer expired
+   2026-05-13. Check pg_stat_statements before applying.
+
+4. B23/B24 — Pull Back signing bugs. Pre-existing, not blocking Multi-GC
+   but customer-facing.
+
+FILES TO KNOW
+─────────────
+src/components/MultiGCWizard.jsx — NEW, 4-screen wizard scaffold
+supabase/migrations/20260518185000_proposal_wtc_track_local_edits.sql — Step 7 trigger
+scripts/git-hooks/pre-push — Migration push guardrail
+scripts/check-migration-safety.sh — Migration safety checks
+scripts/install-git-hooks.sh — Hook installer
+docs/plans/multi_gc_allocation.md — Verified plan (§7 wizard spec, §10 impl order)
+docs/BACKLOG.md — Updated with F17-F23
+
+GIT STATE
+─────────
+Branch: feat/multi-gc-allocation
+Head: a4aaa32 (Revert TEMP dev-mount)
+Ahead of main by: step 7 trigger + step 8 scaffold + merge commits
+Main: includes PR #24 migration guardrails

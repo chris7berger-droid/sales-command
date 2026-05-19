@@ -1,0 +1,58 @@
+SC Handoff v126 — 2026-05-19
+=============================
+
+SESSION SUMMARY
+Multi-GC §10 step 11 build + smoke session (ERD loop #18). Landed UI
+differentiators (CallLog GC chip, Proposals GC COPY badge), WTCCalculator
+sync wiring, then diagnosed and fixed four smoke-surfaced bugs: GC chip
+predicate (distinct GCs not proposals), misplaced render gates (wizard
+inside ArchiveProposalPanel), clone RPC null-safety (viewer_contact_ids),
+missing customer/total on sisters. Plus UI rename (sister → GC copy) and
+auto-lock for no-override sister WTCs. F27 filed as architectural gap.
+
+CHANGES SHIPPED (commits 5e9bf5b..a60b2e8, on feat/multi-gc-allocation)
+────────────────────────────────────────────────────────────────────────
+5e9bf5b — CallLog GC chip + Proposals sister badge + WTC sync wiring
+f56d481 — Fix GC chip to count distinct GCs, not proposals
+19d119d — clone_proposal_to_gcs null-safety + render gate fix
+0987e34 — Rename sister → GC copy in UI strings (7 strings, 3 files)
+e1c1417 — Clone RPC populates customer name + total on sisters
+593acdb — Auto-lock sister WTCs (no-override case)
+a60b2e8 — File F27 backlog entry
+
+DECISIONS
+─────────
+- GC chip counts distinct customer_id per job, not raw proposal count
+- "Sister" → "GC Copy" in user-facing strings only; internal identifiers unchanged
+- Auto-lock only when markup_override_pct is NULL or 0
+- F27 (Customer detail misses GC Copy jobs) filed T2, not hot-fixed
+
+NEW BACKLOG ITEMS
+─────────────────
+F27 (T2, Open) — Customer detail page doesn't surface GC Copy
+  jobs/proposals. Joins via call_log.customer_id miss sister-side
+  customers. Fix: UNION with proposals.customer_id query. ~half-day.
+
+NOT TOUCHED
+───────────
+- Award flow (plan step 12+)
+- F20–F23 (wizard polish)
+- Markup override display in ProposalDetail summary
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Merge feat/multi-gc-allocation → main when smoke satisfactory
+2. F27 is first multi-GC UX gap post-merge
+3. F17 closeable once merged + verified in prod
+
+FILES TO KNOW
+─────────────
+- supabase/migrations/20260519{210000,220000,230000}: three new migrations
+- src/components/ProposalDetail.jsx: render gates now at lines 1232-1248
+- src/pages/CallLog.jsx: _gcCount aggregation at ~line 92
+
+GIT STATE
+─────────
+Branch: feat/multi-gc-allocation @ a60b2e8
+Remote: up to date with origin/feat/multi-gc-allocation
+Working tree: clean

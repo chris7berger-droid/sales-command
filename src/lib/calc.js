@@ -57,13 +57,16 @@ export function calcWtcBreakdown(wtc) {
   return { price: totalPrice, cost: totalCost, profit, margin, discount: wtc.discount || 0 };
 }
 
-export function calcWtcPrice(wtc) {
+export function calcWtcPrice(wtc, markup_override_pct) {
   const rate = wtc.prevailing_wage ? (wtc.pw_rate || 0) : (wtc.burden_rate || 0);
   const otRate = wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0);
+  const effectiveMarkup = markup_override_pct != null
+    ? Math.max(0, (wtc.markup_pct || 0) + markup_override_pct)
+    : (wtc.markup_pct || 0);
   const labor = calcLabor({
     regular_hours: wtc.regular_hours,
     ot_hours: wtc.ot_hours,
-    markup_pct: wtc.markup_pct,
+    markup_pct: effectiveMarkup,
     burden_rate: rate,
     ot_burden_rate: otRate,
     size: wtc.size,
@@ -71,4 +74,8 @@ export function calcWtcPrice(wtc) {
   const mats = (wtc.materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
   const trav = calcTravel(wtc.travel);
   return Math.ceil(labor.total + mats + trav - (wtc.discount || 0));
+}
+
+export function calcProposalTotal(wtcs, markup_override_pct) {
+  return (wtcs || []).reduce((sum, w) => sum + calcWtcPrice(w, markup_override_pct), 0);
 }

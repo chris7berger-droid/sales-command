@@ -1,7 +1,3 @@
-// OPEN: proposals.rfp_number column doesn't exist — schema add needed (§7 Screen 2)
-// OPEN: proposals.bid_due_date column doesn't exist — schema add needed (§7 Screen 2)
-// OPEN: proposals.billing_terms_override column doesn't exist — schema add needed (§7 Screen 2)
-// OPEN: clone_proposal_to_gcs RPC needs optional intro_override param + conditional locally_edited_fields = ARRAY['intro'] on INSERT when override differs from source.intro
 // OPEN: customer_type filter default — Commercial-only with Residential toggle (spec recommends Commercial-only)
 // OPEN: CO call_log gate on Entry Point B — spec recommends hide on COs
 
@@ -9,26 +5,7 @@ import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fmt$ } from "../lib/utils";
-import { calcLabor, calcMaterialRow, calcTravel } from "../lib/calc";
-
-// TODO(calc.js): extend signatures — see §3 spec
-function _calcWtcPriceWithOverride(wtc, override_pct) {
-  const rate = wtc.prevailing_wage ? (wtc.pw_rate || 0) : (wtc.burden_rate || 0);
-  const otRate = wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0);
-  const effectiveMarkup = Math.max(0, (wtc.markup_pct || 0) + (override_pct || 0));
-  const labor = calcLabor({
-    regular_hours: wtc.regular_hours, ot_hours: wtc.ot_hours,
-    markup_pct: effectiveMarkup, burden_rate: rate, ot_burden_rate: otRate, size: wtc.size,
-  });
-  const mats = (wtc.materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
-  const trav = calcTravel(wtc.travel);
-  return Math.ceil(labor.total + mats + trav - (wtc.discount || 0));
-}
-
-function _calcProposalTotal(proposalLike, wtcs) {
-  const ovr = parseFloat(proposalLike?.markup_override_pct) || 0;
-  return (wtcs || []).reduce((sum, w) => sum + _calcWtcPriceWithOverride(w, ovr), 0);
-}
+import { calcWtcPrice, calcProposalTotal } from "../lib/calc";
 
 const inputStyle = {
   padding: "10px 14px", borderRadius: 8,
@@ -88,10 +65,8 @@ export default function MultiGCWizard({ sourceProposalId, onClose, onSaved }) {
     targets: prev.targets.map((t, i) => i === idx ? { ...t, [k]: v } : t),
   }));
 
-  // TODO: Entry Point B source-picker variant deferred to step 9.
-  // When opened from CallLogDetail with 2+ eligible sources, step 0
-  // should render a source-picker. For now, sourceProposalId is always
-  // pre-set by Entry Point A.
+  // Entry Point B source-picker variant deferred to step 10.
+  // sourceProposalId is always pre-set by Entry Point A for now.
 
   useEffect(() => {
     if (!sourceProposalId) return;
@@ -205,21 +180,31 @@ export default function MultiGCWizard({ sourceProposalId, onClose, onSaved }) {
   };
   const goBack = () => { if (step > 0) set("step", step - 1); };
 
-  const handleCreate = () => {
-    const payload = {
-      p_source_proposal_id: sourceProposalId,
-      p_targets: targets.map(t => ({
-        customer_id: t.customer_id,
-        rfp_number: t.rfp_number,
-        bid_due: t.bid_due_date,
-        markup_override_pct: t.markup_override_pct,
-        signer_contact_id: t.primary_contact_id,
-        viewer_contact_ids: t.viewer_contact_ids,
-        intro_override: t.intro_locally_edited ? t.intro : null,
-        billing_terms: t.billing_terms,
-      })),
-    };
-    console.log("would invoke clone_proposal_to_gcs", payload);
+  const handleCreate = async () => {
+    set("saving", true);
+    set("error", null);
+    try {
+      const { data, error: rpcErr } = await supabase.rpc("clone_proposal_to_gcs", {
+        p_source_proposal_id: sourceProposalId,
+        p_targets: targets.map(t => ({
+          customer_id: t.customer_id,
+          rfp_number: t.rfp_number || null,
+          bid_due: t.bid_due_date || null,
+          markup_override_pct: t.markup_override_pct,
+          signer_contact_id: t.primary_contact_id || null,
+          viewer_contact_ids: (t.viewer_contact_ids || []).length > 0 ? t.viewer_contact_ids : null,
+          intro_override: t.intro_locally_edited ? t.intro : null,
+          billing_terms: t.billing_terms || null,
+        })),
+      });
+      if (rpcErr) throw rpcErr;
+      set("partialResults", data);
+      if (onSaved) onSaved(data);
+    } catch (err) {
+      set("error", err.message || "Failed to create sister proposals");
+    } finally {
+      set("saving", false);
+    }
   };
 
   const tabHasMissing = (t) => !t.primary_contact_id || !t.rfp_number?.trim() || !t.bid_due_date;
@@ -232,7 +217,7 @@ export default function MultiGCWizard({ sourceProposalId, onClose, onSaved }) {
     );
   }
 
-  const sourceTotal = _calcProposalTotal(sp, sourceWtcs);
+  const sourceTotal = calcProposalTotal(sourceWtcs, parseFloat(sp?.markup_override_pct) || 0);
   const displayLabel = `${sp.call_log?.display_job_number || ""} P${sp.proposal_number || ""}`;
 
   return (
@@ -538,7 +523,7 @@ function Screen3({ targets, setTarget, sourceWtcs, sourceTotal, sp, expandedWtcs
       {/* Per-sister pricing cards */}
       {targets.map((t, idx) => {
         const sisterTotal = (sourceWtcs || []).reduce(
-          (sum, w) => sum + _calcWtcPriceWithOverride(w, parseFloat(t.markup_override_pct) || 0), 0
+          (sum, w) => sum + calcWtcPrice(w, parseFloat(t.markup_override_pct) || 0), 0
         );
         const delta = sisterTotal - sourceTotal;
         const expanded = expandedWtcs[idx];
@@ -596,8 +581,8 @@ function Screen3({ targets, setTarget, sourceWtcs, sourceTotal, sp, expandedWtcs
             {expanded && (
               <div style={{ marginTop: 8, paddingLeft: 4 }}>
                 {sourceWtcs.map((w, wi) => {
-                  const wtcPrice = _calcWtcPriceWithOverride(w, parseFloat(t.markup_override_pct) || 0);
-                  const sourceWtcPrice = _calcWtcPriceWithOverride(w, 0);
+                  const wtcPrice = calcWtcPrice(w, parseFloat(t.markup_override_pct) || 0);
+                  const sourceWtcPrice = calcWtcPrice(w);
                   return (
                     <div key={w.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, fontFamily: F.ui, color: C.textBody }}>
                       <span>WTC {wi + 1} — {w.work_types?.name || "Unknown"}</span>
@@ -642,7 +627,7 @@ function Screen4({ targets, sp, sourceWtcs, sourceTotal, displayLabel, saving, e
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginBottom: 20 }}>
         {targets.map((t, idx) => {
           const sisterTotal = (sourceWtcs || []).reduce(
-            (sum, w) => sum + _calcWtcPriceWithOverride(w, parseFloat(t.markup_override_pct) || 0), 0
+            (sum, w) => sum + calcWtcPrice(w, parseFloat(t.markup_override_pct) || 0), 0
           );
           const contacts = contactsByCustomer[t.customer_id] || [];
           const signer = contacts.find(c => c.id === t.primary_contact_id);

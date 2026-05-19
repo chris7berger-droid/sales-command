@@ -1,145 +1,58 @@
-SC Handoff v100 — 2026-05-06
-============================
+SC Handoff v100 — 2026-05-19
+=============================
 
 SESSION SUMMARY
-H4 closed end-to-end: `proposal_signatures.tenant_id` is now derived
-from the parent proposal via a BEFORE INSERT trigger, and the column
-DEFAULT (`get_user_tenant_id()`) is dropped. The latent cross-tenant
-write that would have activated on second-tenant provisioning is gone.
-Two commits on main, pushed.
+Multi-GC §10 step 11 build + smoke session (ERD loop #18). Landed UI
+differentiators (CallLog GC chip, Proposals GC COPY badge), WTCCalculator
+sync wiring, then diagnosed and fixed four smoke-surfaced bugs: GC chip
+predicate (distinct GCs not proposals), misplaced render gates (wizard
+inside ArchiveProposalPanel), clone RPC null-safety (viewer_contact_ids),
+missing customer/total on sisters. Plus UI rename (sister → GC copy) and
+auto-lock for no-override sister WTCs. F27 filed as architectural gap.
 
-Most of the session was investigation, not coding. The backlog said
-H4 was open and column-add work — actual prod state had the column
-already in place (added via `sql/rls_child_tables.sql` outside the
-ledger), and the real exposure was the helper's anon fallback to
-"first row in tenant_config." The migration shrank to a 60-line
-trigger fix because of that.
+CHANGES SHIPPED (commits 5e9bf5b..a60b2e8, on feat/multi-gc-allocation)
+────────────────────────────────────────────────────────────────────────
+5e9bf5b — CallLog GC chip + Proposals sister badge + WTC sync wiring
+f56d481 — Fix GC chip to count distinct GCs, not proposals
+19d119d — clone_proposal_to_gcs null-safety + render gate fix
+0987e34 — Rename sister → GC copy in UI strings (7 strings, 3 files)
+e1c1417 — Clone RPC populates customer name + total on sisters
+593acdb — Auto-lock sister WTCs (no-override case)
+a60b2e8 — File F27 backlog entry
 
-CHANGES SHIPPED (commits 1660795 ← 893b224, on main)
-─────────────────────────────────────────────────────
-1660795 — fix(security): close H4 — bind proposal_signatures.tenant_id
-  supabase/migrations/20260508120000_proposal_signatures_tenant_id_trigger.sql (NEW, 78 lines)
-    1. CREATE OR REPLACE FUNCTION public.set_proposal_signature_tenant_id()
-       SECURITY DEFINER, search_path = public, derives tenant_id from
-       parent proposal. RAISE EXCEPTION with errcode 23503 if parent
-       missing or has NULL tenant_id.
-    2. CREATE TRIGGER trg_proposal_signatures_set_tenant
-       BEFORE INSERT FOR EACH ROW.
-    3. ALTER TABLE … ALTER COLUMN tenant_id DROP DEFAULT.
-  supabase/rollbacks/20260508120100_revert_proposal_signatures_tenant_id_trigger.sql (NEW, 16 lines)
-    Drops trigger + function, restores the prior DEFAULT. Lives outside
-    supabase/migrations/ so `supabase db push --linked` doesn't apply
-    the revert right after the forward.
+DECISIONS
+─────────
+- GC chip counts distinct customer_id per job, not raw proposal count
+- "Sister" → "GC Copy" in user-facing strings only; internal identifiers unchanged
+- Auto-lock only when markup_override_pct is NULL or 0
+- F27 (Customer detail misses GC Copy jobs) filed T2, not hot-fixed
 
-893b224 — chore(docs): close H4, B9, B10 in BACKLOG
-  docs/BACKLOG.md
-    H4 row removed from Active Security, added to Completed Log with
-    commit ref 1660795. Rolled forward earlier-session B9/B10 closes
-    (Merge Job feature + unique-job-number index) that hadn't been
-    committed yet.
+NEW BACKLOG ITEMS
+─────────────────
+F27 (T2, Open) — Customer detail page doesn't surface GC Copy
+  jobs/proposals. Joins via call_log.customer_id miss sister-side
+  customers. Fix: UNION with proposals.customer_id query. ~half-day.
 
-DECISIONS / CHOICES MADE
-─────────────────────────
-- Trigger over policy WITH CHECK: a `WITH CHECK (tenant_id =
-  parent.tenant_id)` would also work but requires the caller to pass
-  the right tenant_id. Trigger is bulletproof — caller's value is
-  always overwritten with the parent's, regardless of what they send.
-- SECURITY DEFINER + fixed search_path: matches H1/H7 pattern
-  (`20260505181452_set_search_path_security_functions.sql`).
-  Without it the trigger would couple to anon's RLS on `proposals`,
-  which is redundant with the existing token-match policy and gives
-  worse error semantics on token mismatch.
-- Pre-prod testing on a scratch Supabase project, not local. The
-  local stack can't spin up — the migrations ledger has at least one
-  gap (`billing_schedule` is altered before any migration creates it).
-  `supabase db pull` hits the same shadow-DB issue. Pivoted to a
-  throwaway Pro-tier project (ref `eguyilfigafpwpwspxed`), tested
-  with a two-tenant fixture, deleted after.
-- Anon INSERT policy left token-only on purpose. Adding a
-  tenant-binding `WITH CHECK` clause is redundant once the trigger
-  derives tenant_id authoritatively.
-- Older redundant DELETE policy ("Allow delete on proposal_signatures",
-  role/sales-name based) left in place. Out of scope; a follow-up
-  pass should consolidate it with `proposal_signatures_delete`.
+NOT TOUCHED
+───────────
+- Award flow (plan step 12+)
+- F20–F23 (wizard polish)
+- Markup override display in ProposalDetail summary
 
-VERIFICATION
+NEXT SESSION POINTERS
+─────────────────────
+1. Merge feat/multi-gc-allocation → main when smoke satisfactory
+2. F27 is first multi-GC UX gap post-merge
+3. F17 closeable once merged + verified in prod
+
+FILES TO KNOW
 ─────────────
-Pre-flight (read-only against prod):
-  - Column already exists: tenant_id uuid NOT NULL, DEFAULT
-    `get_user_tenant_id()`, FK to tenant_config(id), btree index.
-  - 0 mismatched signatures (sig.tenant_id ≠ parent.tenant_id) at the
-    time of fix — only one tenant on prod, so the latent bug never
-    fired.
-  - get_user_tenant_id() body confirmed: COALESCE(team_members lookup,
-    SELECT id FROM tenant_config LIMIT 1). The fallback is the bug.
-  - 5 RLS policies, RLS enabled but not forced.
+- supabase/migrations/20260519{210000,220000,230000}: three new migrations
+- src/components/ProposalDetail.jsx: render gates now at lines 1232-1248
+- src/pages/CallLog.jsx: _gcCount aggregation at ~line 92
 
-Scratch project (pre-prod):
-  - Two tenants, one parent proposal owned by Tenant A.
-  - Test 1: insert with wrong tenant_id (B) → row landed with A. ✓
-  - Test 2: insert without tenant_id → row landed with A. ✓
-  - Test 3: insert against non-existent proposal → 23503 raised by
-    trigger before FK check. ✓
-
-Post-prod-deploy:
-  - Trigger present, default null, function `prosecdef = true`.
-  - Live signing test (Chris, 2026-05-07 04:14 UTC) wrote a row with
-    sig.tenant_id matching parent.tenant_id.
-  - 5-row recent-history scan: all match.
-
-NOT TOUCHED THIS SESSION
-─────────────────────────
-- The frontend. `PublicSigningPage.jsx:328` still inserts without
-  tenant_id; that's now fine (trigger fills it), but if you ever want
-  belt-and-suspenders, pass it explicitly.
-- The `get_public_proposal_view` RPC. Plan agent flagged it as needing
-  tenant_id surfaced — turned out unnecessary once the trigger handled
-  derivation.
-- The redundant `Allow delete on proposal_signatures` policy.
-- S1 (same helper, different caller path — see OPEN / NEXT).
-- The migration ledger gap (billing_schedule and possibly others).
-  Blocks `supabase start` and `supabase db pull`. Real cleanup, not
-  in scope here.
-- supabase/.temp/* CLI metadata churns on every link/unlink. Unstaged
-  on close. `.gitignore` candidate for a future cleanup.
-
-OPEN / NEXT
-────────────
-- S1 — `get_user_tenant_id()` COALESCE fallback. H4 closed the anon
-  path; S1 is the same fallback firing for authenticated users with
-  no `team_members` row. Conceptually a 5-line ALTER FUNCTION (drop
-  the COALESCE so it returns NULL when no row matches), but the
-  blast radius is much larger — this helper is the spine of every
-  tenant-scoped RLS policy across all four sibling repos. Half-day
-  job vs the 90 minutes H4 took. Pre-flight: count auth users with
-  no team_members row, grep helper call sites across repos.
-- H5 — token expiry / single-use. Highest remaining security item
-  on the audit list. Next session candidate.
-- Migration ledger gap — `supabase db push` works, `supabase start`
-  and `supabase db pull` don't. If we want local dev or schema diffs
-  back, someone needs to author shim CREATE TABLE IF NOT EXISTS
-  migrations for whatever was created out-of-ledger
-  (billing_schedule, proposal_signatures.tenant_id column itself,
-  others probably).
-
-FILES TO PROBABLY KNOW ABOUT NEXT SESSION
-──────────────────────────────────────────
-supabase/migrations/20260508120000_proposal_signatures_tenant_id_trigger.sql
-  — the H4 fix.
-supabase/rollbacks/20260508120100_revert_proposal_signatures_tenant_id_trigger.sql
-  — apply via SQL Editor or `supabase db query --linked` if signing
-  breaks. Note: this is a new convention (rollbacks/ dir), worth
-  checking with the team.
-src/lib/CLAUDE_RLS.md (referenced from CLAUDE.md:RLS) — the rules
-  document that drove the SECURITY DEFINER + search_path choice.
-sql/rls_child_tables.sql — the seed script that originally added
-  proposal_signatures.tenant_id outside the migrations ledger. Same
-  pattern probably explains other ledger gaps.
-
-GIT STATE ON CLOSE
-───────────────────
-- Branch main, clean against origin/main (both commits pushed).
-- Working tree clean except supabase/.temp/* CLI metadata (no
-  semantic content).
-- Linked project: pbgvgjjuhnpsumnowuym (Command Suite DB / prod).
-- Scratch project eguyilfigafpwpwspxed deleted on close.
+GIT STATE
+─────────
+Branch: feat/multi-gc-allocation @ a60b2e8
+Remote: up to date with origin/feat/multi-gc-allocation
+Working tree: clean

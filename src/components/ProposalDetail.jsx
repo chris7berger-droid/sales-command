@@ -1229,6 +1229,23 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           </div>
         </div>
       )}
+      {showMultiGC && (
+        <MultiGCWizard
+          sourceProposalId={p.id}
+          onClose={() => setShowMultiGC(false)}
+          onSaved={(results) => {
+            setShowMultiGC(false);
+          }}
+        />
+      )}
+      {syncConflict && (
+        <SyncConflictModal
+          sourceProposalId={p.id}
+          changedFields={syncConflict.changedFields}
+          onClose={() => setSyncConflict(null)}
+          onApplied={() => setSyncConflict(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1347,23 +1364,6 @@ function ArchiveProposalPanel({ p, setP, money, linkedInvoices = [] }) {
             ))}
           </div>
         </div>
-      )}
-      {showMultiGC && (
-        <MultiGCWizard
-          sourceProposalId={p.id}
-          onClose={() => setShowMultiGC(false)}
-          onSaved={(results) => {
-            setShowMultiGC(false);
-          }}
-        />
-      )}
-      {syncConflict && (
-        <SyncConflictModal
-          sourceProposalId={p.id}
-          changedFields={syncConflict.changedFields}
-          onClose={() => setSyncConflict(null)}
-          onApplied={() => setSyncConflict(null)}
-        />
       )}
     </div>
   );

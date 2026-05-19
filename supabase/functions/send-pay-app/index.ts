@@ -80,6 +80,12 @@ serve(async (req) => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // Capture the caller's Authorization header for fn→fn forwarding below
+    // (qb-sync-invoice expects the user JWT, not service role). authenticateCaller
+    // validates the same header internally; we hold it here for the downstream
+    // fire-and-forget invoke at the end of the success path.
+    const authHeader = req.headers.get("Authorization") || "";
+
     // Audit C9 — caller must be a real user in a tenant. recipientEmail / PDF
     // URLs / senderEmail are NO LONGER trusted from the body; we re-derive
     // them from the tenant-owned DB rows below.

@@ -158,7 +158,7 @@ export default function MultiGCWizard({ sourceProposalId, onClose, onSaved }) {
 
   const isDisabledCustomer = (c) => {
     if (c.id === sourceCustomerId) return "this is the source proposal's GC";
-    if (existingSisterCustomerIds.includes(c.id)) return "already a sister on this project";
+    if (existingSisterCustomerIds.includes(c.id)) return "already has a GC copy on this project";
     return null;
   };
 
@@ -201,7 +201,7 @@ export default function MultiGCWizard({ sourceProposalId, onClose, onSaved }) {
       set("partialResults", data);
       if (onSaved) onSaved(data);
     } catch (err) {
-      set("error", err.message || "Failed to create sister proposals");
+      set("error", err.message || "Failed to create GC copies");
     } finally {
       set("saving", false);
     }

@@ -62,7 +62,7 @@ export default function SyncConflictModal({ sourceProposalId, changedFields, onC
     return (
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 999, background: "rgba(28,24,20,0.65)", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div onClick={e => e.stopPropagation()} style={{ background: C.linenCard, borderRadius: 14, padding: 32, color: C.textMuted, fontFamily: F.ui }}>
-          Checking sister proposals…
+          Checking GC copies…
         </div>
       </div>
     );
@@ -89,7 +89,7 @@ export default function SyncConflictModal({ sourceProposalId, changedFields, onC
         </div>
 
         <p style={{ fontSize: 13, color: C.textMuted, fontFamily: F.ui, marginTop: 0, marginBottom: 16 }}>
-          Your edit changed fields shared with sister proposals. Review what will sync.
+          Your edit changed fields shared with GC copies. Review what will sync.
         </p>
 
         {preview.sisters.map(sis => (
@@ -114,7 +114,7 @@ export default function SyncConflictModal({ sourceProposalId, changedFields, onC
             {sis.conflicts.length > 0 && (
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.amber, fontFamily: F.ui, marginBottom: 4 }}>
-                  Conflicts (sister edited locally)
+                  Conflicts (GC copy edited locally)
                 </div>
                 {sis.conflicts.map((item, i) => {
                   const key = `${sis.sister_id}:${item.field}`;
@@ -137,7 +137,7 @@ export default function SyncConflictModal({ sourceProposalId, changedFields, onC
                           {item.scope ? `${item.scope} → ` : ""}{item.field}
                         </div>
                         <div style={{ fontSize: 11, fontFamily: F.ui, color: C.textFaint }}>
-                          {forced ? "Will overwrite sister's version" : "Keeping sister's version"}
+                          {forced ? "Will overwrite GC copy's version" : "Keeping GC copy's version"}
                         </div>
                       </div>
                     </div>

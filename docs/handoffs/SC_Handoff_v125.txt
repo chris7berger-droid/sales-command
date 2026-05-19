@@ -1,0 +1,150 @@
+SC Handoff v125 — 2026-05-19
+============================
+
+SESSION SUMMARY
+Out-of-cycle hotfix. User opened the session with a 500 error on the
+"Send Pay App" flow (AGRU 230 Lyon, Pay App #1) — UI showed "Edge
+Function returned a non-2xx status code." Audit traced the bug to the
+C9 audit commit (e662d24, 2026-05-09): authenticateCaller() refactor
+removed the `const authHeader = req.headers.get(...)` declaration at
+the top of send-pay-app/serve(), but the fire-and-forget qb-sync-invoke
+at line 466 still referenced the deleted variable. ReferenceError
+thrown synchronously while building fetch options, caught by outer
+try/catch, returned 500 — even though Resend send had already succeeded
+and DB writes had already committed.
+
+10-day silent regression. Email + DB state went through correctly on
+every send in the window; only the QB sync was silently skipped.
+
+Fix shipped, deployed, backfill complete.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────────────────
+main (via PR #25):
+
+37bafc7 — Closes B28: fix send-pay-app ReferenceError on qb-sync-invoice forward
+  supabase/functions/send-pay-app/index.ts +6 lines.
+  Restored `const authHeader = req.headers.get("Authorization") || "";`
+  at top of serve handler (pre-C9 behavior). qb-sync-invoice forward
+  now has the variable it references at line 466.
+  docs/BACKLOG.md +1 row (B28).
+
+9896cc5 — Merge pull request #25 from chris7berger-droid/fix/send-pay-app-qb-sync-auth
+
+feat/multi-gc-allocation (cherry-pick):
+
+f97b726 — Closes B28: fix send-pay-app ReferenceError on qb-sync-invoice forward
+  Same diff as 37bafc7, cherry-picked from main so multi-GC work
+  doesn't carry the broken send-pay-app forward.
+
+DEPLOYED
+────────
+Project ref: pbgvgjjuhnpsumnowuym
+
+`supabase functions deploy send-pay-app --no-verify-jwt` — successful.
+Edge function live in prod with the fix.
+
+QB BACKFILL — DA Builders Muscle Motors Pay App #2
+──────────────────────────────────────────────────
+Identification query found ONE un-synced invoice in the 2026-05-09 →
+2026-05-19 window:
+
+  invoice_id: 10031
+  customer: DA Builders Muscle Motors
+  amount: $31,232.80
+  status: Sent (pre-existing — DB write succeeded at send time)
+  pay_app_number: 2
+  submitted_at: 2026-05-12 17:10:05 UTC
+  qb_invoice_id: NULL (the gap)
+
+Backfill path: Invoices page → invoice 10031 → "Sync to QB" button
+(which directly invokes qb-sync-invoice, bypassing send-pay-app, so no
+duplicate customer email). Toast confirmed sync; spot-check in QB
+Online confirmed the $31,232.80 invoice landed correctly.
+
+AGRU 230 Lyon Pay App #1 (the trigger for this session) was NOT in
+the backfill set — its original send predates 2026-05-09 (before the
+bug existed). qb_invoice_id was correctly populated then.
+
+DECISIONS / CHOICES MADE
+────────────────────────
+1. Hotfix branched off main (not feat/multi-gc-allocation) so the fix
+   could land in prod without being tangled with in-flight multi-GC
+   work. Cherry-picked back to feat/multi-gc-allocation afterward.
+
+2. Did NOT re-send AGRU after deploying the fix — customer already
+   received the original email and thanked Chris; re-sending would
+   look unprofessional. send-pay-app fix will be verified organically
+   on the next real pay-app send.
+
+3. Backfill via existing "Sync to QB" UI button (Invoices.jsx:1487)
+   rather than scripted resync. Button directly calls qb-sync-invoice
+   with no email side-effect. One row to process — UI was sufficient.
+
+NEW / CLOSED BACKLOG ITEMS
+──────────────────────────
+Filed:
+  B28 (T1) — send-pay-app 500 from C9 authHeader regression
+
+Closed:
+  B28 (T1) — Closed 2026-05-19 (commit 37bafc7, cherry f97b726)
+
+VERIFICATION
+────────────
+- PR #25 reviewed + merged to main
+- Edge function deployed to prod (Supabase confirmed)
+- Cherry-pick on feat/multi-gc-allocation pushed cleanly
+- Backfill query identified exactly 1 affected invoice
+- DA Builders #10031 synced via UI → toast confirmed QB ID
+- QB Online spot-check: $31,232.80 invoice present with correct totals
+- AGRU's original (pre-bug) send confirmed already synced (correctly
+  excluded from backfill set)
+
+AUDIT FINDINGS (preserved for future)
+─────────────────────────────────────
+Sweep across all 25+ edge functions found send-pay-app was the ONLY
+file with a `authHeader` reference that wasn't declared in scope.
+Every other usage (invite-user, deactivate-user, delete-user,
+send-proposal, extract-sov, _shared/tenantAuth.ts) declares it locally.
+stripe-webhook is the only other fn→fn caller — it uses service-role
+for webhook context, different pattern, no conflict.
+
+`git log --since=2026-05-08` on send-pay-app, qb-sync-invoice, and
+_shared/tenantAuth.ts showed zero commits between C9 and the bug
+report — confirmed nothing has built on top of the regression.
+
+Lesson for future fn→fn auth refactors: grep for ALL references to
+the variable being removed, not just the declaration site.
+
+NOT TOUCHED
+───────────
+- Multi-GC work (step 9 still pending)
+- No migrations touched
+- No other edge functions touched
+- BACKLOG B11 (related pay-app routing bug) untouched
+
+NEXT SESSION POINTERS
+─────────────────────
+1. §10 Step 9 — RPC wiring for Multi-GC wizard (continues from v124).
+
+2. Verify send-pay-app fix end-to-end on the next real pay-app send.
+   No artificial test required — the fix is a 6-line variable
+   restoration of pre-C9 behavior.
+
+3. Optional: spot-check that no OTHER fn→fn calls in the codebase
+   have similar "removed variable still referenced" regressions. Quick
+   pass: ` grep -rn "Authorization.*[a-z][A-Za-z]*Header" supabase/functions/`.
+
+FILES TO KNOW
+─────────────
+supabase/functions/send-pay-app/index.ts — Fixed (lines 81-86)
+supabase/functions/_shared/tenantAuth.ts — Reference for authenticateCaller pattern
+src/pages/Invoices.jsx:1487 — "Sync to QB" button (backfill mechanism)
+docs/BACKLOG.md — B28 closed row
+
+GIT STATE
+─────────
+Branch: feat/multi-gc-allocation
+Head: f97b726 (cherry-pick of B28 fix)
+Main: 9896cc5 (PR #25 merge)
+Both branches contain the fix; multi-GC work resumes cleanly from here.

@@ -1620,7 +1620,7 @@ gvLink.href = "https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap
 document.head.appendChild(gvLink);
 
 // ── Main WTC Calculator ────────────────────────────────────────────────────
-export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId, onClose, onBackToList, initialTab }) {
+export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId, onClose, onBackToList, initialTab, onSyncCheck }) {
   // ── Full-bleed layout: remove parent padding so WTC fills content area ──
   useEffect(() => {
     const content = document.querySelector("[data-app-content]");
@@ -1966,6 +1966,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       await supabase.from("proposals").update({ total: proposalTotal }).eq("id", proposalId);
     }
     setSaved(true);
+    if (onSyncCheck) onSyncCheck();
   };
   handleSaveRef.current = handleSave;
 

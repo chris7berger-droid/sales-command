@@ -89,6 +89,17 @@ export default function CallLog({ teamMember, setSubPage }) {
       if (data.length < PAGE) break;
       from += PAGE;
     }
+    const pcData = await fetchAll("proposals", "call_log_id", {
+      filters: [["is", "deleted_at", null]],
+    });
+    const proposalCounts = {};
+    for (const row of pcData) {
+      proposalCounts[row.call_log_id] = (proposalCounts[row.call_log_id] || 0) + 1;
+    }
+    for (const row of allLog) {
+      row._proposalCount = proposalCounts[row.id] || 0;
+    }
+
     setRows(allLog);
     setTeam(tm || []);
     setCustomers(allCx);
@@ -251,6 +262,9 @@ export default function CallLog({ teamMember, setSubPage }) {
                       <span title="Job site address missing — required before proposal" style={{ fontSize: 10, fontWeight: 700, background: "rgba(230,168,0,0.13)", color: "#8a6200", padding: "2px 7px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(230,168,0,0.3)", cursor: "default" }}>
                         ⚠ No Site Addr
                       </span>
+                    )}
+                    {row._proposalCount >= 2 && (
+                      <span style={{ fontSize: 10, fontWeight: 700, background: "rgba(48,207,172,0.12)", color: C.tealDeep, padding: "2px 7px", borderRadius: 10, fontFamily: F.ui }}>{row._proposalCount} GCS</span>
                     )}
                   </div>
                 )},

@@ -93,6 +93,7 @@ as the first line of the Notes column.
 | F21 | T3   | Open   | Multi-GC Screen 1 — selected GCs disappear when search filters them out                | Step 8 preview walkthrough 2026-05-18 | Selected rows hide when the search bar narrows the visible list. Need persistent selection indicator (chip bar or pinned-row section above search results). §7 spec Screen 1. Polish for step 9. |
 | F22 | T3   | Open   | Multi-GC Screen 2 — no inline "Add new primary contact" affordance                     | Step 8 preview walkthrough 2026-05-18 | When a GC customer has zero contacts, the signer dropdown is empty with no way to create one in-flow. §7 line ~1625 calls for inline contact creation. Polish for step 9. |
 | F23 | T3   | Open   | Multi-GC Screen 1 — search scope too narrow                                            | Step 8 preview walkthrough 2026-05-18 | GC picker search limited beyond Commercial-only default; needs broader scope or configurable filter. Polish for step 9. |
+| F27 | T2   | Open   | Customer detail page doesn't surface GC Copy jobs/proposals                             | §10 step 11 smoke 2026-05-19 | Jobs + Proposals tabs join via `call_log.customer_id` (primary GC). Sister-side customers (`proposals.customer_id` where `cloned_from_proposal_id IS NOT NULL`) are invisible. Fix: UNION the primary-customer join with a sister-side query on `proposals.customer_id`. Apply to JOBS, PROPOSALS tabs, and Customers list job-count pills. ~half-day. |
 
 ### Refactor
 

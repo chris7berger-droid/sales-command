@@ -1,0 +1,111 @@
+SC Handoff v131 — 2026-05-20
+============================
+
+SESSION SUMMARY
+Diagnostic + 15-min hotfix. User flagged "didn't get a confirmation
+email" after sending Plenium job 6532 Pay App #1 (invoice 10045).
+Concern was that the pay app didn't actually send — similar shape
+to today's earlier B29 (send-proposal silent failure).
+
+Logs proved the customer DID receive the package; only the SENDER
+confirmation was missing — Outlook had junk-foldered it because
+send-pay-app's confirmation From was hardcoded to
+`noreply@salescommand.app` while send-invoice (which Chris had used
+5 times the same day, all delivered to Inbox) used the sender's own
+verified address as From. Filed + closed as B30.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────
+- `supabase/functions/send-pay-app/index.ts` (lines 401-443):
+  - Guard now `senderEmail && VERIFIED_DOMAINS.includes(senderDomain)`
+    (was `senderEmail` only)
+  - From now `fromAddress` (was hardcoded `noreply@salescommand.app`)
+  - Comment block added explaining the Outlook-junk rationale
+  - `senderDomain` + `fromAddress` already computed at lines 324-327
+    for the customer-facing email path — no new variables introduced
+- `docs/BACKLOG.md`: B30 row added + Closed in same edit
+- Deployed `send-pay-app` to prod with `--no-verify-jwt`
+  (Supabase dashboard: project pbgvgjjuhnpsumnowuym)
+
+DECISIONS / CHOICES MADE
+─────────────────────────
+- Mirrored send-invoice's pattern exactly rather than introducing a
+  new "fallback to noreply" branch. send-invoice's gating is
+  intentional: "otherwise the From would be spoofable" — skip the
+  confirmation entirely when sender domain isn't in VERIFIED_DOMAINS,
+  don't relax security to deliver a non-essential confirmation.
+- Tiered B30 as T1 (not T0) — UX/trust irritation on every pay-app
+  send, but the customer-facing path was already working correctly
+  and there was no money/data impact. Today's B29 was T0 because the
+  customer did NOT receive the proposal.
+- Kept the fire-and-forget pattern (.then/.catch) — didn't switch to
+  send-invoice's `await fetch`. Smaller diff, lower regression risk.
+
+NEW / CLOSED BACKLOG ITEMS
+───────────────────────────
+- B30 Closed (T1) — send-pay-app sender confirmation From routing fix.
+  Same conceptual class as F28 (silent confirmation failure) but a
+  different code path; F28's "move status flip server-side" scope is
+  unchanged and still open.
+
+VERIFICATION
+─────────────
+- Pre-fix: Supabase function logs for execution
+  e784c402-5b10-4d90-8eb5-f457c1f0ae4c (Plenium pay-app send at
+  ~15:09 PDT) showed `Pay-app email response: 200`,
+  `Sender confirmation email: 200`, `qb-sync-invoice response: 200` —
+  every leg succeeded server-side.
+- Customer-side: Plenium's Ethan Thomas replied confirming receipt
+  of the pay-app package (during the session).
+- Sender-side: Chris located the missing confirmation in Outlook Junk,
+  confirming From-address theory.
+- Post-fix: not smoke-tested in-session (user opted to skip smoke).
+  Next pay-app send will be the verification — expected behavior:
+  confirmation arrives in Inbox with `From: <team_members.email for
+  caller>`. If still Junk, From-address theory was incomplete; pull
+  fresh logs and check `Sender confirmation email:` status.
+
+NOT TOUCHED
+─────────────
+- F28 (move proposal/invoice status flip server-side + silent-failure
+  UI banner) — still Open. B30 is narrower than F28; F28's
+  architectural fix would have prevented BOTH B29 and B30 from being
+  invisible, but this session only addressed the B30 routing piece.
+- F29 (post-deploy smoke ritual) — still Open. Would have caught B30
+  pre-user-report if it existed for send-pay-app.
+- Other open backlog items (L15, B14, B12, B1, B2, etc.) — not
+  touched.
+- The two earlier today (v129 B29 hotfix, v130 job 6532 fake-parent
+  DML fix) — pre-existing context for this session, not modified.
+
+NEXT SESSION POINTERS
+──────────────────────
+- Next pay-app send is the live smoke test. If confirmation lands in
+  Inbox with verified-sender From, B30 verified end-to-end.
+- F28 + F29 remain the right next pieces of work for the "silent
+  send-* failure" class. Today saw both B29 (T0 customer-side) and
+  B30 (T1 sender-side) drawn from this class. F28 would have shown
+  a UI banner; F29 would have caught both at deploy time. Either is
+  a meaningful next-loop pickup.
+
+FILES TO KNOW
+──────────────
+- supabase/functions/send-pay-app/index.ts:222-227 — server-side
+  `senderEmail` resolution from team_members (auth_id → email).
+  Audit C9 change (2026-05-09) — replaced caller-supplied senderEmail
+  with this DB-derived value.
+- supabase/functions/send-pay-app/index.ts:324-327 — `senderDomain`
+  + `fromAddress` computation (now reused by the confirmation path).
+- supabase/functions/send-pay-app/index.ts:401-443 — confirmation
+  send block (the fix).
+- supabase/functions/send-invoice/index.ts:100-103, 216-244 — the
+  reference pattern this fix mirrored.
+
+GIT STATE
+─────────
+- Branch: main, clean, up to date with origin/main at 0bf59b5.
+- Merge commit `0bf59b5` from `fix/pay-app-confirmation-from`
+  (commit `dedb43d`). Branch deleted local + remote.
+- Edge function `send-pay-app` deployed to prod independently of the
+  git merge — was deployed first to fix the user-facing issue, then
+  committed.

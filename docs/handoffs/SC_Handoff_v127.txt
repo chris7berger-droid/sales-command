@@ -1,0 +1,135 @@
+SC Handoff v127 — 2026-05-20
+=============================
+
+SESSION SUMMARY
+ERD Loop #19 — Supabase advisor email 2026-05-17 surfaced two ERROR-level
+findings on Command Suite DB, both pointed at `public.v_orphan_auth_users`
+(the steady-state operator monitor view created by S1, migration
+20260509120000): `auth_users_exposed` (the view was reachable by the
+`authenticated` role through Supabase's default grant chain despite the
+S1 REVOKE) and `security_definer_view` (the view ran as creator instead
+of caller — the S1 comment claimed SECURITY INVOKER but the WITH clause
+was never set, so the Postgres default DEFINER applied). Build session
+moved the view to a non-PostgREST-exposed `private` schema with
+`security_invoker = on` and minimal grants; audit terminal walked the
+12-item checklist (11 clean + advisor cleared on both ERRORs; 2 minor
+doc nits applied in merge); merged to main.
+
+CHANGES SHIPPED (commits a7456e7..9d647b7, merged FF to main)
+─────────────────────────────────────────────────────────────
+a7456e7 — Closes S3: move v_orphan_auth_users from public to private schema
+1a97490 — Touches S3: add audit artifact (docs/plans/s3_…)
+9d647b7 — Touches S3: audit doc nits on checklist rows 3 + 4
+
+Migration: supabase/migrations/20260520120000_orphan_auth_view_to_private.sql
+  - CREATE SCHEMA IF NOT EXISTS private (REVOKE all from
+    public/anon/authenticated; GRANT USAGE to service_role)
+  - CREATE VIEW private.v_orphan_auth_users WITH (security_invoker = on)
+    (body identical to S1 — auth_id, email, created_at, last_sign_in_at)
+  - REVOKE all from public/anon/authenticated; GRANT SELECT to service_role
+  - DROP VIEW IF EXISTS public.v_orphan_auth_users
+
+Rollback: supabase/rollbacks/20260520120100_revert_orphan_auth_view_to_private.sql
+  - Recreates public.v_orphan_auth_users at S1-era definition (re-opens
+    both advisor findings — emergency-only)
+  - DROP private.v_orphan_auth_users; private schema retained (idempotent
+    CREATE SCHEMA IF NOT EXISTS makes leaving it harmless)
+
+Audit artifact: docs/plans/s3_orphan_auth_view_to_private.md
+  - 12-item verification checklist (7 prod SQL + 4 local + 1 advisor)
+  - Risk surface R1–R4
+  - Scope boundary (S2 path updated, get_user_tenant_id unchanged,
+    46 WARN-level advisor findings out of scope)
+
+DECISIONS
+─────────
+- `private` schema (not `internal`/`audit`): conventional Supabase
+  naming for non-API schemas; no collision in this repo.
+- View runs `security_invoker = on` even though service_role bypasses
+  RLS — defense-in-depth in case the grant set ever expands.
+- Keep the private schema on rollback (don't DROP SCHEMA private)
+  to avoid breaking unrelated future objects added there.
+- BACKLOG: S3 closed in same edit that bumped S2's view path from
+  public. to private. (S2 alarm still unbuilt; uses service_role,
+  works unchanged against the new path).
+- Direct FF merge to main rather than PR ceremony — migration was
+  already live in prod via `npm run db:push`, so the priority was
+  resolving the file-vs-ledger gap (R3) ASAP.
+
+NEW / CLOSED BACKLOG ITEMS
+──────────────────────────
+S3 (T0, Closed 2026-05-20) — Move v_orphan_auth_users from public to
+  private. Two ERROR-level advisor findings cleared
+  (auth_users_exposed + security_definer_view). Migration
+  20260520120000, branch fix/orphan-auth-view-to-private (deleted post-
+  merge), commit 9d647b7.
+
+S2 (T2, Open) — Path updated from public.v_orphan_auth_users to
+  private.v_orphan_auth_users; still unbuilt; still blocks F7.
+
+(no new items)
+
+VERIFICATION
+────────────
+Audit terminal walked 12-item checklist on docs/plans/s3_orphan_auth_view_to_private.md:
+  - 7 prod SQL queries: clean (old view gone, new view present with
+    security_invoker, minimal grants, body correct, returns 0 rows in
+    prod, no other public views reference auth.users)
+  - 4 local checks: clean (config.toml has no [api] block so defaults
+    apply; grep src/ + supabase/functions/ for v_orphan_auth_users → 0
+    hits; scripts/check-migration-safety.sh passes; BACKLOG hygiene
+    confirmed)
+  - 1 advisor refresh: both auth_users_exposed and security_definer_view
+    gone from Command Suite DB ERROR list
+
+Doc nits applied in merge commit 9d647b7:
+  - Row 3 Expected: `security_invoker=true` → `security_invoker=on`
+    (Postgres normalizes reloptions regardless of DDL phrasing)
+  - Row 4 Expected: clarified that view owner (postgres) appears with
+    all privileges as owner-implicit and is not API-reachable; pass
+    criterion is no anon/authenticated/public
+
+R3 (file-vs-ledger gap from the audit doc) resolved by the FF merge
+of `fix/orphan-auth-view-to-private` into main; main now carries the
+migration file alongside the already-applied ledger entry.
+
+NOT TOUCHED
+───────────
+- 46 WARN-level advisor findings on Command Suite DB — out of scope for
+  S3; worth a separate triage loop against the 2026-05-11 audit
+  (0C/6H/14M/6L). May map to existing BACKLOG rows or surface new ones.
+- get_user_tenant_id() body — unchanged; S1's fix stays in effect.
+- All other open security rows (H11, B13, L15, T4 audit-triage row).
+- The 13M/9L from the 2026-05-11 deep audit are still un-triaged
+  (BACKLOG T4 row).
+
+NEXT SESSION POINTERS
+─────────────────────
+1. Triage the 46 WARN-level advisor findings — open a loop against the
+   Command Suite DB advisor list; cross-reference with the 2026-05-11
+   audit so we don't duplicate H11/B13/L15 work.
+2. S2 (daily orphan alarm) is now path-correct against private.; if
+   F7 multi-tenant onboarding is scheduled soon, this is the next
+   security-side item to close.
+3. The 2026-05-11 deep audit T4 row still needs the original report
+   artifact found (branch claude/sweet-johnson-vvCCt was deleted).
+   Without it, the 13M/9L stay un-triaged.
+
+FILES TO KNOW
+─────────────
+- supabase/migrations/20260520120000_orphan_auth_view_to_private.sql
+- supabase/rollbacks/20260520120100_revert_orphan_auth_view_to_private.sql
+- docs/plans/s3_orphan_auth_view_to_private.md (audit artifact)
+- supabase/migrations/20260509120000_get_user_tenant_id_remove_fallback.sql
+  (S1, original definition of the view — preserved unchanged)
+- supabase/config.toml (no [api] block; PostgREST exposes default
+  schemas only: public, graphql_public, storage)
+- docs/BACKLOG.md (S2 path bumped, S3 closed)
+
+GIT STATE
+─────────
+Branch: main @ 9d647b7
+Remote: up to date with origin/main
+Working tree: clean
+Feature branch fix/orphan-auth-view-to-private: deleted locally + remote
+Migration ledger: aligned (20260520120000 in prod and on main)

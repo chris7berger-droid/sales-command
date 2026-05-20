@@ -399,7 +399,12 @@ serve(async (req) => {
     }
 
     // ── Send confirmation to sender (fire-and-forget) ──────────────────
-    if (senderEmail) {
+    // Only send when sender domain is in VERIFIED_DOMAINS so the From is
+    // the sender's own address — Outlook/M365 routinely junk-folder a
+    // noreply@salescommand.app → chris@hdspnv.com confirmation. Mirror
+    // send-invoice's gating; if unverified, skip rather than fall back to
+    // noreply (would re-trigger the junk-folder path we're fixing).
+    if (senderEmail && VERIFIED_DOMAINS.includes(senderDomain)) {
       const attachmentList = [
         payAppB64 ? "Completed Pay App" : null,
         sovB64 ? "Schedule of Values" : null,
@@ -428,7 +433,7 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          from: "noreply@salescommand.app",
+          from: fromAddress,
           to: senderEmail,
           subject: `✓ Payment Application Package Sent — ${escapeHtml(recipientName || verifiedRecipient)}`,
           html: confirmHtml,

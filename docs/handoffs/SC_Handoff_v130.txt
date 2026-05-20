@@ -1,0 +1,85 @@
+SC Handoff v130 — 2026-05-20
+============================
+
+SESSION SUMMARY
+Short diagnostic session. No code changes. Helped user resolve a
+prod data inconsistency: a fake-parent call_log row (created via
+manual job # override during the slow migration from the prior
+system) was occupying the parent slot for job #6532 and blocking
+creation of the real base job.
+
+Root cause: the unique index
+  idx_call_log_unique_job_number (tenant_id, job_number, COALESCE(co_number, 0))
+allows a parent (co_number NULL → 0) to coexist with COs
+(co_number 1..N). A salesperson had entered "6532 CO1" using the
+manual override path (not the CO wizard, which requires a parent),
+which stored job_number=6532, co_number=NULL, is_change_order=false,
+with the "CO1" label living only in display_job_number. That row
+sat in slot (6532, 0), so any new override at 6532 hit 23505.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────
+None to the repo. Two prod DML statements run via Supabase SQL editor,
+plus one wizard-created row:
+
+1. UPDATE call_log SET co_number=1, is_change_order=true WHERE id=3596;
+     — converted the fake parent into a real CO occupying (6532, 1),
+       freeing the (6532, 0) parent slot.
+
+2. New Inquiry wizard, manual override job # 6532 →
+     id 3616, display "6532 - Reed High School Polish",
+     co_number NULL, is_change_order=false, parent_job_id NULL.
+
+3. UPDATE call_log SET parent_job_id=3616 WHERE id=3596;
+     — linked the CO to its real parent.
+
+Verified end state:
+  3616 — 6532, co_number NULL, parent_job_id NULL  (base)
+  3596 — 6532, co_number 1,    parent_job_id 3616  (CO1)
+
+DECISIONS / CHOICES MADE
+─────────────────────────
+- Converted the existing row rather than archiving + re-creating.
+  All children of id 3596 (any proposals, work types, attachments,
+  QB sub-customer mapping) stay attached — which is correct since
+  3596 *is* the CO. Re-creating would have orphaned them.
+- display_job_number on 3596 was already "6532 CO1 - …" — left as-is.
+- display_job_number on the new parent (3616) is "6532 - Reed High
+  School Polish" — entered by user in the wizard, not derived.
+
+NOT TOUCHED
+─────────────
+- No repo changes. No commits. No deploys.
+- Did not check whether 3596 had a qb_customer_id (if it does, the
+  QB sub-customer is named after the CO label — that's fine).
+- Did not check whether 3596 has a proposal or schedule record
+  attached. If it does, those continue to function as a CO as
+  expected.
+
+OPEN QUESTION / FOLLOW-UP
+──────────────────────────
+This pattern (manual-override-because-parent-doesn't-exist-yet)
+is likely to repeat during the migration from the prior system.
+Worth considering, but not filed as backlog this session:
+  - A "create parent" affordance from a CO that has no parent_job_id.
+  - A validation/warning when manual override stuffs "CO" into the
+    display_job_number string without setting is_change_order.
+
+If this recurs, file a B-item. Not filing speculatively per the
+"don't add backlog items the user didn't ask for" pattern.
+
+GIT STATE
+─────────
+- Branch: main, clean, up to date with origin/main.
+- No uncommitted changes.
+
+FILES TO KNOW
+──────────────
+- supabase/migrations/20260507130000_call_log_unique_job_number.sql
+    The partial unique index that drives the slot logic.
+- src/components/NewInquiryWizard.jsx:280-398
+    Manual override / CO wizard paths and the 23505 error handler.
+
+NEXT SESSION POINTERS
+──────────────────────
+- No carry-over. Pure diagnostic ticket, fully resolved.

@@ -89,11 +89,32 @@ async function findCustomer(name: string, accessToken: string, realmId: string) 
 function dedupRepeated(s: string): string {
   if (!s) return s;
   const parts = s.split(" - ");
-  if (parts.length < 2 || parts.length % 2 !== 0) return s;
-  const half = parts.length / 2;
-  const a = parts.slice(0, half).join(" - ");
-  const b = parts.slice(half).join(" - ");
-  return a.toLowerCase() === b.toLowerCase() ? a : s;
+  if (parts.length >= 2) {
+    // Even-split: "X - Y - X - Y" → "X - Y"
+    if (parts.length % 2 === 0) {
+      const half = parts.length / 2;
+      const a = parts.slice(0, half).join(" - ");
+      const b = parts.slice(half).join(" - ");
+      if (a.toLowerCase() === b.toLowerCase()) return a;
+    }
+    // Odd-split: "X - Y - Z - X - Y" trailing repeat of first N segments
+    for (let n = 1; n < parts.length; n++) {
+      const head = parts.slice(0, n).join(" - ");
+      const tail = parts.slice(parts.length - n).join(" - ");
+      if (head.toLowerCase() === tail.toLowerCase() && n < parts.length) {
+        return parts.slice(0, parts.length - n).join(" - ");
+      }
+    }
+  }
+  // Whitespace-variant doubles: "Name  Name" or "Name Name"
+  const trimmed = s.trim();
+  const spaceIdx = trimmed.indexOf(" ");
+  if (spaceIdx > 0) {
+    const first = trimmed.slice(0, spaceIdx).trim();
+    const rest = trimmed.slice(spaceIdx).trim();
+    if (first.toLowerCase() === rest.toLowerCase()) return first;
+  }
+  return s;
 }
 
 const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.app", "https://www.scmybiz.com", "https://scmybiz.com"];
@@ -222,7 +243,9 @@ serve(async (req) => {
     // ── 2. Build sub-customer (job) display name ───────────────────────
     const jobNum = job.display_job_number || job.job_number || "";
     const coPrefix = job.is_change_order ? `CO${job.co_number || ""} ` : "";
-    const jobName = dedupRepeated((job.job_name || "").trim());
+    const rawJobName = (job.job_name || "").trim();
+    const jobName = dedupRepeated(rawJobName);
+    if (jobName !== rawJobName) console.log("qb-create-job: dedupRepeated transformed", JSON.stringify(rawJobName), "→", JSON.stringify(jobName));
     // Format: "10002 - Job Name" or "10002 CO1 - Job Name"
     // QB already shows parent customer name, so sub-customer only needs job info
     // If job name matches customer name, just use the job number

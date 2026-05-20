@@ -54,7 +54,7 @@ CREATE POLICY "invoice_lines_public_read_token" ON public.invoice_lines
   USING (
     EXISTS (
       SELECT 1 FROM public.invoices i
-       WHERE i.id = invoice_id
+       WHERE i.id = invoice_lines.invoice_id
          AND i.viewing_token IS NOT NULL
          AND i.viewing_token::text = public.request_viewing_token()
          AND i.viewing_token_expires_at IS NOT NULL
@@ -69,7 +69,7 @@ CREATE POLICY "proposals_public_view_token" ON public.proposals
   USING (
     EXISTS (
       SELECT 1 FROM public.invoices i
-       WHERE i.proposal_id = id::text
+       WHERE i.proposal_id = proposals.id::text
          AND i.viewing_token IS NOT NULL
          AND i.viewing_token::text = public.request_viewing_token()
          AND i.viewing_token_expires_at IS NOT NULL
@@ -84,7 +84,7 @@ CREATE POLICY "call_log_public_view_token" ON public.call_log
   USING (
     EXISTS (
       SELECT 1 FROM public.invoices i
-       WHERE i.call_log_id = id
+       WHERE i.call_log_id = call_log.id
          AND i.viewing_token IS NOT NULL
          AND i.viewing_token::text = public.request_viewing_token()
          AND i.viewing_token_expires_at IS NOT NULL
@@ -126,7 +126,7 @@ CREATE POLICY "proposal_wtc_public_view_token" ON public.proposal_wtc
   USING (
     EXISTS (
       SELECT 1 FROM public.invoices i
-       WHERE i.proposal_id = proposal_id::text
+       WHERE i.proposal_id = proposal_wtc.proposal_id::text
          AND i.viewing_token IS NOT NULL
          AND i.viewing_token::text = public.request_viewing_token()
          AND i.viewing_token_expires_at IS NOT NULL

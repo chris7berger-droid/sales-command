@@ -1,0 +1,124 @@
+SC Handoff v129 — 2026-05-20
+=============================
+
+SESSION SUMMARY
+Bug-fix + post-mortem session triggered by user repro on job 10109
+(Crossbow Daycare). Single regression from v128's H11 commit broke
+every proposal send for ~1h45m — silent customer-facing failure.
+Fixed, deployed, verified live. Post-mortem produced 2 prevention
+items (F28, F29) and 1 global memory rule.
+
+CHANGES SHIPPED (commits 90f394f..a34e503, all on main)
+─────────────────────────────────────────────────────────────
+90f394f — Closes B29: coerce escapeHtml input to string in send-proposal
+631e59a — backlog: F28 + F29 from B29 post-mortem
+a34e503 — backlog: B29 verified live on prod
+
+Edge functions deployed:
+  send-proposal (B29 fix — escapeHtml input coerce)
+
+No migrations.
+
+Cross-repo:
+  chris7berger-droid/claude-personal-state @ 86f4b99 — added
+  feedback_edge_fn_post_deploy_smoke.md global rule + synced 2 prior
+  uncommitted memory files (concern_scale, terminal_close_handoff).
+
+DECISIONS
+─────────────────────────────────────────────────────────────
+- Hotfixed straight to main (no PR / no feature branch) — matched the
+  pattern of H11/B24/B11 direct-to-main hotfix commits. T0 customer-
+  facing breakage where the existing main was already broken; PR
+  ceremony would have prolonged the outage.
+- Defensive fix at the escapeHtml helper (widen signature to `unknown`
+  + String() coerce) rather than at the call site. Covers every
+  current call site AND any future helper consumer.
+- Verified by pull-back + re-send of 10109 on prod (not staging),
+  since the only way to confirm the edge fn now works end-to-end is
+  against a real proposal + Resend + DB writes. User confirmed all
+  three side effects landed (customer email, rep email, call_log.stage
+  flip).
+- Post-mortem produced 2 prevention items (F28, F29) deferred to this
+  weekend per user. Not shipping them in-session — clean separation
+  between hotfix and architectural follow-up.
+
+NEW/CLOSED BACKLOG ITEMS
+─────────────────────────────────────────────────────────────
+Closed:
+  B29 (T0) — send-proposal 500s on every send since H11 deploy
+
+Opened:
+  F28 (T2, Lev 9, half-day) — Move proposal/invoice status flip
+    server-side + add silent-failure UI guard. Architectural fix for
+    the class of bug that made B29 invisible.
+  F29 (T2, Lev 7, 1h) — Post-deploy smoke ritual for money-bearing
+    edge fns. Smoke script that asserts fn 200 + DB side effect +
+    error log clean after each deploy.
+
+VERIFICATION
+─────────────────────────────────────────────────────────────
+- B29 fix: pull-back + re-send of proposal 10109 (Crossbow Daycare,
+  signer douglasd@kalbconstruction.com, rep Joe Votaw → Sales2@hdspnv.com).
+  All three side effects confirmed live: customer email delivered,
+  rep email delivered, call_log.stage flipped Wants Bid → Has Bid.
+- Edge fn logs: pre-fix showed 4 invocations w/ "input.replace is not
+  a function" TypeError. Post-fix invocation should show clean 200 +
+  Resend response logs (verify on next send if needed).
+- Memory rule reachable from any machine via claude-personal-state
+  push (86f4b99).
+
+NOT TOUCHED (user action items)
+─────────────────────────────────────────────────────────────
+- Backfill of other proposals sent during the broken window
+  (2026-05-20 16:46:00+00 → 18:35:00+00 UTC). Query in B29 backlog
+  row + repeated in next-session pointer below. Pull-back + re-send
+  each one from the UI.
+- F28 + F29 implementation (weekend target per user).
+- Session handoff v129 (this file).
+
+NEXT SESSION POINTERS
+─────────────────────────────────────────────────────────────
+→ Backfill broken-window proposals:
+    select p.id, p.proposal_number, p.sent_at, p.sent_to_email,
+           cl.display_job_number, cl.customer_name
+    from proposals p
+    left join call_log cl on cl.id = p.call_log_id
+    where p.sent_at between '2026-05-20 16:46:00+00'
+                        and '2026-05-20 18:35:00+00'
+    order by p.sent_at;
+  For each row: open in UI → Pull Back → Send again. 10109 already done.
+→ F29 first (1h, immediate protection), F28 second (half-day,
+  architectural). Both T2.
+→ When F28 lands, B29 + similar silent-failure bugs become
+  observable rather than user-reported.
+→ Read MEMORY.md feedback_edge_fn_post_deploy_smoke.md before next
+  edge fn deploy. Smoke before declaring done.
+
+POST-MORTEM (why v128 H11 missed this)
+─────────────────────────────────────────────────────────────
+1. TypeScript types in Deno edge fns are stripped at runtime.
+   `escapeHtml(input: string)` lied — runtime accepted INT and
+   crashed on `.replace()`.
+2. `proposals.status='Sent'` is flipped client-side BEFORE the edge
+   fn invoke (ProposalPDFModal.jsx:73-83). When the fn 500'd, DB still
+   showed Sent. The UI lied. F28 fixes this architecturally.
+3. No post-deploy smoke ritual for edge fns. Deploy exit 0 was
+   treated as success. 4 errored invocations sat in logs before user
+   repro. F29 + the new global memory rule address this.
+4. H11 was a 138-LOC bundled refactor (auth + body shape + escaping
+   + signing URL + allowlist). Bug anywhere = silent failure
+   everywhere. Future security refactors should split into ≤50-LOC
+   commits, each smoke-tested independently.
+
+FILES TO KNOW
+─────────────────────────────────────────────────────────────
+supabase/functions/send-proposal/index.ts — B29 fix at escapeHtml helper (line 11)
+src/components/ProposalPDFModal.jsx — F28 target: lines 73-83 (status flip pre-fn)
+docs/BACKLOG.md — B29/F28/F29 rows
+~/.claude/projects/-Users-chrisberger/memory/feedback_edge_fn_post_deploy_smoke.md
+  — new global rule, synced to claude-personal-state repo
+
+GIT STATE
+─────────────────────────────────────────────────────────────
+Branch: main (clean, up to date with origin)
+HEAD: a34e503 (before handoff commit)

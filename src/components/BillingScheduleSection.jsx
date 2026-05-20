@@ -58,7 +58,8 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
         supabase.from("invoices")
           .select("id", { count: "exact", head: true })
           .eq("proposal_id", proposal.id)
-          .is("deleted_at", null),
+          .is("deleted_at", null)
+          .neq("status", "New"),
       ]);
       setLines(lns || []);
       setPayApps(apps || []);

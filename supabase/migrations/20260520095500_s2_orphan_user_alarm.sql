@@ -19,6 +19,10 @@ REVOKE EXECUTE ON FUNCTION public.get_orphan_auth_user_count() FROM authenticate
 REVOKE EXECUTE ON FUNCTION public.get_orphan_auth_user_count() FROM anon;
 GRANT EXECUTE ON FUNCTION public.get_orphan_auth_user_count() TO service_role;
 
+-- Enable required extensions
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
+
 -- Schedule daily cron at 6am UTC (11pm PST) via pg_cron + pg_net
 SELECT cron.schedule(
   'check-orphan-users-daily',

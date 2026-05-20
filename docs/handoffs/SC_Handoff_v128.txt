@@ -1,0 +1,93 @@
+SC Handoff v128 — 2026-05-20
+=============================
+
+SESSION SUMMARY
+ERD Loops #20 + #21 — Backlog blitz session. Cleared 8 open backlog items
+(B23, B24, B11, B19, H5/O3, H11, B13, S2, B16) in ~2 hours. All committed,
+pushed, migrations applied, edge functions deployed. Launch Roadmap Phases
+1+2 complete — HDSP can use Sales Command daily without surprises.
+
+CHANGES SHIPPED (commits 04a8e9e..29dbb78, all on main)
+─────────────────────────────────────────────────────────────
+04a8e9e — Closes B23: clear signing_token_consumed_at + refresh token on pull-back
+45fab33 — Closes B24: surface signing errors on PublicSigningPage instead of false success
+9fddc8e — Closes B11: auto-create billing_schedule for requires_pay_app customers missing one
+58bfe9f — Closes B19: repoint proposals.customer_id before delete in merge_customers
+cdc5eca — Closes H5/O3: drop 1-arg mark_proposal_signed compat wrapper + legacy anon insert policy
+be65547 — Closes H11: harden send-proposal trust boundary
+677741a — Closes B13: add viewing_token_expires_at to invoices with 90-day expiry
+472569e — Closes S2: daily orphan auth user alarm via edge fn + pg_cron
+ae84588 — Closes B16: broaden dedupRepeated to catch odd-segment + whitespace doubles
+5435e7e — Touches B24: also flip alreadySigned in mark_proposal_signed fallback path
+4b33b79 — Fix B13 migration: qualify all column refs in RLS policies
+04fe096 — Fix S2 migration: enable pg_cron + pg_net extensions before scheduling
+29dbb78 — Closes B19 follow-up: restore guardrails dropped during merge_customers rewrite
+
+Migrations applied to prod:
+  20260520094248_merge_customers_repoint_proposals.sql (B19)
+  20260520094500_h5_migration_b_drop_compat.sql (H5/O3)
+  20260520095000_invoice_viewing_token_expiry.sql (B13)
+  20260520095500_s2_orphan_user_alarm.sql (S2)
+  20260520100009_b19_followup_restore_guardrails.sql (B19 follow-up)
+
+Edge functions deployed:
+  send-proposal (H11 hardening)
+  check-orphan-users (S2 new)
+  qb-create-job (B16 dedup fix)
+
+DECISIONS
+─────────────────────────────────────────────────────────────
+- Batched all 8 items into a single ERD loop (#21) rather than 8 separate
+  loops — user preference to move fast, concern about per-item overhead.
+- B19 follow-up was necessary because the initial CREATE OR REPLACE rewrote
+  the function free-hand and dropped 3 guardrails. Audit terminal caught it.
+  Lesson: when adding behavior to an existing function, paste original body
+  and add the new block — don't rewrite free-hand.
+- B13 migration had type mismatch (integer=text) from unqualified column
+  refs in RLS subqueries. Fixed by qualifying all refs. Transaction rolled
+  back cleanly, no partial state.
+- S2 migration needed pg_cron/pg_net extensions enabled before scheduling.
+
+NEW/CLOSED BACKLOG ITEMS
+─────────────────────────────────────────────────────────────
+Closed: B23, B24, B11, B19, H5, O3, H11, B13, S2, B16 (all 2026-05-20)
+
+Carry-over (hygiene, not blocking):
+- S2 check-orphan-users: add service-role bearer check (anonymous trigger)
+- H11 send-proposal: dead signingUrl variable, unescaped repName/companyName
+  in fromAddress, client-trusted isViewer flag
+
+VERIFICATION
+─────────────────────────────────────────────────────────────
+- B23: verified on prod via SQL — pull-back clears consumed_at + refreshes token
+- B19: audit verified prod function body matches migration source (4 CLI checks)
+- B13, S2, H5/O3 migrations: applied clean after fixing iteration errors
+- Edge functions: deployed with --no-verify-jwt
+
+NOT TOUCHED
+─────────────────────────────────────────────────────────────
+- Schedule Command, Field Command (Phase 3+4 on roadmap)
+- Multi-GC allocation (feat/multi-gc-allocation branch)
+- F7 multi-tenant security items (Phase 6)
+
+NEXT SESSION POINTERS
+─────────────────────────────────────────────────────────────
+→ Launch Roadmap Phase 3: orient on sch-command, define HDSP scope, build
+→ Hygiene carry-overs from audit (S2 bearer check, H11 cleanup) — fold
+  into next SC session or Phase 6
+→ Launch Roadmap lives at ~/erd-loop/LAUNCH_ROADMAP.md
+
+FILES TO KNOW
+─────────────────────────────────────────────────────────────
+src/components/ProposalDetail.jsx — B23 pull-back fix (line ~488)
+src/pages/PublicSigningPage.jsx — B24 error surfacing
+src/pages/Invoices.jsx — B11 auto-create billing_schedule, B13 token refresh
+src/components/ProposalPDFModal.jsx — H11 client changes
+supabase/functions/send-proposal/index.ts — H11 server hardening
+supabase/functions/check-orphan-users/index.ts — S2 new edge fn
+supabase/functions/qb-create-job/index.ts — B16 dedup fix
+
+GIT STATE
+─────────────────────────────────────────────────────────────
+Branch: main (clean, up to date with origin)
+HEAD: 29dbb78

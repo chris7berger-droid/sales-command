@@ -8,8 +8,8 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
 const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.app", "https://www.scmybiz.com", "https://scmybiz.com"];
 
-function escapeHtml(input: string): string {
-  return input
+function escapeHtml(input: unknown): string {
+  return String(input ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

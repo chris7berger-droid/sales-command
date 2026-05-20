@@ -372,6 +372,7 @@ export default function PublicSigningPage() {
         });
         if (rpcErr) {
           if ((rpcErr.message || "").includes("ALREADY_SIGNED")) {
+            alreadySigned = true;
             qbBlocked = true;
           } else {
             throw rpcErr;

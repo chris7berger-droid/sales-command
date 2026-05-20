@@ -1076,7 +1076,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
   async function updateStatus(newStatus) {
     const updates = { status: newStatus };
-    if (newStatus === "Sent" && !inv.sent_at) updates.sent_at = new Date().toISOString();
+    if (newStatus === "Sent" && !inv.sent_at) {
+      updates.sent_at = new Date().toISOString();
+      updates.viewing_token_expires_at = new Date(Date.now() + 90 * 86400000).toISOString();
+    }
     if (newStatus === "Paid" && !inv.paid_at) updates.paid_at = new Date().toISOString();
     const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
     if (error) { alert(error.message); return; }
@@ -1589,7 +1592,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           hideSend={!!linkedPayApp}
           onClose={() => setShowPDF(false)}
           onSent={async (responseData) => {
-            const updates = { status: "Sent", sent_at: new Date().toISOString(), stripe_checkout_id: responseData?.checkoutId || null, stripe_checkout_url: responseData?.checkoutUrl || null };
+            const updates = { status: "Sent", sent_at: new Date().toISOString(), viewing_token_expires_at: new Date(Date.now() + 90 * 86400000).toISOString(), stripe_checkout_id: responseData?.checkoutId || null, stripe_checkout_url: responseData?.checkoutUrl || null };
             await supabase.from("invoices").update(updates).eq("id", inv.id);
             setInv(prev => ({ ...prev, ...updates }));
             onUpdated && onUpdated();

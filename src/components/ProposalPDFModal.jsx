@@ -61,13 +61,6 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
     setSending(true);
     setSendError(null);
     try {
-      const salesName = proposal.call_log?.sales_name || "";
-      let repEmail = "";
-      if (salesName) {
-        const { data: rep } = await supabase.from("team_members").select("email").eq("name", salesName).maybeSingle();
-        repEmail = rep?.email || "";
-      }
-
       // H5: refresh signing_token_expires_at BEFORE Resend fires so the
       // link the customer is about to receive can't be DOA. Also flips
       // status='Sent' and records sent_at/sent_to_email here (was at
@@ -99,17 +92,9 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
       const signerContact = contacts.find(c => c.email === signerEmail);
       const { data: fnData, error: fnError } = await supabase.functions.invoke("send-proposal", {
         body: {
-          customerEmail: signerEmail,
-          customerName: signerContact?.name || proposal.call_log?.customer_name || "Customer",
-          repEmail,
-          repName: salesName,
-          companyName: COMPANY.name,
-          companyTagline: COMPANY.tagline,
-          companyPhone: COMPANY.phone,
-          proposalNumber: proposal.proposal_number || proposal.id,
-          jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
-          signingUrl,
-          emailIntro: proposal.intro || COMPANY.proposalEmailIntro,
+          proposalId: proposal.id,
+          recipientEmail: signerEmail,
+          recipientName: signerContact?.name || proposal.call_log?.customer_name || "Customer",
         },
       });
       if (fnError) throw new Error(fnError.message || "Send failed.");
@@ -120,17 +105,10 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
         const vContact = contacts.find(c => c.email === vEmail);
         await supabase.functions.invoke("send-proposal", {
           body: {
-            customerEmail: vEmail,
-            customerName: vContact?.name || "Viewer",
-            repEmail,
-            repName: salesName,
-            companyName: COMPANY.name,
-            companyTagline: COMPANY.tagline,
-            companyPhone: COMPANY.phone,
-            proposalNumber: proposal.proposal_number || proposal.id,
-            jobName: proposal.call_log?.job_name || proposal.call_log?.display_job_number || "",
-            signingUrl,
-            emailIntro: proposal.intro || COMPANY.proposalEmailIntro,
+            proposalId: proposal.id,
+            recipientEmail: vEmail,
+            recipientName: vContact?.name || "Viewer",
+            isViewer: true,
           },
         });
       }

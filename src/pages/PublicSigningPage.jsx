@@ -34,6 +34,7 @@ export default function PublicSigningPage() {
   const [name, setName] = useState("");
   const [signing, setSigning] = useState(false);
   const [signed, setSigned] = useState(false);
+  const [signError, setSignError] = useState(null);
   const [config, setConfig] = useState(DEFAULTS);
   const [pulledBack, setPulledBack] = useState(false);
   const [repInfo, setRepInfo] = useState(null);
@@ -384,9 +385,13 @@ export default function PublicSigningPage() {
         supabase.functions.invoke("qb-create-job", { body: { callLogId: proposal.call_log_id, proposalId: proposal.id } }).catch(() => {});
       }
 
-      setSigned(true);
+      if (alreadySigned) {
+        setSignError("This proposal has already been signed.");
+      } else {
+        setSigned(true);
+      }
     } catch (_) {
-      alert("Something went wrong. Please try again.");
+      setSignError("Something went wrong. Please try again.");
     }
     setSigning(false);
   }
@@ -572,7 +577,13 @@ export default function PublicSigningPage() {
         )}
 
         {/* Signing */}
-        {!signed ? (
+        {signError ? (
+          <div style={{ background: "white", borderRadius: 14, border: "2px solid #DC2626", padding: "40px 32px", textAlign: "center", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: T.gray900, marginBottom: 8 }}>{signError}</div>
+            <div style={{ fontSize: 13, color: T.gray500 }}>Please contact {config.company_name} if you need assistance.</div>
+          </div>
+        ) : !signed ? (
           <div id="signing-section" data-no-print style={{ background: "white", borderRadius: 14, border: `2px solid ${T.green}`, padding: "28px 32px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: T.gray900, marginBottom: 6 }}>Accept &amp; Sign</div>
             <div style={{ fontSize: 13, color: T.gray500, marginBottom: 20 }}>Type your full name below to electronically sign and accept this proposal.</div>

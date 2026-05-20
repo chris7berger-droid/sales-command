@@ -98,6 +98,30 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
         onOpenPayApp(p);
         return;
       }
+      // Customer flagged for pay apps but no schedule yet — auto-create from WTCs
+      if (p.call_log_id) {
+        const { data: cl } = await supabase.from("call_log").select("customer_id, customers(requires_pay_app)").eq("id", p.call_log_id).maybeSingle();
+        if (cl?.customers?.requires_pay_app) {
+          const { data: wtcRows } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id);
+          if (wtcRows?.length) {
+            const total = wtcRows.reduce((s, w) => s + calcWtcPrice(w), 0);
+            const { data: newSch } = await supabase.from("billing_schedule").insert({
+              proposal_id: p.id, contract_sum: total, retainage_pct: 5, status: "active",
+            }).select().single();
+            if (newSch) {
+              const lines = wtcRows.map((w, i) => ({
+                billing_schedule_id: newSch.id,
+                description: w.work_types?.name || `Work Type ${i + 1}`,
+                scheduled_value: calcWtcPrice(w),
+                ordinal: i,
+              }));
+              await supabase.from("billing_schedule_lines").insert(lines);
+              onOpenPayApp(p);
+              return;
+            }
+          }
+        }
+      }
     }
 
     setSelProposal(p);

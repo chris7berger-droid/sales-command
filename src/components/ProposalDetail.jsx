@@ -488,6 +488,7 @@ async function deletePropAttachment(fullName) {
     const { error: propErr } = await supabase.from("proposals").update({
       status: "Draft", approved_at: null, sent_at: null, sent_to_email: null,
       internal_approval: false, approved_by: null, approval_reason: null,
+      signing_token_consumed_at: null, signing_token: crypto.randomUUID(),
     }).eq("id", p.id);
     if (propErr) { alert("Pull back failed resetting proposal: " + propErr.message); return; }
     if (p.call_log_id) {

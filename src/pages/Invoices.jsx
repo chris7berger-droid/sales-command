@@ -1253,7 +1253,12 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       return;
     }
     if (!confirm("Pull back this invoice? It will reset to New and invalidate any payment link.")) return;
-    const updates = { status: "New", sent_at: null, stripe_checkout_id: null, stripe_checkout_url: null, stripe_payment_id: null, paid_at: null };
+    try {
+      await supabase.functions.invoke("deactivate-payment-link", { body: { invoiceId: inv.id } });
+    } catch (e) {
+      console.warn("Payment link deactivation failed on pullback (non-blocking):", e);
+    }
+    const updates = { status: "New", sent_at: null, stripe_checkout_id: null, stripe_checkout_url: null, stripe_payment_link_id: null, stripe_payment_id: null, paid_at: null };
     const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
     if (error) { alert(error.message); return; }
     if (linkedPayApp) {
@@ -1276,15 +1281,21 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       if (qbResult?.error) { alert(`QuickBooks error: ${qbResult.error}`); setSaving(false); return; }
     }
 
+    try {
+      await supabase.functions.invoke("deactivate-payment-link", { body: { invoiceId: inv.id } });
+    } catch (e) {
+      console.warn("Payment link deactivation failed on void/delete (non-blocking):", e);
+    }
+
     if (showVoidModal === "delete") {
-      const { error: delErr } = await supabase.from("invoices").update({ deleted_at: new Date().toISOString() }).eq("id", inv.id);
+      const { error: delErr } = await supabase.from("invoices").update({ deleted_at: new Date().toISOString(), stripe_payment_link_id: null }).eq("id", inv.id);
       if (delErr) { alert(delErr.message); setSaving(false); return; }
       setSaving(false);
       setShowVoidModal(null);
       setVoidReason("");
       onDeleted && onDeleted();
     } else {
-      const updates = { status: "New", sent_at: null, stripe_checkout_id: null, stripe_checkout_url: null, stripe_payment_id: null, paid_at: null, qb_invoice_id: null };
+      const updates = { status: "New", sent_at: null, stripe_checkout_id: null, stripe_checkout_url: null, stripe_payment_link_id: null, stripe_payment_id: null, paid_at: null, qb_invoice_id: null };
       const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
       if (error) { alert(error.message); setSaving(false); return; }
       if (linkedPayApp) {

@@ -180,7 +180,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         if (children) callLogIds.push(...children.map(c => c.id));
       }
       const [{ data: props }, { data: invs }] = await Promise.all([
-        supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, cloned_from_proposal_id, is_archive_proposal, customer_id, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
+        supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, cloned_from_proposal_id, is_archive_proposal, customer_id, call_log(display_job_number), billing_schedule(contract_sum)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
         supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
       ]);
       setLinkedProposals(props || []);
@@ -763,8 +763,13 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       {/* Job Totals — derived from linkedProposals + linkedInvoices (already family-scoped) */}
       {(() => {
         if (!linkedProposals.length) return null;
+        // SOV contract_sum wins when present (live truth for pay-app jobs);
+        // fall back to proposals.total for non-pay-app jobs.
         const sold = linkedProposals.filter(p => p.status === "Sold")
-          .reduce((s, p) => s + (parseFloat(p.total) || 0), 0);
+          .reduce((s, p) => {
+            const sov = parseFloat(p.billing_schedule?.[0]?.contract_sum) || 0;
+            return s + (sov > 0 ? sov : parseFloat(p.total) || 0);
+          }, 0);
         const historical = linkedProposals.filter(p => p.status === "Sold")
           .reduce((s, p) => s + (parseFloat(p.historical_billed_amount) || 0), 0);
         const billedSC = linkedInvoices.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);

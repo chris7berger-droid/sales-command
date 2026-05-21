@@ -90,10 +90,11 @@ serve(async (req) => {
       const session = event.data.object;
       const invoiceId = session.metadata?.invoice_id;
       const paymentIntent = session.payment_intent;
+      const paymentLinkId = session.payment_link; // null for non-PaymentLink sessions (legacy invoices)
       const amountTotal = session.amount_total ? (session.amount_total / 100) : 0;
       const customerEmail = session.customer_email || session.customer_details?.email || "";
 
-      console.log("Payment completed for invoice:", invoiceId, "payment_intent:", paymentIntent, "amount:", amountTotal);
+      console.log("Payment completed for invoice:", invoiceId, "payment_intent:", paymentIntent, "payment_link:", paymentLinkId, "amount:", amountTotal);
 
       if (!invoiceId) {
         console.error("No invoice_id in session metadata");
@@ -119,6 +120,29 @@ serve(async (req) => {
       }
 
       console.log("Invoice", invoiceId, "marked as Paid");
+
+      // Deactivate the Payment Link so the URL stops accepting payments.
+      // Non-fatal — payment is already recorded; failure here can't unwind that.
+      // Legacy invoices (Checkout Session era, no payment_link on session) skip this.
+      if (paymentLinkId && STRIPE_SECRET_KEY) {
+        try {
+          const deactRes = await fetch(`https://api.stripe.com/v1/payment_links/${paymentLinkId}`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${STRIPE_SECRET_KEY}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+              "active": "false",
+              "inactive_message": "This invoice has been paid. Thank you!",
+            }).toString(),
+          });
+          const deactBody = await deactRes.text();
+          console.log("Deactivate payment link", paymentLinkId, ":", deactRes.status, deactBody.slice(0, 200));
+        } catch (e) {
+          console.error("Payment link deactivation failed (non-fatal):", e.message);
+        }
+      }
 
       // Sync payment to QuickBooks (non-blocking)
       try {

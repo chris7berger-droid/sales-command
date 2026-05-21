@@ -51,12 +51,20 @@ const [primaryDraft, setPrimaryDraft] = useState("");
 const [linkedInvoices, setLinkedInvoices] = useState([]);
 const [showMultiGC, setShowMultiGC] = useState(false);
 const [syncConflict, setSyncConflict] = useState(null);
+const [sovContractSum, setSovContractSum] = useState(null);
 const navigate = useNavigate();
 
 useEffect(() => {
   (async () => {
     const { data } = await supabase.from("invoices").select("id, amount").eq("proposal_id", p.id).is("deleted_at", null).order("sent_at", { ascending: false });
     setLinkedInvoices(data || []);
+  })();
+}, [p.id]);
+
+useEffect(() => {
+  (async () => {
+    const { data } = await supabase.from("billing_schedule").select("contract_sum").eq("proposal_id", p.id).maybeSingle();
+    setSovContractSum(data ? parseFloat(data.contract_sum) || 0 : null);
   })();
 }, [p.id]);
 
@@ -113,7 +121,7 @@ useEffect(() => {
   const interval = setInterval(async () => {
     const { data } = await supabase
       .from("proposals")
-      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip, requires_pay_app))")
+      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip, requires_pay_app))")
       .eq("id", p.id)
       .single();
     if (data && data.status !== p.status) setP(data);
@@ -495,7 +503,7 @@ async function deletePropAttachment(fullName) {
       const { error: clErr } = await supabase.from("call_log").update({ stage: "Wants Bid" }).eq("id", p.call_log_id);
       if (clErr) { alert("Pull back failed resetting job stage: " + clErr.message); return; }
     }
-    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
+    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);
     const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true });
     setWtcs(wtcData || []);
@@ -639,7 +647,7 @@ async function deletePropAttachment(fullName) {
         .catch(() => {});
     }
     // Refresh
-    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
+    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);
     setShowApproveModal(false);
     setApproveReason("");
@@ -649,7 +657,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
   if (p.cloned_from_proposal_id) return;
   const { count } = await supabase.from("proposals").select("id", { count: "exact", head: true }).eq("cloned_from_proposal_id", p.id).is("deleted_at", null);
   if (count > 0) setSyncConflict({ changedFields: ["sales_sow","size","unit","field_sow","sub_areas","materials","discount","discount_reason","travel:drive_rate","travel:drive_miles","travel:fly_rate","travel:fly_tickets","travel:stay_rate","travel:stay_nights","travel:per_diem_rate","travel:per_diem_days","travel:per_diem_crew"] });
-}} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} onInternalApprove={p.status === "Sent" ? async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowApproveModal(true); } : undefined} />;
+}} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} onInternalApprove={p.status === "Sent" ? async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowApproveModal(true); } : undefined} />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -694,6 +702,9 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
         <Pill label={p.status} cm={PROP_C} />
         {p.is_archive_proposal && (
           <span title="Archive Job Proposal — no WTC. Invoice with a flat amount." style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)", cursor: "help" }}>ARCHIVE</span>
+        )}
+        {!p.is_archive_proposal && p.call_log?.archive_record_id && (
+          <span title="Job was pulled forward from History Locker." style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)", cursor: "help" }}>HISTORY LOCKER</span>
         )}
         {p.call_log?.qb_customer_id && (
           <span title={`Linked to QuickBooks customer ${p.call_log.qb_customer_id}`} style={{ fontSize: 10.5, fontWeight: 700, background: C.dark, color: C.teal, padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: `1px solid ${C.teal}`, cursor: "help", letterSpacing: "0.04em" }}>LINKED</span>
@@ -1063,6 +1074,19 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui }}>{val}</span>
               </div>
             ))}
+            {(() => {
+              const sov = sovContractSum != null && sovContractSum > 0 ? sovContractSum : null;
+              const fallback = parseFloat(p.total) || 0;
+              const value = sov != null ? sov : fallback;
+              if (!value) return null;
+              const label = sov != null ? "Contract Sum" : "Total";
+              return (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.darkBorder}` }}>
+                  <span title={sov != null ? "From Customer Billing Schedule (SOV). Reflects live contract sum incl. change orders." : undefined} style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F.ui }}>{label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: F.ui, fontVariantNumeric: "tabular-nums" }}>{money(value)}</span>
+                </div>
+              );
+            })()}
             {wtcs.length > 0 && (() => {
               const breakdowns = wtcs.map(w => ({ ...calcWtcBreakdown(w), name: w.work_types?.name || "Unnamed" }));
               const totals = breakdowns.reduce((a, b) => ({ price: a.price + b.price, cost: a.cost + b.cost, profit: a.profit + b.profit, discount: a.discount + b.discount }), { price: 0, cost: 0, profit: 0, discount: 0 });

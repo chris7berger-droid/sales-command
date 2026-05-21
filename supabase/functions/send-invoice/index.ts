@@ -118,31 +118,30 @@ serve(async (req) => {
       });
     }
 
-    // Create Stripe Checkout session
-    const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    // Create Stripe Payment Link (lives until deactivated — no 24h cap like Checkout Sessions).
+    // Deactivation happens in stripe-webhook on paid, and deactivate-payment-link on void/pullback.
+    const stripeRes = await fetch("https://api.stripe.com/v1/payment_links", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${STRIPE_SECRET_KEY}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({
-        "mode": "payment",
-        "customer_email": customerEmail,
         "line_items[0][price_data][currency]": "usd",
         "line_items[0][price_data][product_data][name]": `${customerName} - Invoice #${invoiceId}`,
         "line_items[0][price_data][product_data][description]": `${jobId ? `Job #${jobId}` : ""}${jobId && jobName ? ` - ${jobName}` : jobName || ""} · High Desert Surface Prep`,
         "payment_intent_data[description]": `${customerName} - Invoice #${invoiceId}${jobId ? ` · Job #${jobId}` : ""}${jobName ? ` - ${jobName}` : ""}`,
         "line_items[0][price_data][unit_amount]": String(Math.round(amount * 100)),
         "line_items[0][quantity]": "1",
-        "success_url": `${SITE_URL}/invoice-paid?session_id={CHECKOUT_SESSION_ID}&invoice_id=${invoiceId}`,
-        "cancel_url": `${SITE_URL}`,
+        "after_completion[type]": "redirect",
+        "after_completion[redirect][url]": `${SITE_URL}/invoice-paid?invoice_id=${invoiceId}`,
         "metadata[invoice_id]": invoiceId,
         "payment_intent_data[metadata][invoice_id]": invoiceId,
       }).toString(),
     });
 
     const stripeData = await stripeRes.json();
-    console.log("Stripe checkout response:", stripeRes.status, stripeData.id || stripeData.error?.message);
+    console.log("Stripe payment link response:", stripeRes.status, stripeData.id || stripeData.error?.message);
 
     if (!stripeRes.ok) {
       return new Response(JSON.stringify({ error: `Stripe error: ${stripeData.error?.message || "Unknown"}` }), {
@@ -152,12 +151,17 @@ serve(async (req) => {
     }
 
     const checkoutUrl = stripeData.url;
-    const checkoutId = stripeData.id;
+    const paymentLinkId = stripeData.id;
 
     const viewInvoiceUrl = invoice.viewing_token ? `${SITE_URL}/invoice/${invoice.viewing_token}` : null;
 
-    // Store checkout URL on invoice
-    await supabase.from("invoices").update({ stripe_checkout_url: checkoutUrl }).eq("id", invoiceId);
+    // Persist URL + payment link ID. stripe_checkout_id cleared so any stale Session ID
+    // from a previous send cycle doesn't linger; webhook will repopulate on payment.
+    await supabase.from("invoices").update({
+      stripe_checkout_url: checkoutUrl,
+      stripe_payment_link_id: paymentLinkId,
+      stripe_checkout_id: null,
+    }).eq("id", invoiceId);
 
     // Send email to customer with pay link
     const dueLine = dueDate ? `Payment due by ${new Date(dueDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}` : "Payment due upon receipt";
@@ -243,7 +247,7 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ success: true, checkoutId, checkoutUrl }), {
+    return new Response(JSON.stringify({ success: true, paymentLinkId, checkoutUrl }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });

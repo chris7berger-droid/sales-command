@@ -1592,7 +1592,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           hideSend={!!linkedPayApp}
           onClose={() => setShowPDF(false)}
           onSent={async (responseData) => {
-            const updates = { status: "Sent", sent_at: new Date().toISOString(), viewing_token_expires_at: new Date(Date.now() + 90 * 86400000).toISOString(), stripe_checkout_id: responseData?.checkoutId || null, stripe_checkout_url: responseData?.checkoutUrl || null };
+            const updates = { status: "Sent", sent_at: new Date().toISOString(), viewing_token_expires_at: new Date(Date.now() + 90 * 86400000).toISOString(), stripe_checkout_id: null, stripe_checkout_url: responseData?.checkoutUrl || null, stripe_payment_link_id: responseData?.paymentLinkId || null };
             await supabase.from("invoices").update(updates).eq("id", inv.id);
             setInv(prev => ({ ...prev, ...updates }));
             onUpdated && onUpdated();

@@ -5,6 +5,8 @@
 **Backlog row:** B33
 **Trigger:** Customer hit Stripe pay link for invoice #10028 and got "You're all done here. You've either completed your payment or this checkout session has timed out." → diagnosed as default 24h expiry on Stripe Checkout Sessions (hard cap, cannot be raised).
 
+**Audit verdict (2026-05-21, parallel terminal):** GREEN with required fixes. Applied in v2 of this doc — see "Audit fixes applied" section below.
+
 ## Success criterion (Chris, ERD lock 12:49)
 
 > Customer invoices links last until they pay or we cancel their link when the invoice status is updated to paid.
@@ -162,29 +164,46 @@ Add deactivation step after the status flip. Reads `session.payment_link` (Strip
 
 Both paths currently null `stripe_checkout_url, stripe_checkout_id, stripe_payment_id`. We add: read `stripe_payment_link_id` first, call deactivation via a small new edge fn, then null it.
 
-**Decision: new edge fn `deactivate-payment-link`** (rather than client-side direct Stripe call) — client doesn't have STRIPE_SECRET_KEY and shouldn't. Edge fn pattern:
-- Accepts `{ paymentLinkId }`.
-- Service-role authenticated (no caller auth needed since we're about to authenticate the caller for the void/pullback action itself — but mirror C9 tenant binding for safety).
-- POST to Stripe with `active=false`.
+**Decision: new edge fn `deactivate-payment-link`** (rather than client-side direct Stripe call) — client doesn't have STRIPE_SECRET_KEY and shouldn't. Edge fn pattern (REVISED per audit fix #1):
+- Accepts `{ invoiceId }` **only** — do NOT trust client-supplied `paymentLinkId`.
+- Authenticates caller via `authenticateCaller` (mirror `send-invoice/index.ts:29–30`).
+- Loads invoice row (`tenant_id`, `stripe_payment_link_id`) from DB by `invoiceId`.
+- Verifies `invoice.tenant_id === caller.tenantId` (mirror `send-invoice/index.ts:58–60`); 403 otherwise.
+- If `stripe_payment_link_id` is null → returns 200 `{ noop: true }` (legacy invoice, nothing to deactivate).
+- POSTs to Stripe `/v1/payment_links/{stripe_payment_link_id}` with `active=false` + `inactive_message="This invoice is no longer active."` (see "inactive_message policy" below).
 - Returns `{ success: true }` or 500.
 
 Update both `handlePullBack` and `handleVoidConfirm`:
 
 ```js
 // before nulling
-if (inv.stripe_payment_link_id) {
-  try {
-    await supabase.functions.invoke("deactivate-payment-link", {
-      body: { paymentLinkId: inv.stripe_payment_link_id, invoiceId: inv.id },
-    });
-  } catch (e) {
-    console.warn("Payment link deactivation failed (non-blocking):", e);
-    // continue with the null write — link cleanup will be best-effort
-  }
+try {
+  await supabase.functions.invoke("deactivate-payment-link", {
+    body: { invoiceId: inv.id }, // server reads stripe_payment_link_id from DB
+  });
+} catch (e) {
+  console.warn("Payment link deactivation failed (non-blocking):", e);
+  // continue with the null write — link cleanup will be best-effort
 }
 // then update the row, also null stripe_payment_link_id
 const updates = { ..., stripe_payment_link_id: null };
 ```
+
+## inactive_message policy (REVISED per audit "pick one")
+
+Two-message scheme, hardcoded server-side, no client input:
+
+| Trigger | Deactivation site | `inactive_message` |
+|---|---|---|
+| Payment received | `stripe-webhook` (inline) | `"This invoice has been paid. Thank you!"` |
+| Voided | `deactivate-payment-link` edge fn | `"This invoice is no longer active."` |
+| Pulled back | `deactivate-payment-link` edge fn | `"This invoice is no longer active."` |
+
+Why this split: paid is the customer-friendly common case (clear feedback). Void/pullback are administrative — same UX outcome (link invalid, not because of payment success), so same message. The edge fn doesn't need to know which path called it.
+
+## InvoicePaidPage compatibility (REVISED per audit required check)
+
+Grepped `src/pages/InvoicePaidPage.jsx` — page reads `params.get("invoice_id")` only (line 7). Does NOT read `session_id`. Current redirect URL `${SITE_URL}/invoice-paid?invoice_id=${invoiceId}` is unchanged from Checkout Session era. No update required.
 
 ### 5. New edge fn `supabase/functions/deactivate-payment-link/index.ts`
 
@@ -201,17 +220,22 @@ COMMENT ON COLUMN invoices.stripe_payment_link_id IS 'Stripe Payment Link ID (pl
 
 Run via `npm run db:push` (wrapper checks collision against prod ledger).
 
-## Smoke plan (before merge)
+## Smoke plan (REVISED per audit — no 25h wait pre-merge)
 
-1. Deploy edge fns to a Supabase project that mirrors prod schema (or use prod after migration is in — coordinate timing).
-2. From preview deploy: send a test invoice to `chris7berger@gmail.com`.
-3. Confirm email received, link URL is `buy.stripe.com/...`.
-4. Wait 25+ hours (this is the actual point — link must survive past Checkout Session's 24h cap).
-5. Click link, pay with Stripe test card `4242 4242 4242 4242` exp `12/30` cvc `123`.
-6. Verify in Supabase: `invoices.status='Paid'`, `paid_at`, `stripe_payment_id` set.
-7. Re-click the original link → should show "this link has been deactivated" (or our `inactive_message`).
-8. Repeat for void path: send a test invoice, void it, confirm Payment Link is deactivated.
-9. Repeat for pull-back path: send a test invoice with no QB sync (TEST customer), pull back, confirm deactivation.
+Pre-merge (structural):
+1. Migration applied to prod (via `npm run db:push`).
+2. Edge fns deployed (`send-invoice`, `stripe-webhook`, `deactivate-payment-link`) with `--no-verify-jwt`.
+3. From preview deploy on the branch: send a test invoice to `chris7berger@gmail.com`.
+4. Confirm email received with link URL of form `https://buy.stripe.com/<token>`.
+5. **Open Stripe Dashboard → Payment Links** — confirm the new link shows `Active: true`, no `expires_at`. (Structural proof the 24h cap is gone.)
+6. Click link, pay with Stripe test card `4242 4242 4242 4242` exp `12/30` cvc `123`.
+7. Verify in Supabase: `invoices.status='Paid'`, `paid_at` set, `stripe_payment_id` set.
+8. Re-click the original link → shows "This invoice has been paid. Thank you!".
+9. Void path: send a TEST customer test invoice → void it → confirm in Stripe Dashboard link is now `Active: false` with "This invoice is no longer active." message.
+10. Pull-back path: send a TEST customer test invoice (no QB sync) → pull back → confirm deactivation.
+
+Async post-merge:
+11. Send one real test invoice to self the morning of deploy. 25 hours later, click it. Confirm it still loads. (This is the canonical proof the change works; doesn't gate the merge.)
 
 ## Risk register
 
@@ -238,6 +262,19 @@ For the parallel audit Claude session reviewing this build:
 - [ ] Smoke test executed on preview deploy, not directly on prod.
 - [ ] BACKLOG.md row B33 filed and updated on commit close.
 - [ ] Handoff doc written before session ends.
+
+## Audit fixes applied (2026-05-21)
+
+Tracking the four audit asks from the parallel terminal:
+
+| # | Audit ask | Applied |
+|---|---|---|
+| 1 | `deactivate-payment-link` takes `{ invoiceId }` only; server reads `stripe_payment_link_id` after tenant binding | Plan revised in "Decision: new edge fn" section + caller diff above. Edge fn mirrors `send-invoice/index.ts:29–30, 45–60` for auth + tenant bind. |
+| 2 | File B33 in `docs/BACKLOG.md` bundled with migration commit | Will commit `BACKLOG.md` row + migration file together in the same commit (next task). |
+| 3 | Grep `InvoicePaid.jsx` for `session_id` usage | Done. Page reads `invoice_id` only — no `session_id` dependency. No update needed; current redirect URL stands. |
+| 4 | Pick one `inactive_message` policy | Two-message scheme documented in "inactive_message policy" section: paid = "This invoice has been paid. Thank you!"; void/pullback = "This invoice is no longer active." |
+
+Smoke plan also revised — no 25h pre-merge wait; structural Stripe Dashboard confirmation pre-merge, async-verify 25h after merge.
 
 ## Out of scope (file follow-ups, do not expand here)
 

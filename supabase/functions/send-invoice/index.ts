@@ -44,7 +44,7 @@ serve(async (req) => {
     // or redirect invoices to attacker-controlled inboxes.
     const { data: invoice } = await supabase
       .from("invoices")
-      .select("tenant_id, amount, viewing_token, proposal_id, job_id, proposals(call_log_id, call_log(customer_id, customers(email, contact_email, billing_email)))")
+      .select("tenant_id, amount, viewing_token, proposal_id, job_id, stripe_payment_link_id, proposals(call_log_id, call_log(customer_id, customers(email, contact_email, billing_email)))")
       .eq("id", invoiceId)
       .maybeSingle();
 
@@ -116,6 +116,30 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 500,
       });
+    }
+
+    // Resend safety: if this invoice already has a live Payment Link from a previous send,
+    // deactivate it before minting a new one. Without this, a customer holding the older
+    // email could click the stale link and pay the prior amount (esp. dangerous on amount
+    // changes between resends). Non-fatal — mirror webhook deactivation behavior.
+    if (invoice.stripe_payment_link_id) {
+      try {
+        const priorRes = await fetch(`https://api.stripe.com/v1/payment_links/${invoice.stripe_payment_link_id}`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${STRIPE_SECRET_KEY}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            "active": "false",
+            "inactive_message": "This invoice is no longer active.",
+          }).toString(),
+        });
+        const priorBody = await priorRes.text();
+        console.log("Deactivate prior payment link", invoice.stripe_payment_link_id, ":", priorRes.status, priorBody.slice(0, 200));
+      } catch (e) {
+        console.error("Prior payment link deactivation failed (non-fatal):", e.message);
+      }
     }
 
     // Create Stripe Payment Link (lives until deactivated — no 24h cap like Checkout Sessions).

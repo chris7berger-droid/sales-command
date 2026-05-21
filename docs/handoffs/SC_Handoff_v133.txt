@@ -1,0 +1,236 @@
+SC Handoff v133 — 2026-05-21
+============================
+
+SESSION SUMMARY
+Loop #23. Closed B33: invoice Stripe pay links die at 24h after send
+(Checkout Sessions are Stripe-capped at 24h `expires_at`). Customer
+hit invoice #10028 pay link >24h after send → Stripe "checkout
+session has timed out" dead-end page. Swapped `send-invoice` from
+`POST /v1/checkout/sessions` to `POST /v1/payment_links` so URLs live
+until explicitly deactivated, then wired three deactivation triggers
+(paid via webhook, void + pullback via new edge fn). PR #26 merged
+to main as `896b09b`.
+
+Side find during smoke: HDSP `STRIPE_WEBHOOK_SECRET` in Supabase had
+been wrong since 2026-04-06 — overwritten with SCC's secret during
+the v55 SCC billing setup. Every customer Stripe payment since that
+date silently failed signature check and our DB never flipped status.
+Fixed via `supabase secrets set`. Audit pulled CSV from Stripe to
+identify silent-paid invoices; only 2 needed backfill (#10011 Tim
+Hohl $2,092.19, #10023 Randy & Heather Dixon $3,887). Both
+reconciled in same session.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────
+Branch `fix/invoice-payment-links` → merged to main as PR #26
+(squash) `896b09b`. Seven pre-merge commits:
+
+- cfe32c4 Plan: invoice payment links swap (B33)
+- 53e3a4b Plan v2: apply audit fixes (B33)
+- 94631db Touches B33: add stripe_payment_link_id column
+  - Migration `supabase/migrations/20260521130000_invoices_stripe_payment_link_id.sql`
+  - Adds nullable TEXT column for the `plink_*` ID
+  - `docs/BACKLOG.md`: B33 row added (T1 In Progress)
+- ce20ed2 Touches B33: swap send-invoice to Stripe Payment Links
+  - `supabase/functions/send-invoice/index.ts:122` POST endpoint
+    changed; dropped `mode`, `customer_email`, `cancel_url`;
+    `success_url` → `after_completion[redirect][url]`
+  - Persists both `stripe_checkout_url` (the buy.stripe.com URL) and
+    new `stripe_payment_link_id` (the plink_ ID for deactivation
+    lookups). `stripe_checkout_id` cleared on send to avoid stale
+    Session ID lingering across resend cycles.
+  - Response field rename: `checkoutId` → `paymentLinkId`
+  - `src/pages/Invoices.jsx:1606` onSent writes new column
+- cf5fac7 Touches B33: deactivate Payment Link on paid (stripe-webhook)
+  - `supabase/functions/stripe-webhook/index.ts:89-144` reads
+    `session.payment_link` and POSTs `active=false` +
+    `inactive_message="This invoice has been paid. Thank you!"`
+    after the status flip. Non-fatal (try/catch); payment is already
+    recorded if this leg errors.
+- c878fe6 Touches B33: deactivate Payment Link on void/pullback/delete
+  - New edge fn `supabase/functions/deactivate-payment-link/index.ts`
+  - Per audit fix #1: takes `{ invoiceId }` only; server reads
+    `stripe_payment_link_id` from DB after tenant binding (mirrors
+    `send-invoice/index.ts:29-30, 58-60`). Never trusts a client-
+    supplied plink ID.
+  - Returns `{ noop: true }` for legacy invoices (Checkout Session
+    era, no link to deactivate).
+  - `inactive_message="This invoice is no longer active."`
+  - `src/pages/Invoices.jsx` `handlePullBack` + `handleVoidConfirm`
+    invoke the new fn before nulling fields. Also null
+    `stripe_payment_link_id` in update statements.
+- 00c2eac Touches B33: deactivate prior Payment Link on resend
+  - Audit round-2 M3 fix: resend was minting plink_B without
+    deactivating plink_A. Customer holding earlier email could
+    click the older link and pay the prior amount (esp. dangerous on
+    amount-change resends).
+  - Fix: SELECT `stripe_payment_link_id` in send-invoice; after
+    tenant + STRIPE_SECRET_KEY checks, deactivate the prior link
+    before minting new one. Non-fatal; same `inactive_message` as
+    void/pullback path.
+
+Deploys done in audit-prescribed order:
+  1. `bash scripts/check-migration-safety.sh` → PASS
+  2. `npm run db:push` → migration applied
+  3. Edge fns redeployed with `--no-verify-jwt`:
+     a. stripe-webhook
+     b. deactivate-payment-link (new)
+     c. send-invoice
+
+DECISIONS / CHOICES MADE
+─────────────────────────
+- Picked Payment Links (Option A) over branded viewing-token landing
+  page (Option B) after Chris's data: only ~20% of payments come
+  through Stripe links, audience is residential + small GC (not
+  large GCs who pay by check). Simpler is better for that crowd.
+  Reversed prior recommendation when the 20% data point landed.
+- inactive_message policy: paid → "This invoice has been paid.
+  Thank you!"; void/pullback → "This invoice is no longer active."
+  Two-message scheme. Edge fn doesn't need to know which caller
+  triggered it (no `intent` param needed) since void and pullback
+  share UX outcome.
+- Audit pre-merge fix #1 (deactivate-payment-link takes `{ invoiceId }`
+  only, server reads link ID): applied. Prevents a malicious client
+  from passing arbitrary `paymentLinkId` and deactivating someone
+  else's link.
+- Audit pre-merge fix #2 (bundle B33 row with migration commit):
+  applied in 94631db.
+- Audit round-2 M3 (resend leaks prior link): applied in 00c2eac.
+- Smoke 3 (void path) skipped — void modal only opens on QB-synced
+  invoices (TEST customers skip QB sync). Code at Invoices.jsx:1250
+  vs :1267 invokes deactivate-payment-link identically in both
+  paths, so Smoke 4 (pull-back) was sufficient coverage.
+- Smoke 25h wait skipped pre-merge — structural confirmation via
+  Stripe Dashboard (link Active: true, no expires_at) was enough.
+  Async 25h verify is post-merge.
+- B34 backfill executed inline (not deferred as separate loop) once
+  scope shrank from "26 invoices" to "2 invoices" after parsing the
+  CSV — Status=Paid filter narrowed it from 46 rows to 8, then
+  filtering out tests + Empire (no in-app rows) + pre-break invoices
+  left only #10011 + #10023.
+
+WEBHOOK SECRET REPAIR
+─────────────────────
+Root cause: SC_Handoff_v55 (2026-04-06) set up the SCC Stripe account
+for the $699/mo Command Suite subscription billing on HDSP. New
+secret `SCC_STRIPE_WEBHOOK_SECRET` was added; in the process HDSP's
+`STRIPE_WEBHOOK_SECRET` got overwritten with the SCC value.
+
+Until today, every `checkout.session.completed` delivery from the
+HDSP webhook endpoint hit `verifyStripeSignature` → mismatch → 400
+"Invalid signature". Stripe collected the money on Payment Intents,
+but our invoice rows stayed `status='Sent'` and `qb-record-payment`
+never fired. Customer-facing impact: status pill wrong in our app,
+manual reconciliation in QB.
+
+Fix: pulled the real HDSP whsec from Stripe Dashboard, ran
+`supabase secrets set STRIPE_WEBHOOK_SECRET=<correct value>`.
+Verified by clicking "Resend" on the failed 1:33 PM checkout.session.
+completed → flipped to 200 → invoice #10010 marked Paid.
+
+Backfill scope (CSV diagnostic):
+- 46 Stripe charge rows since 2026-03-27
+- 8 with Status='Paid' (rest were canceled = expired sessions, or
+  requires_payment_method, or failed)
+- Filtered out: 3 test invoices (#10010 today, two QB tests), 2
+  pre-break invoices (#10000 Brian Royse 2026-04-04, already Paid in
+  our DB from when the secret was correct), 2 Empire invoices
+  (#90366, #90368) that aren't in the app's `invoices` table
+  (legacy/manual Stripe invoices outside the Sales Command flow).
+- Net: 2 invoices needed DB backfill:
+  - #10011 Tim Hohl $2,092.19 (2026-04-27)
+  - #10023 Randy & Heather Dixon $3,887 (2026-05-04)
+
+Backfill execution:
+- DB UPDATE via `supabase db query --linked` for each, setting
+  status='Paid', paid_at, stripe_payment_id (ch_/py_ from CSV).
+- QB reconciliation: Chris did #10011 manually (had wrong invoice #
+  in QB already from legacy manual entry). #10023 already in QB +
+  marked paid before our DB UPDATE.
+
+NEW BACKLOG ITEMS
+───────────────────
+- B34 (T3) — Gmail-threading collapses Pay Now button on invoice
+  resends. Verified during smoke: first send (1:26 PM) shows the
+  Pay Now button fine. Resend with identical subject within minutes
+  (1:30 PM) gets the bottom of the email body trimmed under Gmail's
+  "..." quoted-content collapse, hiding the Pay Now button. Real
+  customers receiving a single invoice are unaffected; only resends.
+  Fix candidates: (a) differentiate body between sends with a
+  timestamp or "Resent: …" header, (b) move Pay Now button above
+  the amount card so it's in the always-visible portion. Lower
+  urgency than B33 — most invoices are first-sends. Not yet filed
+  as a row in this BACKLOG; capture if/when picked up.
+
+CLOSED THIS SESSION
+─────────────────────
+- B33 (T1) — Closed in PR #26, merge SHA `896b09b`. Invoice pay
+  links now live until paid/voided/pulled-back; M3 fix prevents
+  prior-link leak on resend; deactivate-payment-link edge fn binds
+  by tenant.
+
+VERIFICATION
+─────────────
+Smokes executed against Vercel preview build of branch
+`fix/invoice-payment-links` (89f170 hash) before merge:
+
+1. Paid path — sent invoice #10010 ($1.23) to chris7berger@gmail.com.
+   Email link was `buy.stripe.com/...`. Paid with real card (Stripe
+   live mode — 4242 test card doesn't work on live). Status flipped
+   to Paid after the webhook secret repair (see above). Stripe
+   Dashboard showed `Active: false` on the link with
+   "This invoice has been paid. Thank you!" message. PASS.
+
+2. M3 resend — same invoice sent twice ($4099 then $1.23). After
+   the second send, Stripe Dashboard showed BOTH links Deactivated
+   (the first one deactivated by the M3 path, the second one
+   deactivated when paid). PASS.
+
+3. Void path — Skipped (void modal only on QB-synced invoices;
+   TEST customers don't QB-sync). Code path identical to pullback at
+   the deactivate-payment-link invoke. PASS by proxy.
+
+4. Pull-back path — sent TEST customer invoice ($0.59), then Pull
+   Back. Stripe Dashboard showed link `Active: false`. PASS.
+
+Post-merge async verify (25h+): planned for tomorrow morning. Send
+one invoice to self today, click it tomorrow, confirm link still
+loads (proves the original 24h cap is gone).
+
+NOT TOUCHED
+─────────────
+- B32 (stale scheduled_value_snapshot on draft pay apps after SOV
+  edit). Still T2 Open.
+- F30 (CC support on pay app + invoice send flows). Still T2 Open.
+- Other pre-existing rows in BACKLOG.md unchanged.
+
+NEXT SESSION POINTERS
+─────────────────────
+- 25h async verify on the Payment Link sent today (proves real-world
+  longevity). Just click the link tomorrow and confirm Stripe still
+  serves the checkout page.
+- If a third party (audit role) wants final close-out audit, branch
+  is at SHA `896b09b` on main. Run `/erd-close invoice-payment-links`
+  to close the ERD loop (still in progress at the end of this
+  handoff).
+- Gmail-threading Pay Now collapse: file as B34 row when picked up.
+
+FILES TO KNOW
+─────────────
+- `supabase/functions/send-invoice/index.ts` — Payment Links call +
+  prior-link deactivation (M3 fix)
+- `supabase/functions/stripe-webhook/index.ts` — deactivate-on-paid
+  block
+- `supabase/functions/deactivate-payment-link/index.ts` — new edge
+  fn, `{ invoiceId }`-only contract
+- `src/pages/Invoices.jsx` (lines 1250, 1287, 1606) — pullback,
+  void, and onSent write paths
+- `supabase/migrations/20260521130000_invoices_stripe_payment_link_id.sql`
+- `docs/plans/invoice_payment_links.md` — full plan + audit fixes
+
+GIT STATE
+─────────
+Branch: main
+HEAD: 896b09b (B33: Swap invoice pay links from Checkout Sessions to Payment Links (#26))
+Working tree: BACKLOG.md + this handoff (uncommitted)
+Branch `fix/invoice-payment-links` deleted via squash-merge.

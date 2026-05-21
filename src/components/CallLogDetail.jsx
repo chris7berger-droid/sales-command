@@ -64,6 +64,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const cust = job.customers || {};
   const [linkedProposals, setLinkedProposals] = useState([]);
   const [linkedInvoices, setLinkedInvoices] = useState([]);
+  const [contractSumByProposalId, setContractSumByProposalId] = useState({});
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [form, setForm] = useState({
     stage:            job.stage            || "",
@@ -174,26 +175,34 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     async function fetchLinked() {
       // Family scope: parent rolls in CO children; CO viewed alone shows only itself.
       let callLogIds = [job.id];
-      let jobNumbers = [job.display_job_number].filter(Boolean);
       if (!job.parent_job_id) {
         const { data: children } = await supabase
-          .from("call_log").select("id, display_job_number").eq("parent_job_id", job.id);
-        if (children) {
-          callLogIds.push(...children.map(c => c.id));
-          jobNumbers.push(...children.map(c => c.display_job_number).filter(Boolean));
-        }
+          .from("call_log").select("id").eq("parent_job_id", job.id);
+        if (children) callLogIds.push(...children.map(c => c.id));
       }
       const [{ data: props }, { data: invs }] = await Promise.all([
         supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, cloned_from_proposal_id, is_archive_proposal, customer_id, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
-        jobNumbers.length
-          ? supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).in("job_id", jobNumbers).order("sent_at", { ascending: false })
-          : Promise.resolve({ data: [] }),
+        supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
       ]);
       setLinkedProposals(props || []);
       setLinkedInvoices(invs || []);
+
+      // Pull SOV contract_sum for each sold proposal; canonical value for pay-app jobs.
+      const soldIds = (props || []).filter(p => p.status === "Sold").map(p => p.id);
+      if (soldIds.length) {
+        const { data: sch } = await supabase
+          .from("billing_schedule")
+          .select("proposal_id, contract_sum")
+          .in("proposal_id", soldIds);
+        const map = {};
+        (sch || []).forEach(r => { map[r.proposal_id] = parseFloat(r.contract_sum) || 0; });
+        setContractSumByProposalId(map);
+      } else {
+        setContractSumByProposalId({});
+      }
     }
     fetchLinked();
-  }, [job.id, job.parent_job_id, job.display_job_number]);
+  }, [job.id, job.parent_job_id]);
 
   async function handleUpload(e) {
     const files = Array.from(e.target.files);
@@ -769,8 +778,13 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       {/* Job Totals — derived from linkedProposals + linkedInvoices (already family-scoped) */}
       {(() => {
         if (!linkedProposals.length) return null;
+        // SOV contract_sum wins when present (live truth for pay-app jobs);
+        // fall back to proposals.total for non-pay-app jobs.
         const sold = linkedProposals.filter(p => p.status === "Sold")
-          .reduce((s, p) => s + (parseFloat(p.total) || 0), 0);
+          .reduce((s, p) => {
+            const sov = contractSumByProposalId[p.id] || 0;
+            return s + (sov > 0 ? sov : parseFloat(p.total) || 0);
+          }, 0);
         const historical = linkedProposals.filter(p => p.status === "Sold")
           .reduce((s, p) => s + (parseFloat(p.historical_billed_amount) || 0), 0);
         const billedSC = linkedInvoices.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
@@ -824,7 +838,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                     >
                       <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.03em", minWidth: 140 }}>{label}</span>
                       <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: sc.bg, color: sc.color, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>{p.status}</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>{fmt$(p.total)}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>{fmt$((contractSumByProposalId[p.id] > 0 ? contractSumByProposalId[p.id] : parseFloat(p.total)) || 0)}</span>
                     </button>
                   );
                 })}

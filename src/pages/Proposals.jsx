@@ -33,7 +33,7 @@ export default function Proposals({ teamMember, setSubPage }) {
     (async () => {
       const { data } = await supabase
         .from("proposals")
-        .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))")
+        .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))")
         .eq("id", routeProposalId)
         .maybeSingle();
       if (data) setSel(data);
@@ -44,7 +44,7 @@ export default function Proposals({ teamMember, setSubPage }) {
     const [data, invData, { data: wtData }] = await Promise.all([
       fetchAll(
         "proposals",
-        "*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, qb_skip_sync, qb_customer_id, customers(email, contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id)",
+        "*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id)",
         { filters: [["is", "deleted_at", null]], order: { column: "created_at", ascending: false } }
       ),
       fetchAll("invoices", "id, status, proposal_id"),

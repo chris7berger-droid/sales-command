@@ -64,6 +64,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const cust = job.customers || {};
   const [linkedProposals, setLinkedProposals] = useState([]);
   const [linkedInvoices, setLinkedInvoices] = useState([]);
+  const [contractSumByProposalId, setContractSumByProposalId] = useState({});
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [form, setForm] = useState({
     stage:            job.stage            || "",
@@ -180,11 +181,25 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         if (children) callLogIds.push(...children.map(c => c.id));
       }
       const [{ data: props }, { data: invs }] = await Promise.all([
-        supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, cloned_from_proposal_id, is_archive_proposal, customer_id, call_log(display_job_number), billing_schedule(contract_sum)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
+        supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, cloned_from_proposal_id, is_archive_proposal, customer_id, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
         supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
       ]);
       setLinkedProposals(props || []);
       setLinkedInvoices(invs || []);
+
+      // Pull SOV contract_sum for each sold proposal; canonical value for pay-app jobs.
+      const soldIds = (props || []).filter(p => p.status === "Sold").map(p => p.id);
+      if (soldIds.length) {
+        const { data: sch } = await supabase
+          .from("billing_schedule")
+          .select("proposal_id, contract_sum")
+          .in("proposal_id", soldIds);
+        const map = {};
+        (sch || []).forEach(r => { map[r.proposal_id] = parseFloat(r.contract_sum) || 0; });
+        setContractSumByProposalId(map);
+      } else {
+        setContractSumByProposalId({});
+      }
     }
     fetchLinked();
   }, [job.id, job.parent_job_id]);
@@ -767,7 +782,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         // fall back to proposals.total for non-pay-app jobs.
         const sold = linkedProposals.filter(p => p.status === "Sold")
           .reduce((s, p) => {
-            const sov = parseFloat(p.billing_schedule?.[0]?.contract_sum) || 0;
+            const sov = contractSumByProposalId[p.id] || 0;
             return s + (sov > 0 ? sov : parseFloat(p.total) || 0);
           }, 0);
         const historical = linkedProposals.filter(p => p.status === "Sold")

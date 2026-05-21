@@ -1,0 +1,186 @@
+SC Handoff v132 — 2026-05-20
+============================
+
+SESSION SUMMARY
+Continued from v131. After fixing B30 (confirmation From routing),
+Plenium rejected Pay App #1 on the same job 6532 (Reed HS Polish) —
+they require an SOV broken into 7 specific contract-area line items
+(Band Addition, Athletics Addition, Classroom, Hub & Courtyard,
+Grounds, Restroom #1, Misc TI) rather than the WTC-derived breakdown
+Sales Command had auto-generated. Attempting to revise the SOV
+surfaced B31: the Billing Schedule auto-lock checks for ANY non-
+deleted invoice on the proposal, so a pulled-back pay app (which
+resets the invoice to status="New" but doesn't delete it) still
+holds the SOV locked. Built and shipped a two-line fix to scope the
+auto-lock to committed invoices only, plus an ungate on the
+"Add SOV to Pay App" button which had been gated on `locked` and
+disappeared after the fix. End-to-end success: Plenium received the
+GC-format pay app — "looks super pro." Filed B32 (stale
+scheduled_value_snapshot on draft pay apps after SOV edit, which
+forced a delete-and-recreate workaround today) and F30 (CC support
+on pay-app + invoice send flows) as follow-ups.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────
+Branch `feat/pay-app-unlock-on-pullback` → merged to main as
+eddb77c. Three pre-merge commits:
+
+- 4531c1f Touches B31: scope Billing Schedule auto-lock to committed
+  invoices only
+  - `src/components/BillingScheduleSection.jsx:58-65` invoice-count
+    query now `.neq("status", "New")` — pulled-back pay apps (which
+    reset invoice → status="New") no longer hold the SOV locked.
+    Sent / Waiting for Payment / Past Due / Paid still auto-lock,
+    and manual `schedule.status="locked"` still wins.
+  - `docs/BACKLOG.md`: B31 row added (In Progress)
+
+- 224ac11 Touches B31: ungate "Add SOV to Pay App" from locked-only
+  - `src/components/BillingScheduleSection.jsx:586` button condition
+    was `canManage && locked && payApps.length > 0` → now
+    `canManage && payApps.length > 0`. The previous gate assumed
+    "locked == has-sent-pay-app"; with the new lock scope that's no
+    longer true, and a draft pay app on an unlocked schedule (the
+    post-pullback mid-revision state) had lost its SOV-attach
+    affordance. CO-line button still gated on `locked` — unchanged.
+
+- e9a1220 Closes B31; files B32 + F30 follow-ups
+  - `docs/BACKLOG.md`: B31 → Closed 2026-05-20 with shipped-fix
+    detail. B32 added (T2 Open) — stale snapshot on draft pay apps
+    after SOV edit. F30 added (T2 Open) — CC on send flows.
+
+Merge: eddb77c `Merge feat/pay-app-unlock-on-pullback — Closes B31`
+
+DECISIONS / CHOICES MADE
+─────────────────────────
+- Picked the lock-condition change (option B in conversation) over
+  deleting the invoice (option A) or a direct DB hack (option C).
+  B is the right long-term fix — matches the user mental model of
+  "pull back = editable again" and doesn't lose invoice/history.
+- Loosened lock check to exclude only `status="New"` rather than
+  whitelisting (`Sent`/`Paid`). Treats "any non-`New` status" as
+  committed. Aligns with `canPullBack` semantics in
+  `Invoices.jsx:1154` (`status !== "New" && status !== "Paid"`),
+  which also treats `New` as the editable state.
+- Filed B32 instead of fixing it in-session. Today's Plenium send
+  was unblocked by deleting+recreating the draft pay app
+  (PayAppDetailModal.jsx:266-304 already supported this cleanly via
+  `ON DELETE CASCADE`), so the snapshot-drift fix wasn't urgent.
+  Doing it properly (banner + selective sync preserving billed %)
+  is half a day, didn't fit tonight's window.
+- F30 (CC support) recommend allowlist-gated CCs, not free-form —
+  consistent with audit C9's threat model. Did not implement in
+  session per user's call.
+- Did not attempt to pre-warn that the "Add SOV to Pay App" button
+  would disappear after the lock-scope change — caught it on Chris's
+  smoke. Lesson worth holding loosely: when changing a gate
+  condition (`locked`), grep for all UI elements gated on the same
+  state and re-validate them.
+
+NEW BACKLOG ITEMS
+───────────────────
+- B32 (T2 Open) — Draft pay app shows stale
+  `scheduled_value_snapshot` after SOV edit + missing rows for new
+  SOV lines. Surfaced when SOV was swapped from WTC-derived to
+  Plenium's 7-line breakdown; PayAppDetailModal kept rendering the
+  original snapshot $ values for the 2 renamed lines and had no
+  rows for the 5 new lines. Workaround = delete + recreate the
+  draft. Preferred fix: drift-detect banner + "Sync to current SOV"
+  action on draft pay apps only (frozen snapshots on
+  submitted/paid stay frozen). ~half day.
+- F30 (T2 Open) — CC support on pay app + invoice send flows. Both
+  `send-pay-app/index.ts:358` and `send-invoice` send to a single
+  `to: verifiedRecipient` with no `cc:`. User asked during this
+  session to CC a viewer on the Plenium send. Proposal flow already
+  has multi-recipient via `proposal_recipients(role)`. Audit C9
+  allowlist must extend to CC recipients. ~half day across both
+  fns + UIs.
+
+CLOSED THIS SESSION
+─────────────────────
+- B31 (T2) — Closed in commits 4531c1f + 224ac11, merged to main as
+  eddb77c.
+
+VERIFICATION
+─────────────
+- Preview deploy (`feat/pay-app-unlock-on-pullback` branch URL).
+  Chris ran the full revision path live: Pull Back invoice #10045
+  → schedule auto-unlocked (B31 fix verified) → deleted the 2
+  WTC-derived SOV lines, added Plenium's 7 lines totaling $150,433
+  → SOV CONTRACT SUM matched → deleted the stale draft pay app
+  (snapshot drift, B32) → created a fresh Pay App #1
+  (invoice #10046) against the new 7-line SOV → "Add SOV to Pay
+  App" button appeared (224ac11 fix verified) → SOV PDF generated
+  and pay-app package shipped to Plenium → end-user reaction:
+  "everything worked perfect" / "Plenium got their customer SOV
+  request and it lookes super pro."
+- Post-merge to main: NOT smoke-tested in-session. Vercel main
+  build was triggered by the merge push (eddb77c). The fix has
+  already been live-validated on the preview branch with the same
+  code; main deploy is a straight re-build of the verified
+  commits. Next pay-app cycle on any GC will exercise it
+  organically.
+- No edge functions or DB migrations touched — frontend-only fix.
+
+NOT TOUCHED THIS SESSION
+─────────────────────────
+- B32 (newly filed) — Snapshot drift on draft pay apps. Worked
+  around with delete+recreate.
+- F30 (newly filed) — CC support on send flows. Deferred per user.
+- F28 / F29 (silent-send-failure architectural fixes from v131
+  post-mortem) — still Open, not touched.
+- Other open backlog items (L15, B14, B12, B1, B2, etc.) — not
+  touched.
+
+NEXT SESSION POINTERS
+──────────────────────
+- B32 is the natural next pickup if pay-app revision flows come up
+  again. Today's delete+recreate workaround is fine for one-offs
+  but will cost a few minutes every time a GC asks for SOV
+  changes after a pay app draft exists. Plan shape lives in the
+  B32 row.
+- F30 (CC) is the user-asked feature most likely to be picked up
+  in a build session — pattern lives in `proposal_recipients`.
+- Continue F28 / F29 if the silent-send class re-surfaces.
+- B30 verification (from v131) still pending — next pay-app send
+  on any GC should drop the sender confirmation in Inbox, not
+  Junk. Today's Plenium send went out from the preview branch
+  (`feat/pay-app-unlock-on-pullback`) which had v131's edge-fn
+  fix already deployed to prod independent of git.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+──────────────────────────────────────────
+- `src/components/BillingScheduleSection.jsx:58-65` — the invoice
+  count query that drives the auto-lock. Touched this session.
+- `src/components/BillingScheduleSection.jsx:586` — "Add SOV to Pay
+  App" button visibility. Touched this session.
+- `src/components/PayAppDetailModal.jsx:266-304` — Delete Pay App
+  flow. Soft-deletes the linked invoice + hard-deletes the pay app
+  + unlocks the schedule when no pay apps remain. Today's
+  workaround for B32 relied on this.
+- `src/components/NewPayAppModal.jsx:152-165` — where
+  `scheduled_value_snapshot` is captured. The B32 fix point.
+- `src/pages/Invoices.jsx:1250-1265` (handlePullBack) — what
+  Pull Back actually does. Reference for the lock-condition
+  reasoning.
+- `supabase/migrations/20260417140000_pay_apps.sql` —
+  `billing_schedule_pay_app_lines.billing_schedule_line_id` has
+  ON DELETE CASCADE; SOV line deletes cleanly cascade. Good to
+  remember for B32 plan.
+
+GIT STATE ON CLOSE
+───────────────────
+- Branch: main, up to date with origin/main at eddb77c.
+- Feature branch `feat/pay-app-unlock-on-pullback` still exists
+  local + remote (not deleted — preview URL may still be useful as
+  reference; safe to delete next session).
+- Working tree: clean apart from this handoff file before commit.
+- No open PRs on GitHub (used direct merge, not PR).
+- No scratch projects touched.
+- erd-loop side: Loop #22 closed (success 10/10), one floating
+  note added about ERD-close question flow.
+
+END STATE
+──────────
+Merged + pushed to main, preview-deploy verified, main deploy
+in progress via Vercel auto-build. Plenium pay app shipped and
+accepted. Ready to close terminal.

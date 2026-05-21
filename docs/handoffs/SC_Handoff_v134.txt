@@ -1,0 +1,190 @@
+SC Handoff v134 — 2026-05-21
+============================
+
+SESSION SUMMARY
+Bug-fix session, no ERD loop. User flagged Job Detail
+(/calllog/3494, DA Builders Muscle Motors) showing "INVOICES 1" when
+two pay-app invoices exist (#10004 Apr 17, #10031 May 12). Root
+cause + four downstream displays cleaned up. Five commits, merged
+to main via `--no-ff` (`2dab659`), branch deleted.
+
+User chose NOT to file a backlog row — explicit instruction. So
+this handoff is the only durable record. If the pattern recurs, key
+search terms: "Job Detail invoice undercount" / "linked invoices
+missing" / "stale proposals.total" / "History Locker proposal not
+flagged".
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────
+Branch `fix/job-detail-invoice-fk` → merged to main as `2dab659`
+(merge commit, --no-ff). Five pre-merge commits:
+
+- f87450e Fix Job Detail linked invoices undercount for jobs with
+  drifted job_id
+  - Root cause: `src/components/CallLogDetail.jsx:189` filtered
+    invoices by `.in("job_id", jobNumbers)` against the current
+    `display_job_number`. Per migration `20260514130000` + BACKLOG
+    B20, 36 historical invoices have `job_id` storing full
+    descriptive strings (e.g. "7448 - Customer - Address - Work")
+    instead of the bare display number. Invoice #10004 was one of
+    them — its job_id no longer matched "6359", so it fell out of
+    the filter. Same `linkedInvoices` array drives Job Totals →
+    Billed/Remaining/% Invoiced were all undercounting.
+  - Fix: switched to `.in("call_log_id", callLogIds)` — the
+    canonical FK added + backfilled by `20260514130000`. Both
+    invoice-create paths (`Invoices.jsx:256`, `NewPayAppModal.jsx:183`)
+    already write call_log_id. Dropped the now-unused `jobNumbers`
+    tracking. Single hunk in CallLogDetail.jsx, ~10 lines.
+
+- aec45af Job Totals: prefer SOV contract_sum over stale
+  proposals.total
+  - Second issue surfaced after the first fix: Job Totals "Sold"
+    still read $73,299 when the signed contract = $62,466
+    ($47,466 base + $15,000 CO 001). Confirmed via signed CO PDF
+    from DA Builders.
+  - Root cause: archive-import flow
+    (`ArchiveProposalModal.jsx:96-107`) sets `proposals.total` from
+    a manually-typed sold amount, then never recomputes when the
+    SOV is built out. CLAUDE.md already calls this drift out
+    ("`proposals.total` can be stale") — Job Totals card was
+    violating that rule by summing `p.total` directly.
+  - Initial attempt: PostgREST embed `billing_schedule(contract_sum)`
+    in the proposals select. Embed shape didn't unwrap as expected
+    (1-to-1 UNIQUE FK relationship) — value silently fell through
+    to `p.total`.
+
+- 03ffd2a Replace billing_schedule embed with explicit fetch keyed
+  by proposal_id
+  - Switched to an explicit second query indexed by proposal_id.
+    Matches the direct-query pattern used elsewhere
+    (`PayAppDetailModal.jsx:160`). Stored in
+    `contractSumByProposalId` state. Sold reducer prefers SOV
+    when > 0, falls back to `p.total` for non-pay-app jobs.
+
+- b68178b Linked Items proposal row: same SOV-over-stale-total
+  preference
+  - The Job Totals card now read $62,466 correctly, but the
+    Linked Items → Proposals row below it still rendered
+    `fmt$(p.total)` = $73,299. Applied the same fallback chain
+    on `CallLogDetail.jsx:841`.
+
+- fdc013c ProposalDetail: show Contract Sum + HISTORY LOCKER pill
+  - Two adds on `/proposals/:id`:
+    (1) Summary card gets a "Contract Sum" row sourced from the
+        live billing_schedule.contract_sum when present; falls
+        back to "Total" + proposals.total otherwise. Mirrors
+        Job Totals preference.
+    (2) HISTORY LOCKER pill in header when
+        `p.call_log?.archive_record_id` is set and the proposal
+        itself isn't already `is_archive_proposal=true`. Catches
+        the case the existing ARCHIVE pill misses — for proposals
+        created via the standard "+ New Proposal" flow on an
+        archive-imported call_log (per memory
+        `[Archive Import Creates No Proposal]` — History Locker
+        creates call_log only; user picks the proposal flow next).
+  - Added `archive_record_id` to four proposal-load selects:
+    `Proposals.jsx:36`, `Proposals.jsx:47` (list loader),
+    `ProposalDetail.jsx:116/498/642/652`. (~5 occurrences in
+    ProposalDetail because line 652 packs two select calls into
+    one expression — `replace_all` caught both.)
+  - Added `sovContractSum` state in ProposalDetail + a second
+    `useEffect` for the fetch.
+
+DECISIONS
+─────────
+- No BACKLOG row. User instruction: "I don't want to push this to
+  the backlog." Closed via this handoff only. (Departs from the
+  CLAUDE.md hygiene rule on user override.)
+- "No work types yet" empty state on ProposalDetail intentionally
+  left alone. User said "Leave it, I'll just make a note." A future
+  iteration could either hide that block when a billing_schedule
+  exists, or replace it with a "Customer Billing Schedule is in
+  use — manage on the invoice page" notice. Not done this session.
+- HISTORY LOCKER pill is UI-only — does NOT set
+  `is_archive_proposal=true` on the proposal record. Avoids any
+  data migration; flag stays purely a call_log signal. Side effect:
+  these proposals still render the standard (non-Archive) panel,
+  which is what the user wants for jobs billed via SOV.
+
+NEW/CLOSED BACKLOG ITEMS
+────────────────────────
+- None. (Bug fix not filed — see DECISIONS.)
+
+VERIFICATION
+────────────
+On preview deploys, user confirmed each surface in turn:
+- After f87450e: INVOICES 2, both #10004 + #10031 listed; Billed
+  $62,466 (Sold still wrong, expected at that point).
+- After 03ffd2a: Job Totals card reads Sold $62,466 · Billed
+  $62,466 · Remaining $0 · 100% Invoiced. ✓
+- After b68178b: Linked Items proposal row pill now $62,466. ✓
+- After fdc013c: ProposalDetail Summary shows Contract Sum
+  $62,466; HISTORY LOCKER pill in header. ✓
+Prod auto-deploy from main merge in flight at handoff time
+(Vercel `scmybiz.com`).
+
+NOT TOUCHED
+───────────
+Other surfaces that still read stale `p.total` were grepped and
+flagged but left alone (out of scope of the named surface):
+- `src/pages/Invoices.jsx:350` — Create Invoice modal proposal
+  picker
+- `src/pages/Customers.jsx:688` — Customer detail proposals table
+- `src/pages/SalesDash.jsx:132,137,142,149,150` — Monthly/YTD/Sent/
+  Sold/Lost lists
+- `src/components/ProposalDetail.jsx:1263,1271` — ArchiveProposal
+  editor modal (probably correct to keep — that's the editor for
+  the raw field)
+- `src/components/MergeJobModal.jsx:71` — Merge preview sums
+
+All of the above will undercount or overcount any History-Locker-
+pulled-forward job that's been re-priced via SOV. Open question
+for a future sweep session.
+
+Also untouched:
+- BACKLOG B20 (the underlying data cleanup that would make `job_id`
+  consistent again). The fixes here mean the UI doesn't depend on
+  job_id anymore for the Job Detail screen — but B20 is still open
+  for QB sync edge functions that lookup call_log via
+  `display_job_number = invoice.job_id`.
+- BACKLOG B32 (stale scheduled_value_snapshot on draft pay apps
+  after SOV edit). Still T2 Open.
+
+NEXT SESSION POINTERS
+─────────────────────
+- If similar undercount/stale-total complaints surface on
+  Customers, Invoices, SalesDash, or Merge Job — the fix pattern
+  is the same: query `billing_schedule.contract_sum` keyed by
+  proposal_id, prefer it when > 0, fall back to `proposals.total`.
+- ProposalDetail's `ArchiveProposalPanel` (line 1261+) still
+  reads `p.total` for "Sold Amount" and "Remaining" math. If an
+  archive proposal has a SOV that drifted from p.total, that
+  panel will show wrong numbers (just like Job Totals did). Same
+  fix pattern would apply if it ever comes up.
+- The note user said they'd make about the "No work types yet"
+  empty state on archive-with-SOV proposals — when they bring it
+  up, options on the table are (a) hide the block, (b) replace
+  with a "Customer Billing Schedule is in use" notice. Lean
+  toward (b) for clarity.
+
+FILES TO KNOW
+─────────────
+- `src/components/CallLogDetail.jsx`
+  - L173-201: fetchLinked() — now uses call_log_id for invoices,
+    builds contractSumByProposalId map
+  - L780-790: Job Totals Sold reducer w/ SOV preference
+  - L841: Linked Items row $ pill w/ SOV preference
+- `src/components/ProposalDetail.jsx`
+  - L54 + L63-68: sovContractSum state + fetch
+  - L699-701: HISTORY LOCKER pill
+  - L1062-1078: Summary "Contract Sum" / "Total" row
+- `src/pages/Proposals.jsx` L36, L47: archive_record_id added to
+  call_log embeds
+
+GIT STATE
+─────────
+Branch: main
+HEAD: 2dab659 (Merge fix/job-detail-invoice-fk: Job Detail +
+  Proposal Detail SOV-aware totals + call_log_id invoice join)
+Working tree: this handoff (uncommitted, pre-push)
+Branch `fix/job-detail-invoice-fk` deleted local + remote post-merge.

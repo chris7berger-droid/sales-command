@@ -58,7 +58,8 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
         supabase.from("invoices")
           .select("id", { count: "exact", head: true })
           .eq("proposal_id", proposal.id)
-          .is("deleted_at", null),
+          .is("deleted_at", null)
+          .neq("status", "New"),
       ]);
       setLines(lns || []);
       setPayApps(apps || []);
@@ -582,7 +583,7 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
       {/* Add buttons below table */}
       {editingLineId == null && (
         <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
-          {canManage && locked && payApps.length > 0 && (
+          {canManage && payApps.length > 0 && (
             <Btn sz="sm" v="ghost" onClick={() => generateSov(payApps[payApps.length - 1])} disabled={generatingSov}>
               {generatingSov ? "Generating..." : "Add SOV to Pay App"}
             </Btn>

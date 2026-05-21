@@ -838,7 +838,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                     >
                       <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.03em", minWidth: 140 }}>{label}</span>
                       <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: sc.bg, color: sc.color, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>{p.status}</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>{fmt$(p.total)}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>{fmt$((contractSumByProposalId[p.id] > 0 ? contractSumByProposalId[p.id] : parseFloat(p.total)) || 0)}</span>
                     </button>
                   );
                 })}

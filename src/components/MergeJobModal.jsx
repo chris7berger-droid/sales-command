@@ -88,9 +88,9 @@ export default function MergeJobModal({ loserJob, onClose, onMerged }) {
         supabase.from("proposals").select("id", { count: "exact", head: true })
           .eq("call_log_id", loserJob.id).not("deleted_at", "is", null),
         supabase.from("invoices").select("id", { count: "exact", head: true })
-          .is("deleted_at", null).eq("job_id", loserJob.display_job_number),
+          .is("deleted_at", null).is("voided_at", null).eq("job_id", loserJob.display_job_number),
         supabase.from("invoices").select("id", { count: "exact", head: true })
-          .is("deleted_at", null).eq("job_id", String(loserJob.id)),
+          .is("deleted_at", null).is("voided_at", null).eq("job_id", String(loserJob.id)),
         supabase.from("job_work_types").select("id", { count: "exact", head: true })
           .eq("call_log_id", loserJob.id),
         supabase.from("call_log").select("id", { count: "exact", head: true })

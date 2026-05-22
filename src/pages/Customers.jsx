@@ -521,7 +521,7 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
         fetchAll(
           "invoices",
           "id, amount, status, sent_at, paid_at, job_id, job_name, invoice_lines(proposal_wtc(work_types(name)))",
-          { filters: [["is", "deleted_at", null]], order: { column: "sent_at", ascending: false } }
+          { filters: [["is", "deleted_at", null], ["is", "voided_at", null]], order: { column: "sent_at", ascending: false } }
         ),
       ]);
       const jobIds = new Set(j.map(x => x.id));

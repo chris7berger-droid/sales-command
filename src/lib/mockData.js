@@ -14,6 +14,7 @@ export const INV_C = {
   "Waiting for Payment": { bg:"rgba(249,168,37,0.13)", text:"#7a5000" },
   "Past Due":            { bg:"rgba(229,57,53,0.10)",  text:"#8b1a18" },
   "Paid":                { bg:"rgba(67,160,71,0.12)",  text:"#1e5e22" },
+  "VOIDED":              { bg:"rgba(229,57,53,0.18)",  text:"#8b1a18", border:"rgba(229,57,53,0.45)" },
 };
 
 export const PROP_C = {

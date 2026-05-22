@@ -1612,11 +1612,6 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                 {syncing ? "Syncing…" : linkedPayApp ? "Sync to QB" : "Sync and Send"}
               </Btn>
             )}
-            {!linkedPayApp && inv.status !== "New" && inv.stripe_payment_link_id && (
-              <Btn sz="sm" v="ghost" onClick={() => setShowPDF(true)} title="Send a fresh payment link to the customer (replaces the old one, no QB change)">
-                Refresh Stripe Link
-              </Btn>
-            )}
             {canPullBack && (
               <Btn sz="sm" v="ghost" onClick={handlePullBack}>Pull Back</Btn>
             )}

@@ -1,0 +1,226 @@
+SC Handoff v136 — 2026-05-22
+============================
+
+SESSION SUMMARY
+─────────────────────────────────────────────────────
+/fix loop covering B36 (T1 — send-invoice math) + B38 (T2 — Stripe
+pay-link integrity surface). B37 (T2) was handed off to a separate
+audit terminal mid-session and is NOT covered here.
+
+Both B36 and B38 are now closed AND merged to main (commit 4e7754a).
+B36 included a hot prod fix (send-invoice edge fn was telling customers
+to pay gross instead of net whenever a discount or retention was
+applied — Danny Peltier #10028 saw $1,651 when he should have seen
+$826). B38 shipped two unambiguous wins (kill the dead Refresh Stripe
+Link button + rename Preview/Send → Send/Resend) and explicitly cut
+three triggers and a column after a code trace showed the underlying
+premise was wrong — see B38 row in BACKLOG for the reasoning.
+
+Branch fix/b38-stripe-link-staleness was stacked on
+fix/b36-send-invoice-net-amount which was stacked on
+feat/b34-invoice-void-record. Merging fix/b36 brought B34 to main as
+part of the merge commit. Merging fix/b38 added the B38 commits on
+top. Two clean merge commits on main, B34/B36/B38 history preserved.
+
+The session lasted longer than warranted (most of a day spent in
+back-and-forth on smoke instructions, scope creep on per-line discount
+rendering, and an entire build-and-revert cycle on B38 trigger #2).
+Two new feedback memories saved to prevent recurrence:
+- `feedback_verify_premise_before_executing`: trace code end-to-end
+  before implementing a BACKLOG trigger; cut theater that the existing
+  code already handles.
+- `feedback_one_sentence_default`: default response length = one
+  sentence + one action; ask for clarification only on genuine forks.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────
+Main is at `4e7754a` (origin/main pushed).
+
+B36 — send-invoice net amount fix (T1)
+- `supabase/functions/send-invoice/index.ts` redeployed to prod.
+- SELECT now pulls discount, retention_amount, retention_pct.
+- netAmount = amount - discount - retention_amount (matches the
+  canonical "Payment Due" formula at Invoices.jsx:1443).
+- Stripe Payment Link `unit_amount` now uses netAmount.
+- Email body headline now uses netAmount.
+- Email breakdown rows render only when discount or retention > 0:
+  Gross amount / Discount / Retainage withheld / Payment due. Layout
+  uses a 2-column <table> for Gmail compatibility (display:flex gets
+  stripped — caused "Gross amount$0.59" mashed rendering in first
+  smoke; fixed in commit 09419e3).
+- Sender notification email also shows netAmount + a caption
+  "Net of $X discount/retainage (gross $Y)" when applicable.
+- Returns 400 when netAmount <= 0 (defense vs. over-applied discount
+  silently zeroing out the link).
+- send-pay-app swept and found clean — it only attaches client-rendered
+  PDFs, no Stripe link, no inline amount in the body.
+- qb-sync-invoice intentionally unchanged — QB receives gross + line
+  items for discount/retention per `project_qb_retention_strategy`.
+- Smoked end-to-end on TEST invoice #10047: $0.59 amount + $0.05
+  discount → email headline $0.54, Stripe pay page $0.54, breakdown
+  rows rendered correctly with table layout.
+
+B38 — Stripe pay-link integrity surface (T2)
+- Refresh Stripe Link button removed from invoice action bar
+  (`src/pages/Invoices.jsx:1615-1619`). It was added in B34 to expose
+  a manual "resend link without QB change" path but was hidden in the
+  action bar and functionally redundant with Send/Resend, which per
+  B33 already deactivates the old Payment Link and mints a fresh one
+  on every send.
+- Renamed `Preview / Send` → `Send / Resend` on the action bar
+  (`Invoices.jsx:1601`). Pay-app variant stays `Preview` since the
+  pay-app modal is preview-only.
+- **All three originally-planned staleness triggers + the proposed
+  `invoices.link_stale` column dropped from scope** after the code
+  trace below.
+
+B38 SCOPE CUT — why the triggers are gone
+- Trigger #1 (amount-changed staleness on Edit save) can't fire in
+  current code. `Edit Invoice` is gated on `status === "New"`
+  (Invoices.jsx:1603) and `handlePullBack` already nulls
+  `stripe_payment_link_id` + calls `deactivate-payment-link`. So the
+  only way to edit a Sent invoice is Pull Back → Edit → Send, which
+  guarantees a fresh link minted on every send. No scenario exists
+  where the customer holds a stale-amount link.
+- Trigger #2 (Past Due pulse) was built in commit 36baeab then
+  reverted in commit 976a772 after Chris caught that the underlying
+  premise was wrong. Since send-invoice always mints a fresh link
+  on send, there's no "stale link" scenario for a past-due invoice
+  either — the customer's old email link is either (a) deactivated
+  via pullback or (b) still valid because no one has resent yet. A
+  pulse to nudge a resend doesn't surface any new info — it's just
+  a "this is past due" reminder, which the existing red "2d overdue"
+  pill on InvoiceDetail already provides.
+- Trigger #3 (Stripe webhook on payment_link.deactivated) was already
+  deferred to "phase 2" in the original B38 plan.
+
+DECISIONS
+─────────────────────────────────────────────────────
+- B38 scope minimized to button kill + rename after code trace. If
+  in-place editing of Sent invoices is ever added (lifting the isNew
+  gate), the staleness column + trigger #1 should come back.
+- Per-line discount rendering on InvoiceDetail Line Amount column —
+  user raised, then deferred. Discount is an invoice-level deduction
+  by design; the StatCards above the line items show the net.
+- v135 handoff (untracked at session start, written by an earlier
+  terminal for Loop #24 / B34 closeout) committed alongside v136.
+
+NEW BACKLOG ITEMS
+─────────────────
+None this session.
+
+CLOSED BACKLOG ITEMS
+────────────────────
+- B36 (T1) — closed 2026-05-22, merged to main as part of the B36
+  merge commit. Edge fn `send-invoice` redeployed to prod.
+- B38 (T2) — closed 2026-05-22, merged to main as part of the B38
+  merge commit. Frontend-only, no edge fn or migration changes.
+
+(B34 from v135 also landed on main as the base of B36 — see v135 for
+full B34 closeout notes. B34's edge fn + migration were already
+deployed before the merge, so the merge itself just brought the
+client-side code current.)
+
+ERD LOG
+───────
+No ERD loop locked this session. /fix was the entry point. In
+retrospect this should have been an ERD loop given the length and
+the lesson it produced — capture deferred to user discretion.
+
+VERIFICATION (what landed where)
+────────────────────────────────
+Prod (irrevocable):
+- Edge fn deployed: `send-invoice` updated 2026-05-22 (B36 math fix
+  + email layout). Verified via TEST invoice #10047 smoke.
+- Migration in place since v135: `20260522130000_invoices_voided_at`.
+
+Main:
+- `4e7754a` Merge fix/b38-stripe-link-staleness
+- `<prev merge>` Merge fix/b36-send-invoice-net-amount + base
+  feat/b34-invoice-void-record
+- Both merges pushed to origin/main → Vercel will auto-deploy to
+  www.scmybiz.com.
+
+Smoke matrix executed:
+1. ✅ B36 email headline = $0.54 (not gross $0.59).
+2. ✅ B36 email breakdown rows render with proper spacing (table).
+3. ✅ B36 Stripe pay link page also shows net (verified via the
+   public invoice page rounding view).
+4. ⏸ B38 pulse was built then reverted — never smoked end-to-end
+   because the trigger itself was cut.
+5. ⏸ Send/Resend rename — visually confirmed via #10047 in the app
+   per Chris's screenshot.
+6. ⏸ Refresh Stripe Link button removal — verified in code review
+   only (button no longer renders for Sent/Past Due invoices).
+
+NOT TOUCHED
+───────────
+- B37 (T2 — false-sister detection blocking sequential proposals).
+  Plan at `docs/plans/b37_false_sister_fix.md` on branch
+  `feat/b37-false-sister-fix` @ `9507f3b`. Audit passed READY TO
+  BUILD with two amendments (add smoke case 5 + use CREATE OR
+  REPLACE FUNCTION form, preserves GRANT EXECUTE TO anon at c1:119).
+  Handed off to a separate audit terminal mid-session; status as of
+  this write is in that terminal's hands.
+- send-proposal and send-pay-app — no changes.
+- Multi-GC code paths beyond verification reads.
+- The `feat/b34-invoice-void-record` branch still exists locally and
+  on origin even though its commits are now in main. Safe to delete
+  after confirming no other workflows reference it.
+- Same for `fix/b36-send-invoice-net-amount` and
+  `fix/b38-stripe-link-staleness` — both merged, safe to delete.
+
+NEXT SESSION POINTERS
+─────────────────────
+1. **B37 status check.** Look at the B37 audit terminal output. If
+   it shipped, merge to main (it branches off main directly, plan
+   doc only commit so far). If it's still mid-build, finish it.
+2. **Branch cleanup.** Delete `feat/b34-invoice-void-record`,
+   `fix/b36-send-invoice-net-amount`, `fix/b38-stripe-link-staleness`
+   locally and on origin. They're all merged into main.
+3. **Customer-facing Stripe link smoke.** B36 was smoked on a TEST
+   invoice. Pick one real customer invoice with a discount applied
+   (any future invoice — Danny's #10028 was the original repro and
+   was worked-around manually) and verify the math holds in
+   production after the next real send.
+4. **Per-line discount on InvoiceDetail.** User raised mid-session
+   then deferred. If you decide to revisit, the canonical formula
+   is at Invoices.jsx:1443 (StatCard). Pro-rating across multiple
+   lines needs design discussion before code.
+5. **Read the feedback memories saved this session** before next
+   sales-command work:
+   - `feedback_verify_premise_before_executing.md`
+   - `feedback_one_sentence_default.md`
+
+FILES TO KNOW (for next session)
+────────────────────────────────
+- `supabase/functions/send-invoice/index.ts` — B36 net math (line 47
+  SELECT, line 76-83 netAmount calc, line 174 Stripe unit_amount,
+  line 209-220 email breakdown table, line 230 email headline, line
+  294 sender notification).
+- `src/pages/Invoices.jsx` — invoice action bar at line 1599-1623
+  (Send/Resend button at 1601, Pull Back at 1620, Delete at 1623,
+  no more Refresh Stripe Link). `handlePullBack` at 1262, edit
+  gating on isNew at 1603, handleSaveEdit at 1196.
+- `src/components/Btn.jsx` — Btn API (no `pulse` or `title` props —
+  those were added and reverted in B38).
+- `src/lib/tokens.js` — GLOBAL_CSS (no @keyframes scBtnPulse — added
+  and reverted).
+- `docs/BACKLOG.md` — B36 + B38 both marked Closed 2026-05-22.
+- `docs/handoffs/SC_Handoff_v135.txt` — Loop #24 / B34 closeout.
+
+GIT STATE
+─────────
+- Working branch: `main`
+- Working tree: clean after committing v135 + v136 handoffs.
+- Latest commit on main: `4e7754a` Merge fix/b38-stripe-link-staleness
+- Branches:
+  - `feat/b34-invoice-void-record` @ `2bada54` (merged into main)
+  - `fix/b36-send-invoice-net-amount` @ `09419e3` (merged into main)
+  - `fix/b38-stripe-link-staleness` @ `976a772` (merged into main)
+  - `feat/b37-false-sister-fix` @ `9507f3b` (NOT merged — pending
+    B37 work in audit terminal)
+- Sister repos pushed:
+  - `chris7berger-droid/claude-personal-state` — 2 new feedback
+    memories: `feedback_verify_premise_before_executing.md` +
+    `feedback_one_sentence_default.md`, plus MEMORY.md index update.

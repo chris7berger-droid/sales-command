@@ -44,7 +44,7 @@ serve(async (req) => {
     // or redirect invoices to attacker-controlled inboxes.
     const { data: invoice } = await supabase
       .from("invoices")
-      .select("tenant_id, amount, viewing_token, proposal_id, job_id, stripe_payment_link_id, proposals(call_log_id, call_log(customer_id, customers(email, contact_email, billing_email)))")
+      .select("tenant_id, amount, discount, retention_amount, retention_pct, viewing_token, proposal_id, job_id, stripe_payment_link_id, proposals(call_log_id, call_log(customer_id, customers(email, contact_email, billing_email)))")
       .eq("id", invoiceId)
       .maybeSingle();
 
@@ -62,6 +62,22 @@ serve(async (req) => {
     const amount = Number(invoice.amount);
     if (!amount || amount <= 0) {
       return new Response(JSON.stringify({ error: "Invalid invoice amount" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400,
+      });
+    }
+
+    // B36: customer-facing amount = gross - discount - retention. Matches
+    // Invoices.jsx:1443 ("Payment Due" StatCard) which is the canonical UI
+    // formula. Stripe payment_link unit_amount + email body must call for net,
+    // not gross — prior bug shipped gross to customers when discount/retention
+    // were applied (Danny Peltier #10028, 2026-05-22).
+    const discount = Number(invoice.discount) || 0;
+    const retentionAmount = Number(invoice.retention_amount) || 0;
+    const retentionPct = Number(invoice.retention_pct) || 0;
+    const netAmount = amount - discount - retentionAmount;
+    if (netAmount <= 0) {
+      return new Response(JSON.stringify({ error: "Invoice net amount (after discount + retention) is zero or negative" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 400,
       });
@@ -155,7 +171,7 @@ serve(async (req) => {
         "line_items[0][price_data][product_data][name]": `${customerName} - Invoice #${invoiceId}`,
         "line_items[0][price_data][product_data][description]": `${jobId ? `Job #${jobId}` : ""}${jobId && jobName ? ` - ${jobName}` : jobName || ""} · High Desert Surface Prep`,
         "payment_intent_data[description]": `${customerName} - Invoice #${invoiceId}${jobId ? ` · Job #${jobId}` : ""}${jobName ? ` - ${jobName}` : ""}`,
-        "line_items[0][price_data][unit_amount]": String(Math.round(amount * 100)),
+        "line_items[0][price_data][unit_amount]": String(Math.round(netAmount * 100)),
         "line_items[0][quantity]": "1",
         "after_completion[type]": "redirect",
         "after_completion[redirect][url]": `${SITE_URL}/invoice-paid?invoice_id=${invoiceId}`,
@@ -190,6 +206,21 @@ serve(async (req) => {
     // Send email to customer with pay link
     const dueLine = dueDate ? `Payment due by ${new Date(dueDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}` : "Payment due upon receipt";
 
+    const fmtMoney = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Show line-item breakdown when discount or retention is applied so the
+    // customer sees why the headline differs from any prior estimate/proposal.
+    const hasBreakdown = discount > 0 || retentionAmount > 0;
+    const breakdownHtml = hasBreakdown
+      ? `
+        <div style="font-size: 13px; color: #4a4238; margin-bottom: 12px; line-height: 1.8;">
+          <div style="display: flex; justify-content: space-between;"><span>Gross amount</span><span>$${fmtMoney(amount)}</span></div>
+          ${discount > 0 ? `<div style="display: flex; justify-content: space-between;"><span>Discount</span><span>-$${fmtMoney(discount)}</span></div>` : ""}
+          ${retentionAmount > 0 ? `<div style="display: flex; justify-content: space-between;"><span>Retainage withheld${retentionPct > 0 ? ` (${retentionPct}%)` : ""}</span><span>-$${fmtMoney(retentionAmount)}</span></div>` : ""}
+          <div style="border-top: 1px solid #e5e0d8; margin-top: 6px; padding-top: 6px; display: flex; justify-content: space-between; font-weight: 700; color: #1c1814;"><span>Payment due</span><span>$${fmtMoney(netAmount)}</span></div>
+        </div>
+      `
+      : "";
+
     const emailRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -215,7 +246,8 @@ serve(async (req) => {
                 <span style="font-size: 12px; color: #887c6e; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;">Invoice #${invoiceId}</span>
                 ${jobId ? `<span style="font-size: 12px; color: #887c6e;">Job #${jobId}</span>` : ""}
               </div>
-              <div style="font-size: 32px; font-weight: 800; color: #1c1814; margin-bottom: 8px;">$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <div style="font-size: 32px; font-weight: 800; color: #1c1814; margin-bottom: 8px;">$${fmtMoney(netAmount)}</div>
+              ${breakdownHtml}
               <div style="font-size: 12px; color: #887c6e;">${dueLine}</div>
             </div>
             <div style="margin: 32px 0; text-align: center;">
@@ -258,7 +290,8 @@ serve(async (req) => {
                 <p>Invoice <strong>#${invoiceId}</strong> has been sent to <strong>${customerName}</strong> (${customerEmail}).</p>
                 <div style="background: #f8f6f3; border: 1.5px solid #e5e0d8; border-radius: 10px; padding: 16px; margin: 16px 0;">
                   ${jobId ? `<div style="font-size: 12px; color: #887c6e; margin-bottom: 4px;">Job #${jobId}${jobName ? ` — ${jobName}` : ""}</div>` : ""}
-                  <div style="font-size: 22px; font-weight: 800; color: #1c1814; margin-top: 8px;">$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div style="font-size: 22px; font-weight: 800; color: #1c1814; margin-top: 8px;">$${fmtMoney(netAmount)}</div>
+                  ${hasBreakdown ? `<div style="font-size: 11px; color: #887c6e; margin-top: 4px;">Net of $${fmtMoney(amount - netAmount)} ${discount > 0 && retentionAmount > 0 ? "discount + retainage" : discount > 0 ? "discount" : "retainage"} (gross $${fmtMoney(amount)})</div>` : ""}
                   ${dueDate ? `<div style="font-size: 12px; color: #887c6e; margin-top: 4px;">Due ${new Date(dueDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>` : ""}
                 </div>
                 <p style="color: #887c6e; font-size: 12px;">You will receive another notification when the customer pays.</p>

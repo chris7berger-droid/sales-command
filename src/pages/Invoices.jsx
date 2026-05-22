@@ -1598,7 +1598,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           </>
         ) : (
           <>
-            <Btn sz="sm" onClick={() => setShowPDF(true)}>{linkedPayApp ? "Preview" : "Preview / Send"}</Btn>
+            <Btn sz="sm" onClick={() => setShowPDF(true)}>{linkedPayApp ? "Preview" : "Send / Resend"}</Btn>
             {linkedPayApp && <Btn sz="sm" v="secondary" onClick={() => setShowPayAppReview(true)}>Review Package</Btn>}
             {isNew && <Btn sz="sm" v="secondary" onClick={startEditing}>Edit Invoice</Btn>}
             {actions.map(a => (
@@ -1610,11 +1610,6 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
               && (inv.status !== "New" || linkedPayApp) && (
               <Btn sz="sm" v="secondary" onClick={handleQBSync} disabled={syncing}>
                 {syncing ? "Syncing…" : linkedPayApp ? "Sync to QB" : "Sync and Send"}
-              </Btn>
-            )}
-            {!linkedPayApp && inv.status !== "New" && inv.stripe_payment_link_id && (
-              <Btn sz="sm" v="ghost" onClick={() => setShowPDF(true)} title="Send a fresh payment link to the customer (replaces the old one, no QB change)">
-                Refresh Stripe Link
               </Btn>
             )}
             {canPullBack && (

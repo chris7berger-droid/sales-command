@@ -1857,6 +1857,7 @@ export default function Invoices({ setSubPage, teamMember }) {
   }, [sel, showModal]);
 
   if (sel) return <InvoiceDetail
+    key={sel.id}
     invoice={sel}
     teamMember={teamMember}
     onBack={() => { navigate("/invoices"); load(); }}

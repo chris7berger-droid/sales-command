@@ -1802,7 +1802,18 @@ export default function Invoices({ setSubPage, teamMember }) {
     if (!routeInvoiceId) { setSel(null); return; }
     if (invoices.length === 0) return;
     const inv = invoices.find(i => i.id === routeInvoiceId);
-    if (inv) setSel(inv);
+    if (inv) { setSel(inv); return; }
+    // Not in active list — could be voided. Fetch directly so audit-trail
+    // direct URLs (e.g. /invoices/<voided-id>) still resolve.
+    (async () => {
+      const { data } = await supabase
+        .from("invoices")
+        .select("*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))")
+        .eq("id", routeInvoiceId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (data) setSel(data);
+    })();
   }, [routeInvoiceId, invoices]);
 
   // Auto-open New Invoice modal when ProposalDetail navigates here with a preselected proposal.

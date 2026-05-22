@@ -624,23 +624,25 @@ async function deletePropAttachment(fullName) {
     if (!approveBy.trim()) { alert("Approved By is required."); return; }
     if (!approveReason.trim()) { alert("Reason is required."); return; }
 
-    const { data: siblings } = await supabase
-      .from("proposals")
-      .select("id")
-      .eq("call_log_id", p.call_log_id)
-      .neq("id", p.id)
-      .is("deleted_at", null)
-      .not("status", "in", "(Lost)");
-    const hasSisters = (siblings?.length || 0) > 0;
+    const isSister = !!p.cloned_from_proposal_id;
+    let hasChildSisters = false;
+    if (!isSister && p.id) {
+      const { count } = await supabase.from("proposals")
+        .select("id", { count: "exact", head: true })
+        .eq("cloned_from_proposal_id", p.id)
+        .is("deleted_at", null);
+      hasChildSisters = (count || 0) > 0;
+    }
+    const inSisterCohort = isSister || hasChildSisters;
 
     await supabase.from("proposals").update({
-      status: hasSisters ? "Signed" : "Sold",
+      status: inSisterCohort ? "Signed" : "Sold",
       approved_at: new Date().toISOString(),
       internal_approval: true,
       approved_by: approveBy.trim(),
       approval_reason: approveReason.trim(),
     }).eq("id", p.id);
-    if (p.call_log_id && !hasSisters) {
+    if (p.call_log_id && !inSisterCohort) {
       await supabase.from("call_log").update({ stage: "Sold" }).eq("id", p.call_log_id);
       const isTest = (p.call_log?.job_name || "").toLowerCase().includes("test");
       !isTest && supabase.functions.invoke("qb-create-job", { body: { callLogId: p.call_log_id, proposalId: p.id } })

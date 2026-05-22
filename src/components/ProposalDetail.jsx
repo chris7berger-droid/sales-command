@@ -56,7 +56,7 @@ const navigate = useNavigate();
 
 useEffect(() => {
   (async () => {
-    const { data } = await supabase.from("invoices").select("id, amount").eq("proposal_id", p.id).is("deleted_at", null).order("sent_at", { ascending: false });
+    const { data } = await supabase.from("invoices").select("id, amount").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null).order("sent_at", { ascending: false });
     setLinkedInvoices(data || []);
   })();
 }, [p.id]);
@@ -457,7 +457,7 @@ async function deletePropAttachment(fullName) {
 
   const canDelete = teamMember && (["Admin","Manager"].includes(teamMember.role) || teamMember.name === p.call_log?.sales_name);
   async function handleDelete() {
-    const { data: invoices } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null);
+    const { data: invoices } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null);
     if (invoices && invoices.length > 0) {
       alert(`This proposal has ${invoices.length} invoice${invoices.length > 1 ? "s" : ""} linked to it. Please delete the invoice${invoices.length > 1 ? "s" : ""} first.`);
       return;
@@ -480,7 +480,7 @@ async function deletePropAttachment(fullName) {
   }
 
   async function handlePullBack() {
-    const { data: invoices } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null);
+    const { data: invoices } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null);
     if (invoices && invoices.length > 0) {
       alert(`This proposal has ${invoices.length} invoice${invoices.length > 1 ? "s" : ""} linked to it. Delete the invoice${invoices.length > 1 ? "s" : ""} before pulling back.`);
       return;
@@ -518,7 +518,7 @@ async function deletePropAttachment(fullName) {
       if (existing) { alert("This proposal has already been sent to Schedule Command."); setSentToSchedule(true); setSendingToSchedule(false); return; }
 
       // Block if invoiced — don't schedule work that's already been billed
-      const { data: invoices } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).limit(1);
+      const { data: invoices } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null).limit(1);
       if (invoices && invoices.length > 0) { alert("This proposal has already been invoiced. Cannot send to Schedule Command."); setSendingToSchedule(false); return; }
 
       // Gather WTC data

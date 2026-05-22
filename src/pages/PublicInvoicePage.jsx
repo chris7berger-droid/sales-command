@@ -35,6 +35,7 @@ export default function PublicInvoicePage() {
         .single();
 
       if (invErr || !inv) { setError("Invoice not found."); setLoading(false); return; }
+      if (inv.voided_at) { setError("This invoice is no longer active. Please contact your sales rep for a current invoice."); setInvoice(inv); setLoading(false); return; }
       setInvoice(inv);
 
       // Load lines

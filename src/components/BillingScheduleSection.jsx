@@ -59,6 +59,7 @@ export default function BillingScheduleSection({ proposal, teamMember }) {
           .select("id", { count: "exact", head: true })
           .eq("proposal_id", proposal.id)
           .is("deleted_at", null)
+          .is("voided_at", null)
           .neq("status", "New"),
       ]);
       setLines(lns || []);

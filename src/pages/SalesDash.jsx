@@ -414,7 +414,7 @@ function AnalyticsModal({ onClose, selectedRep }) {
         supabase.from("work_types").select("id, name").order("name"),
         supabase.from("team_members").select("name, role").eq("active", true),
         fetchAll("proposal_wtc", "id, proposal_id, work_type_id, regular_hours, ot_hours, burden_rate, ot_burden_rate, markup_pct, materials, travel, discount, size, start_date, end_date, work_types(name), proposals(id, total, status, created_at, call_log_id, call_log(sales_name, customer_name, job_name))"),
-        fetchAll("invoices", "id, job_id, amount, status, sent_at, paid_at, job_name, invoice_lines(amount, proposal_wtc_id, proposal_wtc(work_type_id, work_types(name)))"),
+        fetchAll("invoices", "id, job_id, amount, status, sent_at, paid_at, job_name, invoice_lines(amount, proposal_wtc_id, proposal_wtc(work_type_id, work_types(name)))", { filters: [["is", "deleted_at", null], ["is", "voided_at", null]] }),
       ]);
       setWorkTypes(wt || []);
       setSalesReps((tm || []).filter(t => ["Sales Rep","Admin","Manager"].includes(t.role)).map(t => t.name).sort());

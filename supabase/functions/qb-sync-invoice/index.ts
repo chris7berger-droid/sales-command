@@ -67,7 +67,11 @@ async function qbApi(method: string, path: string, accessToken: string, realmId:
   const data = await res.json();
   if (!res.ok) {
     console.error("QB API error:", JSON.stringify(data));
-    throw new Error(`QB API ${res.status}: ${JSON.stringify(data?.Fault?.Error?.[0]?.Detail || data)}`);
+    const faultErr = data?.Fault?.Error?.[0];
+    const errPayload = faultErr
+      ? { message: faultErr.Message, detail: faultErr.Detail, code: faultErr.code }
+      : data;
+    throw new Error(`QB API ${res.status}: ${JSON.stringify(errPayload)}`);
   }
   return data;
 }
@@ -118,6 +122,15 @@ serve(async (req) => {
     // Tenant binding: a user JWT may only sync invoices in their own tenant.
     if (!caller.isServiceRole && invoice.tenant_id !== caller.tenantId) {
       return unauthorizedResponse(403, corsHeaders);
+    }
+
+    // Voided invoices are terminal — never re-sync. Placed after tenant gate
+    // so cross-tenant probes can't infer voided state.
+    if (invoice.voided_at) {
+      console.log("qb-sync-invoice: skipping voided invoice", { invoiceId });
+      return new Response(JSON.stringify({ success: true, skipped: true, reason: "voided" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
+      });
     }
 
     const isUpdate = !!invoice.qb_invoice_id;
@@ -340,6 +353,15 @@ serve(async (req) => {
       return new Response(JSON.stringify({
         error: "qb_customer_invalid",
         message: "Linked QuickBooks customer no longer exists or is inactive. Re-link this job to a current QB customer.",
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
+    if (/Duplicate Document Number|different number|already.*used/i.test(error.message || "")) {
+      return new Response(JSON.stringify({
+        error: "qb_duplicate_docnum",
+        message: "QuickBooks already has an invoice with this number (likely a voided record). Pull back to void + replace, then retry.",
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 200,

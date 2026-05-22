@@ -182,7 +182,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       }
       const [{ data: props }, { data: invs }] = await Promise.all([
         supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, cloned_from_proposal_id, is_archive_proposal, customer_id, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
-        supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
+        supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).is("voided_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
       ]);
       setLinkedProposals(props || []);
       setLinkedInvoices(invs || []);

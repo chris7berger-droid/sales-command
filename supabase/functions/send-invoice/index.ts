@@ -210,14 +210,17 @@ serve(async (req) => {
     // Show line-item breakdown when discount or retention is applied so the
     // customer sees why the headline differs from any prior estimate/proposal.
     const hasBreakdown = discount > 0 || retentionAmount > 0;
+    // Email-safe layout: <table> with two columns. Gmail strips `display: flex`
+    // so the previous <div flex> rows rendered as "Gross amount$0.59" with no
+    // gap between label and value. Tables render reliably in every email client.
     const breakdownHtml = hasBreakdown
       ? `
-        <div style="font-size: 13px; color: #4a4238; margin-bottom: 12px; line-height: 1.8;">
-          <div style="display: flex; justify-content: space-between;"><span>Gross amount</span><span>$${fmtMoney(amount)}</span></div>
-          ${discount > 0 ? `<div style="display: flex; justify-content: space-between;"><span>Discount</span><span>-$${fmtMoney(discount)}</span></div>` : ""}
-          ${retentionAmount > 0 ? `<div style="display: flex; justify-content: space-between;"><span>Retainage withheld${retentionPct > 0 ? ` (${retentionPct}%)` : ""}</span><span>-$${fmtMoney(retentionAmount)}</span></div>` : ""}
-          <div style="border-top: 1px solid #e5e0d8; margin-top: 6px; padding-top: 6px; display: flex; justify-content: space-between; font-weight: 700; color: #1c1814;"><span>Payment due</span><span>$${fmtMoney(netAmount)}</span></div>
-        </div>
+        <table cellpadding="0" cellspacing="0" border="0" style="width: 100%; border-collapse: collapse; font-size: 13px; color: #4a4238; margin-bottom: 12px;">
+          <tr><td style="padding: 3px 0; text-align: left;">Gross amount</td><td style="padding: 3px 0; text-align: right;">$${fmtMoney(amount)}</td></tr>
+          ${discount > 0 ? `<tr><td style="padding: 3px 0; text-align: left;">Discount</td><td style="padding: 3px 0; text-align: right;">-$${fmtMoney(discount)}</td></tr>` : ""}
+          ${retentionAmount > 0 ? `<tr><td style="padding: 3px 0; text-align: left;">Retainage withheld${retentionPct > 0 ? ` (${retentionPct}%)` : ""}</td><td style="padding: 3px 0; text-align: right;">-$${fmtMoney(retentionAmount)}</td></tr>` : ""}
+          <tr><td style="padding: 6px 0 0; border-top: 1px solid #e5e0d8; text-align: left; font-weight: 700; color: #1c1814;">Payment due</td><td style="padding: 6px 0 0; border-top: 1px solid #e5e0d8; text-align: right; font-weight: 700; color: #1c1814;">$${fmtMoney(netAmount)}</td></tr>
+        </table>
       `
       : "";
 

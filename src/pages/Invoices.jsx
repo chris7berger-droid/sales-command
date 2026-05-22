@@ -141,7 +141,8 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
         .from("invoices")
         .select("amount")
         .eq("proposal_id", p.id)
-        .is("deleted_at", null);
+        .is("deleted_at", null)
+        .is("voided_at", null);
       const inSystem = (priorInv || []).reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
       const historical = parseFloat(p.historical_billed_amount) || 0;
       setArchiveBilled(inSystem + historical);
@@ -163,7 +164,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
       supabase.from("invoice_lines")
         .select("proposal_wtc_id, billing_pct")
         .in("invoice_id",
-          (await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null)).data?.map(i => i.id) || []
+          (await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null)).data?.map(i => i.id) || []
         ),
     ]);
 
@@ -939,7 +940,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
 }
 
 // ── Invoice Detail ────────────────────────────────────────────────────────
-function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, onNavigateProposal, teamMember }) {
+function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, onNavigateProposal, onNavigateInvoice, teamMember }) {
   const money = fmt$c;
   const [inv, setInv] = useState(invoice);
   const [lines, setLines] = useState([]);
@@ -1075,6 +1076,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   }, [inv.id]);
 
   async function updateStatus(newStatus) {
+    if (inv.voided_at) { alert("This invoice is voided and cannot change status."); return; }
     const updates = { status: newStatus };
     if (newStatus === "Sent" && !inv.sent_at) {
       updates.sent_at = new Date().toISOString();
@@ -1094,6 +1096,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
   async function handleQBSync() {
     if (syncing) return;
+    if (inv.voided_at) { setSyncError("This invoice is voided — re-sync is not allowed."); return; }
     setSyncing(true);
     setSyncError(null);
     setSyncReLink(false);
@@ -1155,6 +1158,14 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const isNew = inv.status === "New";
 
   async function handleDelete() {
+    if (inv.voided_at) {
+      // Already voided — hide from lists. QB record stays as audit trail.
+      if (!confirm(`Hide voided Invoice #${inv.id} from lists? (record stays in DB for audit.)`)) return;
+      const { error } = await supabase.from("invoices").update({ deleted_at: new Date().toISOString() }).eq("id", inv.id);
+      if (error) { alert(error.message); return; }
+      onDeleted && onDeleted();
+      return;
+    }
     if (inv.qb_invoice_id) {
       // Has QB record — show void modal for required reason
       setShowVoidModal("delete");
@@ -1183,6 +1194,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   }
 
   async function handleSaveEdit() {
+    if (inv.voided_at) { alert("This invoice is voided and cannot be edited."); return; }
     // Require reason if invoice is synced to QB
     if (inv.qb_invoice_id && !editReason.trim()) {
       alert("A reason for this edit is required for QuickBooks audit compliance.");
@@ -1295,18 +1307,81 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       setVoidReason("");
       onDeleted && onDeleted();
     } else {
-      const updates = { status: "New", sent_at: null, stripe_checkout_id: null, stripe_checkout_url: null, stripe_payment_link_id: null, stripe_payment_id: null, paid_at: null, qb_invoice_id: null };
-      const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
-      if (error) { alert(error.message); setSaving(false); return; }
+      // Two-row design: mark original voided (preserve qb_invoice_id for QB audit
+      // linkage), then either branch on pay-app linkage or insert a replacement.
+      const nowIso = new Date().toISOString();
+      const reason = voidReason.trim();
+      const { error: voidErr } = await supabase.from("invoices").update({
+        voided_at: nowIso,
+        void_reason: reason,
+        stripe_payment_link_id: null,
+        stripe_checkout_id: null,
+        stripe_checkout_url: null,
+        stripe_payment_id: null,
+      }).eq("id", inv.id);
+      if (voidErr) { alert(voidErr.message); setSaving(false); return; }
+
       if (linkedPayApp) {
-        await supabase.from("billing_schedule_pay_apps").update({ status: "draft", submitted_at: null }).eq("id", linkedPayApp.id);
-        setLinkedPayApp(prev => prev ? { ...prev, status: "draft", submitted_at: null } : prev);
+        // Pay-app path: pay app to draft + clear FK. New invoice born on re-lock.
+        await supabase.from("billing_schedule_pay_apps")
+          .update({ status: "draft", submitted_at: null, invoice_id: null })
+          .eq("id", linkedPayApp.id);
+        setLinkedPayApp(prev => prev ? { ...prev, status: "draft", submitted_at: null, invoice_id: null } : prev);
+        setInv(prev => ({ ...prev, voided_at: nowIso, void_reason: reason }));
+        setSaving(false);
+        setShowVoidModal(null);
+        setVoidReason("");
+        onUpdated && onUpdated();
+      } else {
+        // Non-pay-app: insert replacement at next-free-ID with copied fields.
+        const { data: recent } = await supabase
+          .from("invoices")
+          .select("id")
+          .order("created_at", { ascending: false })
+          .limit(50);
+        const nums = (recent || []).map(r => parseInt(r.id, 10)).filter(n => !isNaN(n)).sort((a, b) => a - b);
+        const median = nums.length ? nums[Math.floor(nums.length / 2)] : 10000;
+        const seqNums = nums.filter(n => n <= median * 2);
+        const lastNum = Math.max(seqNums.length ? seqNums[seqNums.length - 1] : 0, 9999);
+        const nextId = String(lastNum + 1).padStart(5, "0");
+
+        const { data: newInv, error: newErr } = await supabase.from("invoices").insert([{
+          id: nextId,
+          tenant_id: inv.tenant_id,
+          job_id: inv.job_id,
+          job_name: inv.job_name,
+          call_log_id: inv.call_log_id,
+          proposal_id: inv.proposal_id,
+          amount: inv.amount,
+          discount: inv.discount,
+          retention_pct: inv.retention_pct,
+          retention_amount: inv.retention_amount,
+          due_date: inv.due_date,
+          description: inv.description,
+          intro: inv.intro,
+          show_cents: inv.show_cents,
+          status: "New",
+        }]).select().single();
+        if (newErr) { alert(`Replacement invoice insert failed: ${newErr.message}`); setSaving(false); return; }
+
+        if (lines && lines.length > 0) {
+          const newLines = lines.map(l => ({
+            invoice_id: nextId,
+            proposal_wtc_id: l.proposal_wtc_id || null,
+            billing_schedule_line_id: l.billing_schedule_line_id || null,
+            billing_pct: l.billing_pct,
+            amount: l.amount,
+          }));
+          const { error: linesErr } = await supabase.from("invoice_lines").insert(newLines);
+          if (linesErr) { alert(`Replacement invoice lines failed: ${linesErr.message}`); setSaving(false); return; }
+        }
+
+        setSaving(false);
+        setShowVoidModal(null);
+        setVoidReason("");
+        onUpdated && onUpdated();
+        if (onNavigateInvoice) onNavigateInvoice(nextId);
       }
-      setInv(prev => ({ ...prev, ...updates }));
-      setSaving(false);
-      setShowVoidModal(null);
-      setVoidReason("");
-      onUpdated && onUpdated();
     }
   }
 
@@ -1364,7 +1439,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           </h2>
         )}
         <Pill label={inv.status} cm={INV_C} />
-        {!editing && ageDays !== null && (
+        {inv.voided_at && <Pill label="VOIDED" cm={INV_C} />}
+        {!editing && !inv.voided_at && ageDays !== null && (
           <span style={{ fontSize: 12, fontWeight: 800, fontFamily: F.display, color: ageDays > 0 ? C.red : ageDays === 0 ? C.amber : C.green }}>
             {ageDays > 0 ? `${ageDays}d overdue` : ageDays === 0 ? "Due today" : `${Math.abs(ageDays)}d until due`}
           </span>
@@ -1375,6 +1451,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         {inv.sent_at ? ` · Sent ${fmtD(inv.sent_at)}` : ""}
         {!editing && inv.due_date ? ` · Due ${fmtD(inv.due_date)}` : ""}
       </div>
+      {inv.voided_at && (
+        <div style={{ background: "rgba(229,57,53,0.08)", border: `1px solid ${C.red}`, borderRadius: 8, padding: "10px 14px", marginBottom: 20, fontSize: 13, color: C.textBody, fontFamily: F.ui }}>
+          <strong style={{ color: C.red }}>Voided {fmtD(inv.voided_at)}</strong>
+          {inv.void_reason ? ` — ${inv.void_reason}` : ""}
+          {inv.qb_invoice_id ? ` · QB invoice ${inv.qb_invoice_id} retained as audit record.` : ""}
+        </div>
+      )}
 
       {/* Edit fields (only in edit mode) */}
       {editing && (
@@ -1509,9 +1592,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             <Btn sz="sm" onClick={handleSaveEdit} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Btn>
             <Btn sz="sm" v="ghost" onClick={() => setEditing(false)}>Cancel</Btn>
           </>
+        ) : inv.voided_at ? (
+          <>
+            <Btn sz="sm" v="ghost" onClick={handleDelete}>Hide from Lists</Btn>
+          </>
         ) : (
           <>
-            <Btn sz="sm" onClick={() => setShowPDF(true)}>{linkedPayApp ? "Preview" : "Preview / Send"}</Btn>
+            <Btn sz="sm" onClick={() => setShowPDF(true)}>{linkedPayApp ? "Preview" : "Send / Resend"}</Btn>
             {linkedPayApp && <Btn sz="sm" v="secondary" onClick={() => setShowPayAppReview(true)}>Review Package</Btn>}
             {isNew && <Btn sz="sm" v="secondary" onClick={startEditing}>Edit Invoice</Btn>}
             {actions.map(a => (
@@ -1710,7 +1797,18 @@ export default function Invoices({ setSubPage, teamMember }) {
     if (!routeInvoiceId) { setSel(null); return; }
     if (invoices.length === 0) return;
     const inv = invoices.find(i => i.id === routeInvoiceId);
-    if (inv) setSel(inv);
+    if (inv) { setSel(inv); return; }
+    // Not in active list — could be voided. Fetch directly so audit-trail
+    // direct URLs (e.g. /invoices/<voided-id>) still resolve.
+    (async () => {
+      const { data } = await supabase
+        .from("invoices")
+        .select("*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))")
+        .eq("id", routeInvoiceId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (data) setSel(data);
+    })();
   }, [routeInvoiceId, invoices]);
 
   // Auto-open New Invoice modal when ProposalDetail navigates here with a preselected proposal.
@@ -1733,11 +1831,13 @@ export default function Invoices({ setSubPage, teamMember }) {
     })();
   }, [location.state?.newInvoiceProposalId]);
 
-  const drafted = invoices.filter(i => i.status === "New").reduce((a, i) => a + (i.amount || 0), 0);
-  const pending = invoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);
-  const paid    = invoices.filter(i => i.status === "Paid").reduce((a, i) => a + (i.amount || 0), 0);
+  // Voided rows still render in the list (audit trail) but are excluded from totals.
+  const activeInvoices = invoices.filter(i => !i.voided_at);
+  const drafted = activeInvoices.filter(i => i.status === "New").reduce((a, i) => a + (i.amount || 0), 0);
+  const pending = activeInvoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);
+  const paid    = activeInvoices.filter(i => i.status === "Paid").reduce((a, i) => a + (i.amount || 0), 0);
 
-  const retentionInvoices = invoices.filter(i => parseFloat(i.retention_amount) > 0 && i.status !== "Paid");
+  const retentionInvoices = activeInvoices.filter(i => parseFloat(i.retention_amount) > 0 && i.status !== "Paid");
   const totalRetentionHeld = retentionInvoices.reduce((a, i) => a + (parseFloat(i.retention_amount) || 0), 0);
 
   const aging = (inv) => {
@@ -1765,6 +1865,7 @@ export default function Invoices({ setSubPage, teamMember }) {
   }, [sel, showModal]);
 
   if (sel) return <InvoiceDetail
+    key={sel.id}
     invoice={sel}
     teamMember={teamMember}
     onBack={() => { navigate("/invoices"); load(); }}
@@ -1772,6 +1873,7 @@ export default function Invoices({ setSubPage, teamMember }) {
     onDeleted={() => { navigate("/invoices"); load(); }}
     onNavigateJob={id => navigate(`/calllog/${id}`)}
     onNavigateProposal={id => navigate(`/proposals/${id}`)}
+    onNavigateInvoice={id => navigate(`/invoices/${id}`)}
   />;
 
   return (
@@ -1860,7 +1962,7 @@ export default function Invoices({ setSubPage, teamMember }) {
               { k: "id",       l: "Invoice #", r: v => <span style={{ fontWeight: 600, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{v}</span> },
               { k: "job_id",   l: "Job #",     r: v => <span style={{ fontWeight: 600, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{v}</span> },
               { k: "job_name", l: "Job Name",  r: v => <span style={{ fontWeight: 500, color: C.textMuted, fontFamily: F.display, maxWidth: 200, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span> },
-              { k: "status",   l: "Status",    r: v => <Pill label={v} cm={{ ...PROP_C, ...INV_C }} /> },
+              { k: "status",   l: "Status",    r: (v, row) => row.voided_at ? <Pill label="VOIDED" cm={INV_C} /> : <Pill label={v} cm={{ ...PROP_C, ...INV_C }} /> },
               { k: "amount",   l: isRetentionView ? "Gross Billed" : "Amount", r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$c(v)}</span> },
               isRetentionView
                 ? { k: "retention_amount", l: "Retention Held",

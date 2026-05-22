@@ -1,0 +1,257 @@
+SC Handoff v135 — 2026-05-22
+============================
+
+SESSION SUMMARY
+ERD Loop #24 (b34-stripe-refresh-qb-dupe-surface). Predicted 30m,
+elapsed 6h 17m. Success 1/10 per Chris — "we did not fix anything
+completely." Core B34 design shipped to the feature branch + prod DB
++ prod edge fn, but the branch is NOT merged to main (so prod website
+still runs the old code). Three new bugs filed during smoke (B36 / B37
+/ B38) that need to land before the B34 branch is merged.
+
+Mindset 10 → 1 (Δ -9). Fear came true: spent 6× the predicted budget,
+and Chris's explicit Day-One requirement ("voided invoices show on
+Job Detail") was incorrectly phased out by Claude until Chris
+re-escalated. Memory rules saved to prevent recurrence:
+- `feedback_user_intent_locked`: don't renegotiate explicit asks
+- `feedback_fix_when_found`: default to in-flow fix over backlog
+- `feedback_erd_ratings_untouched`: never influence ERD ratings
+
+User-level `/fix` slash command added.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────
+Branch `feat/b34-invoice-void-record` @ `2bada54` (not merged to
+main). 8 commits since the loop lock at 08:09.
+
+Migration applied to prod (irrevocable):
+- `supabase/migrations/20260522130000_invoices_voided_at.sql`
+  Adds `invoices.voided_at timestamptz` + `void_reason text`, both
+  nullable. Existing rows treated as active by default. Safe with
+  pre-B34 code (no references to either column on main).
+
+Edge fn redeployed to prod (`qb-sync-invoice`):
+- Voided early-return placed AFTER tenant binding gate (line ~122)
+  so cross-tenant probes can't infer voided state.
+- Duplicate Document Number error caught + returns
+  `qb_duplicate_docnum` status 200 with actionable message.
+- `qbApi` helper now throws with `Fault.Error[0].Message` AND
+  `Detail` (was Detail only — Message often has the useful string).
+
+Two-row pull-back design (`src/pages/Invoices.jsx`
+`handleVoidConfirm` ~1273):
+- Original row marked voided (`voided_at = now`,
+  `void_reason = <user reason>`), `qb_invoice_id` preserved for
+  audit linkage to the now-voided QB record.
+- If pay-app-linked: pay app to draft + clear
+  `billing_schedule_pay_apps.invoice_id` (new invoice spawns on pay
+  app re-lock).
+- Non-pay-app: INSERT new invoice at next-free-ID (reuses
+  NewInvoiceModal:232-244 median-cluster logic) with copied fields:
+  tenant_id, job_id, job_name, call_log_id, proposal_id, amount,
+  discount, retention_pct/amount, due_date, description, intro,
+  show_cents. Lines copied via separate insert. Navigate to new id.
+
+Voided invoice UI surfaces (per Chris's explicit Day-One ask, after
+initial mis-phasing):
+- `Invoices` list (page 1): voided rows remain in the list; status
+  column renders red VOIDED pill; totals (Drafted/Pending/Paid +
+  retention) exclude voided.
+- `CallLogDetail` Job Detail (line 879+): voided rows render with
+  strikethrough + 60% opacity + VOIDED pill; tooltip shows
+  `void_reason`. `billedSC` reducer (line 790) excludes voided.
+- `InvoiceDetail` page: VOIDED pill next to status; red banner with
+  void date + reason + QB invoice ID reference; action bar shows
+  only "Hide from Lists" (calls `handleDelete` voided branch
+  inserting `deleted_at = now`).
+- `PublicInvoicePage` (`src/pages/PublicInvoicePage.jsx:38`): voided
+  invoices render "This invoice is no longer active" notice;
+  skip lines fetch + PDF.
+
+Defense-in-depth guards on consumers of `qb_invoice_id`:
+- `handleQBSync`, `handleSaveEdit`, `updateStatus` Paid path,
+  `handleDelete` — all return early / alert when `inv.voided_at`.
+
+Aggregator filters for `voided_at IS NULL` (preserves correct totals
+while voided rows are still visible on list/detail):
+- `Invoices.jsx`: main list load uses `voided_at` filter implicitly
+  via the activeInvoices computed array (line ~1841).
+- `ProposalDetail.jsx:59/460/483/521` — linked invoices read,
+  handleDelete guard, handlePullBack guard, send-to-schedule guard.
+- `BillingScheduleSection.jsx:58` — auto-lock counter
+  (companion to B31).
+- `Customers.jsx:524` — invoices tab (filters array).
+- `SalesDash.jsx:417` — invoiced-by-month aggregator (also fixed a
+  pre-existing missed `deleted_at` filter on the same call).
+- `MergeJobModal.jsx:90/92` — duplicate-job count.
+
+URL-direct fallback for voided detail access
+(`Invoices.jsx:1800-1818`): when `routeInvoiceId` isn't in the
+filtered active list, fetch directly from DB with only `deleted_at
+IS NULL` filter so voided rows are still reachable via their URL.
+
+React state staleness fix: `<InvoiceDetail key={sel.id} ...>` on
+`Invoices.jsx:1773`. Without the key, the local `inv` state
+initialized via `useState(invoice)` never sync'd to prop changes —
+caused the post-pull-back navigation to render the OLD invoice id's
+data at the NEW URL.
+
+Refresh Stripe Link button added to action bar
+(`Invoices.jsx:1607-1611`). NOTE: B38 calls for this to be REMOVED
+before the branch merges to main — see Next Session Pointers.
+
+`src/lib/mockData.js`: added `VOIDED` entry to `INV_C` (red pill).
+
+DECISIONS
+─────────
+- Branch is NOT merged to main this session. Chris rated success
+  1/10 because B36 / B37 / B38 are now blocking dependencies of a
+  clean B34 merge. Merging now would ship the dead Refresh Stripe
+  Link button + leave the discount/retention math bug (B36) + leave
+  the false-sister bug (B37) live for users.
+- Plan/audit cycles violated their own rule of diminishing returns
+  — three rounds when one was enough. Captured as a session lesson
+  in `feedback_erd_ratings_untouched.md` (procedural) and the ERD
+  loop closeout deltas.
+- Three plan revisions exist on the audit doc
+  (`docs/audit/B34_plan_audit.md`) — Original, Round 2, Round 3.
+  Preserved for historical reference. Do NOT iterate further; the
+  built code matches Round 3 + the post-smoke surfacing pivot
+  (voided rows on Job Detail + Invoices list).
+- `/fix` slash command added to user-level commands
+  (`chris7berger-droid/claude-commands` @ `00bdd73`). Codifies the
+  new feedback memories as a build posture. Use it when bug is found
+  mid-session and the fix is non-design-level.
+
+NEW BACKLOG ITEMS
+─────────────────
+- B36 (T1, Open) — `send-invoice` ignores discount + retention math.
+  Customer-facing email + Stripe pay link both call for gross
+  `amount` instead of net (`amount - discount - retention_amount`).
+  Trigger: Danny Peltier #10028 (HDSP, real customer) saw $1,651 on
+  the pay link when Chris had applied a $825 discount (net $826).
+  Workaround used today: edit invoice billing % to 50% so
+  `invoice.amount` = $826 net (avoids the discount field entirely).
+  Fix: 30 min in `supabase/functions/send-invoice/index.ts`:47 (add
+  columns) + 158/218/261 (use netAmount). Sweep `send-pay-app` for
+  same shape.
+- B37 (T2, Open) — false-sister detection blocks sequential
+  proposals from advancing to Sold. Plan landed on branch
+  `feat/b37-false-sister-fix` @ `9507f3b`, doc at
+  `docs/plans/b37_false_sister_fix.md`. ~60 min implementation.
+  Predicate fix uses `cloned_from_proposal_id` lineage (canonical,
+  already used by `apply_source_edit_to_sisters`).
+- B38 (T2, Open) — Stripe pay-link integrity surface. Kill the
+  Refresh Stripe Link button (added in B34, dead weight), replace
+  with three automated triggers: amount-changed staleness, past-due
+  pulse, Stripe webhook on payment_link.deactivated. Rename
+  Preview/Send → Send/Resend. ~2-3h for triggers; webhook handler
+  phase 2.
+
+CLOSED BACKLOG ITEMS
+────────────────────
+- B34 (T2) — closed 2026-05-22 on the feature branch. NOT yet live
+  on prod (branch unmerged). Migration + edge fn ARE live on prod.
+
+ERD LOG
+───────
+- Loop #24 closed 14:26 with deltas:
+  Mindset 10 → 1 (-9), Potential 10 → 10 (0), Success 1/10,
+  Time 6h 17m vs 30m, Fear-grip outcome: came true (y).
+- Closeout commit: `erd-loop` @ `73292c4`.
+- +24h re-rate pending: 2026-05-23 14:26.
+- +7d re-rate pending: 2026-05-29 14:26.
+
+VERIFICATION (what landed where)
+────────────────────────────────
+Prod (irrevocable):
+- Migration applied: `supabase migration list` shows
+  `20260522130000` in the remote ledger.
+- Edge fn deployed: `supabase functions list` shows
+  `qb-sync-invoice` updated at 2026-05-22 15:59 UTC.
+
+Branch only (NOT merged):
+- All UI/code changes on `feat/b34-invoice-void-record` @ `2bada54`.
+- Vercel preview deploy URL active during smoke.
+
+Smoke matrix executed on Vercel preview:
+1. ✅ Two-row pull-back (real job, QB-synced invoice → void modal →
+   reason → new invoice spawned at next ID).
+2. ✅ Aggregators don't double-count (Job Detail Billed = active
+   only, voided excluded from total).
+3. ✅ Voided detail page (VOIDED pill, red banner, Hide from Lists
+   button only).
+4. ✅ Direct URL access to voided invoice (fallback fetch works).
+5. ✅ Voided rows surface on Invoices list (red VOIDED pill, totals
+   exclude) + Job Detail (strikethrough + muted, billed excludes).
+6. ✅ Sync and Send the new replacement invoice → QB creates fresh
+   invoice with new DocNumber (no dupe conflict).
+7. ⏸ Refresh Stripe Link button works mechanically but UX is wrong
+   (B38). Not validated further since B38 wants it killed.
+8. ⏸ PublicInvoicePage voided notice — not actively smoked but the
+   code path is one branch above the existing happy-path lines.
+9. ⏸ Hide from Lists soft-delete — not actively smoked.
+10. ⏸ Pay-app pull-back path — not smoked; would need a pay-app
+    invoice in a pull-back-ready state.
+
+NOT TOUCHED
+───────────
+- `main` branch — no commits this session.
+- B36 / B37 / B38 — filed only, no code.
+- Multi-GC code paths beyond reading them for B37 plan.
+- `send-pay-app` — not audited for the same B36 math bug yet.
+- Customer-facing emails since the Danny Peltier resolution
+  (manual edit-to-50%-billing workaround, customer paid correctly).
+
+NEXT SESSION POINTERS
+─────────────────────
+1. **Decide order of attack for B36 / B37 / B38** before merging
+   B34. Rec: B36 first (customer-facing money bug, 30 min, T1),
+   then B37 (60 min, blocks sequential proposals), then B38
+   (2-3h, kills the dead Refresh button + adds the real triggers).
+2. **Then merge `feat/b34-invoice-void-record` to main.**
+   Squash or --no-ff, Chris's call. The branch is clean.
+3. The audit doc has three plan revisions stacked — when archiving
+   B34, consider compressing the audit doc to a single canonical
+   plan + closeout summary so future readers don't have to scan
+   three iterations.
+4. ERD +24h re-rate scheduled for 2026-05-23 14:26 — if Loop #24's
+   1/10 success feels different in 24 hours after B36/B37/B38 ship,
+   update the closeout block in `~/erd-loop/LOG.md`.
+5. B36 has a workaround used today on Danny's invoice. Document
+   that pattern in B36's notes when implementing the real fix so
+   future "discount got applied but customer saw gross" reports get
+   the workaround pointer immediately.
+
+FILES TO KNOW (for next session)
+────────────────────────────────
+- `src/pages/Invoices.jsx` — handleVoidConfirm two-row design
+  (~1273), key={sel.id} (1773), URL fallback (1800), Refresh Stripe
+  Link button (B38 will remove, 1607).
+- `src/components/CallLogDetail.jsx` — voided row rendering (879+),
+  Billed reducer excludes voided (790).
+- `src/lib/mockData.js` — INV_C has VOIDED entry.
+- `supabase/functions/qb-sync-invoice/index.ts` — voided early
+  return (~122), dupe DocNum catch (~360).
+- `supabase/migrations/20260522130000_invoices_voided_at.sql`.
+- `docs/audit/B34_plan_audit.md` — three plan revisions.
+- `docs/plans/b37_false_sister_fix.md` — B37 ready-to-build plan
+  (on `feat/b37-false-sister-fix` branch).
+- `docs/BACKLOG.md` — B36 / B37 / B38 rows at top of bugs.
+
+GIT STATE
+─────────
+- Working branch: `feat/b34-invoice-void-record`
+- Working tree: clean
+- Latest commit on B34: `2bada54` Closes B34 + files B36/B37/B38
+- `main` head: unchanged this session
+- Other live branches:
+  - `feat/b37-false-sister-fix` @ `9507f3b` (plan doc only)
+  - `feat/b34-invoice-void-record` @ `2bada54` (this work)
+- Sister repos pushed:
+  - `chris7berger-droid/claude-commands` @ `00bdd73`
+    (added `/fix` user command)
+  - `chris7berger-droid/erd-loop` @ `73292c4`
+    (Loop #24 closeout)
+  - `chris7berger-droid/claude-personal-state` @ `9a41ec7`
+    (3 new feedback memories + recover prior un-pushed edits)

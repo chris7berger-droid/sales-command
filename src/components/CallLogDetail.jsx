@@ -182,7 +182,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       }
       const [{ data: props }, { data: invs }] = await Promise.all([
         supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, cloned_from_proposal_id, is_archive_proposal, customer_id, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
-        supabase.from("invoices").select("id, status, amount, job_name").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
+        supabase.from("invoices").select("id, status, amount, job_name, voided_at, void_reason").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
       ]);
       setLinkedProposals(props || []);
       setLinkedInvoices(invs || []);
@@ -787,7 +787,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           }, 0);
         const historical = linkedProposals.filter(p => p.status === "Sold")
           .reduce((s, p) => s + (parseFloat(p.historical_billed_amount) || 0), 0);
-        const billedSC = linkedInvoices.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+        const billedSC = linkedInvoices.filter(i => !i.voided_at).reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
         const billed = historical + billedSC;
         const remaining = sold - billed;
         const pct = sold > 0 ? Math.round((billed / sold) * 100) : 0;
@@ -884,16 +884,20 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                     "Past Due": { bg: "rgba(229,57,53,0.10)", color: "#8b1a18" },
                     "Waiting for Payment": { bg: "rgba(249,168,37,0.13)", color: "#7a5000" },
                   };
-                  const ic = invColors[inv.status] || { bg: "rgba(28,24,20,0.06)", color: C.textFaint };
+                  const isVoided = !!inv.voided_at;
+                  const ic = isVoided
+                    ? { bg: "rgba(229,57,53,0.18)", color: "#8b1a18" }
+                    : (invColors[inv.status] || { bg: "rgba(28,24,20,0.06)", color: C.textFaint });
                   return (
                     <button key={`i-${inv.id}`} onClick={() => onNavigateInvoice && onNavigateInvoice(inv.id)}
-                      style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", background: i % 2 === 0 ? C.linenLight : C.linen, border: "none", borderBottom: `1px solid ${C.border}`, cursor: onNavigateInvoice ? "pointer" : "default", textAlign: "left" }}
+                      title={isVoided ? `Voided${inv.void_reason ? `: ${inv.void_reason}` : ""}` : undefined}
+                      style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", background: i % 2 === 0 ? C.linenLight : C.linen, border: "none", borderBottom: `1px solid ${C.border}`, cursor: onNavigateInvoice ? "pointer" : "default", textAlign: "left", opacity: isVoided ? 0.6 : 1 }}
                       onMouseEnter={e => e.currentTarget.style.background = C.tealGlow}
                       onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? C.linenLight : C.linen}
                     >
-                      <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.03em", minWidth: 140 }}>Invoice #{inv.id}</span>
-                      <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: ic.bg, color: ic.color, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>{inv.status}</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>{fmt$(inv.amount)}</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.03em", minWidth: 140, textDecoration: isVoided ? "line-through" : "none" }}>Invoice #{inv.id}</span>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: ic.bg, color: ic.color, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>{isVoided ? "VOIDED" : inv.status}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto", textDecoration: isVoided ? "line-through" : "none" }}>{fmt$(inv.amount)}</span>
                     </button>
                   );
                 })}

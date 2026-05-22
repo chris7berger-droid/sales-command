@@ -275,3 +275,149 @@ Audit terminal: please re-run the checklist against this Round 2 plan. Specifica
   `billing_schedule_pay_apps.invoice_id` rather than assuming it's null
 
 Output same table format. TL;DR: Ready to build / Needs more changes / Block.
+
+---
+
+## Round 3 Revisions (post-audit round 2, 2026-05-22)
+
+Round 2 audit verdict: NEEDS MORE CHANGES. AUDIT_LOG row:
+`| 2026-05-22 | feat/b34-invoice-void-record @ 51334d0 (plan doc Round 2) | 7 | 0 Crit, 4 P0, 2 P1, 1 nit | accepted-pending-changes | aggregation-blind-spot |`
+
+### P0.1 extended — additional aggregator/list sites
+
+Round 2 list missed several sites. Add `.is("voided_at", null)` to:
+
+- `src/pages/Invoices.jsx:141` — main list fetch (cascades to status totals at 1736-1740)
+- `src/components/MergeJobModal.jsx:90` — invoices count by `job_id = display_job_number`
+- `src/components/MergeJobModal.jsx:92` — invoices count by `job_id = String(loserJob.id)`
+- `src/pages/Customers.jsx:524` — fetchAll filters; add `["is", "voided_at", null]` to the
+  filters array (already has the deleted_at filter — mirror it)
+- `src/pages/SalesDash.jsx:417` — fetchAll has no filters today; pass
+  `{ filters: [["is", "voided_at", null], ["is", "deleted_at", null]] }`
+  Pre-existing gap: this call doesn't filter `deleted_at` either, so soft-deletes leak into
+  SalesDash totals today. Fix both in the same edit (don't expand B34 scope, but it's a
+  one-line bonus correction).
+
+Grep verified: `src/pages/Home.jsx` has no direct `from("invoices")` query.
+
+### P0.2 corrected — voided early-return placement
+
+Round 2 said "after invoice fetch (~line 116, before tenant binding check)." That leaks
+cross-tenant voided-status. Move to AFTER the tenant binding gate at
+`qb-sync-invoice/index.ts:121`:
+
+```ts
+// Tenant binding: line 119-121 (existing)
+if (!caller.isServiceRole && invoice.tenant_id !== caller.tenantId) {
+  return unauthorizedResponse(403, corsHeaders);
+}
+
+// NEW: voided early-return (Round 3, after tenant gate)
+if (invoice.voided_at) {
+  return new Response(JSON.stringify({
+    success: true, skipped: true, reason: "voided",
+  }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
+}
+```
+
+### P0.3 specified — handleDelete on voided rows
+
+Click behavior on a voided row's Delete button:
+- NO QB void call (already voided — `qb-void-invoice` would error)
+- NO modal (no reason needed; reason already captured at void time)
+- Direct soft-delete: `UPDATE invoices SET deleted_at = now() WHERE id = inv.id`
+- Single confirm() prompt: "Hide this voided invoice from lists? (record stays in DB for audit.)"
+- After delete: redirect/refresh as today
+
+Implementation: branch at top of `handleDelete` (`Invoices.jsx:1158`):
+
+```js
+async function handleDelete() {
+  if (inv.voided_at) {
+    if (!confirm("Hide this voided invoice from lists? (record stays in DB for audit.)")) return;
+    const { error } = await supabase.from("invoices")
+      .update({ deleted_at: new Date().toISOString() }).eq("id", inv.id);
+    if (error) { alert(error.message); return; }
+    onDeleted && onDeleted();
+    return;
+  }
+  // existing path: qb_invoice_id → void modal, else hard-confirm soft-delete
+  ...
+}
+```
+
+### P0.4 — inline voided indicator on list rows
+
+Minimum-viable visual cue (full badge component deferred to next loop):
+
+- On Invoices list rows: append `" (voided)"` to the invoice ID display when `voided_at` is set,
+  AND apply muted color (`C.textFaint`) + strikethrough to the row's text columns.
+- On Invoice detail header (Invoices.jsx ~765): add a `<Pill label="VOIDED" cm={...} />` next to
+  the status pill when `inv.voided_at` is set.
+- On Job Detail linked invoices section: same `" (voided)"` suffix + muted styling.
+
+No new component. Reuses `Pill` from `src/components/Pill.jsx` and existing `C.textFaint` token.
+
+### P1.5 — PublicInvoicePage voided handling
+
+`src/pages/PublicInvoicePage.jsx:32` fetch by `viewing_token`. After fetch, if `inv.voided_at`
+is set, render a "This invoice is no longer active." notice (mirror Stripe's deactivated-link
+`inactive_message` copy from B33 for consistency). Do not render the PDF / pay button.
+
+Pattern: insert check right after `setInvoice(inv)` at line 38, before the lines fetch. Lines
+fetch can be skipped on voided.
+
+### P1.6 — Smoke #8 dropped
+
+Test jobs auto-skip QB sync (Invoices.jsx:1234, 1276 — `(inv.job_name || "").toLowerCase().includes("test")`).
+That prevents smoke #8 (duplicate DocNum surfacing) from firing on a test job. Two options:
+- **Drop #8 from this loop** — the dupe-DocNum catch is defense-in-depth; primary fix is the
+  two-row design which prevents the scenario. Verify catch in a future loop with a non-test
+  sandbox QB job.
+- **Smoke against sandbox QB job** — requires `QB_ENVIRONMENT=sandbox` + a non-test job_name.
+  Out of 30m budget.
+
+Decision: **drop #8 this loop.** Carry as B34 follow-up smoke task.
+
+### Nit 7 — drop customer_id from copy list
+
+CLAUDE.md `invoices` schema does NOT list `customer_id`. Removing from P1.4's "must copy" list.
+Customer linkage flows through `call_log_id` → `call_log.customer_id`. The invoice row has no
+direct customer FK.
+
+Updated copy list (final):
+- `tenant_id` (mandatory FK)
+- `job_id`, `job_name`, `call_log_id`, `proposal_id`
+- `amount`, `discount`, `retention_pct`, `retention_amount`
+- `due_date`, `description`, `intro`
+- `show_cents`
+
+Do NOT copy: `qb_invoice_id`, `stripe_*`, `sent_at`, `paid_at`, `voided_at`, `void_reason`,
+`viewing_token` (let default fire), `viewing_token_expires_at`, `deleted_at`.
+
+### Updated smoke matrix (7 cases now)
+
+1. Non-pay-app: sync to QB, pull-back-with-reason → verify original voided, new row created.
+2. Re-sync new invoice → QB creates fresh invoice with new DocNumber.
+3. Pay-app invoice, pull-back → original voided, pay app draft, `billing_schedule_pay_apps.invoice_id`
+   cleared, NO new invoice yet.
+4. Pay-app re-lock → new invoice with fresh ID created + linked.
+5. Refresh Stripe Link on a Sent invoice → Payment Link rotated, no QB call, status stays Sent.
+6. Aggregator double-count check across: Invoices list totals, Job Detail Billed/Remaining/%,
+   Customer detail invoices tab, SalesDash invoiced-by-month, MergeJobModal counts.
+7. Voided row UI: list row shows "(voided)" + muted/strikethrough; detail header shows VOIDED
+   pill; Sync/Edit/Mark-Paid/Pull-Back buttons hidden; Delete shows "Hide from lists?" confirm
+   only; PublicInvoicePage renders "no longer active" notice.
+
+(Smoke #8 — dupe-DocNum surfacing — deferred to follow-up loop with sandbox QB job.)
+
+### Re-audit request (Round 3)
+
+Audit terminal: re-run against Round 3. Specifically verify:
+- All 7 Round 2 findings (4 P0, 2 P1, 1 nit) addressed
+- Tenant binding placement correct in P0.2
+- handleDelete branch in P0.3 covers all delete-on-voided edge cases
+- P0.4 inline indicator doesn't break any existing styling (DataTable column rendering)
+- P1.5 PublicInvoicePage edit doesn't break the happy-path (active invoice) render
+
+Output: same table + TL;DR: Ready to build / Needs more changes / Block.

@@ -39,4 +39,5 @@ export const GLOBAL_CSS = `
   ::-webkit-scrollbar-thumb{background:${C.tealDark};border-radius:3px}
   input:not([type="checkbox"]),button,select,textarea{font-family:inherit;-webkit-appearance:none}
   input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus,input:-webkit-autofill:active{-webkit-box-shadow:0 0 0 1000px ${C.linenDeep} inset !important;-webkit-text-fill-color:${C.textBody} !important;background-color:${C.linenDeep} !important;transition:background-color 5000s ease-in-out 0s}
+  @keyframes scBtnPulse{0%,100%{box-shadow:0 0 0 0 rgba(229,57,53,0.55)}50%{box-shadow:0 0 0 8px rgba(229,57,53,0)}}
 `;

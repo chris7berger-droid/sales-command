@@ -1,6 +1,6 @@
 import { C, F } from "../lib/tokens";
 
-export default function Btn({ children, onClick, v = "primary", sz = "md", disabled, pulse = false, title }) {
+export default function Btn({ children, onClick, v = "primary", sz = "md", disabled }) {
   const style = {
     primary:   { background: C.dark,        color: C.teal,         border: "none" },
     secondary: { background: "transparent", color: C.tealDark,  border: `1.5px solid ${C.teal}` },
@@ -18,7 +18,6 @@ export default function Btn({ children, onClick, v = "primary", sz = "md", disab
     <button
       onClick={onClick}
       disabled={disabled}
-      title={title}
       style={{
         ...style, ...size,
         fontWeight: 700,
@@ -28,7 +27,6 @@ export default function Btn({ children, onClick, v = "primary", sz = "md", disab
         fontFamily: F.display,
         letterSpacing: "0.06em",
         textTransform: "uppercase",
-        animation: pulse && !disabled ? "scBtnPulse 1.8s ease-in-out infinite" : "none",
       }}
       onMouseEnter={e => { if (!disabled) e.currentTarget.style.opacity = "0.8"; }}
       onMouseLeave={e => { if (!disabled) e.currentTarget.style.opacity = "1"; }}

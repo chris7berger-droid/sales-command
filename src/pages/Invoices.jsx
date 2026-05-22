@@ -1156,10 +1156,6 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const actions = statusActions[inv.status] || [];
   const canPullBack = inv.status !== "New" && inv.status !== "Paid";
   const isNew = inv.status === "New";
-  // B38 trigger #2: Past Due + no payment yet + 7+ days past due → pulse the
-  // Send/Resend button to nudge the rep that the customer may have lost the
-  // original email and is unlikely to act without a fresh nudge.
-  const linkStale = inv.status === "Past Due" && !inv.stripe_payment_id && ageDays !== null && ageDays > 7;
 
   async function handleDelete() {
     if (inv.voided_at) {
@@ -1602,7 +1598,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           </>
         ) : (
           <>
-            <Btn sz="sm" onClick={() => setShowPDF(true)} pulse={linkStale} title={linkStale ? `Pay link aged ${ageDays}d past due — resend to nudge the customer` : undefined}>{linkedPayApp ? "Preview" : "Send / Resend"}</Btn>
+            <Btn sz="sm" onClick={() => setShowPDF(true)}>{linkedPayApp ? "Preview" : "Send / Resend"}</Btn>
             {linkedPayApp && <Btn sz="sm" v="secondary" onClick={() => setShowPayAppReview(true)}>Review Package</Btn>}
             {isNew && <Btn sz="sm" v="secondary" onClick={startEditing}>Edit Invoice</Btn>}
             {actions.map(a => (

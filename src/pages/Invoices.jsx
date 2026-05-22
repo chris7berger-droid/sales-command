@@ -1778,7 +1778,7 @@ export default function Invoices({ setSubPage, teamMember }) {
     const data = await fetchAll(
       "invoices",
       "*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))",
-      { filters: [["is", "deleted_at", null], ["is", "voided_at", null]], order: { column: "sent_at", ascending: false } }
+      { filters: [["is", "deleted_at", null]], order: { column: "sent_at", ascending: false } }
     );
     setInvoices(data);
     setLoading(false);
@@ -1836,11 +1836,13 @@ export default function Invoices({ setSubPage, teamMember }) {
     })();
   }, [location.state?.newInvoiceProposalId]);
 
-  const drafted = invoices.filter(i => i.status === "New").reduce((a, i) => a + (i.amount || 0), 0);
-  const pending = invoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);
-  const paid    = invoices.filter(i => i.status === "Paid").reduce((a, i) => a + (i.amount || 0), 0);
+  // Voided rows still render in the list (audit trail) but are excluded from totals.
+  const activeInvoices = invoices.filter(i => !i.voided_at);
+  const drafted = activeInvoices.filter(i => i.status === "New").reduce((a, i) => a + (i.amount || 0), 0);
+  const pending = activeInvoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);
+  const paid    = activeInvoices.filter(i => i.status === "Paid").reduce((a, i) => a + (i.amount || 0), 0);
 
-  const retentionInvoices = invoices.filter(i => parseFloat(i.retention_amount) > 0 && i.status !== "Paid");
+  const retentionInvoices = activeInvoices.filter(i => parseFloat(i.retention_amount) > 0 && i.status !== "Paid");
   const totalRetentionHeld = retentionInvoices.reduce((a, i) => a + (parseFloat(i.retention_amount) || 0), 0);
 
   const aging = (inv) => {
@@ -1965,7 +1967,7 @@ export default function Invoices({ setSubPage, teamMember }) {
               { k: "id",       l: "Invoice #", r: v => <span style={{ fontWeight: 600, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{v}</span> },
               { k: "job_id",   l: "Job #",     r: v => <span style={{ fontWeight: 600, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{v}</span> },
               { k: "job_name", l: "Job Name",  r: v => <span style={{ fontWeight: 500, color: C.textMuted, fontFamily: F.display, maxWidth: 200, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span> },
-              { k: "status",   l: "Status",    r: v => <Pill label={v} cm={{ ...PROP_C, ...INV_C }} /> },
+              { k: "status",   l: "Status",    r: (v, row) => row.voided_at ? <Pill label="VOIDED" cm={INV_C} /> : <Pill label={v} cm={{ ...PROP_C, ...INV_C }} /> },
               { k: "amount",   l: isRetentionView ? "Gross Billed" : "Amount", r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$c(v)}</span> },
               isRetentionView
                 ? { k: "retention_amount", l: "Retention Held",

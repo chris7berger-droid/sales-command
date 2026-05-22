@@ -159,3 +159,119 @@ End with TL;DR: Ready to build / Needs changes / Block. If "Needs changes,"
 list the must-fix items in priority order.
 
 Do not write code. Do not edit files.
+
+---
+
+## Round 2 Revisions (post-audit, 2026-05-22)
+
+Round 1 audit verdict: NEEDS CHANGES. AUDIT_LOG row:
+`| 2026-05-22 | feat/b34-invoice-void-record @ 72d04a2 (plan doc) | 6 | 0 Crit, 3 P0, 2 P1, 1 P2 | accepted-pending-changes | aggregation-blind-spot |`
+
+Original plan is preserved above. Deltas below — re-audit against this section.
+
+### P0.1 — Aggregator queries must filter voided rows
+
+Add `.is("voided_at", null)` alongside any existing `.is("deleted_at", null)` in:
+
+- `src/components/CallLogDetail.jsx:185` — linked invoices for Job Detail
+- `src/components/ProposalDetail.jsx:59, 460, 483, 521` — proposal totals + invoice listings
+- `src/components/BillingScheduleSection.jsx:58` — auto-lock counter (companion to B31's status filter)
+
+Without this, voided + replacement rows both count toward Billed/Remaining/% Invoiced. B31's
+auto-lock fix would also re-break (voided rows count as committed).
+
+### P0.2 — `qb_invoice_id` consumers must short-circuit on voided rows
+
+The plan keeps `qb_invoice_id` populated on the voided row (intentional, for QB-record audit linkage).
+Every code path that branches on "has QB link" must add `voided_at IS NULL` to its gate:
+
+**Client (`src/pages/Invoices.jsx`):**
+- `handleQBSync` (~1095) — return early if voided; no re-sync allowed
+- `handleSaveEdit` (~1234) — edit reason gate + qb-sync re-invoke; no QB edit on voided row
+- `handleStatusChange` Paid path (~1087) — no `qb-record-payment` on voided
+- `handleDelete` (~1158) — voided rows skip the modal entirely (already voided)
+- UI: hide Sync / Edit / Mark-Paid / Pull-Back / Delete buttons when `inv.voided_at` is set (show only "View")
+
+**Server (`supabase/functions/qb-sync-invoice/index.ts`):**
+- After invoice fetch (~line 116, before tenant binding check), early-return 200 with
+  `{ success: true, skipped: true, reason: "voided" }` if `invoice.voided_at` is set
+
+### P0.3 — Pay-app FK on void
+
+Pay-app branch must clear `billing_schedule_pay_apps.invoice_id` on the original linkage (or repoint
+to new invoice when pay-app re-locks). Without this, the pay app shows a voided invoice as its
+current link until re-lock. Cleaner: clear `invoice_id = NULL` at void time; re-lock path
+overwrites it on next pay-app submission (verify NewPayAppModal lock path always writes fresh,
+never assumes pre-existing FK).
+
+### P1.4 — INSERT-copy field list expanded
+
+Non-pay-app branch INSERT now copies (in addition to original list):
+- `amount` (customer-facing total — must match unless edited)
+- `retention_pct`, `retention_amount`
+- `due_date`
+- `show_cents`
+- `tenant_id` (mandatory FK — must carry)
+- `customer_id` if present on invoices schema
+
+Do NOT copy:
+- `viewing_token` — let DB default `gen_random_uuid()` fire
+- `viewing_token_expires_at` — fresh invoice, fresh window
+- `qb_invoice_id` — null on new row (the whole point)
+- `stripe_*` — null on new row
+- `sent_at`, `paid_at`, `voided_at`, `void_reason` — null on new row
+
+### P1.5 — Refresh Stripe Link button: hide when pay-app linked
+
+Pay-app invoices follow PayAppDetailModal send flow (not the Invoices.jsx PDF modal). The
+refresh-link button should only render when `!linkedPayApp`.
+
+### P2.6 — Duplicate DocNum error extraction
+
+Audit found "Duplicate Document Number" appears in `Fault.Error[0].Message`, NOT in `Detail`.
+`qbApi` helper at `qb-sync-invoice/index.ts:70` currently throws with `Detail` only.
+
+Fix: change qbApi error throw to include both Message and Detail:
+
+```ts
+throw new Error(`QB API ${res.status}: ${JSON.stringify({
+  message: data?.Fault?.Error?.[0]?.Message,
+  detail: data?.Fault?.Error?.[0]?.Detail,
+}) || data}`);
+```
+
+Then duplicate regex: `/Duplicate Document Number|different number|already.*used/i`
+
+### Smoke test plan
+
+- **Do NOT use #10028.** Real customer invoice, leave alone until code ships.
+- Create a TEST job (job_name containing "test" — triggers existing qb-skip-sync in handlers,
+  per `Invoices.jsx:1234, 1276`).
+- Smoke matrix:
+  1. Non-pay-app invoice, sync to QB, pull-back-with-reason → verify: original row has
+     `voided_at`/`void_reason`/`qb_invoice_id`; new row at next-free-ID with copied lines;
+     QB shows voided original + nothing yet for new (until manual re-sync).
+  2. Same scenario, re-sync new invoice → verify QB creates fresh invoice with new DocNumber.
+  3. Pay-app invoice, pull-back → verify: original voided, pay app status=draft, pay app
+     invoice_id cleared, NO new invoice yet.
+  4. Pay-app re-lock → verify new invoice with fresh ID created and linked.
+  5. Refresh Stripe Link on a Sent invoice → verify: Payment Link rotated, no QB call, status
+     stays Sent.
+  6. Aggregator check: Job Detail Billed/Remaining/% Invoiced does NOT double-count voided +
+     new pair (P0.1 verification).
+  7. Voided row UI: Sync/Edit/Pull-Back/Delete buttons hidden (P0.2 verification).
+  8. Force a duplicate DocNum by manually syncing a renumbered invoice with a colliding
+     DocNumber in QB — verify the new error banner ("QB already has invoice #X…") instead
+     of opaque 500.
+
+### Re-audit request
+
+Audit terminal: please re-run the checklist against this Round 2 plan. Specifically verify:
+
+- All 6 audit findings are addressed (3 P0, 2 P1, 1 P2)
+- No new aggregation blind spots introduced (especially in any cross-tenant view)
+- Migration timestamp choice doesn't collide with prod ledger
+- Smoke matrix #4 (pay-app re-lock path) — confirm NewPayAppModal lock path overwrites
+  `billing_schedule_pay_apps.invoice_id` rather than assuming it's null
+
+Output same table format. TL;DR: Ready to build / Needs more changes / Block.

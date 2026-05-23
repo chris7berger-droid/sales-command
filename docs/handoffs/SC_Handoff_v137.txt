@@ -1,0 +1,70 @@
+SC Handoff v137 — 2026-05-22
+============================
+
+SESSION SUMMARY
+─────────────────────────────────────────────────────
+ERD Loop #25 — B37 false-sister fix. Full protocol: /erd-start, plan
+doc from prior session, parallel audit terminal verdict applied before
+coding. 21 minutes lock-to-close, 10/10 success.
+
+CHANGES SHIPPED
+─────────────────────────────────────────────────────
+- ProposalDetail.jsx:627-636 — handleInternalApprove now uses
+  cloned_from_proposal_id lineage check instead of call_log_id sibling
+  scan. Sequential proposals correctly advance to Sold.
+- Migration 20260522160000_b37_mark_signed_lineage.sql — CREATE OR
+  REPLACE on mark_proposal_signed 5-arg form. Same lineage predicate.
+  1-arg wrapper unaffected (calls 5-arg internally).
+- Backfill: job 10116 P2 (aca7f47d) Signed → Sold. 1 row, as expected.
+  QB job already existed from P1 (qb_customer_id 11754).
+- BACKLOG.md: B37 closed, B39 filed (award_proposal followup).
+
+Merge to main: commit 0fb9371 (fast-forward).
+
+DECISIONS
+─────────────────────────────────────────────────────
+- Used CREATE OR REPLACE per audit directive — no DROP, preserves
+  1-arg wrapper + GRANT EXECUTE TO anon.
+- award_proposal RPC deferred as B39 (no UI wires it yet).
+- NOTIFY pgrst placed inside function body (belt-and-suspenders).
+
+NEW/CLOSED BACKLOG ITEMS
+─────────────────────────────────────────────────────
+- B37: Closed (this session)
+- B39: Open T3 — award_proposal has same false-sister predicate, fix
+  when Mark Awarded UI lands (§10 step 9)
+
+VERIFICATION
+─────────────────────────────────────────────────────
+5/5 smoke matrix on Vercel preview:
+  1. Job 10085 P2 sequential → Sold (pass)
+  2. Job 10085 P3 solo sequential → Sold (pass)
+  3. Job 10021 P3 sister internal-approve → Signed (pass)
+  4. Job 10116 P2 backfilled → invoice modal opens (pass)
+  5. Job 10021 P3 sister customer-sign via PublicSigningPage → Signed (pass)
+
+NOT TOUCHED
+─────────────────────────────────────────────────────
+- award_proposal RPC (B39, deferred)
+- No edge functions changed or redeployed
+- No other proposals/invoices/customers touched
+
+NEXT SESSION POINTERS
+─────────────────────────────────────────────────────
+- B39 (award_proposal lineage fix) when Mark Awarded UI lands
+- ERD follow-up re-rates: +24h 2026-05-23 17:00, +7d 2026-05-29 17:00
+- B34 session analysis: plan + audit + ERD = 21m; no plan = 6h blowup.
+  Strong signal for always running full protocol stack.
+
+FILES TO KNOW
+─────────────────────────────────────────────────────
+- src/components/ProposalDetail.jsx — handleInternalApprove (627-650)
+- supabase/migrations/20260522160000_b37_mark_signed_lineage.sql
+- docs/plans/b37_false_sister_fix.md — plan doc (on branch, merged)
+- docs/BACKLOG.md — B37 closed, B39 added
+
+GIT STATE
+─────────────────────────────────────────────────────
+Branch: main @ 0fb9371
+Working tree: clean
+Nothing uncommitted.

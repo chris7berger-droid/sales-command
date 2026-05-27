@@ -1,0 +1,138 @@
+SC Handoff v138 — 2026-05-27
+============================
+
+SESSION SUMMARY
+─────────────────────────────────────────────────────
+Meta-session, not feature work. Started with /orient, surfaced a bug
+in /orient itself (handoff glob missed prefix conventions, showed
+sch-command's last handoff as 43d old when v12 from yesterday was
+the real latest). Fix snowballed into a cross-repo cleanup: 11 local
+branches deleted, 12 remote branches deleted, 3 merges to main
+(audit report + Scorecard plan extraction + orient fix), 2 slash
+commands updated, 2 new memories written, 1 new BACKLOG created
+(field-command), 1 cross-repo deploy gap identified and filed.
+
+Goal: shut the rework loop that had produced 46 trapped commits
+across 8 branches (work was being committed-and-pushed on branches
+without ever being merged to main, then redone in fresh sessions).
+
+CHANGES SHIPPED — sales-command/main
+─────────────────────────────────────────────────────
+- Merge 7475815 — audit-reports/2026-05-25.md (532-line security
+  audit from a remote Claude agent run, never opened as PR).
+  0 Critical, 12 High, 25 Medium, 10 Low. Two of last cycle's
+  Top-3 closed; three NEW HIGHs identified: check-orphan-users
+  unauthenticated, qb-auth verify_jwt=false, invite-user sender-email
+  spoofing. NOT yet filed into BACKLOG — read the report next session.
+- Merge 4dc4768 — extract/pre-ship-scorecard. Brings:
+  * docs/plans/self_protection_layer.md (Scorecard, 188 lines)
+  * .claude/commands/pre-ship.md (per-repo /pre-ship cmd, 75 lines)
+  * docs/erd/README.md (ERD stub pointing to erd-loop repo)
+  Source branch (feat/pre-ship-command) deleted afterward. Branch
+  also wanted to delete v111-v137 handoffs + prune migration ledger
+  — those changes deliberately left behind.
+
+CHANGES SHIPPED — other repos
+─────────────────────────────────────────────────────
+- claude-commands: /orient handoff glob broadened to match prefix
+  conventions (SCH_HANDOFF_*, FC_Handoff_*, etc.). Commit 19d770a
+  (cherry-pick to main).
+- claude-commands: /close-out-package gained step 5 branch-destination
+  check (merge-vs-push gate, prevents rework) and step 6 branch
+  hygiene scan. Commits 0570812 + 25d8534.
+- claude-commands: merge of plan/multi-machine-bootstrap (brings
+  /fix command + multi-machine bootstrap plan doc). Commit 67ce836.
+- field-command: NEW docs/BACKLOG.md with B1 (upload-photo redeploy
+  gap, T2). Commit 7e19881.
+
+DECISIONS / CHOICES MADE
+─────────────────────────────────────────────────────
+- Per-branch agent investigation (8 parallel Explore agents) before
+  any destructive action on the 46 trapped commits. Most were
+  already on main with different hashes (rework artifacts).
+- For feat/import-wizard-customer-match: turned out main already had
+  the work as commit 34f926a (same title + same code as branch's
+  15d3d5e). Nothing to extract. Branch deleted.
+- For feat/pre-ship-command: surgical 3-file extraction via a fresh
+  extract branch, not a plain merge. Plain merge would have erased
+  3 weeks of handoffs.
+- For upload-photo deploy gap: did NOT deploy. Per
+  feedback_edge_fn_post_deploy_smoke, deploy exit 0 ≠ working;
+  smoke requires running the FC mobile app, which is its own
+  session. Filed as FC B1 instead.
+
+NEW BACKLOG ITEMS
+─────────────────────────────────────────────────────
+- field-command B1 (T2) — Redeploy upload-photo (R2 public URL
+  fix committed but not deployed). Full recipe in FC BACKLOG.
+
+NOT FILED YET (next session)
+─────────────────────────────────────────────────────
+- audit-reports/2026-05-25.md has 12 Highs + 25 Mediums + 10 Lows
+  not yet broken out into sales-command/docs/BACKLOG.md entries.
+  Top 3 urgent per the report:
+    1. Drop .endsWith(".vercel.app") from 20 edge fns' CORS
+       allowlists (CSRF bypass via any attacker Vercel preview)
+    2. Gate check-orphan-users on CRON_SECRET or verify_jwt=true
+       (currently unauthenticated → DoS + Resend quota abuse)
+    3. Tenant-scope get_public_tenant_config + get_rep_contact
+       RPCs (PII enumeration the moment 2nd tenant exists)
+
+CLOSED THIS SESSION
+─────────────────────────────────────────────────────
+None (no BACKLOG-tracked items closed; this was infrastructure).
+
+VERIFICATION
+─────────────────────────────────────────────────────
+- Branch deletes verified per-repo with `git branch -a`.
+- 3-layer deploy audit on sales-command:
+  * Frontend (Vercel): latest production deploy 13m old, matches
+    main HEAD. Clean.
+  * Migrations: all 47 local files applied to prod via
+    `supabase migration list --linked`. Clean.
+  * Edge functions: 21 functions checked, every UPDATED_AT is
+    after the source's last-commit date. Clean.
+- One real gap: upload-photo (source in field-command, deploys to
+  sales-command's Supabase project). Filed as FC B1, NOT fixed
+  this session.
+
+NEXT SESSION POINTERS
+─────────────────────────────────────────────────────
+- Triage the new audit findings (audit-reports/2026-05-25.md) into
+  BACKLOG entries before they go cold. Especially the 3 Top-Urgent
+  items above.
+- AR-Command-Center still has a dirty working tree
+  (legacy/index.html deleted) + 1 behind origin. Investigate when
+  ready — not blocked, just noticed during /orient.
+- Use the new /close-out-package step 5 every session — it's the
+  gate that should have prevented this whole mess.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────────────────
+- audit-reports/2026-05-25.md — fresh audit input
+- docs/plans/self_protection_layer.md — Scorecard plan, just landed
+- .claude/commands/pre-ship.md — per-repo /pre-ship cmd, just landed
+
+GIT STATE ON CLOSE
+─────────────────────────────────────────────────────
+- sales-command: main, clean, in sync with origin (HEAD before
+  this handoff commit: 4dc4768).
+- sch-command: main, clean, in sync.
+- field-command: main, clean, in sync (last commit 7e19881 = FC
+  BACKLOG).
+- erd-loop: main, clean, in sync.
+- AR-Command-Center: main, dirty (legacy/index.html deleted), 1
+  behind origin. Pre-existing, not touched this session.
+- claude-personal-state: 2 new memory files uncommitted
+  (feedback_merge_vs_push.md, project_shared_supabase_project.md)
+  + MEMORY.md update. Sync separately.
+- All repos: zero open branches besides main. First time across
+  the board in a while.
+
+END STATE
+─────────────────────────────────────────────────────
+Infrastructure pass done. Branch rework loop is closed at the
+discipline layer (/close-out-package step 5) and the inventory
+layer (every repo back to main-only). Ready for fresh build
+session in any project. Recommend starting next session with
+/orient, then triaging the new audit Highs into BACKLOG.

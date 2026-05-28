@@ -238,20 +238,20 @@ export default function ContactBillingPicker({
         <input
           placeholder="Billing Contact Name"
           value={billingValues.billingName || ""}
-          onChange={e => onBillingChange?.({ billingName: e.target.value })}
+          onChange={e => onBillingChange?.({ billingName: e.target.value, billingSame: false })}
           style={inputStyle}
         />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <input
             placeholder="Billing Phone"
             value={billingValues.billingPhone || ""}
-            onChange={e => onBillingChange?.({ billingPhone: e.target.value })}
+            onChange={e => onBillingChange?.({ billingPhone: e.target.value, billingSame: false })}
             style={inputStyle}
           />
           <input
             placeholder="Billing Email"
             value={billingValues.billingEmail || ""}
-            onChange={e => onBillingChange?.({ billingEmail: e.target.value })}
+            onChange={e => onBillingChange?.({ billingEmail: e.target.value, billingSame: false })}
             style={inputStyle}
           />
         </div>

@@ -1,0 +1,513 @@
+# Billing contact entered in the New Inquiry wizard doesn't appear on the customer detail page (existing-customer mode)
+
+## Context
+
+When a user runs the **New Inquiry wizard** against an **existing customer** and types a Billing Contact (Name / Phone / Email) on the contactInfo step, the customer detail page does **not** show that contact in its contacts list after save.
+
+The new-customer branch of the same wizard already inserts a `customer_contacts` row with `role='Billing Contact'`. The existing-customer branch only updates the denormalized `customers.billing_*` columns — it never writes to `customer_contacts`. The customer detail page reads contacts from `customer_contacts` only, so the typed billing contact never appears there.
+
+Background memory (verified against current code):
+- `customer_contacts.role='Billing Contact'` is the canonical store; `customer_contacts.is_billing_contact` (added 2026-05-06) is a parallel flag. `ContactBillingPicker.isBilling` checks both via OR (`src/components/ContactBillingPicker.jsx:19-20`), so either column is sufficient for read-side discovery.
+- `customers.billing_name/phone/email` are legacy denormalized columns kept in sync for back-compat with older read paths (e.g. `Customers.jsx:48-52` form fields, `send-invoice` resolver fallbacks). They are not what the customer detail page renders in the contacts section.
+
+## §1 Root cause [LOCKED]
+
+`src/components/NewInquiryWizard.jsx:309-325` — existing-customer branch of `handleSave`:
+
+```js
+if (data.customerMode === "existing" && customerId) {
+  const update = {
+    phone: data.contactPhone || null,
+    email: data.contactEmail || null,
+    contact_email: data.contactEmail || null,
+    contact_phone: data.contactPhone || null,
+    billing_terms: billingTermsNum,
+    requires_pay_app: data.requiresPayApp,
+  };
+  if (!data.billingSourceContactId) {
+    update.billing_same = data.billingSame;
+    update.billing_name = data.billingSame ? null : data.billingName;
+    update.billing_phone = data.billingSame ? null : data.billingPhone;
+    update.billing_email = data.billingSame ? null : data.billingEmail;
+  }
+  await supabase.from("customers").update(update).eq("id", customerId);
+}
+```
+
+This writes the four `billing_*` columns on `customers`. There is no corresponding `INSERT INTO customer_contacts`.
+
+The new-customer branch at `:343-352` already does the right thing:
+
+```js
+if (customerId && !data.billingSame && data.billingName.trim()) {
+  const { error: bcErr } = await supabase.from("customer_contacts").insert([{
+    customer_id: customerId,
+    name: data.billingName.trim(),
+    phone: data.billingPhone || null,
+    email: data.billingEmail || null,
+    role: "Billing Contact",
+    is_primary: true,
+  }]);
+  if (bcErr) alert(`Customer saved, but billing contact didn't save: ${bcErr.message}. Add it from the customer record.`);
+}
+```
+
+Bug is the missing mirror of `:343-352` in the existing-customer branch.
+
+### Why the picker doesn't compensate
+
+`ContactBillingPicker` auto-locks the Billing Contact section only when a Billing Contact already exists on the chosen customer (`:85-93`). When no Billing Contact is on file, the picker falls back to **manual entry mode** (`renderBillingManual` at `:229-265`), which collects values into the wizard's state but does not write anywhere — the wizard is the writer. The picker's hint at `:259-263` ("add a Billing Contact to this customer's record so future jobs auto-fill") is currently false advertising for the existing-customer path: the entered values do not persist to `customer_contacts`.
+
+### Customer detail page read path
+
+`src/pages/Customers.jsx:504`:
+
+```js
+const { data } = await supabase.from("customer_contacts")
+  .select("*").eq("customer_id", customer.id)
+  .order("is_primary", { ascending: false }).order("name");
+```
+
+Confirms the contacts list is rendered from `customer_contacts`, not from `customers.billing_*`. The billing_* columns are read only by the edit-customer form fields (`Customers.jsx:48-52`) — separate surface, separate population.
+
+## §2 Fix [LOCKED — revised in Plan Revision Pass 1]
+
+**Round-1 audit response.** Original §2 was a single INSERT mirror of `:343-352`. Audit round 1 surfaced silent-failure modes, cross-tenant write surface, duplicate-on-race risk, and cross-surface symmetry gaps the simple mirror did not address. Revised spec below adds preflight gates and adopts the canonical ContactModal pattern (`Customers.jsx:182-185`) for both wizard branches. See §10 for finding → revision mapping.
+
+### §2.1 Customer ownership preflight (existing-customer mode)
+
+Before the `customers` UPDATE at `:309-324`, verify the customer is visible to the caller:
+
+```js
+if (data.customerMode === "existing" && customerId) {
+  const { data: own } = await supabase.from("customers")
+    .select("id").eq("id", customerId).maybeSingle();
+  if (!own) { setError("Customer not in your workspace."); setSaving(false); return; }
+  // ...existing UPDATE block follows
+}
+```
+
+Closes **A2**-class cross-tenant injection: RLS on `customers` returns no row for a `customerId` from another tenant, so the wizard hard-stops before any write rather than writing a `customer_contacts` row whose `tenant_id` (caller's, via column default) mismatches `customers.tenant_id`. Hand off cross-tenant defense to RLS rather than caller-trust. Durable trigger-based enforcement is filed in §6.
+
+### §2.2 Error-check the existing-customer UPDATE
+
+```js
+const { error: cuErr } = await supabase.from("customers").update(update).eq("id", customerId);
+if (cuErr) { setError(`Couldn't update customer: ${cuErr.message}`); setSaving(false); return; }
+```
+
+Prevents the `call_log.insert` at `:383` from running on a half-applied save (current code ignores `update`'s return value and proceeds regardless).
+
+### §2.3 Empty-string → null normalize on `customers.billing_*`
+
+Both branches. Existing-customer UPDATE at `:320-322`:
+
+```js
+update.billing_name  = data.billingSame ? null : (data.billingName  || null);
+update.billing_phone = data.billingSame ? null : (data.billingPhone || null);
+update.billing_email = data.billingSame ? null : (data.billingEmail || null);
+```
+
+Same `|| null` pattern in the new-customer INSERT payload at `:333-335`. Closes **E1**: current code writes empty strings when user toggles "separate billing contact" then leaves the fields blank, producing rows where `billing_name = ''` ≠ `billing_name IS NULL` — confuses downstream filters and the picker's `pickBillingContact()` fall-through.
+
+### §2.4 Preflight Billing Contact SELECT + conditional INSERT (both branches)
+
+```js
+const writeBillingContact =
+  !data.billingSame &&
+  data.billingName.trim() &&
+  (data.customerMode === "new" ||
+    (data.customerMode === "existing" && !data.billingSourceContactId));
+
+if (writeBillingContact) {
+  const { data: existingBC, error: bcCheckErr } = await supabase.from("customer_contacts")
+    .select("id")
+    .eq("customer_id", customerId)
+    .or("role.eq.Billing Contact,is_billing_contact.eq.true");
+
+  if (bcCheckErr) {
+    setError(`Couldn't check existing billing contact: ${bcCheckErr.message}`);
+    setSaving(false);
+    return;
+  }
+
+  if (!existingBC || existingBC.length === 0) {
+    const isPrimary = data.customerMode === "new"; // existing customers may already have a primary
+    const { data: bcRow, error: bcErr } = await supabase.from("customer_contacts").insert([{
+      customer_id: customerId,
+      name: data.billingName.trim(),
+      phone: data.billingPhone || null,
+      email: data.billingEmail || null,
+      role: "Billing Contact",
+      is_billing_contact: true,
+      is_primary: isPrimary,
+    }]).select("id");
+
+    if (bcErr || !bcRow || bcRow.length === 0) {
+      setError(`Couldn't save billing contact${bcErr ? `: ${bcErr.message}` : " (no row returned — RLS or trigger may have blocked the insert)"}.`);
+      setSaving(false);
+      return;
+    }
+  }
+  // existingBC.length > 0 → stale Billing Contact on file: skip insert, no error.
+  // The picker would not have rendered manual mode in this case (it auto-locks
+  // when pickBillingContact() finds a row). Reaching this branch means the
+  // picker fetch returned [] but a Billing Contact row exists — race window or
+  // RLS-shadow row. Skipping is correct: don't shadow the existing row.
+}
+```
+
+Closes:
+- **K1 + D2**: duplicate-row prevention via preflight SELECT (race or stale-state cases that would otherwise create a second `role='Billing Contact'` row).
+- **F1 stale-row footnote**: if a Billing Contact exists but the picker rendered manual mode anyway (RLS shadow, race, edited contacts.json out-of-band), skip the insert rather than create a contradicting row.
+- **Silent INSERT failure**: `.select("id")` forces detection of RLS-filtered writes — Supabase JS does not error when an INSERT is filtered to zero rows by RLS, so an unchecked insert presents as success when the row never landed. Checking `bcRow.length === 0` closes the silent path.
+- **Cross-surface asymmetry**: setting BOTH `role='Billing Contact'` AND `is_billing_contact: true` matches the canonical ContactModal write at `Customers.jsx:182-185`. Same change applies to the new-customer mirror at `:344-351`. Closes §6 item 1 from the round-0 plan.
+
+### §2.5 New-customer mirror — same shape
+
+The new-customer branch INSERT at `:344-351` updates in parallel:
+
+```js
+const { data: bcRow, error: bcErr } = await supabase.from("customer_contacts").insert([{
+  customer_id: customerId,
+  name: data.billingName.trim(),
+  phone: data.billingPhone || null,
+  email: data.billingEmail || null,
+  role: "Billing Contact",
+  is_billing_contact: true,
+  is_primary: true, // new customer has no other contacts at this point
+}]).select("id");
+if (bcErr || !bcRow || bcRow.length === 0) {
+  setError(`Couldn't save billing contact${bcErr ? `: ${bcErr.message}` : ""}.`);
+  setSaving(false);
+  return;
+}
+```
+
+Adopts both columns + `.select("id")` + `setError` (closes §2.6's alert→setError migration for this site too). The new-customer preflight SELECT can be skipped — a fresh customer has no contacts by construction — but the failure check is mandatory.
+
+### §2.6 Replace `alert(...)` with `setError(...)`
+
+Both existing-customer (§2.4) and new-customer (§2.5) billing-contact error paths use `setError` matching the file's convention at `:341` (existing error reporter for the new-customer customers INSERT). The `:352` alert is replaced. Failure halts the wizard with a visible inline error and `setSaving(false)`; user can retry from the live form state.
+
+### §2.7 Scope honesty — when §2 actually fires
+
+The picker's lock state machine (`ContactBillingPicker.jsx:85-93`) auto-locks the Billing Contact section when `pickBillingContact()` returns a row, and the picker has **no unlock affordance**. So in the existing-customer branch, §2.4's `writeBillingContact` evaluates true only when:
+
+- The customer has zero Billing Contact rows on file (picker rendered manual mode), AND
+- The user typed at least a name.
+
+The "user wants to override an existing Billing Contact through the wizard" case does not exist in the current UX. The picker would have locked and pre-populated the existing values; manual entry was never reachable. A picker unlock affordance is filed in §6 — once added, §2.4's preflight already handles the override case correctly by skipping the insert (preserving the existing row) and letting the override happen via a separate edit on the customer detail page.
+
+For the new-customer branch, §2.5 fires whenever `!billingSame && billingName.trim()` — no preflight needed.
+
+## §3 Side fix — additionalContacts dedup [LOCKED — revised in Plan Revision Pass 1]
+
+**Round-1 audit response.** Original gate keyed on `name+email` match, missing the case where the user typed a Billing Contact in the picker AND added a *differently-named* "Billing Contact" via "+ Add Contact". Simpler and stricter rule: when the wizard will write a Billing Contact row via §2, drop ALL `additionalContacts` with `role === 'Billing Contact'`. Closes **D1**.
+
+Replace `:411-427` body's filter logic with:
+
+```js
+if (customerId && data.additionalContacts.length > 0) {
+  const willWriteBilling =
+    !data.billingSame &&
+    data.billingName.trim() &&
+    (data.customerMode === "new" ||
+      (data.customerMode === "existing" && !data.billingSourceContactId));
+
+  const newContacts = data.additionalContacts.filter(c => {
+    if (!c.name?.trim()) return false;                              // drop empties
+    if (willWriteBilling && c.role === "Billing Contact") return false; // dedup all role-billing rows
+    return true;
+  });
+
+  if (newContacts.length > 0) {
+    const { error: acErr } = await supabase.from("customer_contacts").insert(
+      newContacts.map(c => ({
+        customer_id: customerId,
+        name: c.name.trim(),
+        phone: c.phone || null,
+        email: c.email || null,
+        role: c.role,
+        is_billing_contact: c.role === "Billing Contact",
+      }))
+    );
+    if (acErr) {
+      setError(`Couldn't save additional contacts: ${acErr.message}.`);
+      setSaving(false);
+      return;
+    }
+  }
+}
+```
+
+Two intentional changes beyond the dedup loosening:
+
+- **`is_billing_contact` derived from role on each additionalContacts row.** If the user picked "Billing Contact" in the role dropdown for a Contact 2/3/N entry, set both columns — same canonical pattern as §2.
+- **`setError` + halt** instead of `alert` (mirrors §2.6).
+
+Picker-locked case (`data.billingSourceContactId` set → existing Billing Contact on file → §2 INSERT skipped) still allows additionalContacts Billing Contact rows: rare, semantically "user explicitly adds a secondary billing contact" — the OR-check at `ContactBillingPicker.isBilling:19-20` would surface both rows the next time the picker runs and `pickBillingContact` would resolve to the first by `created_at` order. Acceptable.
+
+## §4 Verification (third-party checkable)
+
+Run on a non-prod TEST customer (don't dirty real customer data):
+
+1. Pick or create a TEST customer with **zero** existing Billing Contact rows (`SELECT * FROM customer_contacts WHERE customer_id = '<id>' AND (role='Billing Contact' OR is_billing_contact = true);` returns 0 rows).
+2. Open New Inquiry wizard → "Use Existing Customer" → pick the TEST customer.
+3. On contactInfo step, the Billing Contact section in `ContactBillingPicker` should be in manual entry mode (no lock chrome). Type Name + Phone + Email.
+4. Complete the wizard and save the job.
+5. **Check A — UI**: open the customer detail page for the TEST customer. The contacts list should show a row matching the typed name with the "Billing Contact" role badge. Position depends on `is_primary` ordering at `Customers.jsx:504`.
+6. **Check B — DB**: `SELECT id, name, phone, email, role, is_primary, is_billing_contact, created_at FROM customer_contacts WHERE customer_id = '<id>' ORDER BY created_at DESC LIMIT 5;` — top row should match the typed values with `role='Billing Contact'`, `is_primary=false`.
+7. **Check C — picker auto-fill on next job**: open New Inquiry wizard again → same existing customer. The Billing Contact section should now be in **locked** mode displaying the row written in step 4. Confirms `pickBillingContact` (`ContactBillingPicker.jsx:23-29`) sees the new row.
+
+Optional regression smoke (won't take 5 min):
+- Repeat with a customer that already HAS a Billing Contact on file. Picker should lock immediately. Save the job and confirm NO new row was inserted (the §2 gate's `!billingSourceContactId` check + §2.4 preflight both prevent the write).
+- Repeat with `billingSame=true` (no separate billing contact). Save the job and confirm NO `customer_contacts` row was inserted (the `!billingSame` and `billingName.trim()` gates work).
+
+### PRP1 additions — defensive smoke (5–10 min)
+
+Round-1 audit added defensive code paths. Smoke them:
+
+- **D1 — ownership preflight.** Open dev console; force-edit the wizard state to set `customerMode='existing'` with a `customerId` that does not belong to the caller (use a known TEST customer id from a different tenant on a staging project, or simulate by manually nulling RLS on the local supabase shell). Save: wizard should halt with "Customer not in your workspace." inline error. `customers` and `customer_contacts` writes should NOT fire.
+- **D2 — UPDATE error halts wizard.** Briefly drop `UPDATE` permission on `customers` for the authenticated role (or simulate by editing a non-existent column into `update` payload). Save: wizard halts with "Couldn't update customer: …" — `call_log.insert` should NOT have fired. Restore permissions.
+- **D3 — preflight SELECT skip path.** Manually insert a `customer_contacts` row with `role='Billing Contact'` on a TEST customer, then bypass the picker's auto-lock (e.g. set `data.billingSourceContactId = null` in dev console after the picker rendered). Save with typed manual values. Confirm: NO new `customer_contacts` row was inserted, NO error shown, job saved successfully. This is the §2.4 stale-row path.
+- **D4 — both columns set.** After a clean §4 step-4 save, run `SELECT role, is_billing_contact FROM customer_contacts WHERE customer_id = '<id>' ORDER BY created_at DESC LIMIT 1` — verify `role='Billing Contact'` AND `is_billing_contact=true`. Repeat for a new-customer save: same result.
+- **D5 — setError replaces alert.** Force any §2 INSERT failure (e.g. drop INSERT permission on `customer_contacts` briefly). Save: confirm the error renders as an inline `setError` panel above the action row, NOT a browser `alert()` popup. `setSaving(false)` keeps the form interactive.
+
+## §5 Risks / what might break
+
+Updated post-Plan Revision Pass 1. Findings closed in §2/§3 are removed; remaining risks listed honestly.
+
+- **Race window: preflight SELECT → INSERT.** Two wizard sessions on the same customer could both see zero Billing Contact, both reach the INSERT, and produce two rows. Acceptable for the bug's scope (rare in practice — single sales rep per customer is the dominant case), and customer detail page UI supports deleting duplicates. DB-level prevention (unique partial index on `(customer_id) where role='Billing Contact' or is_billing_contact=true`) is a §6 follow-up.
+- **`alert` → `setError` UX regression.** Inline error replaces the popup. Users accustomed to the popup may miss the inline message. Mitigation: error halts the wizard (`setSaving(false)` + early return), so the form stays open with the error visible above the action row at `:341`. No silent drop.
+- **`is_primary: true` in new-customer mode** still assumes no other contacts exist at customer-creation time. True via the wizard's own write order (customers INSERT → optional billing contact INSERT → additional contacts INSERT all in one flow), but if a future code path creates a customer + a primary contact before this branch runs, the new Billing Contact would be a second primary. Not currently reachable.
+- **RLS shadow / preflight false-negative.** If `customer_contacts` RLS filters out a Billing Contact row that exists on `customer_id` but for a different tenant (shouldn't happen post-A1 follow-up, but possible today), the preflight SELECT returns `[]` and §2.4 proceeds to INSERT. The INSERT's `tenant_id` default would be caller's tenant; result is two rows with the same `customer_id` but different tenants. The §2.1 ownership check prevents this when `customers` is already cross-tenant-filtered, but if the data is mis-tagged (customer in tenant A, existing Billing Contact in tenant B), the preflight reads only the rows the caller can see, so §2.4 inserts. The A1 trigger filed in §6 closes this durably.
+- **`select("id")` reliability for RLS detection.** Supabase JS returns `data: []` (not error) when RLS filters an INSERT to zero rows. Treating `bcRow.length === 0` as failure works IF Supabase's behavior is consistent across versions. If a future client release returns `null` data instead of `[]`, the check `!bcRow || bcRow.length === 0` covers both. Tested empirically on current client version via the C9 fix work in 2026-05-09.
+
+## §6 Out of scope
+
+Updated post-Plan Revision Pass 1. Items closed in §2/§3 removed; new follow-ups surfaced by audit round 1 added. Pick up in separate loops.
+
+### Durable defenses (file as security-tier backlog rows)
+
+1. **Trigger to enforce `customer_contacts.tenant_id = customers.tenant_id`** (closes A1 durably). Cite the existing `delete_customer` `RAISE EXCEPTION 'TENANT_MISMATCH'` pattern (`supabase/migrations/20260430120000_customer_delete_merge.sql`). Trigger on BEFORE INSERT OR UPDATE on `customer_contacts` that joins `customers` by `customer_id` and raises if `tenant_id` mismatches. Mirrors the H4 trigger pattern on `proposal_signatures` (`20260508120000_proposal_signatures_tenant_id_trigger.sql`). ~1h including migration + scratch test. **Blocks F7** (multi-tenant onboarding) along with the rest of the H-tier security set.
+2. **`send-invoice` / `send-pay-app`: add `.eq("tenant_id", caller.tenantId)` to `customer_contacts` reads** (A2 amplifier defense-in-depth). Currently relies on `customers.tenant_id` filter upstream; explicit scope on the contact read is belt-and-suspenders. Same shape as the C9 fix at `supabase/functions/send-pay-app/index.ts` (commit on 2026-05-09). ~30 min per fn.
+3. **DB-level uniqueness on Billing Contact per customer** — partial unique index on `customer_contacts(customer_id) WHERE role='Billing Contact' OR is_billing_contact=true`. Closes the §5 race window durably and lets §2.4's preflight collapse to a simple INSERT ON CONFLICT DO NOTHING pattern in a future cleanup. Migration + repair on existing dups. ~half-day.
+
+### Cross-surface symmetry sweep
+
+4. **`ContactModal` (Customers.jsx) mirror to `customers.billing_*`** (closes H1). Currently, editing a Billing Contact in ContactModal updates `customer_contacts` but does not propagate back to the legacy `customers.billing_*` columns. After §2 ships, the wizard writes both; ContactModal's edit path should too, otherwise the two surfaces drift on edit. ~1h.
+5. **`CallLogDetail.jsx:121` — change role-only filter to OR-pattern** (closes G1). Less urgent post-§2.4 (both columns now set on new wizard writes), but legacy rows with `role='Billing Contact'` but `is_billing_contact=false` could be misfiltered by purely-flag-based downstream readers. Quick audit of downstream surfaces + apply OR-check where role-only matches exist. ~30 min.
+6. **Extract `pickBillingContact` to `src/lib/contacts.js` + `supabase/functions/_shared` twin** (G2). Currently lives only in `ContactBillingPicker.jsx:23-29`; edge fns reimplement the lookup inconsistently. Shared util closes the asymmetry permanently. ~1h.
+
+### UX
+
+7. **Picker unlock affordance** for the existing-Billing-Contact case. Audit-round-1 surfaced that §2 narrows to "no existing Billing Contact on file" because the picker has no UI to override. Add an unlock button on the locked-billing render at `ContactBillingPicker.jsx:200-228` that flips to manual mode and clears `billingSourceContactId`. Once added, §2.4's preflight already handles the override case correctly (skips insert, preserves existing row). ~1h.
+8. **`billing_same` semantics: refuse, delete, or deprecate** (F1 blocker). The `billingSame` toggle's meaning is murky — when `true` it nulls `customers.billing_*` (implying "no separate billing contact"), but the wizard does not delete an existing `customer_contacts` row with `role='Billing Contact'` if one exists. Decide: should `billingSame=true` block-and-warn ("you have a Billing Contact on file; uncheck to keep it"), delete the row, or be deprecated entirely in favor of "presence of Billing Contact row IS the source of truth"? Planning task before code. ~half-day planning.
+9. **`additionalContacts` general dedup** — current dedup is per-row name+email key; doesn't catch slight variations ("Joe" vs "Joseph"). Out of scope; same problem `Customers.jsx` already has on the ContactModal create flow.
+10. **Picker hint copy** (`ContactBillingPicker.jsx:259-263`) — accurate post-§2; tighten phrasing if user feedback surfaces confusion. ~10 min.
+
+### Observability
+
+11. **`updated_at` + audit log on `customer_contacts`** (closes M2). Most tenant tables have the `updated_at timestamptz` trigger pattern + an event log; `customer_contacts` does not. Add `updated_at` column + standard trigger from `supabase/migrations` template, optionally append-only event log table for billing-contact changes (audit trail for money-bearing writes). Migration-tier work, ~2h.
+
+## §7 Estimate
+
+Updated post-Plan Revision Pass 1. Surface grew (both wizard branches touched, preflights + error paths + both columns + alert→setError migration), but all changes remain in one file.
+
+- Code: ~35 min (§2.1 ownership preflight + §2.2 UPDATE error check + §2.3 empty-string normalize × 2 sites + §2.4 preflight + conditional INSERT + §2.5 new-customer mirror + §2.6 alert→setError × 2 sites + §3 dedup rewrite, all in `src/components/NewInquiryWizard.jsx`)
+- Smoke verification on TEST customers: ~25 min (§4 Checks A/B/C + 4 regression cases — existing-customer-with-no-billing, existing-customer-with-billing-already, new-customer, billingSame=true)
+- Total: ~60 min. Doubles the ERD lock estimate (Loop #28 was 30 min). FEAR-CATEGORY: TIME pressure is now real — flag at next /erdnote: this is a [HYP] candidate for "audit response routinely 2× original code estimate."
+
+## §8 Files touched
+
+- `src/components/NewInquiryWizard.jsx` (sole code change)
+
+## §9 Open questions
+
+Resolved in Plan Revision Pass 1:
+
+- ~~`is_primary: false` vs leave field unset~~ → resolved: existing-customer mode uses `false`, new-customer mode uses `true`. Locked at §2.4 / §2.5.
+- ~~Should §2 also set `is_billing_contact: true`?~~ → resolved by audit: YES, both columns set in both branches. Closes §6 item 1 from round 0.
+
+New (none blocking — all resolved by audit recommendations):
+
+(No items requiring blocking input from Chris.)
+
+## §11 Scope cut — round-2 halt, revert to round-0 §2 simple fix [LOCKED 2026-05-28]
+
+**Decision.** Round-2 audit returned 23 findings (8H/6M/9L). Pattern: `silent-success-on-skip+preflight-fragility+scope-drift`. Most PRP1/PRP2 mechanisms target **pre-existing wizard pattern bugs** (silent UPDATE failures, `alert()` UX, empty-string drift, cross-surface asymmetry) that are NOT caused by this fix — they're surfaced by it.
+
+Audit findings are real. They are not this loop's job.
+
+**Code implemented:**
+- Round-0 §2 simple INSERT mirror only — gated on `customerMode === "existing" && !billingSourceContactId && !billingSame && billingName.trim()`, `is_primary: false`. Same shape as new-customer mirror at `:343-352`.
+- Minimal §3 dedup gate loosening — drop `customerMode === "new"` from the gate so dedup fires whenever a Billing Contact will be written by §2.
+- That's it. Two surgical edits in `NewInquiryWizard.jsx`.
+
+**§2 PRP1 mechanisms NOT implemented** (filed or dropped):
+- §2.1 customer ownership preflight — filed under cross-surface tenant defense (see backlog rows S4 + S5)
+- §2.2 customers UPDATE error halt — filed as B40 (silent-failure pattern, matches B28/B29 class; F28 architectural fix would cover this)
+- §2.3 empty-string → null normalize — dropped (cosmetic data-quality, pre-existing pattern)
+- §2.4 preflight Billing Contact SELECT + `.select("id")` + both-column writes — partially filed: cross-surface symmetry as F31, DB-uniqueness as F32. The preflight itself is replaced by the F32 unique index pattern when that lands.
+- §2.5 new-customer mirror updates (both columns, `.select`, setError) — dropped (pre-existing pattern; F31 covers the symmetry concern at the right surface)
+- §2.6 alert → setError migration — dropped (wizard-wide pattern, separate sweep loop)
+- §2.7 scope honesty paragraph — kept in plan as historical record; covered by F33 (picker unlock)
+- §3 PRP1 full rewrite — reduced to minimal gate change (drop customerMode gate, keep name+email key)
+
+**Backlog filings (new rows in `docs/BACKLOG.md`):**
+
+| ID | Tier | Item | Source |
+|---|---|---|---|
+| B40 | T2 | NewInquiryWizard `customers` UPDATE silently swallows error; proceeds to call_log INSERT on half-applied state | Loop #28 audit |
+| F31 | T3 | `customer_contacts` cross-surface symmetry sweep — set both `role` + `is_billing_contact` on every writer | Loop #28 audit |
+| F32 | T2 | `customer_contacts` Billing Contact DB-level uniqueness — partial unique index | Loop #28 audit |
+| F33 | T3 | `ContactBillingPicker` unlock affordance for existing-Billing-Contact case | Loop #28 audit |
+| S4 | T2 | `customer_contacts.tenant_id` consistency trigger (TENANT_MISMATCH pattern from `delete_customer`) | Loop #28 audit |
+| S5 | T3 | `send-invoice` + `send-pay-app`: add `.eq("tenant_id", caller.tenantId)` to `customer_contacts` reads | Loop #28 audit |
+| R4 | T3 | Extract `pickBillingContact` to `src/lib/contacts.js` + `supabase/functions/_shared` twin | Loop #28 audit |
+
+**Dropped without filing** (audit found, judged not durable enough to track):
+- alert() → setError migration on wizard (file-wide pattern; future cleanup loop)
+- `customers.billing_*` empty-string vs NULL drift (pre-existing, cosmetic)
+- `additionalContacts` general dedup (low value; same shape Customers.jsx has)
+- ContactBillingPicker hint copy (trivial)
+- `billing_same` semantics blocker (planning question; defer until F33 picker unlock forces the decision)
+- `updated_at` + audit log on `customer_contacts` (premature observability)
+
+**PRP1/PRP2 content in §2.1–§2.7 and §10 remains as historical record of the deliberation.** Future readers: ignore the prescriptive code blocks in §2.1–§2.7; the **actual** implementation matches round-0 §2. The PRP1/PRP2 record is preserved so the audit thinking is recoverable when one of the filed backlog rows comes up.
+
+**ERD Loop #28 closeout reference:** original 30-min budget. Plan deliberation ate ~2.5h. Code change ships in 5 min. Loop closeout will name the time delta honestly.
+
+## §10 Plan Revision Pass 1 — change log
+
+Round-1 audit response. Each item below maps an audit finding (or finding cluster) to the section that closed it.
+
+### Closed in this revision
+
+| Audit ID(s) | Finding (short) | Closed in | Mechanism |
+|---|---|---|---|
+| A2 | Cross-tenant write surface via injectable `customerId` | §2.1 | Ownership preflight against `customers` (RLS hard-stop) |
+| K1, D2, F1 (stale-row footnote) | Duplicate Billing Contact on race / stale state | §2.4 | Preflight SELECT + skip-on-existing |
+| (silent INSERT) | `.insert()` returns success when RLS filters to zero rows | §2.4, §2.5 | `.select("id")` + `bcRow.length === 0` failure check |
+| (UPDATE silent fail) | Existing-customer UPDATE error ignored; wizard proceeds to call_log INSERT regardless | §2.2 | `cuErr` check + halt |
+| (alert UX) | `alert()` popup on money-bearing write surface | §2.6 | `setError` + halt mirrors file convention at `:341` |
+| E1 | Empty-string vs NULL drift on `customers.billing_*` | §2.3 | `|| null` normalize on both branches |
+| (symmetry) | Wizard inserts set `role` only; ContactModal sets both | §2.4, §2.5 | Both columns set on both wizard branches |
+| D1 | additionalContacts dedup misses name-mismatch case | §3 | Drop ALL `role='Billing Contact'` rows when wizard will write |
+| (additionalContacts silent fail) | additionalContacts INSERT error swallowed by alert | §3 | `setError` + halt; `is_billing_contact` derived from role |
+
+### Re-scoped / clarified
+
+- **§2.7 scope honesty** — original §2 implied the existing-customer fix fires whenever user types billing values. Picker lock state machine means it only fires when no Billing Contact on file (manual mode reachable). Picker unlock affordance filed as §6 item 7.
+
+### Filed as §6 follow-ups (not fixed in this loop)
+
+| Audit ID | Item | §6 row |
+|---|---|---|
+| A1 | Tenant-mismatch trigger on `customer_contacts` | 1 |
+| A2 amplifier | `send-invoice`/`send-pay-app` tenant filter on contact reads | 2 |
+| (race) | DB-level uniqueness on Billing Contact per customer | 3 |
+| H1 | ContactModal mirror to `customers.billing_*` | 4 |
+| G1 | `CallLogDetail.jsx:121` role-only filter → OR-pattern | 5 |
+| G2 | Extract `pickBillingContact` to shared lib | 6 |
+| (UX) | Picker unlock affordance | 7 |
+| F1 (blocker) | `billing_same` semantics: refuse/delete/deprecate | 8 |
+| — | additionalContacts general dedup | 9 |
+| — | Picker hint copy | 10 |
+| M2 | `updated_at` + audit log on `customer_contacts` | 11 |
+
+### Round-1 manifest values for next round detection
+
+- Plan revision under audit (round 0): `be239b2`
+- Findings closed in PRP1: 10 (across audit IDs A2, D1, D2, E1, F1-footnote, K1, plus 3 cross-cutting: silent-INSERT, UPDATE-silent-fail, cross-surface symmetry)
+- Findings filed: 11 (A1, A2-amplifier, race-uniqueness, H1, G1, G2, picker-unlock, F1-blocker, dedup, hint-copy, M2)
+- Pattern: cross-surface-asymmetry + tenant-trust-boundary + silent-failure
+
+### What did NOT change
+
+- §1 Root cause is unchanged — the audit confirmed the diagnosis. The fix needed to be wider than originally specified, but the diagnosis was correct.
+- §8 Files touched is unchanged — all revisions remain in `src/components/NewInquiryWizard.jsx`.
+- §4 verification kept its original three Checks A/B/C; §4.4 adds five defensive smoke cases for the new audit-driven code paths.
+
+---
+
+## Audit manifest
+
+_Generated by `/auditcriteria` on 2026-05-28. Consumed by `/multiagentaudit` to size the adversarial audit pass._
+
+### Round
+- Current round: 2
+- Plan revision under audit: 56ff498
+- Findings trend: round 1 (unknown) → 2 (?) — round 1 count not parseable; plateau detection unavailable until round 3
+
+### Prior rounds
+- Round 1: `56ff498` · counts: **unknown** (commit message used the pattern tag but not the `XC/YH/ZM/WL` format the convention requires) · pattern: `cross-surface-asymmetry+tenant-trust+silent-failure`
+
+**Briefing for agents**: do NOT re-find issues from prior rounds. Each round's revision-pass commit message is the canonical record of what was addressed. Attack ONLY material new to the plan revision under audit. Specifically: PRP1 closed 10+ findings across A1/A2-class cross-tenant injection (via §2.1 preflight), K1/D2/F1-footnote duplicate-on-race (via §2.4 preflight SELECT), silent INSERT/UPDATE (via `.select("id")` + cuErr check), E1 empty-string drift (via `|| null`), D1 dedup miss (via §3 role-only filter), alert-UX migration (via §2.6 setError × 2 sites), and cross-surface symmetry (via both-column writes in §2.4 / §2.5 / §3). Filed 11 §6 follow-ups (A1 trigger, A2 amplifier defense, race uniqueness, H1 ContactModal mirror, G1 OR-pattern sweep, G2 helper extraction, picker unlock UX, F1 billing_same blocker, dedup, hint copy, M2 observability). Round-1 commit message has the canonical record.
+
+**Plateau signal**: if the findings trend shows three consecutive rounds without a meaningful drop in count (≥30% reduction), the audit pass is in plateau. The plateau is usually scope creep — each revision answers prior findings by ADDING mechanism, which adds surface, which produces new findings. `/multiagentaudit` is required to consider a scope cut when it sees a plateau; the manifest just makes the pattern visible. **Round 1 counts were not parseable, so plateau detection cannot start until round 3.** Future revision commits MUST follow the `Plan revision pass N — round-N audit response (XC/YH/ZM/WL) · pattern: <tag>` format or this signal stays broken.
+
+### Surface
+- Total lines: 462 (was 177 in round 1; +285 from PRP1)
+- Sections: 10 (added §10 change log; §2 expanded into §2.1–§2.7 sub-sections)
+- [LOCKED] decisions: 3 by tag count (§1, §2, §3) — but §2's 7 sub-sections (§2.1 ownership preflight, §2.2 UPDATE error check, §2.3 empty-string normalize, §2.4 preflight + INSERT with .select, §2.5 new-customer mirror, §2.6 setError migration, §2.7 scope honesty) each function as a discrete locked decision; effective lock surface ≈ 9
+- [DESIGN-OPEN] items: 0 (both round-0 [DESIGN-OPEN] items resolved in PRP1 per §9; no new [DESIGN-OPEN] introduced)
+- [OPEN] items: 0
+
+### Layers touched
+- UI / components (NewInquiryWizard.jsx — wizard handleSave is the entire site of change)
+- Data layer (Supabase client: ownership SELECT, preflight Billing Contact SELECT with `.or()`, customers UPDATE with error check, customer_contacts INSERT with `.select("id")`, additionalContacts INSERT with `.select` implicit)
+- RLS / auth / multi-tenancy (§2.1 ownership check is RLS-dependent hard-stop; §2.4 INSERT relies on tenant_id default; §5 risks document RLS-shadow false-negative path)
+
+**No new layers** introduced in round 2 vs round 1. The fix deepens the existing 3 layers without expanding to migrations, edge fns, or storage.
+
+### New mechanisms introduced
+- New columns: none
+- New tables: none
+- New helpers / hooks: none (preflight + INSERT inline in handleSave; no extraction)
+- New triggers / RLS policies: none
+- New routes / endpoints: none
+- New jobs / cron / webhooks: none
+
+§6 follow-ups would introduce a trigger (item 1), a unique index (item 3), an audit log table (item 11), and a shared helper (item 6) — but those are explicitly out-of-scope for this loop.
+
+### Cross-system reach
+none
+
+### Irreversibility
+none — all changes reversible (no migrations, no backfills, no public API changes, no cross-repo schema contracts; sole file is `src/components/NewInquiryWizard.jsx`)
+
+### Known weak points
+
+Lifted from plan §5 plus auditor additions specific to PRP1 additions:
+
+- **§5: Race window between preflight SELECT and INSERT.** Plan acknowledges; mitigation deferred to §6 #3 (DB-level uniqueness). Round-2 agents should pressure: under what concurrency does this actually fire? Two reps editing the same customer? Same rep across two browser tabs? Quantify and confirm "rare" is honest.
+- **§5: `alert` → `setError` UX regression.** Plan acknowledges; mitigation is "error halts wizard, form stays open." Round-2 pressure: does `setError` actually scroll into view at the right place in the wizard's contactInfo step, or does the error render off-screen on small viewports?
+- **§5: `is_primary: true` new-customer assumption** still rests on "wizard's own write order." Plan says "not currently reachable" for the asymmetry — round-2 should verify there is no other write path (admin import, bulk csv, qb-link-customer fn) that could create a Customer + Primary contact before the wizard's Billing Contact INSERT.
+- **§5: RLS shadow / preflight false-negative.** Plan acknowledges; mitigation in §6 #1 (A1 trigger). Round-2 pressure: with a TEST tenant config where customer_contacts.tenant_id is mismatched to customers.tenant_id today (manually engineered), does the §2.1 ownership check actually catch it? Does §2.4 preflight return [] for the shadow row and proceed to INSERT?
+- **§5: `.select("id")` reliability** across supabase-js versions. Plan acknowledges. Round-2 pressure: is the empirical claim ("tested via C9 fix") actually load-bearing on this codebase's current supabase-js version (check `package.json`)? Any reproducible test in `__tests__/` that covers this?
+- **NEW: §2.4 PostgREST `.or("role.eq.Billing Contact,is_billing_contact.eq.true")` quoting.** Plan does not address whether PostgREST's `.or()` syntax requires URL-encoding or quoting on the space inside `Billing Contact`. Misquoted, the query may fail at runtime or match more than intended. Worth verifying against the PostgREST docs version pinned to current supabase-js.
+- **NEW: Logic duplication between §2.4 `writeBillingContact` and §3 `willWriteBilling`.** Identical condition computed in two places ~150 lines apart. Drift risk if a future change updates one. Plan does not propose extraction to a single derived const. Either lift to one variable computed once before both blocks, or accept the duplication and document the invariant.
+- **NEW: §2.4 stale-row skip path silently discards user input.** When existingBC.length > 0 (stale Billing Contact on file but picker rendered manual mode), §2.4 skips the INSERT with no error, no warning, no telemetry. The typed values the user entered are silently dropped. Plan §2.4 documents this as "correct: don't shadow the existing row" but does NOT surface the discard to the user. Audit should attack: should this be a `setError("This customer already has a Billing Contact on file — please edit it from the customer page instead.")` halt rather than a silent success?
+- **NEW: §2.5 lacks the §2.4 preflight.** Plan justifies as "a fresh customer has no contacts by construction." Pressure: is there any way a customer can have a Billing Contact row at this moment in handleSave — admin pre-seeded contacts via SQL? Concurrent edit from another tab on the same browser session? The justification holds only for the single-session-single-wizard case. Should §2.5 also have a preflight for paranoia, even if it's expected to always return []?
+- **NEW: §2.1 ownership preflight adds 1 round-trip to every existing-customer wizard save.** Latency cost is small (~50–150ms) but compounds with the §2.4 preflight (another ~50ms). For users on slow connections, two extra SELECTs before any write may degrade wizard UX. Plan does not address.
+- **NEW: §2.2 UPDATE error check halts the wizard but does NOT delete the `customers` update if the subsequent §2.4 INSERT fails.** Plan correctly halts BEFORE call_log.insert if UPDATE fails, but if UPDATE succeeds and INSERT fails (§2.4 error path), `customers.billing_*` has the new values but `customer_contacts` is missing the row — the divergence the plan was designed to prevent. setError + halt is honest but the half-applied state is left. Audit angle: should §2.4 INSERT failure also reverse the §2.2 UPDATE (or warn the user the customer record was changed but the contact wasn't created)?
+- **NEW: §3 dedup rewrite drops ALL role='Billing Contact' additionalContacts when wizard writes billing.** Plan does not address: what if user typed two different Billing Contacts (one in picker, one in addl) intentionally? Original name+email key allowed the second through if names differed — round-2 rule drops both regardless. Is that the right call, or should the wizard surface a "you entered two Billing Contacts; only the first will be saved" warning?
+
+### Open questions
+- Count: 0 (both round-0 [DESIGN-OPEN] items resolved in PRP1 per §9; no new open questions filed)
+- Highest-pressure: n/a — all questions resolved. Audit may surface new ones but plan does not list any as blocking.
+
+### Suggested attack angles (3 total)
+
+1. **Defensive completeness within the new control flow** — covers UI/components + Data layer. Required reading: revised §2.1–§2.7 (lines 73–202), §3 (lines 204–249), §4 PRP1 additions D1–D5 (lines 267–275), §5 risks (lines 277–285). Specific pressure: do the four guard layers (§2.1 ownership / §2.2 UPDATE error / §2.4 preflight / `.select("id")` failure check) form a complete safety net, or are there control-flow gaps where an error or unexpected state slips through? Specifically attack: (a) the half-applied state where §2.2 UPDATE succeeds but §2.4 INSERT fails — is the user informed clearly enough to recover? (b) the §2.4 stale-row skip silently discarding typed values — is silent success the right semantic? (c) §2.5 lacking a preflight while §2.4 has one — what concurrency edge cases reach §2.5 with non-empty contacts? (d) `willWriteBilling`/`writeBillingContact` duplicate logic — what's the impact if they drift? (e) §3 dedup over-eager drop of role='Billing Contact' additionalContacts — does the user lose intentional entries?
+
+2. **Preflight semantics + cross-tenant integrity gates** — covers RLS/auth + Data layer. Required reading: §2.1 ownership preflight (lines 77–90), §2.4 preflight SELECT (lines 113–157), §5 RLS-shadow risk (line 284), §6 #1–#3 durable defenses (lines 293–295), current `customer_contacts` RLS policies (grep customer_contacts in supabase/migrations/), `delete_customer` TENANT_MISMATCH pattern cited in §6 #1. Specific pressure: (a) does `.or("role.eq.Billing Contact,is_billing_contact.eq.true")` work under PostgREST's current pinned version with the space in 'Billing Contact' — verify the URL-encoding and quoting; (b) what's the failure mode if §2.1 customers SELECT returns `null` vs `undefined` vs `{ data: null, error: ...something }` — does `.maybeSingle()` reliably distinguish "not found" from "error"; (c) the §2.4 preflight reads only what RLS allows the caller to see — if a Billing Contact exists in another tenant on the same `customer_id` (theoretically blocked by §2.1 ownership but possible during the data-corruption window the A1 trigger would close), §2.4 inserts a SECOND row; agents should construct this scenario; (d) §2.1 + §2.4 cumulatively add 2 round-trips before any write — quantify the latency cost on a slow connection.
+
+3. **PRP1 scope completeness vs new asymmetries** — covers Framework fit + cross-surface. Required reading: §2.4 + §2.5 (compare preflight presence), §3 dedup (compare to §2.4 preflight), §6 follow-up list (lines 287–312), §10 change log (lines 337–386), `Customers.jsx` ContactModal at `:182-187` (the canonical pattern §2 adopted). Specific pressure: (a) PRP1 closed cross-surface symmetry on the WRITE side (both columns now) — but the READ side asymmetry persists (some readers use role only, some use OR, some use is_billing_contact only); audit should enumerate every customer_contacts reader and verify none break after PRP1 lands. (b) The §2.5 "preflight skipped because fresh customer has none" justification — is there a documented invariant (column constraint, RLS policy, trigger) that enforces this, or only the wizard's own write order? Justifications without enforcement are time-bombs. (c) §2.7 scope honesty (picker has no unlock) IS the round-1 audit's most useful finding because it bounded the change correctly — but does the §6 #7 picker unlock follow-up correctly handle the case where a user unlocks, types different values, and the §2.4 preflight then sees the existing row and silently skips? (d) The §10 change-log convention is new — should the file structure formalize where PRP1/PRP2/... markers go (top vs §10 vs inline) so future audits can parse evolution mechanically?
+
+### Suggested agent count: 3
+
+Rationale: surface narrowed (no new mechanisms, no migrations, single file, one round of feedback already absorbed) but PRP1 introduced 7 new guard mechanisms in §2 that need independent pressure on (a) control-flow completeness, (b) the cross-tenant preflight semantics, and (c) the new asymmetries vs the canonical pattern — three distinct attack vectors that don't compress to 2 without losing either the silent-stale-row-discard question (angle 1) or the PostgREST `.or()` quoting question (angle 2) to a generalist.
+

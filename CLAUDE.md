@@ -6,6 +6,20 @@ drifting on styling. Read them before writing any code.
 
 ---
 
+## Command Suite Shared-Data Contract
+
+The Command Suite is ONE product with four drivers (Sales, Schedule, Field, AR)
+on one shared Supabase DB — not four separately-sellable apps (reframed
+2026-05-28). Any data that crosses driver boundaries must have a declared
+**source of truth** (one writer), **canonical location** (no drifting copies),
+**copy-vs-reference** policy, and **sync pipe** (PostgREST for web vs PowerSync
+for Field's offline mobile — the one real runtime boundary). Before wiring any
+cross-driver field, answer those four — don't assume where data lives or who
+owns it. Full contract + open decisions:
+`~/sch-command/docs/plans/command_suite_shared_data_contract.md`.
+
+---
+
 ## Session Start
 
 **Before doing anything else in a Sales Command session, read `docs/BACKLOG.md`.**

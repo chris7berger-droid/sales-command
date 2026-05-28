@@ -1,0 +1,180 @@
+SC Handoff v139 — 2026-05-28
+============================
+
+SESSION SUMMARY
+─────────────────────────────────────────────────────
+ERD Loop #28 — billing-contact-not-syncing-to-customer-detail.
+Started as a 30-min "simple INSERT mirror" bug fix, expanded through
+two audit rounds (~16 then 23 findings on a 5-line plan), scope-cut
+back to the original round-0 fix, then bug-shipped broken on first
+preview-smoke (job #10126 — picker didn't flip billingSame). 3-line
+picker patch closed it. Prod smoke passed. Filed 7 valuable audit
+findings as backlog rows. Total session ~14h 6m clock / ~3.5h working.
+
+Real value beyond the fix: identified concrete failure modes in the
+plan-audit process — scope-creep without a "caused by" gate, absolute
+vs contextual severity, no finding cap, plateau as observation not
+behavior, and the big miss: both audit rounds attacked write-path
+defense layers and missed the upstream state-contract bug that
+actually broke the fix. Drafted a self-assessment prompt for the
+audit terminal to surface its own failure modes.
+
+CHANGES SHIPPED — sales-command/main
+─────────────────────────────────────────────────────
+- Merge bfbc790 — fix/billing-contact-wizard-existing-customer.
+  Brings the actual bug fix + plan doc + backlog updates.
+- ba168c4 — Add Billing Contact INSERT in existing-customer wizard
+  branch (NewInquiryWizard.jsx). Mirrors :343-352 new-customer
+  pattern. Gated on !billingSourceContactId && !billingSame &&
+  billingName.trim(). is_primary: false. Also loosens additional-
+  Contacts dedup gate to fire for both customer modes.
+- f75fc98 — ContactBillingPicker flips billingSame=false on manual
+  entry. Three onChange handlers (name/phone/email) now pass
+  billingSame: false alongside the field value. THIS is what
+  actually made the fix work — the INSERT block alone was a no-op
+  because billingSame stayed true (default) in existing-customer
+  mode with no UI toggle to flip it.
+- be239b2 + 56ff498 + b8de102 + ddb90c9 — plan doc evolution
+  (draft → PRP1 → manifest round 1 → manifest round 2). Plan
+  preserved at docs/plans/billing_contact_wizard_existing_customer.md
+  as a historical record of the audit deliberation. §11 documents
+  the scope-cut decision and finding→backlog mapping.
+
+DEPLOYED
+─────────────────────────────────────────────────────
+- Vercel: prod auto-deployed on push to main (bfbc790). Live at
+  https://www.scmybiz.com. No edge functions, no migrations, no
+  config changes in this session.
+
+DECISIONS / CHOICES MADE
+─────────────────────────────────────────────────────
+- Scope cut after audit round 2: shipped round-0 simple §2 mirror,
+  not the PRP1/PRP2 fortified version. Reason: most PRP1/PRP2
+  mechanisms (preflight SELECT, ownership check, both-column writes,
+  alert→setError migration, empty-string normalize) addressed
+  PRE-EXISTING wizard patterns surfaced by — not caused by — this
+  fix. Audit found real things but the wrong things for this loop.
+- Picker fix (3 lines) over wizard fix (more lines) once smoke
+  revealed billingSame state-contract issue. Cleanest single-file
+  fix that unblocks both the customers UPDATE (which was nulling
+  billing_*) and the new customer_contacts INSERT.
+- Filed 7 audit findings as backlog rows; dropped 6 as not durable
+  enough (alert→setError migration, picker hint copy, additional-
+  Contacts general dedup, billing_same semantics planning,
+  updated_at + audit log on customer_contacts).
+- Merge to main via --no-ff merge commit (matching repo convention)
+  rather than fast-forward, to preserve the Loop #28 commit cluster
+  for archaeology.
+
+NEW BACKLOG ITEMS
+─────────────────────────────────────────────────────
+- B40 (T2) — NewInquiryWizard customers UPDATE silently swallows
+  errors; wizard proceeds to call_log INSERT on half-applied state.
+  Same shape as B25/B28/B29 silent-failure class. ~10 min local
+  fix. F28 architectural fix would generalize the closure.
+- F31 (T3, Lev 4 · Eff half-day) — customer_contacts cross-surface
+  symmetry sweep. Set both role + is_billing_contact on every
+  Billing Contact writer (NewInquiryWizard, ImportToLiveWizard,
+  CallLogDetail), sweep readers to use OR-check, one-shot backfill
+  of legacy rows.
+- F32 (T2, Lev 6 · Eff half-day) — DB-level uniqueness on Billing
+  Contact per customer. Partial unique index on (customer_id) WHERE
+  role='Billing Contact' OR is_billing_contact=true. Closes race
+  window; lets wizard switch to INSERT ON CONFLICT pattern. Ship
+  AFTER F31.
+- F33 (T3, Lev 4 · Eff 1h) — ContactBillingPicker unlock affordance
+  for existing-Billing-Contact case. Blocked by F32 (otherwise
+  unlock + type + save creates duplicate).
+- S4 (T2) — customer_contacts.tenant_id consistency trigger.
+  TENANT_MISMATCH RAISE pattern from delete_customer migration.
+  Blocks F7 alongside the H-cluster.
+- S5 (T3) — send-invoice + send-pay-app + qb-create-job: add
+  .eq("tenant_id", caller.tenantId) to customer_contacts reads.
+  Defense-in-depth. Mirrors C9 fix shape.
+- R4 (T3) — Extract pickBillingContact to src/lib/contacts.js +
+  supabase/functions/_shared twin. Closes lookup inconsistency
+  across edge fns.
+
+NOT FILED YET (next session)
+─────────────────────────────────────────────────────
+- audit-reports/2026-05-25.md 12 Highs + 25 Mediums + 10 Lows STILL
+  not broken into BACKLOG rows (carried from v138). Top 3 urgent
+  per the report:
+    1. Drop .endsWith(".vercel.app") from 20 edge fns' CORS
+       allowlists (CSRF bypass via any attacker Vercel preview)
+    2. Gate check-orphan-users on CRON_SECRET or verify_jwt=true
+       (currently unauthenticated → DoS + Resend quota abuse)
+    3. Tenant-scope get_public_tenant_config + get_rep_contact
+       RPCs (PII enumeration the moment 2nd tenant exists)
+
+CLOSED THIS SESSION
+─────────────────────────────────────────────────────
+- Billing contact wizard bug (no BACKLOG ID — was reported live,
+  not previously filed). Verified on prod 2026-05-28.
+
+VERIFICATION
+─────────────────────────────────────────────────────
+- Preview-deploy smoke #1 (job #10126): FAILED — billing contact
+  typed in picker manual mode did not write to customer_contacts.
+  Surfaced the billingSame state-contract bug both audit rounds
+  missed.
+- Preview-deploy smoke #2 (after picker patch): PASSED — typed
+  billing contact appeared on customer detail page.
+- Prod smoke (https://www.scmybiz.com): PASSED — confirmed live
+  after merge to main.
+- Plan deliberation history: preserved in docs/plans/
+  billing_contact_wizard_existing_customer.md (462 lines) for
+  future archaeology when one of B40/F31/F32/F33/S4/S5/R4 comes up.
+
+NEXT SESSION POINTERS
+─────────────────────────────────────────────────────
+- ERD Loop #28 +24h re-rate falls due 2026-05-29 10:02. +7d falls
+  due 2026-06-04 10:02. Open ~/erd-loop/LOG.md and rate honestly
+  when the calendar hits.
+- Audit refinement prompt drafted in conversation (not yet sent to
+  audit terminal). Pick: (a) refinements 1+2 now in ~/.claude-
+  commands/auditcriteria.md, (b) #2 only, (c) hold and try as
+  ad-hoc instructions before editing the canonical command.
+- Triage the v138-carry audit findings (audit-reports/2026-05-25.md)
+  into BACKLOG before they go cold. Same recommendation as v138.
+- Loop #28's "audit attacks wrong layer" finding is worth a [HYP]
+  promotion if it repeats: the audit attacked write-path defense
+  (gates, errors, RLS) and missed the upstream state-contract
+  question ("what state does the obvious-path user create, and
+  does the save logic expect to see that state?"). Watch for the
+  same pattern in next 2-3 plan audits.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────────────────
+- src/components/ContactBillingPicker.jsx — three onChange handlers
+  now also set billingSame: false on manual entry.
+- src/components/NewInquiryWizard.jsx — new INSERT block at :325-
+  335; dedup gate at :413 loosened to fire for both customer modes.
+- docs/plans/billing_contact_wizard_existing_customer.md — 462-line
+  audit history. §11 has the scope-cut decision and finding→backlog
+  mapping; §2.1–§2.7 + §10 preserve PRP1/PRP2 spec content as
+  historical record (NOT current implementation).
+- docs/BACKLOG.md — 7 new rows (B40, F31, F32, F33, S4, S5, R4).
+
+GIT STATE ON CLOSE
+─────────────────────────────────────────────────────
+- sales-command: main, clean, 1 ahead of origin pre-handoff-commit
+  (this commit). HEAD before handoff: bfbc790.
+- sch-command: feat/jobs-ia-refactor, clean, in sync. Untouched by
+  this session (parallel session active on that branch).
+- erd-loop: main, clean, in sync. Loop #28 closeout pushed at
+  9ff54f3.
+- field-command / AR-Command-Center / claude-commands / claude-
+  personal-state: untouched by this session.
+- All other branches in sales-command: zero (main only). Branch
+  hygiene preserved from v138.
+
+END STATE
+─────────────────────────────────────────────────────
+Fix shipped, verified live in prod. ERD Loop #28 closed honest
+(Mindset 10→10, Potential 10→10, Fear y, Success 10/10, Time
+~14h 6m vs 30 min predicted — fear-grip was about time and time
+DID blow out). 7 backlog rows filed. Branch deleted post-merge.
+Ready for fresh session. Recommend starting with /orient, then
+either the audit-refinement pick or the v138-carry audit findings
+triage.

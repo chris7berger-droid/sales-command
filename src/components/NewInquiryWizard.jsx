@@ -322,6 +322,17 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
         update.billing_email = data.billingSame ? null : data.billingEmail;
       }
       await supabase.from("customers").update(update).eq("id", customerId);
+      if (!data.billingSourceContactId && !data.billingSame && data.billingName.trim()) {
+        const { error: bcErr } = await supabase.from("customer_contacts").insert([{
+          customer_id: customerId,
+          name: data.billingName.trim(),
+          phone: data.billingPhone || null,
+          email: data.billingEmail || null,
+          role: "Billing Contact",
+          is_primary: false,
+        }]);
+        if (bcErr) alert(`Job saved, but billing contact didn't save: ${bcErr.message}. Add it from the customer record.`);
+      }
     }
     if (data.customerMode === "new") {
       const { data: nc, error: custErr } = await supabase.from("customers").insert([{
@@ -410,7 +421,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
 
     // Save additional contacts to customer_contacts (skip rows that duplicate the Billing Contact just inserted by new-customer flow)
     if (customerId && data.additionalContacts.length > 0) {
-      const billingKey = data.customerMode === "new" && !data.billingSame
+      const billingKey = !data.billingSame && data.billingName.trim() && !data.billingSourceContactId
         ? `${data.billingName.trim().toLowerCase()}|${(data.billingEmail || "").trim().toLowerCase()}`
         : null;
       const newContacts = data.additionalContacts.filter(c => {

@@ -334,6 +334,51 @@ New (none blocking — all resolved by audit recommendations):
 
 (No items requiring blocking input from Chris.)
 
+## §11 Scope cut — round-2 halt, revert to round-0 §2 simple fix [LOCKED 2026-05-28]
+
+**Decision.** Round-2 audit returned 23 findings (8H/6M/9L). Pattern: `silent-success-on-skip+preflight-fragility+scope-drift`. Most PRP1/PRP2 mechanisms target **pre-existing wizard pattern bugs** (silent UPDATE failures, `alert()` UX, empty-string drift, cross-surface asymmetry) that are NOT caused by this fix — they're surfaced by it.
+
+Audit findings are real. They are not this loop's job.
+
+**Code implemented:**
+- Round-0 §2 simple INSERT mirror only — gated on `customerMode === "existing" && !billingSourceContactId && !billingSame && billingName.trim()`, `is_primary: false`. Same shape as new-customer mirror at `:343-352`.
+- Minimal §3 dedup gate loosening — drop `customerMode === "new"` from the gate so dedup fires whenever a Billing Contact will be written by §2.
+- That's it. Two surgical edits in `NewInquiryWizard.jsx`.
+
+**§2 PRP1 mechanisms NOT implemented** (filed or dropped):
+- §2.1 customer ownership preflight — filed under cross-surface tenant defense (see backlog rows S4 + S5)
+- §2.2 customers UPDATE error halt — filed as B40 (silent-failure pattern, matches B28/B29 class; F28 architectural fix would cover this)
+- §2.3 empty-string → null normalize — dropped (cosmetic data-quality, pre-existing pattern)
+- §2.4 preflight Billing Contact SELECT + `.select("id")` + both-column writes — partially filed: cross-surface symmetry as F31, DB-uniqueness as F32. The preflight itself is replaced by the F32 unique index pattern when that lands.
+- §2.5 new-customer mirror updates (both columns, `.select`, setError) — dropped (pre-existing pattern; F31 covers the symmetry concern at the right surface)
+- §2.6 alert → setError migration — dropped (wizard-wide pattern, separate sweep loop)
+- §2.7 scope honesty paragraph — kept in plan as historical record; covered by F33 (picker unlock)
+- §3 PRP1 full rewrite — reduced to minimal gate change (drop customerMode gate, keep name+email key)
+
+**Backlog filings (new rows in `docs/BACKLOG.md`):**
+
+| ID | Tier | Item | Source |
+|---|---|---|---|
+| B40 | T2 | NewInquiryWizard `customers` UPDATE silently swallows error; proceeds to call_log INSERT on half-applied state | Loop #28 audit |
+| F31 | T3 | `customer_contacts` cross-surface symmetry sweep — set both `role` + `is_billing_contact` on every writer | Loop #28 audit |
+| F32 | T2 | `customer_contacts` Billing Contact DB-level uniqueness — partial unique index | Loop #28 audit |
+| F33 | T3 | `ContactBillingPicker` unlock affordance for existing-Billing-Contact case | Loop #28 audit |
+| S4 | T2 | `customer_contacts.tenant_id` consistency trigger (TENANT_MISMATCH pattern from `delete_customer`) | Loop #28 audit |
+| S5 | T3 | `send-invoice` + `send-pay-app`: add `.eq("tenant_id", caller.tenantId)` to `customer_contacts` reads | Loop #28 audit |
+| R4 | T3 | Extract `pickBillingContact` to `src/lib/contacts.js` + `supabase/functions/_shared` twin | Loop #28 audit |
+
+**Dropped without filing** (audit found, judged not durable enough to track):
+- alert() → setError migration on wizard (file-wide pattern; future cleanup loop)
+- `customers.billing_*` empty-string vs NULL drift (pre-existing, cosmetic)
+- `additionalContacts` general dedup (low value; same shape Customers.jsx has)
+- ContactBillingPicker hint copy (trivial)
+- `billing_same` semantics blocker (planning question; defer until F33 picker unlock forces the decision)
+- `updated_at` + audit log on `customer_contacts` (premature observability)
+
+**PRP1/PRP2 content in §2.1–§2.7 and §10 remains as historical record of the deliberation.** Future readers: ignore the prescriptive code blocks in §2.1–§2.7; the **actual** implementation matches round-0 §2. The PRP1/PRP2 record is preserved so the audit thinking is recoverable when one of the filed backlog rows comes up.
+
+**ERD Loop #28 closeout reference:** original 30-min budget. Plan deliberation ate ~2.5h. Code change ships in 5 min. Loop closeout will name the time delta honestly.
+
 ## §10 Plan Revision Pass 1 — change log
 
 Round-1 audit response. Each item below maps an audit finding (or finding cluster) to the section that closed it.

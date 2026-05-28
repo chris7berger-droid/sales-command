@@ -1,0 +1,205 @@
+SC Handoff v140 — 2026-05-28
+============================
+
+SESSION SUMMARY
+─────────────────────────────────────────────────────
+Audit terminal continuing past v139. v139's next-pointer offered three
+picks on the audit-refinement prompt drafted in conversation; picked
+(a) — refinements landed in ~/.claude-commands. Refined both
+/auditcriteria and /multiagentaudit against the 10 Loop #28 failure
+modes the self-critique surfaced; renamed /multiagentaudit → /runaudit
+once the finding cap meant 1-agent runs were honest. Saved three
+memories so the principles outlive any single session. No sales-command
+code changed — this handoff is in sales-command because that's the
+canonical session log.
+
+CHANGES SHIPPED — claude-commands (chris7berger-droid/claude-commands)
+─────────────────────────────────────────────────────
+0824ebe — Loop #28 lessons: rename multiagentaudit → runaudit, refine
+  audit gates. Two files, 154 insertions, 36 deletions, plus rename.
+
+  auditcriteria.md — planning-terminal command. Additions:
+    - Workflow step 3: refuse to generate manifest if plan lacks
+      §0 Reproduction with observed pre-fix state. Closes the
+      Loop #28 root cause (audit attacked defenses of a fix
+      that nobody smoke-tested).
+    - Criterion: plan-to-code ratio (warn if plan > 50× est code lines)
+    - Criterion: deployment context (live tenants, prod state, flags,
+      concurrency profile) — caps severity inflation against state
+      that doesn't exist yet.
+    - Criterion: time budget + finding cap = max(3, ceil(min/10))
+    - "User-path state trace" added as preferred angle when §1 names
+      ≥2 components or a gate condition
+    - Plateau signal tightened: forms at round-2 +0% or worse, not
+      just round-3 steady-state
+    - Manifest template updated with deployment + cap fields
+
+  runaudit.md (renamed from multiagentaudit.md, 56% similarity
+      preserved by git rename detection):
+    - Step 0 prereq gate: refuse to run without §0 Reproduction +
+      deployment context + finding cap in the manifest
+    - Agent preamble: CAUSED-BY vs ADJACENT tagging — each finding
+      gets gated against "if the change were reverted, would this
+      bug still exist?" ADJACENT findings go to backlog bucket, not
+      this loop's build prompt
+    - Agent preamble: deployment-context severity capping. Cross-
+      tenant findings cap at Med while live_tenants == 1; race
+      findings cap at Low while concurrency profile is solo
+    - Probe bank: "User-path state trace" (MANDATORY when ≥2
+      components). This is the Loop #28 bug class — trace the
+      obvious-path user, name the setter for each gate variable,
+      flag the gate as Critical/CAUSED-BY if no setter exists
+    - Probe bank: "Simplest-plausible-fix" — bias toward smaller
+      fix at a different point on the user-path trace
+    - Synthesis caps main report at N findings; rest splits into
+      "Over-cap" (visible, not actionable) and "Adjacent" (backlog)
+    - Scope-cut becomes single ratify/reject when triggered, never
+      a menu alongside patch-through alternatives. Closes the
+      Loop #28 "do D or do A and also 13 items" hedge.
+
+6f9ce23 — README: document /auditcriteria + /runaudit (was
+  /multiagentaudit). Two lines added so the rename is discoverable
+  in the README, not just in the rename diff.
+
+Both commits pushed to origin/main (chris7berger-droid/claude-commands).
+Other machines pick up on next pull.
+
+CHANGES PENDING — claude-personal-state (memory dir)
+─────────────────────────────────────────────────────
+Three new memory files + MEMORY.md index update, staged but NOT yet
+committed. Live at ~/.claude/projects/-Users-chrisberger/memory/:
+- reference_audit_commands.md — pointer to the renamed pair + repo
+  location
+- feedback_smoke_test_before_audit.md — Loop #28 lesson generalized:
+  don't analyze what you haven't observed failing
+- feedback_audit_scope_discipline.md — CAUSED-BY vs ADJACENT
+  discipline; principle generalizes beyond /runaudit
+
+These need a separate commit in chris7berger-droid/claude-personal-state.
+Flagged for next session pointer.
+
+DECISIONS / CHOICES MADE
+─────────────────────────────────────────────────────
+- Rename to /runaudit (not /audit-run, not stay-multiagentaudit).
+  /audit is taken by the start-of-session prep skill; /runaudit
+  pairs cleanly with /auditcriteria; the word "multi" stopped
+  being accurate once finding-cap made 1-agent runs common. Chris
+  ratified.
+- Scope of refinements: closed all 10 failure modes from the
+  self-critique. Did NOT touch audit.md (different command, unrelated
+  to the pair) or extend to a complete README inventory of the other
+  ~10 user-level commands (per "Stay Scoped" feedback memory). Added
+  only the audit pair to README so the rename is discoverable.
+- Memory granularity: 1 reference + 2 feedback memories, not 10
+  separate failure-mode notes. Wrote what generalizes beyond the
+  command files (smoke-test-first; caused-by vs adjacent) rather
+  than duplicating mechanics already in the commands.
+- Edit posture: surgical edits to existing spec, not rewrites. Per
+  user's framing ("refinement, not rewrite from scratch"). All
+  failure modes the self-critique named got a corresponding spec
+  change; none became fresh ceremony.
+
+NEW BACKLOG ITEMS
+─────────────────────────────────────────────────────
+None this session. The work was a process refinement against existing
+failure modes; outputs were spec changes, not feature/bug rows.
+
+CLOSED THIS SESSION
+─────────────────────────────────────────────────────
+- v139's next-pointer #2: "Pick: (a) refinements 1+2 now in
+  ~/.claude-commands/auditcriteria.md, (b) #2 only, (c) hold."
+  Picked (a) and went further — refined both commands, not just
+  /auditcriteria. Closed via 0824ebe + 6f9ce23 (claude-commands).
+
+VERIFICATION
+─────────────────────────────────────────────────────
+- Spec changes verified by re-reading each file end-to-end after
+  edits; no broken cross-references.
+- Skill-list auto-refresh confirmed: mid-session system reminders
+  showed /multiagentaudit description update first, then /runaudit
+  after the rename. Both auditcriteria + runaudit descriptions
+  read correctly.
+- /runaudit NOT yet exercised against a fresh plan. Next plan that
+  hits /auditcriteria will be the first runtime test of the §0
+  Reproduction gate, the deployment context capture, and the
+  finding-cap mechanic. Code-review-verified only at this point.
+- No live behavior change in sales-command, sch-command, or any
+  other repo. The audit pair runs differently on the NEXT plan,
+  not on anything shipped today.
+
+NOT TOUCHED THIS SESSION
+─────────────────────────────────────────────────────
+- audit.md (start-of-session prep skill, unrelated to the pair)
+- README in claude-commands left at the minimal additions; did NOT
+  expand to inventory the other 10 commands (decide.md, build.md,
+  orient.md, erd-*, fix.md, close-out-package.md). Out of scope.
+- audit-reports/2026-05-25.md still has 12H + 25M + 10L not broken
+  into BACKLOG rows. Carried unchanged from v139.
+- sales-command code: no edits, no commits, no deploys this session.
+
+NEXT SESSION POINTERS
+─────────────────────────────────────────────────────
+- Commit + push the 3 memory files in ~/.claude/projects/
+  -Users-chrisberger/memory/ to chris7berger-droid/claude-personal-
+  state. They sync via that repo per the Claude Personal State Sync
+  memory; uncommitted = other machines don't see them.
+- v138-carry audit findings (audit-reports/2026-05-25.md) STILL
+  need triage into BACKLOG. Same three urgent rows v139 named:
+    1. Drop .endsWith(".vercel.app") from 20 edge fns' CORS
+       allowlists (CSRF bypass via attacker Vercel preview)
+    2. Gate check-orphan-users on CRON_SECRET or verify_jwt=true
+       (currently unauthenticated → DoS + Resend quota abuse)
+    3. Tenant-scope get_public_tenant_config + get_rep_contact RPCs
+       (PII enumeration the moment 2nd tenant exists)
+- ERD Loop #28 +24h re-rate falls due 2026-05-29 10:02. +7d on
+  2026-06-04 10:02. v139 already opened the loop close-out; the
+  re-rates are the follow-through.
+- First /runaudit run on a NEW plan is the real verification of
+  this session's work. Watch for: does the §0 prereq gate fire?
+  Does the User-path state trace probe catch upstream state
+  contracts? Does the finding cap produce a focused build prompt
+  instead of a 23-finding dump?
+- [HYP] candidate from v139 promoted to encoded principle: "audit
+  attacks wrong layer" is now the User-path state trace probe.
+  If the next 2-3 plan audits still miss upstream state contracts,
+  the probe needs sharpening (e.g., mandatory state-flow trace as
+  a planning-phase artifact, not just an audit probe).
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────────────────
+~/.claude-commands/auditcriteria.md
+  Refined workflow + criteria. The §0 Reproduction gate is the
+  first thing to break if a plan author skips smoke testing.
+~/.claude-commands/runaudit.md
+  Renamed from multiagentaudit.md. New step 0 prereq, agent
+  preamble additions, two new probes, capped synthesis.
+~/.claude-commands/README.md
+  Documents the audit pair + rename.
+~/.claude/projects/-Users-chrisberger/memory/reference_audit_commands.md
+~/.claude/projects/-Users-chrisberger/memory/feedback_smoke_test_before_audit.md
+~/.claude/projects/-Users-chrisberger/memory/feedback_audit_scope_discipline.md
+~/.claude/projects/-Users-chrisberger/memory/MEMORY.md
+  Three new memories + index update. Uncommitted; need a separate
+  commit in claude-personal-state.
+
+GIT STATE ON CLOSE
+─────────────────────────────────────────────────────
+- sales-command: main, clean pre-handoff-commit; in sync with
+  origin/main after v139's bfbc790. This v140 handoff is the only
+  pending edit in this repo. No other branches (preserved from v138).
+- claude-commands: main, clean, in sync. Two commits pushed this
+  session: 0824ebe + 6f9ce23.
+- claude-personal-state (~/.claude/projects/-Users-chrisberger/
+  memory): 3 untracked files + MEMORY.md modified. NOT yet
+  committed. Needs separate commit/push.
+- sch-command: untouched.
+- field-command / AR-Command-Center / erd-loop: untouched.
+
+END STATE
+─────────────────────────────────────────────────────
+Audit pair refined + renamed + pushed. v139's next-pointer closed.
+Memory pending commit in claude-personal-state. No sales-command
+code change; no deploy. Ready for fresh session — recommend
+starting with /orient, then either the audit-findings triage or
+the memory commit, then exercising the new /runaudit against a
+fresh plan to see whether the failure modes actually got closed.

@@ -1,0 +1,123 @@
+SC Handoff v141 — 2026-05-29
+============================
+
+SESSION SUMMARY
+─────────────────────────────────────────────────────
+Short build session. Ran /orient (cross-repo dashboard), /decide (picked
+sales-command, plan mode), then skipped /erd-start — Chris flagged the ERD
+process as broken and chose to move straight to work. Targeted a quick-and-
+easy backlog item in a ~30-min window. Initial pick was B35 (the "Sync and
+Send" invoice button mislabel); Chris thought he'd already done it and called
+out that I was reading BACKLOG descriptions, not the code. Checked the actual
+source on origin: the button was still labeled "Sync and Send" — only a help-
+doc entry had been added previously, never the rename. Renamed the button to
+"Sync to QuickBooks", updated the matching help-doc, marked B35 Closed, shipped
+on a feature branch, verified on the Vercel preview, then merged to main and
+pushed (Vercel auto-deploy to prod). Label-only change; no logic, edge fns, or
+migrations touched.
+
+CHANGES SHIPPED — sales-command
+─────────────────────────────────────────────────────
+18fb276 — Closes B35: rename "Sync and Send" invoice button to "Sync to
+  QuickBooks". Three files, 4 insertions / 4 deletions:
+    - src/pages/Invoices.jsx:1612 — non-pay-app variant of the QB-sync button
+      relabeled "Sync and Send" → "Sync to QuickBooks". Pay-app-linked variant
+      left as "Sync to QB" (it was never ambiguous).
+    - src/components/TableOfContents.jsx:227 — help-doc label + step text
+      updated to match the new button name so they don't drift.
+    - docs/BACKLOG.md — B35 row marked Closed 2026-05-29 with the fix note.
+
+b4d6d6d — Merge fix/b35-sync-button-label (--no-ff) into main. The B35 commit
+  was made on the feature branch; this is the merge that brought it onto main.
+
+Both pushed to origin/main (sales-command). main HEAD on close = b4d6d6d.
+
+DECISIONS / CHOICES MADE
+─────────────────────────────────────────────────────
+- Read the code before trusting the backlog. BACKLOG.md's "Open" status for
+  B35 was stale (file last-updated 2026-05-14, local main was 1 behind origin).
+  Verified against origin/main source — the button label was genuinely
+  unchanged. Lesson reinforced by Chris mid-session: check the codebase, not
+  the ticket description.
+- Picked fix candidate (a) — rename — over (b) tooltip. Chris explicitly chose
+  the rename when asked. "Send" was the ambiguous word (read as "emails the
+  customer"); "Sync to QuickBooks" removes that read. handleQBSync was always
+  QB-only (qb-sync-invoice + qb-record-payment if Paid; never send-invoice).
+- Also updated the TableOfContents help-doc, not just the button. Renaming the
+  button alone would have left the help text referencing a button name that no
+  longer exists — kept them consistent in the same commit.
+- Shipped on a feature branch + Vercel preview rather than committing straight
+  to main, per the preview-deploy workflow. Verified on preview before merging.
+- Worked on local main despite being 1 commit behind origin (c83f285, a
+  CLAUDE.md-only change). Confirmed that commit didn't touch Invoices.jsx, so
+  the working file matched origin — safe to edit. Pulled main to current before
+  the merge.
+
+NEW BACKLOG ITEMS
+─────────────────────────────────────────────────────
+None.
+
+CLOSED THIS SESSION
+─────────────────────────────────────────────────────
+- B35 (T3) — "Sync and Send" invoice button mislabel. Closed via 18fb276,
+  merged in b4d6d6d. Backlog row updated in the same commit.
+
+VERIFICATION
+─────────────────────────────────────────────────────
+- Verified on the Vercel preview deploy of fix/b35-sync-button-label. Chris
+  confirmed the button renders as "Sync to QuickBooks" ("looks great").
+- Merged to main and pushed; Vercel auto-deploy to prod (scmybiz.com) was
+  triggered by the push. The prod build was NOT separately smoke-tested after
+  deploy — the change is label-only and was verified identical on the preview,
+  so prod risk is negligible, but no explicit prod-side click was done.
+- No edge functions or DB migrations in this change — nothing to deploy beyond
+  the Vercel frontend build.
+
+NOT TOUCHED THIS SESSION
+─────────────────────────────────────────────────────
+- All open T2 items (S4, B32, B40, F32, F30, F7, F5, F27, F28, F29, O6) —
+  deferred; none fit the ~30-min quick-and-easy window.
+- v140-carry audit findings (audit-reports/2026-05-25.md, 12H + 25M + 10L)
+  still need triage into BACKLOG rows. The three urgent ones from v140's
+  pointer still stand (vercel.app CORS allowlist, check-orphan-users auth gate,
+  tenant-scope the two public RPCs).
+- v140's pending memory commit in claude-personal-state — out of scope this
+  session, not checked.
+- ERD process — Chris flagged it as broken and skipped /erd-start; not
+  diagnosed this session.
+
+NEXT SESSION POINTERS
+─────────────────────────────────────────────────────
+- Optional: a quick prod click on scmybiz.com to confirm the renamed button
+  rendered on the live deploy (low risk; label-only).
+- ERD process is flagged broken — worth a short diagnosis before the next loop,
+  since /erd-start was skipped this session. Ask Chris what specifically broke.
+- The v140 audit-findings triage is still the biggest unstarted item. Three
+  urgent security rows named in v140 remain untracked in BACKLOG.
+- Standard pre-flight: /orient, then /decide. Confirm whether ERD is back in
+  the loop or still skipped.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────────────────
+src/pages/Invoices.jsx
+  Button label at ~line 1612 now "Sync to QuickBooks" (non-pay-app variant).
+src/components/TableOfContents.jsx
+  Help-doc entry at ~line 227 matches the new button name.
+docs/BACKLOG.md
+  B35 row Closed 2026-05-29. Still the source of truth for outstanding work;
+  the T2 list + v140 audit findings are what's left.
+
+GIT STATE ON CLOSE
+─────────────────────────────────────────────────────
+- sales-command: main, in sync with origin/main at b4d6d6d (before this
+  handoff commit). fix/b35-sync-button-label still exists locally + on origin
+  (merged but not yet deleted) — flagged in branch hygiene below.
+- sch-command / field-command / AR-Command-Center / erd-loop: untouched this
+  session. (Note: erd-loop local was 3 behind origin at session start — loops
+  #27/#29 closeouts done on another machine; pull to sync.)
+
+END STATE
+─────────────────────────────────────────────────────
+B35 closed, merged to main, deployed to prod via Vercel, verified on preview.
+Prod-side smoke deferred (label-only, negligible risk). Ready for fresh
+session. fix/b35-sync-button-label is merged and safe to delete.

@@ -1609,7 +1609,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
               && inv.proposals?.call_log?.qb_customer_id
               && (inv.status !== "New" || linkedPayApp) && (
               <Btn sz="sm" v="secondary" onClick={handleQBSync} disabled={syncing}>
-                {syncing ? "Syncing…" : linkedPayApp ? "Sync to QB" : "Sync and Send"}
+                {syncing ? "Syncing…" : linkedPayApp ? "Sync to QB" : "Sync to QuickBooks"}
               </Btn>
             )}
             {canPullBack && (

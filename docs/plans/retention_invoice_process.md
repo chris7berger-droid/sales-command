@@ -95,7 +95,7 @@ On `public.invoices`:
 
 ---
 
-## 2. Design `[DESIGN-OPEN → ratified 2026-06-01; revised round-1 2026-06-01]`
+## 2. Design `[DESIGN-OPEN → ratified 2026-06-01; revised round-1 + round-2 (scope-cut) 2026-06-01]`
 
 ### 2.1 Migration
 
@@ -109,12 +109,13 @@ ALTER TABLE public.invoices
 
 - `retention_release_of` non-null ⟹ this row **is** a retention release invoice,
   and the value is the source invoice id (link back + flag in one column).
-  - **`ON UPDATE CASCADE`** (round-1 audit #5): invoice `id`s renumber to QB
-    DocNumbers, so a source id can change after the link is set — cascade keeps
-    the FK pointing at the renamed source.
-  - **`ON DELETE RESTRICT`**: a source with a release invoice pointing at it
-    cannot be hard-deleted out from under the link (integrity backstop; see the
-    void/soft-delete rule in §2.2).
+  - **`ON UPDATE CASCADE` / `ON DELETE RESTRICT`** (round-2 audit): kept for
+    **consistency with the sibling invoice FKs** (`invoice_lines.invoice_id`,
+    `billing_schedule_pay_apps.invoice_id`), which declare the same clauses. The
+    round-2 audit confirmed **no app code path updates `invoices.id` or
+    hard-deletes invoice rows** — so both clauses are harmless no-ops here, **not
+    load-bearing** integrity guards. They cost nothing and match house style; do
+    not reason about them as if they enforce anything at runtime.
 - `retention_released boolean` (round-1 audit #7) is the new release flag on the
   **source** invoice, on the active `retention_*` convention. The legacy
   `retainage_released` is left untouched — do NOT write it.
@@ -129,8 +130,9 @@ ALTER TABLE public.invoices
     (mirrors the existing send-button busy pattern at `Invoices.jsx:1611`) is the
     real double-submit guard — set true on click, false on completion/error.
   - **Default (ratified):** NOT gated on source invoice being Paid first.
-- `handleBillRetention(source)` — **order matters (round-1 audit #3):**
-  1. `setBilling(true)`.
+- `handleBillRetention(source)` — **order matters; wrap in `try/finally` so
+  `setBilling(false)` always runs (round-2 audit):**
+  1. `setBilling(true)` (outside the `try`, or first line of it).
   2. Mint next invoice id by reusing the existing sequence logic
      (`Invoices.jsx:240-245`: `parseInt`/`Math.max` over recent ids →
      `String(lastNum + 1).padStart(5, "0")`). Extract/reuse, do not duplicate
@@ -140,32 +142,45 @@ ALTER TABLE public.invoices
      - **Check `error` AND that the returned array length ≥ 1.** RLS can silently
        no-op an UPDATE (returns no error, 0 rows) — a bare `.error` check is not
        enough (silent-failure class B40/F28; storage-remove-silent-noop lesson).
-     - 0 rows affected ⟹ already released or RLS-blocked → abort, surface, `setBilling(false)`. The `.eq("retention_released", false)` predicate makes this the DB-level idempotency stop.
+     - 0 rows affected ⟹ already released or RLS-blocked → abort + surface (the
+       `finally` resets `billing`). The `.eq("retention_released", false)`
+       predicate makes this the DB-level idempotency stop.
   4. **INSERT release invoice** (only after the source flip is confirmed):
      - `id = nextId`
+     - `tenant_id = source.tenant_id` **(round-2 audit — required; do not omit)**
      - `amount = source.retention_amount`
      - `retention_pct = 0`, `retention_amount = 0`, `discount = 0`
      - `status = "New"`
      - copy `job_id`, `job_name`, `proposal_id`, `call_log_id`, `show_cents`
      - `description = "Retention release for invoice #" + source.id`
      - `retention_release_of = source.id`
-     - **On INSERT error: revert the source flip** (`retention_released = false`)
-       so state stays consistent, then surface + `setBilling(false)`.
-  5. Optimistic `setInv` reflecting `retention_released = true` **after** the
-     verified UPDATE (audit #4), then `navigate()` to the new release invoice
-     (URL-based routing per app convention).
+     - **On INSERT error: revert the source flip** (`update({ retention_released: false }).eq("id", source.id).select()`).
+       **Check the revert's rows-affected too (round-2 audit):** if the revert
+       itself fails or affects 0 rows, raise a **loud, persistent** error that
+       names the source invoice id and gives manual-recovery text (e.g. "Release
+       invoice failed AND could not un-mark source #<id> — set
+       `retention_released=false` on #<id> manually before retrying"). Do not
+       swallow this — it is the only signal a source is stranded.
+  5. After a confirmed success, refresh via the navigation path — **no optimistic
+     `setInv`** (round-2 audit: it's dead code; the `key`-based remount on
+     navigation refetches anyway). `onNavigateInvoice(nextId)` should also call
+     `load()` so the source list/detail reflects the flipped `retention_released`.
 - Once released, the source's button is replaced by a "Retention billed →
   #<release id>" note/link.
 
-**Void / soft-delete rule (round-1 audit #6).** Voiding or soft-deleting a
-source invoice whose `retention_released = true` while its release invoice is
-still **unpaid** must NOT silently orphan the release. Required behavior: either
-(a) **block** the source void with a clear message ("release invoice #N is
-outstanding — void it first"), or (b) **cascade-void** the unpaid release in the
-same action. `ON DELETE RESTRICT` on the FK enforces this at the DB layer for
-hard deletes; the void/soft-delete UI path must enforce it explicitly. If the
-release invoice is already **Paid**, the source void is independent (the money
-already moved) — leave the release alone.
+**Void / pull-back interaction (round-2 audit — scope-cut).** The existing void
+/ pull-back flow spawns a **replacement invoice** (`handleVoidConfirm`,
+`Invoices.jsx:1348`) that copies the source's fields. It currently copies
+`retention_pct`/`retention_amount` but **not** the release flag — so voiding a
+released source would produce a replacement with `retention_released=false`, and
+the "Bill Retention" button would **reappear → double-bill**. **Fix = one line:**
+copy `retention_released: inv.retention_released` into the replacement insert (and
+the same in `handlePullBack` if it spawns a replacement). That fully closes the
+double-bill risk for this loop.
+
+> **Full block/cascade void UX deferred to backlog item F34** (orphaned-release
+> handling, paid-vs-unpaid branch, operator messaging). Not needed to ship the
+> per-invoice release safely — the one-line flag copy above is sufficient.
 
 ### 2.3 Edge fn — `supabase/functions/qb-sync-invoice/index.ts`
 
@@ -216,11 +231,17 @@ Renders a normal invoice for `amount`. No retention math involved.
 
 1. Migration (`retention_release_of` FK + `retention_released` flag) → safety
    check → `npm run db:push`.
-2. `Invoices.jsx` button + `handleBillRetention` + released-state note.
-3. `qb-sync-invoice` positive-line branch → deploy `--no-verify-jwt`.
-4. Verify on Vercel preview (§4).
-5. Update `docs/BACKLOG.md` (touches F6 retainage-release; note per-invoice path
-   shipped, per-job still open).
+2. `Invoices.jsx` button + `handleBillRetention` (try/finally, conditional
+   UPDATE→INSERT→checked-revert, `tenant_id`) + released-state note.
+3. **Copy `retention_released` onto the void/pull-back replacement insert**
+   (`handleVoidConfirm` / `handlePullBack`, `Invoices.jsx:1348`) — one line,
+   prevents button reappearing → double-bill.
+4. `qb-sync-invoice` full-assembly gate + positive release line → deploy
+   `--no-verify-jwt`.
+5. Verify on Vercel preview (§4).
+6. Update `docs/BACKLOG.md`: touches F6 (retainage-release; per-invoice path
+   shipped, per-job still open) **and file new row F34** (full block/cascade void
+   UX for orphaned releases — deferred per round-2 scope-cut).
 
 ---
 

@@ -1,0 +1,163 @@
+SC Handoff v143 — 2026-06-01
+============================
+(Planning/orient terminal — close-out of ERD Loop #30. The build terminal's
+own handoff is v142; this one covers the planning + 3-round audit arc and the
+post-build close-out: merge → prod deploy → prod verify → ERD close, plus the
+cross-repo maintenance done this session. Read v142 first for build internals.)
+
+SESSION SUMMARY
+─────────────────────────────────────────────────────
+This terminal ran the full ERD protocol for the per-invoice retention release
+feature: /orient → /decide (sales-command, plan→build, opus 4.7→later 4.8) →
+/erd-start (Loop #30, fear TIME, success defined, 1h lock). Wrote the plan
+(docs/plans/retention_invoice_process.md), then ran /auditcriteria and drove
+THREE audit rounds against the audit terminal: R1 surfaced 6 real findings
+(QB line-gate, fallback sign, two-write integrity), R2 caught a +73% plan
+balloon and ratified a SCOPE-CUT (void/cascade → one-liner + deferred F34),
+R3 converged to a single doc nit — build-ready. Handed the converged plan to a
+separate build terminal (run on opus 4.8). After the build passed smoke and
+/buildvsplan, this terminal: merged feat/retention-invoice-process → main
+(--no-ff), which auto-deployed the frontend to prod; Chris verified the Bill
+Retention button live on scmybiz.com; deleted the merged branch; ran /erd-close
+(Success 10/10, fear didn't materialize) and promoted hypothesis H003. Also did
+cross-repo maintenance: switched the model decision card to opus 4.8 everywhere
+and added plain-English headlines to both audit commands. Feature is fully
+shipped and live end-to-end.
+
+CHANGES SHIPPED — sales-command (this session)
+─────────────────────────────────────────────────────
+Planning/audit commits (feature branch, now on main via merge):
+  b366f1b — Add audit manifest (round 1): 3 agents on QB-money-path / write-
+    integrity / schema. First /auditcriteria pass; §0 written as observed-
+    absence since this was a feature, not a bug.
+  10c62d1 — Plan revision pass 1 (round-1 audit response, 0C/3H/3M/0L,
+    qb-line-precision). Gated entire qbLines assembly, fallback hard-fail,
+    UPDATE-first + rows-affected check, billing flag, FK cascade clauses,
+    void rule, new retention_released column, balance-sheet artifact.
+  b26a0f6 — Add audit manifest (round 2): 2 agents, plateau warning added.
+  e831912 — Plan revision pass 2 (round-2, scope-cut, 0C/1H/2M/3L,
+    scope-cut-void-deferred). Cut the dead FK-cascade reasoning + block/cascade
+    void UX → one-line retention_released copy + deferred F34.
+  dd3c673 — Plan revision pass 3 (round-3 confirm, 0C/0H/0M/1L, converged).
+    Struck the handlePullBack hedge; build-ready.
+  b9a7703 — docs: log Loop #30 audit row in docs/AUDIT_LOG.md.
+Build commits (build terminal — detailed in v142):
+  33dc4d8 — per-invoice retention release path (the code).
+  1cc18d8 — SC_Handoff_v142 + smoke artifacts + O10/B41 filed.
+Merge:
+  18d8ca6 — Merge feat/retention-invoice-process → main (--no-ff). Puts the
+    frontend button on main; backend was already live in prod.
+
+CHANGES SHIPPED — other repos (this session)
+─────────────────────────────────────────────────────
+  erd-loop:        Loop #30 CLOSEOUT (97a2e37), H003 promoted to HYPOTHESES.md
+                   (2ea62af), opus-4.8 floating note (730fc78).
+  claude-personal-state: decision card → opus 4.8 for all modes + new memory
+                   feedback_model_choice_opus48 (ca30b24).
+  claude-commands: /decide table → opus 4.8 (4849f63); /auditcriteria +
+                   /runaudit now lead outputs with a plain-English bottom line
+                   (b5b02fc).
+
+DEPLOYED
+─────────────────────────────────────────────────────
+• Frontend: merge to main → Vercel auto-deploy to scmybiz.com. Bill Retention
+  button now LIVE on prod (Chris verified on a retention-carrying invoice).
+• Backend (migration 20260601120000 + qb-sync-invoice --no-verify-jwt) was
+  deployed by the build terminal earlier — see v142 §6. Project ref
+  pbgvgjjuhnpsumnowuym. No backend deploy this terminal.
+
+DECISIONS / CHOICES MADE
+─────────────────────────────────────────────────────
+• Scope-cut over patch-through at R2 (the key call). The R1 revision had grown
+  the plan +73% by adding void/cascade/FK mechanism; rather than keep patching,
+  ratified cutting it to a one-line retention_released copy on the void
+  replacement insert + deferring the full void UX to F34. This is what kept the
+  loop from becoming the week-long balloon the locked fear named.
+• Feature-mode §0 for /auditcriteria. The command hard-requires a §0
+  Reproduction (bug-centric); this was a feature, so wrote an "observed-absence"
+  §0 grounded in grep evidence instead of forcing a fake bug repro.
+• Closed Loop #30 on the #10064 QB invoice PDF, not an accrual balance sheet.
+  The locked §4 wording wanted OCA−R/AR+R figures; the cash-basis pulls showed
+  nothing and the invoices were since voided, so the invoice line (the exact
+  mechanism) is the artifact. Logged honestly as a Delta.
+• Switched all modes to opus 4.8. After a 10/10 build, ratified 4.8 as the
+  default for both reasoning and building; updated decision card + /decide +
+  memory. Flagged "for now," not permanent.
+• Audit-command plain-English headlines. Loop #30 review surfaced that the
+  audit outputs were opaque to Chris (only end results comprehended); added a
+  jargon-free bottom-line block to the top of both command outputs.
+
+NEW BACKLOG ITEMS (filed by build terminal — see v142)
+─────────────────────────────────────────────────────
+• O10 (T2) — check-migration-safety.sh + supabase db push false-positive-block
+  legit SC migrations on sibling-repo ledger entries. Highest-leverage; blocks
+  the normal push path for every future SC migration. Promoted to ERD
+  hypothesis H003.
+• B41 (T3) — QB sync/void "test"-name asymmetry (manual sync pushes test jobs
+  to QB; void skips them) → orphaned live QB records on test-smoke cleanup.
+• F34 (T3) — full block/cascade void UX for retention release invoices
+  (deferred per the R2 scope-cut).
+
+CLOSED THIS SESSION
+─────────────────────────────────────────────────────
+• No backlog rows closed. F6 (T3) TOUCHED — per-invoice release path shipped;
+  per-job/cumulative still open.
+• ERD Loop #30 CLOSED (in ~/erd-loop/LOG.md): Success 10/10, fear n, mindset
+  8→10, potential 9→7, ~4h56m wall (≥2h AFK) vs 1h lock.
+
+VERIFICATION
+─────────────────────────────────────────────────────
+• /buildvsplan: 0 Tier-1 / 0 Tier-2, 0 code deviation from §3 (build terminal).
+• Live schema: both new columns HTTP 200 on prod REST.
+• Smoke (preview): PASSED — release invoice #10064 in QB with one +$101.00
+  "1121- Retention %" line (artifact PDF in repo). Balance-sheet delta NOT
+  captured in accrual form (cash-basis pulls; honest gap — invoice line is proof).
+• PROD: Chris verified the Bill Retention button renders + functions on
+  scmybiz.com after the merge deploy.
+• QB cleanup: #10063 + #10064 voided manually in QBO (B41 — app won't void
+  test-named jobs). HDSP books back to baseline.
+
+NOT TOUCHED THIS SESSION
+─────────────────────────────────────────────────────
+• O10/H003 fix (the migration guardrail) — deferred; bites the next migration.
+• B41 fix (sync/void symmetry), F34 (full void UX) — deferred.
+• Audit-command review leftovers: feature-mode for /auditcriteria, a
+  confirmation-pass mode (speed), manifest auto-refresh, harden round detection.
+• All other open backlog (S4, B32, F5, F7, F17 multi-GC, v140 audit triage).
+
+NEXT SESSION POINTERS
+─────────────────────────────────────────────────────
+• Highest-leverage next: O10 / H003 — fix check-migration-safety.sh Check B to
+  scan sibling repos so the normal `npm run db:push` path works again. Until
+  then, every SC migration needs the SQL-editor + `repair --status applied`
+  workaround (documented in v142 §1).
+• Retention feature is DONE and live — no follow-up needed unless per-job
+  cumulative release (F6 remainder) becomes a real ask.
+• Sessions now default to opus 4.8 (decision card updated).
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────────────────
+docs/plans/retention_invoice_process.md — the converged plan + 3-round audit
+  manifest history (build-ready record).
+docs/AUDIT_LOG.md — Loop #30 audit row appended (row 17).
+src/pages/Invoices.jsx — handleBillRetention + Bill Retention button +
+  retention_released copy on void replacement insert (:1348).
+supabase/functions/qb-sync-invoice/index.ts — qbLines assembly gated on
+  retention_release_of (positive release line / hard-fail).
+supabase/migrations/20260601120000_invoices_retention_release.sql — the columns.
+docs/handoffs/SC_Handoff_v142.txt — build terminal's detailed handoff.
+
+GIT STATE ON CLOSE
+─────────────────────────────────────────────────────
+• Branch: main. feat/retention-invoice-process MERGED + deleted (local + origin).
+• origin/main HEAD before this handoff: 18d8ca6 (the merge). This handoff commit
+  sits on top.
+• Working tree: clean apart from this handoff file.
+• No open PRs, no scratch projects. sch-command / field-command /
+  AR-Command-Center untouched by this terminal.
+
+END STATE
+─────────────────────────────────────────────────────
+Merged, deployed, prod-verified, ERD-closed. Per-invoice retention release is
+live end-to-end on scmybiz.com. Ready for a fresh session — first action next
+time is O10/H003 (the migration guardrail).

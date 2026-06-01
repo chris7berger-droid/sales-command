@@ -194,6 +194,41 @@ serve(async (req) => {
     // ── Build QB invoice line items ────────────────────────────────────
     const qbLines: any[] = [];
 
+    if (invoice.retention_release_of) {
+      // RELEASE invoice: emit exactly ONE positive line on the retention item.
+      // This moves the held $ out of Other Current Asset back into A/R. A
+      // release row has NO invoice_lines, so without this gate it would fall
+      // into the no-lines branch below and push a +amount line on the Services
+      // (revenue) item — wrong account, and effectively a duplicate +R. The
+      // positive sign is settled/correct; do not redesign it.
+      const releaseAmt = parseFloat(invoice.amount) || 0;
+      const retentionItem =
+        (await findItemExact("1121- Retention %", accessToken, realmId)) ||
+        (await findItemExact("Retention", accessToken, realmId)) ||
+        (await findItemExact("Retainage", accessToken, realmId));
+      if (!retentionItem) {
+        // Hard-fail — NEVER DiscountLineDetail on the release path (a discount
+        // line inverts the sign and would REDUCE A/R). Parking the release in a
+        // default account would misstate the books. Operator must configure the
+        // retention item.
+        throw new Error(
+          'Could not find a retention item ("1121- Retention %", "Retention", or "Retainage") in QuickBooks. ' +
+          'Configure a retention service item mapped to your Retention (Other Current Asset) account before syncing a retention release.'
+        );
+      }
+      qbLines.push({
+        DetailType: "SalesItemLineDetail",
+        Amount: releaseAmt,
+        Description: "Retention release",
+        SalesItemLineDetail: {
+          ItemRef: { value: retentionItem.Id, name: retentionItem.Name },
+          Qty: 1,
+          UnitPrice: releaseAmt,
+        },
+      });
+      console.log("qb-sync-invoice: retention RELEASE as positive item line", { item: retentionItem.Name, amount: releaseAmt, source: invoice.retention_release_of });
+    } else {
+    // ── Normal invoice assembly (lines + discount + negative retention) ──
     if (lines && lines.length > 0) {
       for (const line of lines) {
         const workTypeName = line.proposal_wtc?.work_types?.name || "Services";
@@ -272,6 +307,7 @@ serve(async (req) => {
         });
       }
     }
+    } // end normal-invoice assembly (the gate on invoice.retention_release_of)
 
     // ── Determine location from jobsite state ──────────────────────────
     // QB uses "Department" for Location tracking

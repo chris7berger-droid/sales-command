@@ -84,38 +84,64 @@ On `public.invoices`:
   `retainage_pct`, `retainage_amount`, `retainage_released boolean` — added in
   `20260416175646_billing_schedule_and_archive_links.sql:168-175`. The
   `retainage_released` comment reads: *"flips true when a final/release invoice
-  pays it out."* — purpose-built for this feature.
+  pays it out."*
+
+> **Round-1 audit amendment (2026-06-01):** the original plan reused the legacy
+> `retainage_released` as the release flag. The audit flagged the legacy-vs-active
+> naming hazard (everything else reads `retention_*`). **Decision: do NOT reuse
+> the legacy stub** — add a new `retention_released boolean` on the active
+> `retention_*` convention (see §2.1). The legacy `retainage_released` stays an
+> untouched stub.
 
 ---
 
-## 2. Design `[DESIGN-OPEN → ratified 2026-06-01]`
+## 2. Design `[DESIGN-OPEN → ratified 2026-06-01; revised round-1 2026-06-01]`
 
 ### 2.1 Migration
 
 ```sql
--- docs: per-invoice retention release link
+-- Per-invoice retention release: link + active-convention flag.
 ALTER TABLE public.invoices
-  ADD COLUMN IF NOT EXISTS retention_release_of text REFERENCES public.invoices(id);
+  ADD COLUMN IF NOT EXISTS retention_release_of text
+    REFERENCES public.invoices(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  ADD COLUMN IF NOT EXISTS retention_released boolean DEFAULT false;
 ```
 
 - `retention_release_of` non-null ⟹ this row **is** a retention release invoice,
   and the value is the source invoice id (link back + flag in one column).
-- Reuse existing `invoices.retainage_released boolean` as the "this invoice's
-  retention has been billed" flag on the **source** invoice. No new flag column.
+  - **`ON UPDATE CASCADE`** (round-1 audit #5): invoice `id`s renumber to QB
+    DocNumbers, so a source id can change after the link is set — cascade keeps
+    the FK pointing at the renamed source.
+  - **`ON DELETE RESTRICT`**: a source with a release invoice pointing at it
+    cannot be hard-deleted out from under the link (integrity backstop; see the
+    void/soft-delete rule in §2.2).
+- `retention_released boolean` (round-1 audit #7) is the new release flag on the
+  **source** invoice, on the active `retention_*` convention. The legacy
+  `retainage_released` is left untouched — do NOT write it.
 - Push procedure (per CLAUDE.md): run `scripts/check-migration-safety.sh`, then
   `npm run db:push` (collision check wrapper). Do not bypass the pre-push hook.
 
 ### 2.2 UI — `src/pages/Invoices.jsx` (detail screen)
 
 - New **"Bill Retention $X"** button in the detail action bar.
-  - **Visible when:** `retention_amount > 0 && !retainage_released && !retention_release_of`.
+  - **Visible when:** `retention_amount > 0 && !retention_released && !retention_release_of`.
+  - **`disabled={billing}`** (round-1 audit #4): a `billing` in-flight state flag
+    (mirrors the existing send-button busy pattern at `Invoices.jsx:1611`) is the
+    real double-submit guard — set true on click, false on completion/error.
   - **Default (ratified):** NOT gated on source invoice being Paid first.
-- `handleBillRetention(source)`:
-  1. Mint next invoice id by reusing the existing sequence logic
+- `handleBillRetention(source)` — **order matters (round-1 audit #3):**
+  1. `setBilling(true)`.
+  2. Mint next invoice id by reusing the existing sequence logic
      (`Invoices.jsx:240-245`: `parseInt`/`Math.max` over recent ids →
      `String(lastNum + 1).padStart(5, "0")`). Extract/reuse, do not duplicate
      a second id scheme.
-  2. INSERT release invoice:
+  3. **UPDATE source FIRST**, conditionally, and verify rows-affected:
+     `update({ retention_released: true }).eq("id", source.id).eq("retention_released", false).select()`.
+     - **Check `error` AND that the returned array length ≥ 1.** RLS can silently
+       no-op an UPDATE (returns no error, 0 rows) — a bare `.error` check is not
+       enough (silent-failure class B40/F28; storage-remove-silent-noop lesson).
+     - 0 rows affected ⟹ already released or RLS-blocked → abort, surface, `setBilling(false)`. The `.eq("retention_released", false)` predicate makes this the DB-level idempotency stop.
+  4. **INSERT release invoice** (only after the source flip is confirmed):
      - `id = nextId`
      - `amount = source.retention_amount`
      - `retention_pct = 0`, `retention_amount = 0`, `discount = 0`
@@ -123,27 +149,56 @@ ALTER TABLE public.invoices
      - copy `job_id`, `job_name`, `proposal_id`, `call_log_id`, `show_cents`
      - `description = "Retention release for invoice #" + source.id`
      - `retention_release_of = source.id`
-  3. UPDATE source: `retainage_released = true`.
-  4. **Check both writes' `error` return** (silent-failure class — see B40/F28);
-     halt + surface on error, do not proceed half-applied.
-  5. `navigate()` to the new release invoice (URL-based routing per app
-     convention).
+     - **On INSERT error: revert the source flip** (`retention_released = false`)
+       so state stays consistent, then surface + `setBilling(false)`.
+  5. Optimistic `setInv` reflecting `retention_released = true` **after** the
+     verified UPDATE (audit #4), then `navigate()` to the new release invoice
+     (URL-based routing per app convention).
 - Once released, the source's button is replaced by a "Retention billed →
   #<release id>" note/link.
 
+**Void / soft-delete rule (round-1 audit #6).** Voiding or soft-deleting a
+source invoice whose `retention_released = true` while its release invoice is
+still **unpaid** must NOT silently orphan the release. Required behavior: either
+(a) **block** the source void with a clear message ("release invoice #N is
+outstanding — void it first"), or (b) **cascade-void** the unpaid release in the
+same action. `ON DELETE RESTRICT` on the FK enforces this at the DB layer for
+hard deletes; the void/soft-delete UI path must enforce it explicitly. If the
+release invoice is already **Paid**, the source void is independent (the money
+already moved) — leave the release alone.
+
 ### 2.3 Edge fn — `supabase/functions/qb-sync-invoice/index.ts`
 
+> **QB sign is settled (round-1 audit):** the positive-line mirror is confirmed
+> accounting-correct — a positive "1121- Retention %" line moves the held $ out
+> of Other Current Asset back into A/R. Do **not** redesign the sign. The fixes
+> below are about *line assembly precision*, not the accounting.
+
 - Add `retention_release_of` to the invoice SELECT.
-- If `retention_release_of` is set (release invoice):
-  - Push a **single positive** line using the existing retention-item lookup
-    chain (`findItemExact("1121- Retention %") || "Retention" || "Retainage"`),
-    `Amount = +invoice.amount`, `Description = "Retention release"`.
-  - **Skip** the normal line-item build **and** the negative-retention block
-    (`:236-274`). This is the mirror of the withhold: moves held $ out of Other
-    Current Asset back into A/R.
-  - If the retention item isn't found, fall back consistently with the existing
-    behavior (warn; positive amount lands in default account) — same caveat as
-    today's withhold fallback.
+- **Gate the ENTIRE `qbLines` assembly on `retention_release_of` (round-1 audit
+  #1).** Wrap the whole block at `:197-274` (normal-lines `:197-223`, discount
+  `:225-234`, negative-retention `:236-274`) in an `if (retention_release_of) { … } else { … existing … }`.
+  - **Why the whole block, not just `:236-274`:** a release row has **no
+    `invoice_lines`**, so it falls into the `:211-223` "no lines → single total
+    line" branch and pushes a `+amount` line on the **Services** item. If only
+    the `:236-274` retention block were gated, the release invoice would still
+    emit that Services line — wrong account (revenue, not retention asset) and,
+    combined with any added release line, a **duplicate `+R`**. The gate must
+    replace the entire assembly.
+  - **Release branch produces exactly one line:** a positive
+    `SalesItemLineDetail` on the retention item
+    (`findItemExact("1121- Retention %") || "Retention" || "Retainage"`),
+    `Amount = +invoice.amount`, `UnitPrice = +invoice.amount`, `Qty = 1`,
+    `Description = "Retention release"`. No discount line, no normal lines, no
+    negative block.
+- **Release fallback when the retention item is NOT found (round-1 audit #2):**
+  use a **positive `SalesItemLineDetail` on a safe default service item**, OR
+  **hard-fail** with a `configure-item` error telling the operator to set up the
+  retention item. **Never use `DiscountLineDetail` on the release path** — a
+  discount line inverts the sign and would *reduce* A/R instead of increasing it
+  (the existing `:264-272` discount fallback is correct only for the *withhold*
+  case, which is the opposite sign). Recommended: hard-fail with a clear error,
+  since silently parking a release in a default account misstates the books.
 - Redeploy with `--no-verify-jwt`.
 
 ### 2.4 `send-invoice` — no code change
@@ -159,7 +214,8 @@ Renders a normal invoice for `amount`. No retention math involved.
 
 ## 3. Build order
 
-1. Migration (`retention_release_of`) → safety check → `npm run db:push`.
+1. Migration (`retention_release_of` FK + `retention_released` flag) → safety
+   check → `npm run db:push`.
 2. `Invoices.jsx` button + `handleBillRetention` + released-state note.
 3. `qb-sync-invoice` positive-line branch → deploy `--no-verify-jwt`.
 4. Verify on Vercel preview (§4).
@@ -176,10 +232,13 @@ On a **TEST customer**, on the Vercel preview deploy:
 3. Confirm "Bill Retention $4,800" button appears.
 4. Click → a release invoice spawns for $4,800; source flips to "Retention
    billed"; lands on the release invoice.
-5. Sync release invoice to QB → confirm a **positive** "1121- Retention %" line
-   (held $ moves Other Current Asset → A/R; customer open balance increases by
-   the retention).
-6. Screenshot + QB confirmation.
+5. Sync release invoice to QB → confirm a **positive** "1121- Retention %" line.
+6. **Primary success artifact (round-1 audit #8):** pull the QB **balance sheet**
+   before and after the sync — post-sync it must show **Other Current Asset
+   (Retention) decreased by R** and **A/R increased by R**. That ledger movement,
+   not just the line item, is the proof the accounting is correct.
+7. Screenshot of the invoice detail (button → released state) + the QB balance
+   sheet delta.
 
 ---
 
@@ -188,11 +247,14 @@ On a **TEST customer**, on the Vercel preview deploy:
 - **Money path / QB.** The positive-line branch is the only money-affecting
   change. Verify the sign and the item mapping explicitly in QB before calling
   done.
-- **Two-write integrity.** INSERT release + UPDATE source must both succeed or
-  neither effectively counts — surface errors (silent-failure class B40/F28).
-- **Idempotency.** The button's `!retainage_released && !retention_release_of`
-  guard prevents double-billing a single source invoice. Confirm the UI hides
-  the button immediately after the source update.
+- **Two-write integrity.** UPDATE source (verified rows-affected) THEN INSERT
+  release; on INSERT failure, revert the source flip (§2.2). RLS can silent-no-op
+  an UPDATE, so check rows-affected, not just `.error` (B40/F28).
+- **Idempotency.** Double-billing is prevented by (a) the `disabled={billing}`
+  in-flight flag during the async write and (b) the conditional UPDATE
+  (`.eq("retention_released", false)`) which affects 0 rows on a second attempt.
+  The button-visibility predicate is a UI convenience, **not** the safety
+  guarantee — do not rely on it to prevent double-billing.
 
 ---
 

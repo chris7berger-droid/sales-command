@@ -174,9 +174,11 @@ ALTER TABLE public.invoices
 `retention_pct`/`retention_amount` but **not** the release flag — so voiding a
 released source would produce a replacement with `retention_released=false`, and
 the "Bill Retention" button would **reappear → double-bill**. **Fix = one line:**
-copy `retention_released: inv.retention_released` into the replacement insert (and
-the same in `handlePullBack` if it spawns a replacement). That fully closes the
-double-bill risk for this loop.
+copy `retention_released: inv.retention_released` into the replacement insert.
+**Only `handleVoidConfirm` (`:1348`) spawns a replacement and needs this copy —
+`handlePullBack` (`:1274`) updates the row in place (no new row), so it needs
+nothing (round-3 audit confirmed).** That fully closes the double-bill risk for
+this loop.
 
 > **Full block/cascade void UX deferred to backlog item F34** (orphaned-release
 > handling, paid-vs-unpaid branch, operator messaging). Not needed to ship the
@@ -233,9 +235,10 @@ Renders a normal invoice for `amount`. No retention math involved.
    check → `npm run db:push`.
 2. `Invoices.jsx` button + `handleBillRetention` (try/finally, conditional
    UPDATE→INSERT→checked-revert, `tenant_id`) + released-state note.
-3. **Copy `retention_released` onto the void/pull-back replacement insert**
-   (`handleVoidConfirm` / `handlePullBack`, `Invoices.jsx:1348`) — one line,
-   prevents button reappearing → double-bill.
+3. **Copy `retention_released` onto the void replacement insert**
+   (`handleVoidConfirm`, `Invoices.jsx:1348`) — one line, prevents button
+   reappearing → double-bill. (`handlePullBack` `:1274` updates in place — no
+   change needed.)
 4. `qb-sync-invoice` full-assembly gate + positive release line → deploy
    `--no-verify-jwt`.
 5. Verify on Vercel preview (§4).

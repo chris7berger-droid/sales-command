@@ -939,6 +939,24 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
   );
 }
 
+// Mint the next invoice id off the main sequence. Mirrors the logic used by
+// NewInvoiceModal (:240) and the void-replacement insert (:1337): take the
+// recent ids, find the main cluster via the median (ignoring manually-
+// renumbered outliers like a customer PO), and increment the max within it.
+// Shared here so the retention-release path reuses one scheme, not a second.
+async function mintNextInvoiceId() {
+  const { data: recent } = await supabase
+    .from("invoices")
+    .select("id")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  const nums = (recent || []).map(r => parseInt(r.id, 10)).filter(n => !isNaN(n)).sort((a, b) => a - b);
+  const median = nums.length ? nums[Math.floor(nums.length / 2)] : 10000;
+  const seqNums = nums.filter(n => n <= median * 2);
+  const lastNum = Math.max(seqNums.length ? seqNums[seqNums.length - 1] : 0, 9999);
+  return String(lastNum + 1).padStart(5, "0");
+}
+
 // ── Invoice Detail ────────────────────────────────────────────────────────
 function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, onNavigateProposal, onNavigateInvoice, teamMember }) {
   const money = fmt$c;
@@ -976,6 +994,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [syncError, setSyncError] = useState(null);
   const [syncReLink, setSyncReLink] = useState(false);
   const [syncToast, setSyncToast] = useState(null);
+  const [billing, setBilling] = useState(false);           // Bill Retention in-flight guard
+  const [releaseInvoiceId, setReleaseInvoiceId] = useState(null); // id of the release invoice spawned off this source
 
   // Auto-refresh: poll for payment status updates when invoice is Sent/Waiting
   useEffect(() => {
@@ -1000,6 +1020,20 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         .eq("id", inv.id)
         .maybeSingle();
       if (freshInv) setInv(prev => ({ ...prev, ...freshInv }));
+
+      // If this invoice's retention has been billed, find the release invoice
+      // it spawned so the detail can link to it ("Retention billed → #X").
+      if (freshInv?.retention_released) {
+        const { data: rel } = await supabase
+          .from("invoices")
+          .select("id")
+          .eq("retention_release_of", inv.id)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        setReleaseInvoiceId(rel?.id || null);
+      }
 
       // Fetch invoice lines with WTC info
       const { data: lineData } = await supabase
@@ -1259,6 +1293,82 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     onUpdated && onUpdated();
   }
 
+  // Bill the retention held on `source`: flip the source's released flag, then
+  // spawn a release invoice for the held amount. Order matters — the source
+  // UPDATE is the idempotency stop; the INSERT follows only once it's confirmed.
+  async function handleBillRetention(source) {
+    if (billing) return;
+    setBilling(true);
+    try {
+      const nextId = await mintNextInvoiceId();
+
+      // 1) UPDATE source FIRST, conditionally, and verify rows-affected. RLS can
+      //    silently no-op an UPDATE (no error, 0 rows) — so check the returned
+      //    array length, not just .error. The .eq("retention_released", false)
+      //    predicate is the DB-level idempotency stop against a double-click.
+      const { data: flipped, error: flipErr } = await supabase
+        .from("invoices")
+        .update({ retention_released: true })
+        .eq("id", source.id)
+        .eq("retention_released", false)
+        .select();
+      if (flipErr) { alert(`Could not mark retention as billed: ${flipErr.message}`); return; }
+      if (!flipped || flipped.length < 1) {
+        alert(`Retention on invoice #${source.id} was already billed (or the update was blocked). Refresh and check before retrying.`);
+        return;
+      }
+
+      // 2) INSERT the release invoice, only after the source flip is confirmed.
+      const { error: insErr } = await supabase.from("invoices").insert([{
+        id: nextId,
+        tenant_id: source.tenant_id,
+        job_id: source.job_id,
+        job_name: source.job_name,
+        call_log_id: source.call_log_id,
+        proposal_id: source.proposal_id,
+        amount: source.retention_amount,
+        retention_pct: 0,
+        retention_amount: 0,
+        discount: 0,
+        status: "New",
+        show_cents: source.show_cents,
+        description: `Retention release for invoice #${source.id}`,
+        retention_release_of: source.id,
+      }]);
+
+      if (insErr) {
+        // INSERT failed — compensate by reverting the source flip, and verify
+        // the revert itself landed. If the revert fails or affects 0 rows the
+        // source is stranded (released=true with no release invoice) — raise a
+        // loud, persistent error naming the id + manual-recovery text.
+        const { data: reverted, error: revertErr } = await supabase
+          .from("invoices")
+          .update({ retention_released: false })
+          .eq("id", source.id)
+          .select();
+        if (revertErr || !reverted || reverted.length < 1) {
+          alert(
+            `Release invoice failed AND could not un-mark source #${source.id} — ` +
+            `set retention_released=false on invoice #${source.id} manually before retrying.\n\n` +
+            `Insert error: ${insErr.message}\n` +
+            `Revert error: ${revertErr ? revertErr.message : "affected 0 rows"}`
+          );
+        } else {
+          alert(`Could not create the retention release invoice: ${insErr.message}\n\nThe source invoice was left unchanged — you can retry.`);
+        }
+        return;
+      }
+
+      // 3) Success — navigate to the new release invoice. The list-level
+      //    onNavigateInvoice also calls load(), so the source's flipped
+      //    retention_released is reflected on return. No optimistic setInv —
+      //    the key-based remount on navigation refetches.
+      if (onNavigateInvoice) onNavigateInvoice(nextId);
+    } finally {
+      setBilling(false);
+    }
+  }
+
   async function handlePullBack() {
     if (inv.qb_invoice_id) {
       setShowVoidModal("pullback");
@@ -1356,6 +1466,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           discount: inv.discount,
           retention_pct: inv.retention_pct,
           retention_amount: inv.retention_amount,
+          retention_released: inv.retention_released, // carry release flag so the Bill Retention button can't reappear → double-bill
           due_date: inv.due_date,
           description: inv.description,
           intro: inv.intro,
@@ -1601,6 +1712,21 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             <Btn sz="sm" onClick={() => setShowPDF(true)}>{linkedPayApp ? "Preview" : "Send / Resend"}</Btn>
             {linkedPayApp && <Btn sz="sm" v="secondary" onClick={() => setShowPayAppReview(true)}>Review Package</Btn>}
             {isNew && <Btn sz="sm" v="secondary" onClick={startEditing}>Edit Invoice</Btn>}
+            {inv.retention_amount > 0 && !inv.retention_released && !inv.retention_release_of && (
+              <Btn sz="sm" onClick={() => handleBillRetention(inv)} disabled={billing}>
+                {billing ? "Billing…" : `Bill Retention ${money(inv.retention_amount)}`}
+              </Btn>
+            )}
+            {inv.retention_released && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: C.dark, color: C.teal, padding: "6px 12px", borderRadius: 6, fontWeight: 800, fontSize: 11, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                Retention billed
+                {releaseInvoiceId && (
+                  <button onClick={() => onNavigateInvoice && onNavigateInvoice(releaseInvoiceId)} style={{ background: "none", border: "none", cursor: "pointer", color: C.teal, fontWeight: 800, fontSize: 11, fontFamily: F.display, textDecoration: "underline", padding: 0 }}>
+                    → #{releaseInvoiceId}
+                  </button>
+                )}
+              </span>
+            )}
             {actions.map(a => (
               <Btn key={a.status} sz="sm" v="ghost" onClick={() => updateStatus(a.status)}>{a.label}</Btn>
             ))}
@@ -1873,7 +1999,7 @@ export default function Invoices({ setSubPage, teamMember }) {
     onDeleted={() => { navigate("/invoices"); load(); }}
     onNavigateJob={id => navigate(`/calllog/${id}`)}
     onNavigateProposal={id => navigate(`/proposals/${id}`)}
-    onNavigateInvoice={id => navigate(`/invoices/${id}`)}
+    onNavigateInvoice={id => { navigate(`/invoices/${id}`); load(); }}
   />;
 
   return (

@@ -1,0 +1,116 @@
+SC Handoff v144 — 2026-06-03
+============================
+(Planning/orient terminal — full ERD protocol for a short diagnostic loop.
+No build, no deploy. Diagnosed why a Sync-to-QuickBooks button was missing on
+an invoice, fixed it via the existing UI flow, and filed the underlying UX
+trap as B39. Read v143 for the prior session; this one is self-contained.)
+
+SESSION SUMMARY
+─────────────────────────────────────────────────────
+Ran the full protocol: /orient → /decide (sales-command, plan, opus 4.8) →
+/erd-start (Loop #31, "I'm not fearful," 30-min lock) → diagnosis → /erd-close.
+The reported symptom: the "Sync to QuickBooks" button never appeared on invoice
+#10068 (job 7406 IVGID Chateau Deck Coating), even after Chris marked it
+"Waiting for Payment." Traced the button's render gate at Invoices.jsx:1733-1740
+and pulled the four gate values for #10068 from prod via SQL. Root cause was
+gate 3: call_log.qb_customer_id was null — the JOB was never created in
+QuickBooks, so the invoice had nothing to sync against. Chris's skip-sync hunch
+was disproven (qb_skip_sync was false). The deeper cause was a workflow trap:
+"Resume QB Sync" on the job-details screen renders a GREEN (success) toast but
+only flips qb_skip_sync off — it does NOT create the QB job. Chris read green as
+"connected" and cycled pull-back/re-status several times chasing a button that
+couldn't appear. Fix path: Job Details → Connect to QuickBooks (QBActionModal →
+qb-create-job writes qb_customer_id) → then the invoice's Sync button renders.
+Chris ran it; invoice #10068 landed in QuickBooks (confirmed). Filed the
+misleading-toast UX gap as B39. No code shipped — this was diagnosis + a
+backlog entry.
+
+CHANGES SHIPPED — sales-command (this session)
+─────────────────────────────────────────────────────
+  49b7ca6 — Log B39: 'Resume QB Sync' green toast misleads — job still
+    unconnected, invoice Sync-to-QB button stays hidden. Doc-only commit
+    (docs/BACKLOG.md, +1 row). No code change.
+
+CHANGES SHIPPED — other repos (this session)
+─────────────────────────────────────────────────────
+  erd-loop: Loop #31 lock (1dc0649) + CLOSEOUT (b16d128). Both pushed to origin.
+
+DECISIONS / CHOICES MADE
+─────────────────────────────────────────────────────
+• Classified as workflow trap, not a code bug. The invoice button gate behaves
+  correctly — it SHOULD hide the Sync button when the job has no QB customer.
+  The real defect is upstream UX: the resume toast uses kind:"linked" (green)
+  even though its own text says "Connect this job to a QuickBooks customer."
+  So the fix is a toast/copy change (B39), not a gate change.
+• Did NOT touch any code this session. Success criterion was "understand why +
+  make the button show"; the button shows once the job is connected through the
+  existing Connect-to-QuickBooks flow. No code path was broken, so nothing to
+  patch beyond the B39 clarity item.
+• Diagnosed against live prod data (SQL row for #10068), not assumptions —
+  anon-key REST returned [] under RLS, so the read came from the Supabase SQL
+  editor. The pasted row is the verification basis.
+
+NEW BACKLOG ITEMS
+─────────────────────────────────────────────────────
+• B39 (T2) — "Resume QB Sync" green toast reads as "job is QB-connected" but
+  only un-skips; job still has no qb_customer_id so the invoice Sync-to-QB
+  button stays hidden. Fix candidates (a) neutral/amber toast kind + (b) reword
+  to an explicit "now click Connect to QuickBooks" CTA, ~1h. Same UX-clarity
+  class as B35. No blocker.
+
+CLOSED THIS SESSION
+─────────────────────────────────────────────────────
+• No backlog rows closed.
+• ERD Loop #31 CLOSED (~/erd-loop/LOG.md): Success 10/10, fear n, mindset
+  10→10, potential 10→10, 1h 19m wall vs 30-min lock.
+
+VERIFICATION
+─────────────────────────────────────────────────────
+• Diagnosis: third-party checkable — gate at Invoices.jsx:1733-1740 (gate 3
+  requires call_log.qb_customer_id) + the prod SQL row for #10068 showing
+  qb_customer_id=null, qb_skip_sync=false, qb_invoice_id=null, status
+  "Waiting for Payment."
+• Fix-path traced end-to-end in code: CallLogDetail.jsx:598-608 (Connect
+  state) → QBActionModal → qb-create-job ({callLogId}) writes qb_customer_id →
+  invoice gate 3 passes.
+• PROD: Chris ran the Connect-to-QuickBooks flow on job 7406 and confirmed
+  invoice #10068 landed in QuickBooks. Button-shows + sync both verified live.
+• No build, no smoke test, no deploy — nothing to smoke.
+
+NOT TOUCHED THIS SESSION
+─────────────────────────────────────────────────────
+• B39 fix itself (the toast copy/color) — filed, not built.
+• All prior open backlog (S4/S6/S7/S8 security, B32, F5, F7, multi-GC, v140
+  audit triage) — untouched.
+
+NEXT SESSION POINTERS
+─────────────────────────────────────────────────────
+• B39 is a quick (~1h) UX fix if picked up — CallLogDetail.jsx:583-596 (resume
+  handler) sets the toast kind; change kind off "linked" + reword the text, and
+  optionally auto-open the Connect flow after resume. Build mode, known cause.
+• Higher-leverage work still sits in the 2026-06-01 auto-audit (S6/S7/S8 are
+  the today-relevant CRITICALs, already filed) — see /orient.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────────────────
+src/pages/Invoices.jsx:1733-1740 — the invoice Sync-to-QuickBooks button gate
+  (4 conditions; gate 3 = call_log.qb_customer_id non-null).
+src/components/CallLogDetail.jsx:539-608 — job-details QB section: LINKED /
+  QB-SYNC-SKIPPED+Resume / Connect-to-QuickBooks states. Lines 583-596 are the
+  Resume handler with the misleading green toast (B39).
+src/components/QBActionModal.jsx — Connect flow; invokes qb-create-job which
+  writes qb_customer_id to call_log.
+docs/BACKLOG.md — B39 row added at top of Bugs table.
+
+GIT STATE ON CLOSE
+─────────────────────────────────────────────────────
+• Branch: main. One commit ahead of origin/main before this handoff (49b7ca6,
+  the B39 log); this handoff commit sits on top.
+• Working tree: clean apart from this handoff file.
+• No open PRs, no feature branches opened this session, no scratch projects.
+• sch-command / field-command / AR-Command-Center untouched by this terminal.
+
+END STATE
+─────────────────────────────────────────────────────
+Diagnosed, fixed via existing UI flow, prod-verified (invoice in QB), ERD-closed.
+B39 filed for the underlying UX trap. No code shipped. Ready for a fresh session.

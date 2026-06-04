@@ -111,6 +111,23 @@ For **features and refactor** — render as `[Lev N · Eff X]`:
 5. When fetching `proposal_wtc` for display, always join `work_types(name)`
    and include financial fields: `regular_hours, ot_hours, burden_rate,
    ot_burden_rate, markup_pct, materials, travel, discount, size`.
+6. **A save that recomputes money must fail safe, not fail silent.** Any
+   handler that recomputes a stored dollar value from an upstream source on
+   save (e.g. `handleSaveEdit` recomputing `invoice_lines.amount` from
+   `proposal_wtc × pct`) must have an explicit branch for **every** line/record
+   shape, and the fallthrough must **preserve** the stored value — never
+   silently produce `0` because the source was missing. `calcWtcPrice(null) → 0`
+   is the trap: it zeroed archive invoices (fixed 2026-04-20 `14000c5`) and then
+   pay-app invoices (fixed 2026-06-04 `33c385e`) by the identical mechanism. When
+   you add a new invoice/line **type**, you MUST add its preserve-or-recompute
+   branch to every money-writing save handler.
+7. **Hiding a field in the UI is not guarding it in the save.** When you hide
+   an input/table for a record type (e.g. `{!linkedPayApp && …}`), the save
+   handler still loads and may still write that data. Hiding the Retention input
+   does nothing for the write path that recomputes retention. After hiding
+   anything for a new type, immediately grep every handler that **writes** that
+   record and confirm it handles the new shape — the dangerous gap is always
+   what the save path does with data the UI stopped showing but still loads.
 
 ## Supabase Column Reference (verified — do not guess)
 

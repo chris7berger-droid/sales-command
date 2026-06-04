@@ -1,0 +1,185 @@
+SC Handoff v145 — 2026-06-04
+============================
+(Build-vs-plan audit + remediation terminal for ERD Loop #32, pay-app invoice
+zeroing. This one terminal ran /buildvsplan on the already-built fix, then owned
+all the after-work: prod deploy, the gated #10069 data repair, the manual
+QuickBooks correction, the stale-PDF fix, two new CLAUDE.md rules, four backlog
+items, and the ERD close. Folds in the planning terminal's diagnosis context.
+Read v144 for the prior (Loop #31) session.)
+
+SESSION SUMMARY
+─────────────────────────────────────────────────────
+Closed out Loop #32 end-to-end. The bug: editing a pay-app invoice and hitting
+Save zeroed it. handleSaveEdit recomputes every line as calcWtcPrice(proposal_wtc)
+× pct; pay-app/SOV lines have a billing_schedule_line_id and NO proposal_wtc, so
+wtcTotal=0 zeroed invoice.amount, every invoice_lines.amount, AND retention_amount,
+then pushed $0 lines to QuickBooks. The pay-app row itself is never touched by that
+handler — which is why #10069 showed correct pay-app numbers ($32,476 / $1,624 /
+$30,852) while its invoice + QB read $0/Paid. Same mechanism that zeroed ARCHIVE
+invoices on 2026-04-20 (14000c5); pay-app is the second instance. The build
+(33c385e) added a preserve-branch for billing_schedule_line_id lines, preserved
+retention/discount for pay-app invoices, hid the Retention/Discount inputs in the
+edit form, and surfaced the real QB error body in handleQBSync. /buildvsplan
+returned PASS (0 Tier-1, 0 Tier-2). Shipped to prod (frontend, Vercel auto-deploy),
+then ran the gated #10069 repair: SQL pre-check + Gate 1 (join) + Gate 2
+(qb_payment_id NULL) all clean → repair transaction → post-check PASS. QuickBooks
+was corrected by hand in QBO (the trustworthy in-app re-sync button doesn't exist
+for an already-synced invoice — see B44). Trigger was a normal Edit→Save; the word
+"deposit" Chris typed is harmless (zero code matches). Two durable rules went into
+CLAUDE.md, four backlog items filed (B42/B43/B44/B45), ERD Loop #32 closed 10/10.
+
+CHANGES SHIPPED — sales-command (this session, all on main)
+─────────────────────────────────────────────────────
+  b93914e — Plan revision pass 1 (round-1 audit response). PLAN-ONLY commit; the
+    branch was deliberately stripped to plan-only so the build terminal wrote
+    100% of the code fresh and the plan-vs-built audit was meaningful.
+  33c385e — Fix pay-app invoice Edit→Save zeroing; surface QB sync errors; file
+    B42. The §3 fix (handleSaveEdit preserve-branch for billing_schedule_line_id
+    lines; preserve retention_pct/retention_amount/discount when linkedPayApp;
+    hide Retention/Discount inputs via {!linkedPayApp && …}) + §5/finding A
+    (handleQBSync reads fnErr.context.json() for the real QB fault). Files B42.
+  75c562b — docs: pay-app zeroing post-mortem. CLAUDE.md Data Integrity Rules #6
+    and #7; files B43. (CLAUDE.md edits are COMMITTED, not loose — the
+    planning-context flag about uncommitted rules applied to a different terminal.)
+  <this handoff> — docs: session handoff v145 + files B44, B45.
+
+  Branch fix/pay-app-invoice-edit-zeroing was fast-forward-merged to main
+  (b00b44d → 75c562b) and DELETED (local + remote) this session.
+
+CHANGES SHIPPED — other repos (this session)
+─────────────────────────────────────────────────────
+  erd-loop: Loop #32 CLOSEOUT (7af32f8), pushed to origin.
+
+DEPLOYED
+─────────────────────────────────────────────────────
+• PROD frontend: Vercel project sales-command, deploy dpl_A91DbUX6RcN3h9qsHA1ocdJyZtMm
+  — state READY, target production, commit 75c562b on main. Live at salescommand.app
+  / scmybiz.com.
+• Pure frontend change — NO edge functions, NO DB migrations deployed. The
+  Supabase #10069 repair below was a one-off manual SQL transaction in the SQL
+  editor, not a migration.
+
+DECISIONS / CHOICES MADE
+─────────────────────────────────────────────────────
+• Round-1 audit (3 agents, cap 3, 30-min): integrated A–E, redirected one.
+  - A (High): re-sync via the Sync-to-QuickBooks button, NOT Edit→Save (that path
+    is .catch(()=>{}) and swallows QB errors); add fnErr.context.json() to
+    handleQBSync. → INTEGRATED. (Caveat surfaced in execution — see B44.)
+  - B (Med): extend the guard beyond line amount — preserve retention_pct/_amount
+    + discount for linkedPayApp and hide the inputs. → INTEGRATED, not gold-plating:
+    the same bug zeroed retention_amount via newAmount × retPct.
+  - C (Med): join-based Gate 1 + asserting post-check in the repair SQL. → INTEGRATED.
+  - D (cheap): qb_payment_id IS NULL gate before re-sync. → INTEGRATED.
+  - E (doc): no Edit on #10069 between deploy and repair. → INTEGRATED.
+  - REDIRECT: PayAppDetailModal.handleSaveLines updates the invoice header but not
+    invoice_lines → stale per-line amounts on QB re-sync. Distinct, non-zeroing;
+    filed B42, correctly out of scope this loop.
+• Fixed QuickBooks #10069 BY HAND in QBO rather than through the app. The plan's
+  §5 prescribed re-sync via the Sync-to-QuickBooks button, but that button is gated
+  `!inv.qb_invoice_id` (Invoices.jsx:1760) and #10069 was already synced (qb_invoice_id
+  147530), so the button isn't rendered. The only in-app re-sync trigger is Edit→Save
+  (fire-and-forget) — which the plan said not to use. Manual QBO edit was the clean
+  path; the gap is filed as B44.
+• Set the QB retention as a NEGATIVE "1121- Retention %" line (−$1,623.79) routed to
+  the retention OCA account, not a cost code — mirrors how qb-sync-invoice builds it.
+  Gross $32,475.74 − retention $1,623.79 = $30,851.95 due; false "Paid" cleared on save.
+• Cleared the cached invoice PDF (update invoices set pdf_url = null) because the
+  pay-app package's invoice copy still showed $0 after the repair — handleSend only
+  regenerates when pdf_url is empty. Filed the non-invalidation as B45.
+• Did NOT scan for other zeroed pay-app invoices — Chris deferred this loop (§7).
+
+NEW BACKLOG ITEMS
+─────────────────────────────────────────────────────
+• B42 (T2) — PayAppDetailModal.handleSaveLines updates invoices.amount + the pay-app
+  header but NOT invoice_lines → stale per-line amounts a later QB re-sync would push.
+  Non-zeroing UI→QB drift. Filed in 33c385e.
+• B43 (T3) — handleSaveEdit does ad-hoc per-line-type dispatch with a SILENT-ZERO
+  default; invert so unknown line shapes preserve rather than zero. Hardening against
+  recurrence of the archive→pay-app zeroing class. Filed in 75c562b.
+• B44 (T2) — No trustworthy QB re-sync path for an already-synced invoice: the
+  handleQBSync button is gated `!inv.qb_invoice_id` so it only shows BEFORE first
+  sync; afterward only fire-and-forget Edit→Save re-invokes qb-sync-invoice. Fix:
+  also render a "Re-sync to QuickBooks" button when qb_invoice_id is set.
+• B45 (T2) — Invoice PDF copy is cached on invoices.pdf_url and never invalidated on
+  data change (PayAppDetailModal.handleSend regenerates only if pdf_url is null), so a
+  stale/zeroed PDF persists in the pay-app package. Same cache-not-invalidated family
+  as B43. Fix: clear pdf_url on any invoice money change, or always regenerate on send.
+
+CLOSED THIS SESSION
+─────────────────────────────────────────────────────
+• No backlog rows closed (the build implemented the §3/§5 fix and filed B42; the
+  underlying bug is fixed in code + #10069 data is repaired, but no pre-existing
+  backlog ROW tracked this — it came in as a live ERD loop).
+• ERD Loop #32 CLOSED (~/erd-loop/LOG.md, commit 7af32f8): Success 10/10, fear n,
+  mindset 10→9 (Δ-1), potential 10→7 (Δ-3), 3h 13m wall vs 30-min lock.
+
+VERIFICATION
+─────────────────────────────────────────────────────
+• /buildvsplan: PASS — 0 Tier-1, 0 Tier-2. All five spec points present + correct;
+  the new branch is reachable (lines query at Invoices.jsx:1041 selects * incl.
+  billing_schedule_line_id); handleSaveEdit confirmed the ONLY pay-app-line zeroing
+  path (handleBillRetention copies, handlePullBack doesn't touch lines,
+  handleVoidConfirm copies/clears); no archive/proposal-WTC regression.
+• #10069 DB repair: SQL post-check verdict = PASS. amount 32475.74, retention 1623.79,
+  retention_pct 5 = retainage_pct_snapshot, line_sum reconciles to amount, zero_lines 0.
+  Gate 1 returned 0 rows (clean join); Gate 2 qb_payment_id NULL.
+• #10069 in QuickBooks (invoice 147530): Chris confirmed $30,851.95 due, off "Paid",
+  after the manual edit (gross $32,475.74 + "1121- Retention %" −$1,623.79).
+• Smoke: test pay-app invoice #10070 (job 10141 "TEST pay app package fix") —
+  Edit→Save with "deposit" in the description kept the amount non-zero; Retention/
+  Discount inputs hidden in the edit form. #10069 confirmed correct on prod app
+  (Gross $32,475.74 / Payment Due $30,851.95) and in QB.
+• NOT verified live: a normal (non-pay-app) proposal invoice Edit→Save was confirmed
+  by code review in /buildvsplan but not click-tested. The §5/A QB-error-surfacing
+  path was not exercised (the test job's "test" name skips QB on purpose). No broad
+  scan for other zeroed pay-app invoices.
+
+NOT TOUCHED THIS SESSION
+─────────────────────────────────────────────────────
+• B42 / B43 / B44 / B45 — all filed, none fixed.
+• Broad scan for OTHER affected pay-app invoices — Chris deferred (§7).
+• (Resolved this session, not deferred: the GC was sent the corrected #10069 invoice
+  via an emailed PDF; pdf_url nulled so the in-app package copy also regenerates.)
+• All prior open backlog (S4/S6/S7/S8 security, B39, F-tier, multi-GC) — untouched.
+
+NEXT SESSION POINTERS
+─────────────────────────────────────────────────────
+• #10069 is fully closed: app, DB, and QuickBooks all read $30,851.95 due, and the GC
+  was sent the corrected invoice via an emailed PDF (Chris handled delivery this
+  session). pdf_url is nulled, so the in-app package copy will also regenerate correctly
+  the next time the package is sent. Nothing left to do on #10069.
+• Optional pre-flight if you want certainty the GC didn't already get a $0 copy: check
+  invoices.sent_at vs the edit time for #10069 (the corrected re-send makes it moot).
+• B44 and B45 are quick, known-cause build items if picked up; B43 is the deeper
+  hardening (invert handleSaveEdit's default). All pair with CLAUDE.md rules #6/#7.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+─────────────────────────────────────────────────────
+src/pages/Invoices.jsx — handleSaveEdit (the fix, ~:1250-1272, the preserve-branch +
+  retention/discount preserve); handleQBSync error surfacing (~:1139-1148); edit-form
+  Retention/Discount gate (~:1603); Sync-to-QB button gate (:1760 — the B44 first-sync-
+  only condition).
+src/components/PayAppDetailModal.jsx:330-345 — handleSend's invoice-PDF cache (B45);
+  ~:232-261 handleSaveLines (B42).
+CLAUDE.md — Data Integrity Rules #6 (recompute-on-save must fail safe, never silent —
+  the calcWtcPrice(null)→0 trap) and #7 (hiding a field in the UI is not guarding it in
+  the save).
+docs/plans/pay_app_invoice_edit_zeroing.md — the plan + the #10069 repair runbook
+  (§5 + Appendix A/B/C).
+docs/BACKLOG.md — B42/B43/B44/B45 added this session.
+
+GIT STATE ON CLOSE
+─────────────────────────────────────────────────────
+• Branch: main. origin/main = 75c562b. This handoff commit (+ the B44/B45 BACKLOG
+  rows) sits on top, local, NOT yet pushed.
+• Working tree: clean apart from this handoff file + docs/BACKLOG.md (both in the
+  pending commit).
+• fix/pay-app-invoice-edit-zeroing: merged to main + deleted (local + remote).
+• No open PRs, no feature branches, no scratch projects.
+• sch-command / field-command / AR-Command-Center untouched by this terminal.
+
+END STATE
+─────────────────────────────────────────────────────
+Fix merged + deployed to prod, #10069 fully repaired (DB + QuickBooks) and
+smoke-verified, GC sent the corrected invoice via an emailed PDF, ERD Loop #32 closed
+10/10. Nothing open on #10069. Ready for a fresh session.

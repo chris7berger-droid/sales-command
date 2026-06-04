@@ -1136,7 +1136,17 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     setSyncReLink(false);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: inv.id } });
-      if (fnErr) throw new Error(fnErr.message || "QB sync failed.");
+      if (fnErr) {
+        // FunctionsHttpError carries the Response on .context; fnErr.message alone is
+        // generic ("non-2xx status code") and hides the real QB fault. Read the body
+        // so the manual "Sync to QuickBooks" re-sync is trustworthy. (plan §5 / finding A)
+        let detail = fnErr.message || "QB sync failed.";
+        try {
+          const body = await fnErr.context?.json?.();
+          if (body?.error || body?.message) detail = body.error || body.message;
+        } catch { /* body wasn't JSON — fall back to the generic message */ }
+        throw new Error(detail);
+      }
       if (data?.error === "qb_customer_invalid") {
         setSyncError(data.message || "Linked QuickBooks customer no longer exists or is inactive.");
         setSyncReLink(true);
@@ -1242,20 +1252,30 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         const amt = parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0;
         return { id: l.id, billing_pct: null, amount: Math.round(amt * 100) / 100 };
       }
+      // Pay-app / SOV lines: dollars are owned by the billing-schedule + pay-app flow
+      // (PayAppDetailModal.handleSaveLines), not this generic editor. They have no
+      // proposal_wtc, so recomputing wtcTotal × pct would zero them. Preserve the
+      // stored amount + % instead — mirrors the isArchiveInvoice preserve branch. (plan §3)
+      if (l.billing_schedule_line_id) {
+        return { id: l.id, billing_pct: l.billing_pct, amount: parseFloat(l.amount) || 0 };
+      }
       const wtc = l.proposal_wtc;
       const wtcTotal = wtc ? calcWtcPrice(wtc) : 0;
       const pct = parseFloat(editPcts[l.id]) || 0;
       return { id: l.id, billing_pct: pct, amount: Math.round(wtcTotal * (pct / 100) * 100) / 100 };
     });
     const newAmount = newLines.reduce((sum, l) => sum + l.amount, 0);
-    const retPct = parseFloat(editRetentionPct) || 0;
-    const retAmt = Math.round(newAmount * (retPct / 100) * 100) / 100;
+    // Retention + discount are also owned by the pay-app flow. For a pay-app invoice
+    // preserve the stored values; otherwise recompute from the edit-form inputs. (plan §3)
+    const retPct   = linkedPayApp ? (parseFloat(inv.retention_pct) || 0)    : (parseFloat(editRetentionPct) || 0);
+    const retAmt   = linkedPayApp ? (parseFloat(inv.retention_amount) || 0) : Math.round(newAmount * (retPct / 100) * 100) / 100;
+    const discount = linkedPayApp ? (parseFloat(inv.discount) || 0)         : (parseFloat(editDiscount) || 0);
 
     // Update invoice
     const { error: invErr } = await supabase.from("invoices").update({
       id: editId,
       due_date: editDueDate || null,
-      discount: parseFloat(editDiscount) || 0,
+      discount,
       retention_pct: retPct,
       retention_amount: retAmt,
       description: editDesc || null,
@@ -1282,7 +1302,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         .catch(() => {});
     }
 
-    setInv(prev => ({ ...prev, id: editId, due_date: editDueDate || null, discount: parseFloat(editDiscount) || 0, retention_pct: retPct, retention_amount: retAmt, description: editDesc || null, intro: editIntro || null, amount: Math.round(newAmount * 100) / 100 }));
+    setInv(prev => ({ ...prev, id: editId, due_date: editDueDate || null, discount, retention_pct: retPct, retention_amount: retAmt, description: editDesc || null, intro: editIntro || null, amount: Math.round(newAmount * 100) / 100 }));
     setLines(prev => prev.map(l => {
       const nl = newLines.find(n => n.id === l.id);
       return nl ? { ...l, billing_pct: nl.billing_pct, amount: nl.amount } : l;
@@ -1577,22 +1597,29 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             <div style={labelStyle}>Due Date</div>
             <input type="date" value={editDueDate} onChange={e => setEditDueDate(e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
           </div>
-          <div>
-            <div style={labelStyle}>Discount ($)</div>
-            <input type="number" min="0" step="1" value={editDiscount} onChange={e => setEditDiscount(e.target.value)} style={inputStyle} />
-          </div>
-          <div>
-            <div style={labelStyle}>Retention (%)</div>
-            <input type="number" min="0" max="100" step="0.5" value={editRetentionPct} onChange={e => setEditRetentionPct(e.target.value)} style={inputStyle} />
-            {parseFloat(editRetentionPct) > 0 && (() => {
-              const gross = isArchiveInvoice ? (parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : (parseFloat(inv.amount) || 0);
-              return (
-                <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
-                  Held back: {fmt$c(gross * (parseFloat(editRetentionPct) / 100))}
-                </div>
-              );
-            })()}
-          </div>
+          {/* Discount + Retention are owned by the pay-app flow for pay-app invoices —
+              hide them here so the UI can't expose fields the save path must ignore
+              (mirrors the already-hidden line-items table below). (plan §3) */}
+          {!linkedPayApp && (
+            <>
+              <div>
+                <div style={labelStyle}>Discount ($)</div>
+                <input type="number" min="0" step="1" value={editDiscount} onChange={e => setEditDiscount(e.target.value)} style={inputStyle} />
+              </div>
+              <div>
+                <div style={labelStyle}>Retention (%)</div>
+                <input type="number" min="0" max="100" step="0.5" value={editRetentionPct} onChange={e => setEditRetentionPct(e.target.value)} style={inputStyle} />
+                {parseFloat(editRetentionPct) > 0 && (() => {
+                  const gross = isArchiveInvoice ? (parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : (parseFloat(inv.amount) || 0);
+                  return (
+                    <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
+                      Held back: {fmt$c(gross * (parseFloat(editRetentionPct) / 100))}
+                    </div>
+                  );
+                })()}
+              </div>
+            </>
+          )}
           {isArchiveInvoice && (
             <div style={{ gridColumn: "1 / -1" }}>
               <div style={labelStyle}>Invoice Amount ($)</div>

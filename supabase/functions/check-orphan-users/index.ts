@@ -1,11 +1,27 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { timingSafeEqual } from "https://deno.land/std@0.168.0/crypto/timing_safe_equal.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+const CRON_SECRET = Deno.env.get("CRON_SECRET");
+const enc = new TextEncoder();
 
-serve(async (_req) => {
+serve(async (req) => {
+  // S6 gate. This is a CRON target, not user-facing. config.toml verify_jwt=true
+  // makes the platform reject calls with no valid JWT/service-role key, but that
+  // admits ANY authenticated tenant user — so the x-cron-secret shared secret is
+  // the SOLE gate distinguishing the scheduled invoker from a logged-in user.
+  // Timing-safe compare over TextEncoder byte arrays; length is guarded FIRST
+  // because std timingSafeEqual throws on unequal-length views.
+  if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+  const a = enc.encode(req.headers.get("x-cron-secret") || "");
+  const b = enc.encode(CRON_SECRET || "");
+  if (!CRON_SECRET || a.length !== b.length || !timingSafeEqual(a, b)) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 

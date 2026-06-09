@@ -1,4 +1,14 @@
 
+# S6 — check-orphan-users is a CRON target, not a user-facing function. There is
+# no caller JWT to forward, so the project's blanket `--no-verify-jwt` deploy
+# convention is deliberately OVERRIDDEN here: deploy this function WITHOUT
+# --no-verify-jwt so verify_jwt=true stands. The platform gate rejects requests
+# with no valid JWT/service-role key; the handler's x-cron-secret check is the
+# sole gate that distinguishes the scheduled invoker from any logged-in user.
+[functions.check-orphan-users]
+enabled = true
+verify_jwt = true
+
 [functions.qb-auth]
 enabled = true
 verify_jwt = false

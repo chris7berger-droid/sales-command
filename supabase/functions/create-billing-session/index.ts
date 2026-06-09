@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { authenticateCaller, unauthorizedResponse } from "../_shared/tenantAuth.ts";
 
@@ -17,15 +18,8 @@ const PRICE_MAP: Record<string, string | undefined> = {
   schedule: SCC_STRIPE_PRICE_SCHEDULE,
 };
 
-const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.app", "https://www.scmybiz.com", "https://scmybiz.com"];
-
 function getCors(req: Request) {
-  const origin = req.headers.get("origin") || "";
-  const isAllowed = ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".vercel.app");
-  return {
-    "Access-Control-Allow-Origin": isAllowed ? origin : ALLOWED_ORIGINS[0],
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  };
+  return buildCorsHeaders(req);
 }
 
 async function stripeRequest(endpoint: string, params: Record<string, string>, method = "POST") {

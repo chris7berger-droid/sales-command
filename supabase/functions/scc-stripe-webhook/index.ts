@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
 const SCC_STRIPE_SECRET_KEY = Deno.env.get("SCC_STRIPE_SECRET_KEY");
 const SCC_STRIPE_WEBHOOK_SECRET = Deno.env.get("SCC_STRIPE_WEBHOOK_SECRET");
@@ -40,19 +41,10 @@ async function verifyStripeSignature(payload: string, sigHeader: string, secret:
   return await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(signedPayload));
 }
 
-const ALLOWED_ORIGINS = ["https://salescommand.app", "https://www.salescommand.app", "https://www.scmybiz.com", "https://scmybiz.com"];
-
 serve(async (req) => {
-  const origin = req.headers.get("origin") || "";
-  const isAllowed = ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".vercel.app");
-  const allowedOrigin = isAllowed ? origin : ALLOWED_ORIGINS[0];
-
   if (req.method === "OPTIONS") {
     return new Response("ok", {
-      headers: {
-        "Access-Control-Allow-Origin": allowedOrigin,
-        "Access-Control-Allow-Headers": "content-type, stripe-signature",
-      },
+      headers: buildCorsHeaders(req, { extraAllowHeaders: ["stripe-signature"] }),
     });
   }
 
@@ -77,11 +69,42 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // S8 CLAIM: record event.id before processing. PK conflict (23505) = seen before.
+    const claim = await supabase
+      .from("processed_stripe_events")
+      .insert({ event_id: event.id, event_type: event.type, source: "scc-stripe-webhook", status: "claimed" });
+    if (claim.error) {
+      if (claim.error.code === "23505") {
+        const { data: existing } = await supabase
+          .from("processed_stripe_events")
+          .select("status").eq("event_id", event.id).single();
+        if (existing?.status === "done") {
+          console.log("Duplicate SCC Stripe event, already processed:", event.id);
+          return new Response(JSON.stringify({ received: true, duplicate: true }), {
+            headers: { "Content-Type": "application/json" },
+            status: 200,
+          });
+        }
+        // 'claimed' (or unreadable): a prior delivery did not finish → RE-PROCESS.
+        console.log("Re-processing previously-claimed SCC Stripe event:", event.id);
+      } else {
+        console.error("Claim insert failed:", claim.error.message);
+        return new Response("Claim error", { status: 500 }); // Stripe retries
+      }
+    }
+
+    // Mark the event fully processed. Call before EVERY 2xx return; never before 4xx/5xx.
+    const markDone = () => supabase
+      .from("processed_stripe_events")
+      .update({ status: "done", updated_at: new Date().toISOString() })
+      .eq("event_id", event.id);
+
     // ── checkout.session.completed (subscription mode) ────────────────
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
       if (session.mode !== "subscription") {
         console.log("Ignoring non-subscription checkout");
+        await markDone();
         return new Response(JSON.stringify({ received: true }), { status: 200 });
       }
 
@@ -152,6 +175,9 @@ serve(async (req) => {
       }
     }
 
+    // Covers every handled subscription branch AND any unhandled event type
+    // (which falls through to here) — every 2xx is marked done.
+    await markDone();
     return new Response(JSON.stringify({ received: true }), {
       headers: { "Content-Type": "application/json" },
       status: 200,

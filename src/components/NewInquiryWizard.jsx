@@ -321,7 +321,8 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
         update.billing_phone = data.billingSame ? null : data.billingPhone;
         update.billing_email = data.billingSame ? null : data.billingEmail;
       }
-      await supabase.from("customers").update(update).eq("id", customerId);
+      const { error: cuErr } = await supabase.from("customers").update(update).eq("id", customerId);
+      if (cuErr) { setError("Failed to update customer: " + cuErr.message); setSaving(false); return; }
       if (!data.billingSourceContactId && !data.billingSame && data.billingName.trim()) {
         const { error: bcErr } = await supabase.from("customer_contacts").insert([{
           customer_id: customerId,

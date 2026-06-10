@@ -1,6 +1,6 @@
 SC Handoff v146 — T1 Security Remediation (S6/S7/S8) · ERD Loop #33
 Date: 2026-06-09
-Branch: feat/t1-security-remediation (LOCAL ONLY — not pushed; merge to main after smoke completes)
+Branch: feat/t1-security-remediation — MERGED to main + pushed 2026-06-10 (origin/main @ 6f3d26e).
 
 ═══════════════════════════════════════════════════════════════════════
 SESSION SUMMARY
@@ -83,6 +83,9 @@ BACKLOG
   - ADJ-1 (qb-record-payment idempotency) — STILL OPEN, NEXT LOOP. S8 stops silent loss but a concurrent/retry
     race can still double-charge until qb-record-payment guards on qb_payment_id. Do this next.
   - ADJ-2/ADJ-3/ADJ-4 — Open, untouched.
+  - S9 (NEW, filed this session) — orphan-alarm cron has never fired (pre-existing missing app.settings.supabase_url
+    GUC, surfaced 2026-06-10 06:00 UTC; NOT caused by S6). Monitoring-only, no money impact. Own mini-loop: hardcode
+    URL + service_role_key from Vault + make x-cron-secret the sole gate (likely verify_jwt=false).
 
 ═══════════════════════════════════════════════════════════════════════
 NOT TOUCHED (scope discipline)
@@ -100,9 +103,9 @@ NEXT SESSION POINTERS
 ═══════════════════════════════════════════════════════════════════════
 GIT STATE
 ═══════════════════════════════════════════════════════════════════════
-  Branch feat/t1-security-remediation (local only). Commits: b8fc1e9 (code), c51b0f3 (deploy runbook),
-  623c50e (audit prompt), + this session's housekeeping commit (migration→Vault, BACKLOG, this handoff).
-  Prod: 21 functions deployed; processed_stripe_events table live; cron rescheduled (Vault). Ledger has our
-  2 migrations marked applied. NOT merged to main, NOT pushed.
+  feat/t1-security-remediation MERGED to main (fast-forward) + pushed 2026-06-10 → origin/main @ 6f3d26e.
+  Commits: b8fc1e9 (code), c51b0f3 (deploy runbook), 623c50e (audit prompt), 9e6d031 (housekeeping: migration→Vault,
+  BACKLOG, handoff), 6f3d26e (file S9). Prod: 21 functions deployed; processed_stripe_events table live; cron
+  rescheduled (Vault). Ledger has our 2 migrations marked applied. Vercel rebuilds frontend from main (no src change → no-op).
   Runbook of record: docs/plans/t1_security_remediation_DEPLOY.md (note: B1 was applied via SQL editor, not
   db push, per Decision 3; S6 used Vault per Decision 4).

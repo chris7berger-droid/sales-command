@@ -1,0 +1,108 @@
+SC Handoff v146 — T1 Security Remediation (S6/S7/S8) · ERD Loop #33
+Date: 2026-06-09
+Branch: feat/t1-security-remediation (LOCAL ONLY — not pushed; merge to main after smoke completes)
+
+═══════════════════════════════════════════════════════════════════════
+SESSION SUMMARY
+═══════════════════════════════════════════════════════════════════════
+Built + deployed the T1 security remediation (plan docs/plans/t1_security_remediation.md,
+cleared a 3-round /buildvsplan audit). Code on feat/t1-security-remediation. Deployed to
+prod (shared Supabase project pbgvgjjuhnpsumnowuym) in §6 order: S7 CORS → S8 migration+webhooks
+→ S6 gate. ERD Loop #33 stays OPEN — two smoke items remain (S8 Stripe replay, S6 cron run).
+
+═══════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED (code commits: b8fc1e9 build, c51b0f3 runbook, 623c50e audit-prompt, + this session's housekeeping)
+═══════════════════════════════════════════════════════════════════════
+S7 — exact-host CORS (audit C1/A1 + C17):
+  - NEW supabase/functions/_shared/cors.ts → buildCorsHeaders(req, {extraAllowHeaders, extraOrigins}).
+    Exact-host allowlist + PREVIEW_ORIGINS (full https:// origins) + empty-origin guard.
+  - All 20 functions rewired; dropped origin.endsWith(".vercel.app") + http://localhost everywhere.
+  - reset-password keeps its 4 extra Command-Suite origins (schedulecommand.com/schmybiz.com) via extraOrigins.
+    (Plan wrongly said the allowlist was identical across all 20 — it wasn't; preserved to not break Schedule Command.)
+  - Webhooks keep stripe-signature. send-proposal:115 benign URL untouched. ADJ-4 (Allow-Methods) NOT added (scope).
+  - DEPLOYED all 20, --no-verify-jwt. VERIFIED via header smoke.
+
+S8 — Stripe webhook idempotency (audit C5/C6):
+  - NEW table processed_stripe_events (event_id PK, status claimed|done, tenant_id NULLABLE/NULL — no
+    get_user_tenant_id() default, decorative authenticated SELECT RLS).
+  - Both webhooks: two-phase claim→markDone()-before-every-2xx, leave 'claimed' on 4xx/5xx (Stripe retries).
+    stripe-webhook client hoisted above the event branch; duplicate(done)→200 {duplicate:true}.
+  - DEPLOYED both webhooks, --no-verify-jwt. Health-verified (bad-sig→400, no crash).
+  - DISCLOSED: at-least-once guarantee, does NOT close the double-charge — ADJ-1 (next loop) does.
+
+S6 — gate check-orphan-users (audit C2):
+  - config.toml [functions.check-orphan-users] verify_jwt=true; deployed WITHOUT --no-verify-jwt.
+  - Handler: method!=POST→405; length-guard + timingSafeEqual (deno std@0.168.0) x-cron-secret gate.
+  - DEPLOYED. VERIFIED: unauthenticated → 401 (vulnerability closed).
+
+═══════════════════════════════════════════════════════════════════════
+DECISIONS / DEVIATIONS
+═══════════════════════════════════════════════════════════════════════
+1. S7 centralized into _shared/cors.ts (vs in-place) — one reviewable implementation; /buildvsplan cleared it.
+2. Push policy: deploy from branch, merge to main AFTER smoke (not done yet — branch still local).
+3. MIGRATION PUSH BLOCKED → applied via SQL editor. `supabase db push` refused because the shared ledger
+   has 5 remote-only entries (sch-command/field-command migrations: daily_log_update_policy,
+   jobs_material_status_additive, job_wtcs_create, + 2 unknown 20260528*). The CLI suggested
+   `migration repair --status reverted` — that is the 2026-05-18 corruption trap; DID NOT run it. Instead:
+   applied both migration SQL files in the Supabase SQL editor, then `migration repair --status applied
+   20260609120000 20260609120100` (records only our 2; never touches sibling entries). Verified: both now
+   show Local|Remote; siblings untouched.
+4. S6 SECRET STORE: GUC → VAULT (platform-forced). Plan used app.settings.cron_secret GUC; setting a custom
+   app.settings.* param needs superuser, which the SQL editor/migration role is NOT (permission denied on both
+   ALTER DATABASE and ALTER ROLE postgres SET). Pivoted to Supabase Vault: vault.create_secret(...,'cron_secret',...)
+   + cron re-pointed to read x-cron-secret from vault.decrypted_secrets. Function code unchanged (still compares to
+   CRON_SECRET function-env). Migration file 20260609120100 updated to the as-executed Vault version.
+   CRON_SECRET value (function-env + Vault): 0688d6e82eeccdc4e3300cc1a994b181b1e8cc14f623522c18c96ee8b67f18de
+   (low-sensitivity internal cron secret; rotate later if desired by updating both stores).
+
+═══════════════════════════════════════════════════════════════════════
+VERIFICATION (what passed / what's pending)
+═══════════════════════════════════════════════════════════════════════
+PASSED:
+  - Local: esbuild parse-check on all 22 changed edge fns; vite build green.
+  - S7: header smoke — www.scmybiz.com echoes; evil.vercel.app + localhost → fallback (salescommand.app);
+    reset-password echoes BOTH scmybiz.com AND schedulecommand.com.
+  - S8: both webhooks OPTIONS advertise stripe-signature; POST bad-sig → 400 (signature gate, no crash).
+  - S6: unauthenticated POST → 401 (verify_jwt enforcing — vulnerability closed). Vault read returns the secret.
+
+PENDING (ERD #33 stays OPEN until these clear):
+  - S8 Stripe replay: Stripe Dashboard → Events → Resend a checkout.session.completed, then Resend the SAME
+    event id again → first should end status='done', second → 200 {duplicate:true}, NO second invoice
+    update/qb-record-payment/receipt. (Could not forge a valid Stripe signature locally.)
+  - S6 cron callback: confirm the daily 6am-UTC run still 200s — query cron.job_run_details tomorrow.
+    NOTE: the SQL editor reported app.settings.supabase_url "unrecognized" — the alarm's pre-existing URL/key
+    GUCs may not resolve outside cron context; if the run errors, that's likely a PRE-EXISTING alarm issue
+    (the original cron used the same GUCs), surfaced now — diagnose then. The S6 *security gate* is unaffected.
+  - S7 full money-path regression (logged in on www.scmybiz.com: send invoice, QB sync) + browser-enforced
+    disallowed-origin block (curl can't test enforcement) — Chris to spot-check.
+
+═══════════════════════════════════════════════════════════════════════
+BACKLOG
+═══════════════════════════════════════════════════════════════════════
+  - S6/S7/S8: updated to DEPLOYED with the deltas above (S7 verified; S8/S6 have pending smokes).
+  - ADJ-1 (qb-record-payment idempotency) — STILL OPEN, NEXT LOOP. S8 stops silent loss but a concurrent/retry
+    race can still double-charge until qb-record-payment guards on qb_payment_id. Do this next.
+  - ADJ-2/ADJ-3/ADJ-4 — Open, untouched.
+
+═══════════════════════════════════════════════════════════════════════
+NOT TOUCHED (scope discipline)
+═══════════════════════════════════════════════════════════════════════
+  ADJ-1..4, qb-auth verify_jwt (C3), and all other 2026-06-01 audit findings. No src/ frontend changes.
+
+═══════════════════════════════════════════════════════════════════════
+NEXT SESSION POINTERS
+═══════════════════════════════════════════════════════════════════════
+  1. Run the 2 pending smokes (S8 Stripe replay, S6 cron job_run_details after 6am UTC).
+  2. If both green → merge feat/t1-security-remediation → main + push; then /erd-close Loop #33.
+  3. Start ADJ-1 (qb-record-payment idempotency) — the real double-charge closer.
+  4. If S6 cron run errors on app.settings.* → investigate the orphan alarm's GUC provisioning (pre-existing).
+
+═══════════════════════════════════════════════════════════════════════
+GIT STATE
+═══════════════════════════════════════════════════════════════════════
+  Branch feat/t1-security-remediation (local only). Commits: b8fc1e9 (code), c51b0f3 (deploy runbook),
+  623c50e (audit prompt), + this session's housekeeping commit (migration→Vault, BACKLOG, this handoff).
+  Prod: 21 functions deployed; processed_stripe_events table live; cron rescheduled (Vault). Ledger has our
+  2 migrations marked applied. NOT merged to main, NOT pushed.
+  Runbook of record: docs/plans/t1_security_remediation_DEPLOY.md (note: B1 was applied via SQL editor, not
+  db push, per Decision 3; S6 used Vault per Decision 4).

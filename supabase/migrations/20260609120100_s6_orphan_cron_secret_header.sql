@@ -1,25 +1,30 @@
 -- S6 (T1 security remediation, Loop #33) — add x-cron-secret header to the
 -- daily orphan-alarm cron.
 --
--- check-orphan-users is being gated with verify_jwt=true (config.toml) + a
--- handler x-cron-secret check. The scheduled pg_cron invoker must therefore send
--- that header. The original job (20260520095500_s2_orphan_user_alarm.sql) sends
--- only the service-role Bearer; this migration reschedules it to also send
--- x-cron-secret, read from the app.settings.cron_secret GUC the same way the
--- Bearer reads app.settings.service_role_key.
+-- check-orphan-users is gated with verify_jwt=true (config.toml) + a handler
+-- x-cron-secret check. The scheduled pg_cron invoker must therefore send that
+-- header. The original job (20260520095500_s2_orphan_user_alarm.sql) sent only
+-- the service-role Bearer; this migration reschedules it to also send
+-- x-cron-secret.
 --
--- LOCKSTEP (see plan §6 step 3, reschedule-before-gate): provision the GUC
--- out-of-band and smoke it FIRST, then push THIS migration (the function is
--- still ungated, so it ignores the new header and keeps returning 200 — no
--- missed run), then deploy the gated function. That order leaves no window where
--- the live cron is 403'd.
+-- AS-EXECUTED DEVIATION FROM PLAN (2026-06-09): the plan called for storing the
+-- secret in a Postgres GUC (app.settings.cron_secret) and reading it via
+-- current_setting(...). That is PLATFORM-BLOCKED on this managed Supabase
+-- project: setting a custom app.settings.* parameter (ALTER DATABASE/ROLE ...
+-- SET) requires superuser, which the SQL editor / migration role is not. So the
+-- secret is stored in Supabase Vault instead and read via
+-- vault.decrypted_secrets. The edge function is UNCHANGED — it still compares the
+-- header to its own CRON_SECRET function-env secret (supabase secrets set). Only
+-- the cron's SOURCE of the secret changed (GUC -> Vault).
 --
--- current_setting('app.settings.cron_secret', TRUE) uses the two-arg missing_ok
--- form: if the GUC is unset it returns NULL instead of RAISING. A raise here
--- would abort the entire net.http_post statement and silently stop the daily
--- alarm. NULL instead means the function 403s the call (no valid secret) — which
--- is why the GUC must be provisioned BEFORE this lands (the missing_ok form
--- prevents a crash; provisioning is what makes the secret present).
+-- Provisioning that pairs with this migration (run once, out of band):
+--   - Function env:  supabase secrets set CRON_SECRET=<value>
+--   - Vault:         SELECT vault.create_secret('<value>', 'cron_secret', '...');
+--   Both must hold the SAME value (a mismatch = 403 = silent alarm outage).
+--
+-- NOTE: url + Authorization still read from current_setting('app.settings.*'),
+-- exactly as the original 20260520095500 job did — that pre-existing mechanism is
+-- out of scope for this change and is left untouched.
 
 -- Guarded unschedule so this migration is safe to re-run / safe on an env where
 -- the job was never created.
@@ -39,7 +44,7 @@ SELECT cron.schedule(
     headers := jsonb_build_object(
       'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key'),
       'Content-Type',  'application/json',
-      'x-cron-secret', current_setting('app.settings.cron_secret', TRUE)
+      'x-cron-secret', (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret')
     ),
     body := '{}'::jsonb
   );

@@ -157,7 +157,11 @@ customers: id, name, customer_type, first_name, last_name, phone, email,
 customer_contacts: id (uuid), customer_id (uuid FK customers, ON DELETE CASCADE),
   name (text), phone (text), email (text), role (text — "Project Manager",
   "Office Manager", or "Billing Contact"), is_primary (bool, default false),
-  created_at (timestamptz)
+  is_billing_contact (bool, default false — added 20260506100000),
+  created_at (timestamptz),
+  tenant_id (uuid, NOT NULL, FK tenant_config, DEFAULT get_user_tenant_id(),
+  indexed — added out-of-band via sql/rls_child_tables.sql, NOT in numbered
+  migrations; corrected here 2026-06-10 after it was wrongly assumed absent)
 
 proposal_wtc: id, proposal_id, work_type_id (INTEGER 1-40), burden_rate,
   ot_burden_rate, tax_rate, prevailing_wage, regular_hours, ot_hours,

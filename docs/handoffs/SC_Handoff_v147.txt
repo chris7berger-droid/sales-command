@@ -1,0 +1,142 @@
+SC Handoff v147 — Evening Quick-Wins + Backlog↔Code Audit · no ERD loop
+Date: 2026-06-10
+Branch: main — all work committed + pushed to origin/main @ 64b3342. Tree clean.
+
+═══════════════════════════════════════════════════════════════════════
+SESSION SUMMARY
+═══════════════════════════════════════════════════════════════════════
+Evening build session, no plan/ERD loop (quick wins + hygiene). Closed B40
+(a real wizard silent-failure bug), then — after two backlog items in a row
+proved stale against current code (F29, S4's schema ref) — ran a read-only
+4-agent audit of ~48 open backlog items vs the actual code. Ratified the
+dispositions with Chris and applied them: 2 items closed as already-shipped,
+9 re-scoped, 4 line/count fixes, 1 duplicate ID resolved, plus a corrected
+CLAUDE.md schema reference. Everything merged to main + pushed. Tree clean.
+
+═══════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED (commits this session, oldest→newest)
+═══════════════════════════════════════════════════════════════════════
+eb03b22 — Closes B40: guard NewInquiryWizard customers UPDATE error
+  - src/components/NewInquiryWizard.jsx:324 — the existing-customer branch
+    awaited the customers UPDATE without checking its return, then proceeded
+    to the call_log INSERT regardless (half-applied state on RLS reject /
+    network blip). Now destructures { error: cuErr } and halts with setError
+    + setSaving(false) + early return, mirroring the custErr guard at :352.
+  - ESLint clean. Merged to main + deployed (Vercel auto). NOT browser-smoked
+    (pure error-path; only fires when the UPDATE actually errors).
+
+696a1b4 — Touches F29: flag stale spec (send-proposal now email-only)
+  - Backlog note only. send-proposal was refactored email-only (H11); its
+    assertions #3 (proposal_recipients insert) + #4 (stage→Has Bid) are now
+    CLIENT-side (ProposalPDFModal.jsx:125/:129), not in the fn. F29 status
+    Open → Needs re-scope. (See "F29 paused" below — did NOT build it.)
+
+c8f2501 — Backlog audit 2026-06-10: reconcile specs with current code
+  - docs/BACKLOG.md + CLAUDE.md. Full disposition list in NEW/CLOSED below.
+
+64b3342 — Fix false comment in send-pay-app: customer_contacts has tenant_id
+  - supabase/functions/send-pay-app/index.ts:177-180 — comment claimed
+    customer_contacts has no tenant_id. It DOES (NOT NULL, FK, default
+    get_user_tenant_id(), added via sql/rls_child_tables.sql). Comment-only,
+    NO behavior change, NOT redeployed (comment doesn't affect runtime).
+
+═══════════════════════════════════════════════════════════════════════
+DECISIONS / DEVIATIONS
+═══════════════════════════════════════════════════════════════════════
+- F29 PAUSED, not built. Spec is stale (see above). Re-scope before building:
+  smoke = sign in TEST user (needs TEST_USER_EMAIL/TEST_USER_PASSWORD secrets,
+  because the fn 403s service-role callers) → invoke against a real TEST
+  proposal/recipient → assert 200 + clean error log ONLY. The recipients/stage
+  coverage belongs to a separate client/E2E test.
+- S4 premise VERIFIED (was the scare that triggered the audit): customer_contacts
+  .tenant_id DOES exist — confirmed live via PostgREST (select tenant_id → HTTP
+  200 + []; bogus column → 42703). CLAUDE.md schema ref was just stale. S4 is
+  buildable AS-IS. The S4 migration was NOT started this session (user redirected
+  to the audit before the build).
+- Audit was read-only (4 parallel general-purpose agents, by section). Two DONE
+  calls (B1, F21) were spot-verified by me against code before closing.
+- Doc-hygiene commits went straight to main (precedent: the v146 housekeeping +
+  the F29 note). The one code change (send-pay-app comment) was branched, then
+  ff-merged after ratification.
+
+═══════════════════════════════════════════════════════════════════════
+NEW / CLOSED / EDITED BACKLOG ITEMS (all in c8f2501)
+═══════════════════════════════════════════════════════════════════════
+CLOSED (verified already shipped in code):
+  B1  — WTC step tabs: overflowX:auto + clickable setTab + Back/Next all live
+        (WTCCalculator.jsx:2122/2126/2073).
+  F21 — Multi-GC selection survives search (keyed by customer_id in targets[],
+        MultiGCWizard.jsx:135/388). Data-loss bug gone. NOTE: no Screen-1
+        chip-bar VISUAL exists — re-file as small polish row if that was wanted.
+
+RE-SCOPED (spec drifted from reality):
+  F28 — invoice/pay-app already flip status post-2xx (onSent callback). Server-
+        side move now targets the PROPOSAL path ONLY; others need only the banner.
+  S5  — qb-create-job has NO contact read → dropped from scope. 2 real sites,
+        line#s corrected (send-invoice:87-96, send-pay-app:190-197).
+  ADJ-2 — "trusts caller Origin" is mechanically wrong; `origin` is the Deno
+        global, not the header. Latent wrong-branding bug, NOT attacker-controllable.
+  F7  — not greenfield; retention resolver + onboarding TODO already at
+        qb-sync-invoice:271,292. Config field: tenant_config.qb_retention_item_name.
+  F1  — auto-numbering already exists (Invoices.jsx:233). Enhancement, held T3.
+  F17 — status → "Smoke-tracker" (code-complete; just needs preview deploy + smoke).
+  F20 — Commercial-only default already shipped; narrowed to CO-gate only
+        (ProposalDetail.jsx:736 doesn't check is_change_order).
+  ADJ-4 — precondition (S7 _shared/cors.ts) now satisfied; actionable one-liner.
+
+LINE/COUNT FIXES: B14 (formatter :18, panel ~1088-1140), B42 (qb-sync :226-238),
+  R1 (Invoices.jsx now ~2,152), R2 (WTCCalculator.jsx now ~2,402, in src/pages/).
+
+HYGIENE: duplicate ID B39 resolved — the award_proposal RPC row re-IDed to B46
+  (the "Resume QB Sync toast" row keeps B39). Both confirmed still AS-IS.
+
+CLAUDE.md: customer_contacts schema block was missing tenant_id (real) and
+  is_billing_contact (real, added 20260506100000). Both added. This stale ref
+  is what made S4 look unbuildable.
+
+UNCHANGED (audited, confirmed accurate AS-IS — no edit needed): S4, L15, ADJ-1,
+  ADJ-3, B32, B12, B2, B3, B4, B5, B15, B43, B44, B45, F31, F32, F33, F30, F27,
+  F15, F22, F23, F24, F25, F26, R3, R4, O4, O6, O9. Genuine future/no-code: F2,
+  F3, F5, O1, O2. Unverifiable without prod: B7, F34.
+
+═══════════════════════════════════════════════════════════════════════
+VERIFICATION
+═══════════════════════════════════════════════════════════════════════
+- B40: ESLint clean on NewInquiryWizard.jsx. NOT browser-smoked (error path).
+- Audit DONE calls (B1, F21): spot-verified against code by reading the cited lines.
+- S4 column existence: verified live via PostgREST probe (200 vs 42703 control).
+- send-pay-app comment fix: comment-only, no runtime change, no redeploy.
+- No migrations run, no edge fns deployed, no secrets touched this session.
+
+═══════════════════════════════════════════════════════════════════════
+NOT TOUCHED
+═══════════════════════════════════════════════════════════════════════
+- No code beyond B40 + the send-pay-app comment. No S4 migration (premise
+  verified but build not started). No F29 build (paused).
+- sch-command / field-command / AR-Command-Center — untouched.
+
+═══════════════════════════════════════════════════════════════════════
+NEXT SESSION POINTERS
+═══════════════════════════════════════════════════════════════════════
+- The backlog is now trustworthy against current code — pick from it directly.
+- Quick wins still open (build mode, no plan): S4 (confirmed buildable, ~1h DB
+  trigger — run scripts/check-migration-safety.sh first; it's a migration, so
+  deploy waits for /buildvsplan). F29 re-scoped above if you want the smoke script.
+- B40 deployed but not browser-smoked — optional: run New Inquiry on an existing
+  customer to confirm the happy path still saves.
+- Cross-repo loose end (not this repo): sch-command feat/jobs-ia-refactor is 29d
+  cold + unmerged (from /orient). Merge or retire when convenient.
+
+═══════════════════════════════════════════════════════════════════════
+FILES TO KNOW (touched this session)
+═══════════════════════════════════════════════════════════════════════
+- src/components/NewInquiryWizard.jsx — B40 fix at :324-325.
+- supabase/functions/send-pay-app/index.ts — comment fix at :177-180.
+- docs/BACKLOG.md — audit reconciliation (search "2026-06-10" for the notes).
+- CLAUDE.md — customer_contacts schema block (~:157).
+
+═══════════════════════════════════════════════════════════════════════
+GIT STATE
+═══════════════════════════════════════════════════════════════════════
+Branch: main, clean, even with origin/main @ 64b3342.
+This session's commits: eb03b22, 696a1b4, c8f2501, 64b3342 (all pushed).

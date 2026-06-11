@@ -176,8 +176,10 @@ serve(async (req) => {
     // ── Build allowed-recipient set (soft allowlist, audit C9) ────────
     // Tenant scope is implicit via the customer_id chain (pay app → schedule
     // → proposal → call_log → customer, all tenant-scoped). customer_contacts
-    // has no tenant_id column; tenant scope comes via customers.tenant_id
-    // through the FK we just traversed.
+    // DOES have a tenant_id column (NOT NULL, FK, default get_user_tenant_id(),
+    // added via sql/rls_child_tables.sql) — an explicit .eq("tenant_id", …)
+    // belt-and-suspenders filter is feasible here (see backlog S5); for now
+    // tenant scope comes via the customer_id FK we just traversed.
     const customer: any = (invoiceRow as any).proposals?.call_log?.customers || null;
     const customerId: string | null = (invoiceRow as any).proposals?.call_log?.customer_id || null;
 

@@ -588,6 +588,31 @@ async function deletePropAttachment(fullName) {
       // Create materials rows from WTC materials
       const newJobId = inserted?.[0]?.job_id;
       if (newJobId) {
+        // Canonical job_wtcs rows (SOW vertical §S3): one per WTC — the dated SOW
+        // Schedule + Field read. jobs.field_sow above stays the legacy mirror
+        // (§6.3). dates_tbd is read PER-WTC: a TBD WTC sends null start/end AND
+        // null per-day field_sow dates for Schedule to assign. field_sow is
+        // always an array ([] never undefined — the column is NOT NULL).
+        const jobWtcRows = wtcList.map((wtc, index) => ({
+          job_id: newJobId,
+          proposal_wtc_id: wtc.id,
+          work_type_id: wtc.work_type_id,
+          work_type_name: wtc.work_types?.name || null,
+          position: index,
+          field_sow: wtc.dates_tbd
+            ? (wtc.field_sow || []).map(d => ({ ...d, date: null }))
+            : (wtc.field_sow || []),
+          material_status: "not_ordered",
+          start_date: wtc.dates_tbd ? null : (wtc.start_date || null),
+          end_date:   wtc.dates_tbd ? null : (wtc.end_date || null),
+        }));
+        // Idempotent on re-send: skip rows whose proposal_wtc_id already exists
+        // (the UNIQUE index), mirroring the jobs 23505 guard above.
+        const { error: wtcErr } = await supabase
+          .from("job_wtcs")
+          .upsert(jobWtcRows, { onConflict: "proposal_wtc_id", ignoreDuplicates: true });
+        if (wtcErr) alert("Schedule SOW sync warning: " + wtcErr.message);
+
         const matRows = [];
         let ordinal = 0;
         for (const wtc of wtcList) {

@@ -370,24 +370,29 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px", marginTop: 8 }}>
         <div style={{ marginBottom: 14 }}>
-          <Label>Tentative Start Date <span style={{ color: T.red }}>*</span></Label>
-          <input type="date" value={data.start_date || ""} onChange={e => setDate("start_date")(e.target.value)}
-            onClick={e => e.target.showPicker?.()}
-            style={{ width: "100%", border: `1.5px solid ${data.start_date ? T.gray200 : T.red}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: T.gray900, background: "#bfb3a1", outline: "none", fontFamily: "inherit", boxSizing: "border-box", cursor: "pointer" }}
-            onFocus={e => e.target.style.borderColor = T.green}
-            onBlur={e => e.target.style.borderColor = data.start_date ? T.gray200 : T.red} />
-          {!data.start_date && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required — use tentative date if unknown</div>}
+          <Label>Tentative Start Date {!data.dates_tbd && <span style={{ color: T.red }}>*</span>}</Label>
+          <input type="date" value={data.start_date || ""} disabled={data.dates_tbd} onChange={e => setDate("start_date")(e.target.value)}
+            onClick={e => { if (!data.dates_tbd) e.target.showPicker?.(); }}
+            style={{ width: "100%", border: `1.5px solid ${data.dates_tbd ? T.gray200 : (data.start_date ? T.gray200 : T.red)}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: data.dates_tbd ? T.gray400 : T.gray900, background: data.dates_tbd ? T.gray200 : "#bfb3a1", outline: "none", fontFamily: "inherit", boxSizing: "border-box", cursor: data.dates_tbd ? "not-allowed" : "pointer" }}
+            onFocus={e => { if (!data.dates_tbd) e.target.style.borderColor = T.green; }}
+            onBlur={e => e.target.style.borderColor = data.dates_tbd ? T.gray200 : (data.start_date ? T.gray200 : T.red)} />
+          {!data.start_date && !data.dates_tbd && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required — use tentative date if unknown</div>}
         </div>
         <div style={{ marginBottom: 14 }}>
-          <Label>Tentative End Date <span style={{ color: T.red }}>*</span></Label>
-          <input type="date" value={data.end_date || ""} min={data.start_date || ""} onChange={e => setDate("end_date")(e.target.value)}
-            onClick={e => e.target.showPicker?.()}
-            style={{ width: "100%", border: `1.5px solid ${data.end_date ? T.gray200 : T.red}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: T.gray900, background: "#bfb3a1", outline: "none", fontFamily: "inherit", boxSizing: "border-box", cursor: "pointer" }}
-            onFocus={e => e.target.style.borderColor = T.green}
-            onBlur={e => e.target.style.borderColor = data.end_date ? T.gray200 : T.red} />
-          {!data.end_date && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required — use tentative date if unknown</div>}
+          <Label>Tentative End Date {!data.dates_tbd && <span style={{ color: T.red }}>*</span>}</Label>
+          <input type="date" value={data.end_date || ""} min={data.start_date || ""} disabled={data.dates_tbd} onChange={e => setDate("end_date")(e.target.value)}
+            onClick={e => { if (!data.dates_tbd) e.target.showPicker?.(); }}
+            style={{ width: "100%", border: `1.5px solid ${data.dates_tbd ? T.gray200 : (data.end_date ? T.gray200 : T.red)}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: data.dates_tbd ? T.gray400 : T.gray900, background: data.dates_tbd ? T.gray200 : "#bfb3a1", outline: "none", fontFamily: "inherit", boxSizing: "border-box", cursor: data.dates_tbd ? "not-allowed" : "pointer" }}
+            onFocus={e => { if (!data.dates_tbd) e.target.style.borderColor = T.green; }}
+            onBlur={e => e.target.style.borderColor = data.dates_tbd ? T.gray200 : (data.end_date ? T.gray200 : T.red)} />
+          {!data.end_date && !data.dates_tbd && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required — use tentative date if unknown</div>}
         </div>
       </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: -4, marginBottom: 14, fontSize: 12.5, color: T.gray700, cursor: onChange ? "pointer" : "default" }}>
+        <input type="checkbox" checked={!!data.dates_tbd} disabled={!onChange}
+          onChange={e => { if (onChange) onChange({ ...data, dates_tbd: e.target.checked }); }} />
+        <span><strong>Dates TBD</strong> — schedule unknown at sale. Schedule Command assigns calendar dates after the job is sent (per-WTC).</span>
+      </label>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: -4, marginBottom: 20, padding: "12px 16px", background: T.gray50, borderRadius: 8, border: `1px solid ${T.gray200}` }}>
         <input type="checkbox" id="pw" checked={data.prevailing_wage || false}
           onChange={e => onPwToggle(e.target.checked)}
@@ -850,7 +855,7 @@ function DiscountTab({ data, onChange }) {
   );
 }
 
-function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDefaultSow, defaultSowAvailable }) {
+function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDefaultSow, defaultSowAvailable, datesTbd }) {
   const set  = k => v => onChange({ ...data, [k]: v });
   const setN = k => v => onChange({ ...data, [k]: parseFloat(v) || 0 });
 
@@ -858,10 +863,18 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
   const removeSubArea = id => onChange({ ...data, sub_areas: (data.sub_areas || []).filter(a => a.id !== id) });
   const updateSubArea = (id, key, val) => onChange({ ...data, sub_areas: (data.sub_areas || []).map(a => a.id === id ? { ...a, [key]: key === "label" || key === "unit" ? val : parseFloat(val) || 0 } : a) });
 
-  const newTask = () => ({ id: Date.now() + Math.random(), description: "", pct_complete: 0 });
-  const addDay    = () => onChange({ ...data, field_sow: [...(data.field_sow || []), { id: Date.now(), day_label: `Day ${(data.field_sow || []).length + 1}`, tasks: [newTask()], crew_count: 0, hours_planned: 0, materials: [] }] });
+  // Durable IDs (S4): UUIDs so cloned/sister proposals don't share day/task ids.
+  // Date.now() collides when field_sow is cloned verbatim — two days share an id,
+  // so a per-day date write hits both. Fallback for non-secure contexts.
+  const uid = () => (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const newTask = () => ({ id: uid(), description: "", pct_complete: 0 });
+  const addDay    = () => onChange({ ...data, field_sow: [...(data.field_sow || []), { id: uid(), day_label: `Day ${(data.field_sow || []).length + 1}`, date: null, tasks: [newTask()], crew_count: 0, hours_planned: 0, materials: [] }] });
   const removeDay = id => onChange({ ...data, field_sow: (data.field_sow || []).filter(e => e.id !== id) });
-  const updateDay = (id, key, val) => onChange({ ...data, field_sow: (data.field_sow || []).map(e => e.id === id ? { ...e, [key]: key === "day_label" ? val : parseFloat(val) || 0 } : e) });
+  // 'date' is exempt from parseFloat coercion (ISO string, not a number) — the
+  // Sales half of the paired guard with §SCH2's FieldSowBuilder (S1).
+  const updateDay = (id, key, val) => onChange({ ...data, field_sow: (data.field_sow || []).map(e => e.id === id ? { ...e, [key]: ["day_label", "date"].includes(key) ? val : parseFloat(val) || 0 } : e) });
   const addTask    = dayId => onChange({ ...data, field_sow: (data.field_sow || []).map(e => e.id === dayId ? { ...e, tasks: [...(e.tasks || []), newTask()] } : e) });
   const removeTask = (dayId, taskId) => onChange({ ...data, field_sow: (data.field_sow || []).map(e => e.id === dayId ? { ...e, tasks: (e.tasks || []).filter(t => t.id !== taskId) } : e) });
   const updateTask = (dayId, taskId, key, val) => onChange({ ...data, field_sow: (data.field_sow || []).map(e => e.id === dayId ? { ...e, tasks: (e.tasks || []).map(t => t.id === taskId ? { ...t, [key]: key === "description" ? val : parseFloat(val) || 0 } : t) } : e) });
@@ -1010,6 +1023,14 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
                     style={{ width: "100%", border: `1.5px solid ${T.gray200}`, borderRadius: 6, padding: "5px 8px", fontSize: 13, outline: "none", fontFamily: "inherit", background: "#bfb3a1" }}
                     onFocus={e => e.target.style.borderColor = T.green}
                     onBlur={e => e.target.style.borderColor = T.gray200} />
+                </div>
+                <div style={{ width: 150, flexShrink: 0 }}>
+                  <Label>Date{datesTbd ? " (TBD)" : ""}</Label>
+                  <input type="date" value={entry.date || ""} disabled={datesTbd}
+                    onChange={e => updateDay(entry.id, "date", e.target.value)}
+                    onClick={e => { if (!datesTbd) e.target.showPicker?.(); }}
+                    title={datesTbd ? "Dates TBD is on — Schedule will assign the calendar" : undefined}
+                    style={{ width: "100%", border: `1.5px solid ${T.gray200}`, borderRadius: 6, padding: "5px 8px", fontSize: 13, outline: "none", fontFamily: "inherit", background: datesTbd ? T.gray200 : "#bfb3a1", color: datesTbd ? T.gray400 : T.gray900, cursor: datesTbd ? "not-allowed" : "pointer" }} />
                 </div>
                 <div style={{ flex: 1 }} />
                 <button onClick={() => removeDay(entry.id)}
@@ -1745,7 +1766,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
         reason: data.discount_reason ?? "",
       });
       setLocked(data.locked ?? false);
-      setBidding(prev => ({ ...prev, start_date: data.start_date ?? "", end_date: data.end_date ?? "" }));
+      setBidding(prev => ({ ...prev, start_date: data.start_date ?? "", end_date: data.end_date ?? "", dates_tbd: data.dates_tbd ?? false }));
       if (data.work_type_id) setSelectedWorkTypeId(data.work_type_id);
       setSaved(true);
     }
@@ -1940,6 +1961,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       discount_reason: discount.reason,
       start_date:      bidding.start_date || null,
       end_date:        bidding.end_date || null,
+      dates_tbd:       bidding.dates_tbd ?? false,   // S2: persist the per-WTC TBD state (L2 round-trip)
       locked:          locked,
     };
     if (wtcId) {
@@ -2160,7 +2182,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
           {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} showArchiveRateHint={parentIsArchive} />}
           {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={proposalSold ? undefined : v => { setLabor(v); setSaved(false); }} />}
           {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={proposalSold ? undefined : v => { setMaterials(v); setSaved(false); }} />}
-          {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} onSave={handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} />}
+          {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} onSave={handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} datesTbd={bidding.dates_tbd} />}
           {tab === "travel"  && <TravelTab data={travel} onChange={proposalSold ? undefined : v => { setTravel(v); setSaved(false); }} />}
           {tab === "discount" && <DiscountTab data={discount} onChange={proposalSold ? undefined : v => { setDiscount(v); setSaved(false); }} />}
           {tab === "summary" && <SummaryTab labor={laborComputed} materials={materials} travel={travel} discount={discount} sow={sow} bidding={bidding} onSave={handleSave} saved={saved} locked={locked} onLock={handleLock} onGeneratePDF={() => { if (onClose) onClose(true); }} />}

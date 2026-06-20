@@ -1302,6 +1302,9 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   }
 
   const isArchiveInvoice = lines.length > 0 && lines.every(l => !l.proposal_wtc_id && !l.billing_schedule_line_id);
+  // A deposit's line is null/null too (so isArchiveInvoice is also true) — invoiceKind
+  // disambiguates via invoices.type. Used to suppress retention in the edit form.
+  const isDepositInvoice = invoiceKind(inv, lines) === "deposit";
 
   function startEditing() {
     setEditId(inv.id);
@@ -1345,10 +1348,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       return { id: l.id, billing_pct: pct, amount: Math.round(wtcTotal * (pct / 100) * 100) / 100 };
     });
     const newAmount = newLines.reduce((sum, l) => sum + l.amount, 0);
+    // A deposit carries NO retention. type is only enforced at create, so guard the
+    // edit write too (CLAUDE.md #6/#7 — guard the save, not just the hidden UI) and
+    // force retention to 0 regardless of any stale/edited retention input.
     // Retention + discount are also owned by the pay-app flow. For a pay-app invoice
     // preserve the stored values; otherwise recompute from the edit-form inputs. (plan §3)
-    const retPct   = linkedPayApp ? (parseFloat(inv.retention_pct) || 0)    : (parseFloat(editRetentionPct) || 0);
-    const retAmt   = linkedPayApp ? (parseFloat(inv.retention_amount) || 0) : Math.round(newAmount * (retPct / 100) * 100) / 100;
+    const retPct   = isDepositInvoice ? 0 : linkedPayApp ? (parseFloat(inv.retention_pct) || 0)    : (parseFloat(editRetentionPct) || 0);
+    const retAmt   = isDepositInvoice ? 0 : linkedPayApp ? (parseFloat(inv.retention_amount) || 0) : Math.round(newAmount * (retPct / 100) * 100) / 100;
     const discount = linkedPayApp ? (parseFloat(inv.discount) || 0)         : (parseFloat(editDiscount) || 0);
 
     // Update invoice
@@ -1688,6 +1694,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                 <div style={labelStyle}>Discount ($)</div>
                 <input type="number" min="0" step="1" value={editDiscount} onChange={e => setEditDiscount(e.target.value)} style={inputStyle} />
               </div>
+              {/* Deposits carry no retention — hide the input AND force 0 in the save. */}
+              {!isDepositInvoice && (
               <div>
                 <div style={labelStyle}>Retention (%)</div>
                 <input type="number" min="0" max="100" step="0.5" value={editRetentionPct} onChange={e => setEditRetentionPct(e.target.value)} style={inputStyle} />
@@ -1700,6 +1708,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                   );
                 })()}
               </div>
+              )}
             </>
           )}
           {isArchiveInvoice && (

@@ -11,12 +11,13 @@
 
 ## Build
 0. **Move the flag to the job (`call_log`)** — locked 2026-06-20. Migration adds `call_log.deposit_required` + `deposit_amount`; the `proposals.deposit_*` columns we shipped go **vestigial** (leave; file cleanup). Why: a job is the universal record (proposal-less archive jobs can still carry a deposit), and Schedule reads it straight off the job — no proposal join.
-   - Repoint the §1b proposal-summary checkbox to write `call_log`.
+   - Repoint the §1b proposal-summary checkbox to write `call_log` — and **init it from `call_log`, not the proposal** (audit #5: a job can have multiple proposals; it's now a job-level field, so every proposal of the job shows the same shared value — don't frame it as per-proposal).
    - **Add the same deposit control to the job-detail screen (`CallLogDetail`)** — per Chris's principle, the call_log job-detail is *the* home and should always carry all info.
-1. **Strip the overbuild (§1c):** remove the "Create Deposit Invoice" button, the archive-path deposit creation, and the forced no-retention guard. Deposits are billed through the **normal flow** — a pay-app for a GC (retention handled there already), a regular invoice for direct.
-2. **Tag the deposit invoice:** when you bill the deposit, mark that invoice as *the deposit* so state can link back. **[DECISION NEEDED — see Open.]**
-3. **Badge:** "Materials Deposit" badge on the tagged invoice (preview + PDF + public page), driven off the tag.
-4. **State:** `required` = `proposals.deposit_required`; `due` = tagged invoice's `sent_at` / `due_date`; `paid` = `paid_at`. (Consumed by the Schedule indicator — Cycle 2.)
+1. **Strip the overbuild (§1c):** remove the "Create Deposit Invoice" button and the archive-path deposit creation. Deposits are billed through the **normal flow** — a pay-app for a GC (retention handled there already), a regular invoice for direct.
+   - **Retention guard [audit #4 — don't kill it]:** the `handleSaveEdit` force-retention-0 + hidden retention input currently key on `invoiceKind==='deposit'`, which goes permanently false after the strip → a direct deposit edited in the form would re-acquire retention (the bug we closed). **Repoint the guard to `is_deposit`, and force-0 ONLY on the non-pay-app branch** (`type='regular'`). A pay-app deposit's retention is owned by the pay-app flow — don't double-zero it.
+2. **Tag the deposit invoice:** mark the billed invoice `is_deposit=true` so state links back. **[DECISION NEEDED — mechanism: who/where/when. See Open.]**
+3. **Badge — NOT line render [audit #1, BLOCKING]:** the badge reads `is_deposit`. **DELETE the synthetic single-line "Materials Deposit / 100% / flat amount" branches** (`invoicePdf.js:256-267`, `Invoices.jsx:901-922`, `PublicInvoicePage.jsx:207-213`) — they only fit the old archive-create shape. Under the new model a deposit is a normal pay-app (real SOV lines) or regular invoice (real WTC lines) and must render its **real lines**. Badge ≠ line-itemization; only the badge keys on `is_deposit`.
+4. **State:** `required` = **`call_log.deposit_required`** (audit #3 — flag moved to call_log, not proposals); `due` = the deposit invoice's `sent_at` / `due_date`; `paid` = `paid_at`. (Consumed by the Schedule indicator — Cycle 2.)
 
 ## Deposit-invoice tag — RESOLVED (A, 2026-06-20)
 **`invoices.is_deposit` boolean** — orthogonal to `type`. A GC deposit is `type='pay-app'` AND `is_deposit=true`; a direct deposit is `type='regular'` AND `is_deposit=true`. Set when the user marks an invoice as the deposit. The badge + required/due/paid state read off `is_deposit`.

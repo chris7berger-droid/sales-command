@@ -15,9 +15,15 @@
    - **Add the same deposit control to the job-detail screen (`CallLogDetail`)** — per Chris's principle, the call_log job-detail is *the* home and should always carry all info.
 1. **Strip the overbuild (§1c):** remove the "Create Deposit Invoice" button and the archive-path deposit creation. Deposits are billed through the **normal flow** — a pay-app for a GC (retention handled there already), a regular invoice for direct.
    - **Retention guard [audit #4 — don't kill it]:** the `handleSaveEdit` force-retention-0 + hidden retention input currently key on `invoiceKind==='deposit'`, which goes permanently false after the strip → a direct deposit edited in the form would re-acquire retention (the bug we closed). **Repoint the guard to `is_deposit`, and force-0 ONLY on the non-pay-app branch** (`type='regular'`). A pay-app deposit's retention is owned by the pay-app flow — don't double-zero it.
-2. **Tag the deposit invoice:** mark the billed invoice `is_deposit=true` so state links back. **[DECISION NEEDED — mechanism: who/where/when. See Open.]**
+2. **Tag the deposit invoice — RESOLVED 2026-06-20:** a **"Mark as deposit" toggle on the invoice** sets `is_deposit=true`. **Single-select** per job — marking a new one clears `is_deposit` on the job's prior deposit invoice (partial unique index or UI single-select; resolves audit #5 uniqueness).
+   - **Intent until sent:** the toggle can be set on a draft (`New`) invoice, but the deposit is **not "recorded"** — not counted in state, not shown as billed — **until that invoice is sent** (`sent_at` set). An unsent toggle leaves the job still showing deposit *required*.
+   - **Pull-back reverts it:** when a sent deposit invoice is pulled back, **clear `is_deposit`** (add to `handlePullBack`'s cleanup) → the job reverts to deposit *required*.
 3. **Badge — NOT line render [audit #1, BLOCKING]:** the badge reads `is_deposit`. **DELETE the synthetic single-line "Materials Deposit / 100% / flat amount" branches** (`invoicePdf.js:256-267`, `Invoices.jsx:901-922`, `PublicInvoicePage.jsx:207-213`) — they only fit the old archive-create shape. Under the new model a deposit is a normal pay-app (real SOV lines) or regular invoice (real WTC lines) and must render its **real lines**. Badge ≠ line-itemization; only the badge keys on `is_deposit`.
-4. **State:** `required` = **`call_log.deposit_required`** (audit #3 — flag moved to call_log, not proposals); `due` = the deposit invoice's `sent_at` / `due_date`; `paid` = `paid_at`. (Consumed by the Schedule indicator — Cycle 2.)
+4. **State (sent-gated):** the deposit only counts once its invoice is **sent**.
+   - `required` = `call_log.deposit_required` AND no **sent** `is_deposit` invoice yet (audit #3 — flag is on call_log, not proposals).
+   - `due` = a sent `is_deposit` invoice, unpaid → `sent_at` / `due_date`.
+   - `paid` = that invoice's `paid_at`.
+   - An `is_deposit` invoice that's still a draft (not sent) does **not** flip the job out of *required*. (Consumed by the Schedule indicator — Cycle 2.)
 
 ## Deposit-invoice tag — RESOLVED (A, 2026-06-20)
 **`invoices.is_deposit` boolean** — orthogonal to `type`. A GC deposit is `type='pay-app'` AND `is_deposit=true`; a direct deposit is `type='regular'` AND `is_deposit=true`. Set when the user marks an invoice as the deposit. The badge + required/due/paid state read off `is_deposit`.

@@ -2054,7 +2054,7 @@ export default function Invoices({ setSubPage, teamMember }) {
     (async () => {
       const { data } = await supabase
         .from("proposals")
-        .select("id, customer, total, proposal_number, call_log_id, is_archive_proposal, historical_billed_amount, call_log(display_job_number, customer_name, job_name, show_cents)")
+        .select("id, customer, total, proposal_number, call_log_id, is_archive_proposal, historical_billed_amount, deposit_required, deposit_amount, call_log(display_job_number, customer_name, job_name, show_cents)")
         .eq("id", proposalId)
         .is("deleted_at", null)
         .maybeSingle();

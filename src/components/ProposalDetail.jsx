@@ -13,6 +13,14 @@ import ProposalPDFModal from "./ProposalPDFModal";
 import MultiGCWizard from "./MultiGCWizard";
 import SyncConflictModal from "./SyncConflictModal";
 
+// Keep a single decimal point as the user types — collapses multi-dot input so
+// "1.2.3" → "1.23" cleanly (the prior parse silently truncated at the 2nd dot).
+const sanitizeAmount = (s) => {
+  const c = String(s).replace(/[^0-9.]/g, "");
+  const i = c.indexOf(".");
+  return i === -1 ? c : c.slice(0, i + 1) + c.slice(i + 1).replace(/\./g, "");
+};
+
 function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember, onNavigateJob, onNavigateInvoice }) {
   const [p, setP] = useState(pInit);
   const money = p.call_log?.show_cents ? fmt$c : fmt$;
@@ -1152,11 +1160,10 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                     <div style={{ position: "relative", flex: 1 }}>
                       <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 15, fontWeight: 700, color: C.textMuted, fontFamily: F.ui, pointerEvents: "none" }}>$</span>
                       <input
-                        type="number"
-                        min="0"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         value={depositAmount}
-                        onChange={e => setDepositAmount(e.target.value)}
+                        onChange={e => setDepositAmount(sanitizeAmount(e.target.value))}
                         placeholder="0"
                         style={{ width: "100%", padding: "10px 14px 10px 26px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, color: C.textHead, fontSize: 16, fontWeight: 700, fontFamily: F.ui, WebkitAppearance: "none" }}
                       />

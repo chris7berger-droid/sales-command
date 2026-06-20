@@ -18,6 +18,14 @@ import PayAppDetailModal from "../components/PayAppDetailModal";
 import BillingScheduleSection from "../components/BillingScheduleSection";
 import NewPayAppModal from "../components/NewPayAppModal";
 
+// Keep a single decimal point as the user types — collapses multi-dot input so
+// "1.2.3" → "1.23" cleanly (the prior parse silently truncated at the 2nd dot).
+const sanitizeAmount = (s) => {
+  const c = String(s).replace(/[^0-9.]/g, "");
+  const i = c.indexOf(".");
+  return i === -1 ? c : c.slice(0, i + 1) + c.slice(i + 1).replace(/\./g, "");
+};
+
 // ── Shared styles ─────────────────────────────────────────────────────────
 const inputStyle = {
   padding: "10px 14px", borderRadius: 8,
@@ -436,7 +444,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
                       type="text"
                       inputMode="decimal"
                       value={depositAmount}
-                      onChange={e => setDepositAmount(e.target.value)}
+                      onChange={e => setDepositAmount(sanitizeAmount(e.target.value))}
                       placeholder="0"
                       style={{ ...inputStyle, paddingLeft: 24 }}
                     />

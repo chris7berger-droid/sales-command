@@ -42,6 +42,7 @@ const [depositRequired, setDepositRequired] = useState(pInit.deposit_required ||
 const [depositAmount, setDepositAmount] = useState(pInit.deposit_amount ? String(pInit.deposit_amount) : "");
 const [depositSaving, setDepositSaving] = useState(false);
 const [depositSaved, setDepositSaved] = useState(false);
+const [depositError, setDepositError] = useState(null);
 const [recipients, setRecipients] = useState([]);
 const [sendingToSchedule, setSendingToSchedule] = useState(false);
 const [sentToSchedule, setSentToSchedule] = useState(false);
@@ -123,12 +124,24 @@ async function saveIntro() {
 // never derived via calcWtcPrice. Persists deposit_required + deposit_amount directly.
 async function saveDeposit(nextRequired, nextAmount) {
   setDepositSaving(true);
+  setDepositError(null);
   const numAmt = nextRequired ? (parseFloat(nextAmount) || 0) : 0;
-  await supabase.from("proposals")
+  // Verify-after-write: RLS can silently no-op an UPDATE (no error, 0 rows). Confirm a
+  // row actually changed before claiming "Saved" — never report success on a no-op.
+  const { data: updated, error } = await supabase.from("proposals")
     .update({ deposit_required: nextRequired, deposit_amount: numAmt })
-    .eq("id", p.id);
-  setP(prev => ({ ...prev, deposit_required: nextRequired, deposit_amount: numAmt }));
+    .eq("id", p.id)
+    .select();
   setDepositSaving(false);
+  if (error || !updated || updated.length < 1) {
+    // Roll the checkbox/amount back to the last persisted values so the UI can't drift
+    // from the DB after a failed save.
+    setDepositRequired(p.deposit_required || false);
+    setDepositAmount(p.deposit_amount ? String(p.deposit_amount) : "");
+    setDepositError(error?.message || "Couldn't save the deposit — refresh and try again.");
+    return;
+  }
+  setP(prev => ({ ...prev, deposit_required: nextRequired, deposit_amount: numAmt }));
   setDepositSaved(true);
   setTimeout(() => setDepositSaved(false), 2000);
 }
@@ -1116,7 +1129,9 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: depositRequired ? 14 : 4 }}>
               <div style={{ fontWeight: 800, fontSize: 12.5, color: C.green, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase" }}>Materials Deposit</div>
               {depositSaved && <span style={{ fontSize: 11, color: C.green, fontWeight: 700, fontFamily: F.ui }}>Saved</span>}
+              {depositError && <span style={{ fontSize: 11, color: C.red, fontWeight: 700, fontFamily: F.ui }}>Not saved</span>}
             </div>
+            {depositError && <div style={{ fontSize: 11, color: C.red, fontFamily: F.ui, marginBottom: 8 }}>{depositError}</div>}
             <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
               <input
                 type="checkbox"

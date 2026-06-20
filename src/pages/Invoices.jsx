@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams, useLocation } from "react-rout
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
-import { fmt$, fmt$c, fmtD } from "../lib/utils";
+import { fmt$, fmt$c, fmtD, invoiceKind } from "../lib/utils";
 import { calcWtcPrice } from "../lib/calc";
 import { INV_C, PROP_C } from "../lib/mockData";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
@@ -657,6 +657,8 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
   const retentionAmt = parseFloat(invoice.retention_amount) || 0;
   const retentionPct = parseFloat(invoice.retention_pct) || 0;
   const netTotal = (invoice.amount || 0) - (invoice.discount || 0) - retentionAmt;
+  const invKind = invoiceKind(invoice, lines);
+  const isDepositInvoice = invKind === "deposit";
 
   // Load billing contact from customer_contacts (Billing Contact role) → fall back to customers table
   useEffect(() => {
@@ -839,7 +841,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
                   )}
                 </div>
                 <div style={{ textAlign: "left" }}>
-                  {invoice.type === "deposit" && (
+                  {isDepositInvoice && (
                     <div style={{ display: "inline-block", background: "#43a047", color: "white", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "4px 10px", borderRadius: 4, marginBottom: 10 }}>Materials Deposit Invoice</div>
                   )}
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Invoice #</div>
@@ -875,20 +877,29 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
                       const wtc = l.proposal_wtc;
                       const sov = l.billing_schedule_line;
                       const isSov = !wtc && sov;
-                      const isArchiveLine = !wtc && !sov && archiveCtx.isArchive;
-                      const lineLabel = isSov
+                      // A deposit invoice's single line is null/null — bill the flat
+                      // deposit amount, not a recomputed WTC price (which would be $0).
+                      const isDepositLine = isDepositInvoice;
+                      const isArchiveLine = !isDepositLine && !wtc && !sov && archiveCtx.isArchive;
+                      const lineLabel = isDepositLine
+                        ? "Materials Deposit"
+                        : isSov
                         ? (sov.line_code ? `${sov.line_code} — ${sov.description}` : sov.description)
                         : isArchiveLine
                           ? (archiveCtx.workTypes || "—")
                           : (wtc?.work_types?.name || l.description || "—");
                       const wtcNum = wtc ? wtcIndex[wtc.id] : null;
                       const wtcCell = wtcNum ? `WTC ${wtcNum}` : "—";
-                      const rowTotal = isSov
+                      const rowTotal = isDepositLine
+                        ? (parseFloat(l.amount) || 0)
+                        : isSov
                         ? (parseFloat(sov.scheduled_value) || 0)
                         : isArchiveLine
                           ? archiveCtx.sold
                           : (wtc ? calcWtcPrice(wtc) : 0);
-                      const billingPct = isArchiveLine
+                      const billingPct = isDepositLine
+                        ? 100
+                        : isArchiveLine
                         ? (archiveCtx.sold > 0 ? ((parseFloat(l.amount) || 0) / archiveCtx.sold) * 100 : 0)
                         : (parseFloat(l.billing_pct) || 0);
                       return (

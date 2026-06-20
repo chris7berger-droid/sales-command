@@ -4,7 +4,7 @@ import { createPublicClient } from "../lib/supabasePublic";
 import { useMemo } from "react";
 import { calcWtcPrice } from "../lib/calc";
 import { DEFAULTS } from "../lib/config";
-import { fmt$, fmt$c, fmtD } from "../lib/utils";
+import { fmt$, fmt$c, fmtD, invoiceKind } from "../lib/utils";
 
 export default function PublicInvoicePage() {
   const { token } = useParams();
@@ -95,6 +95,8 @@ export default function PublicInvoicePage() {
     const v = parseFloat(n) || 0;
     return effectiveShowCents ? `${v.toFixed(2)}%` : `${Math.round(v)}%`;
   };
+  const invKind = invoiceKind(invoice, lines);
+  const isDepositInvoice = invKind === "deposit";
   const isArchive = !!invoice.proposals?.is_archive_proposal;
   const archiveSold = parseFloat(invoice.proposals?.total) || 0;
   const archiveWorkTypes = (invoice.proposals?.call_log?.job_work_types || []).map(j => j.work_types?.name).filter(Boolean).join(", ");
@@ -167,6 +169,9 @@ export default function PublicInvoicePage() {
               )}
             </div>
             <div style={{ textAlign: "left" }}>
+              {isDepositInvoice && (
+                <div style={{ display: "inline-block", background: "#43a047", color: "white", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "4px 10px", borderRadius: 4, marginBottom: 10 }}>Materials Deposit Invoice</div>
+              )}
               <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Invoice #</div>
               <div style={{ fontSize: 12, color: "#887c6e" }}>{invoice.id}</div>
               {invoice.job_id && (
@@ -198,12 +203,16 @@ export default function PublicInvoicePage() {
               <tbody>
                 {lines.map(l => {
                   const wtc = l.proposal_wtc;
-                  const isArchiveLine = !wtc && isArchive;
-                  const lineLabel = isArchiveLine ? (archiveWorkTypes || "—") : (wtc?.work_types?.name || "—");
+                  // Deposit line is null/null — show the flat deposit amount, not a $0 recompute.
+                  const isDepositLine = isDepositInvoice;
+                  const isArchiveLine = !isDepositLine && !wtc && isArchive;
+                  const lineLabel = isDepositLine ? "Materials Deposit" : isArchiveLine ? (archiveWorkTypes || "—") : (wtc?.work_types?.name || "—");
                   const wtcNum = wtc ? wtcIndex[wtc.id] : null;
                   const wtcCell = wtcNum ? `WTC ${wtcNum}` : "—";
-                  const rowAmount = isArchiveLine ? archiveSold : (wtc ? calcWtcPrice(wtc) : 0);
-                  const billingPct = isArchiveLine
+                  const rowAmount = isDepositLine ? (parseFloat(l.amount) || 0) : isArchiveLine ? archiveSold : (wtc ? calcWtcPrice(wtc) : 0);
+                  const billingPct = isDepositLine
+                    ? 100
+                    : isArchiveLine
                     ? (archiveSold > 0 ? ((parseFloat(l.amount) || 0) / archiveSold) * 100 : 0)
                     : (parseFloat(l.billing_pct) || 0);
                   return (

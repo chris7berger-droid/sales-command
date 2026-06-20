@@ -12,7 +12,7 @@
 import jsPDF from "jspdf";
 import { supabase } from "./supabase";
 import { calcWtcPrice } from "./calc";
-import { fmt$ } from "./utils";
+import { fmt$, invoiceKind } from "./utils";
 
 /**
  * Generate a PDF of an invoice and upload it to Supabase storage.
@@ -26,6 +26,8 @@ import { fmt$ } from "./utils";
  * @returns {Promise<{pdfUrl: string, storagePath: string}>}
  */
 export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {}, callLog = {}, customer = {} }) {
+  const kind = invoiceKind(invoice, lines);
+  const isDepositInvoice = kind === "deposit";
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const pageW = doc.internal.pageSize.getWidth();   // 612
   const pageH = doc.internal.pageSize.getHeight();  // 792
@@ -152,8 +154,8 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
 
   // Right: Invoice # / Job # / Due Date
   let ry2 = sectionTop;
-  // Deposit badge — gated on invoice.type, sits above the Invoice # label.
-  if (invoice.type === "deposit") {
+  // Deposit badge — gated on invoice kind, sits above the Invoice # label.
+  if (isDepositInvoice) {
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
     const badgeLabel = "MATERIALS DEPOSIT INVOICE";
@@ -250,13 +252,19 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     const wtc = l.proposal_wtc;
     const sov = l.billing_schedule_line;
     const isSov = !wtc && sov;
-    const lineLabel = isSov
+    // Deposit line is null/null — show the flat deposit amount, not a $0 WTC recompute.
+    const isDepositLine = isDepositInvoice;
+    const lineLabel = isDepositLine
+      ? "Materials Deposit"
+      : isSov
       ? (sov.line_code ? `${sov.line_code} — ${sov.description || ""}` : (sov.description || "—"))
       : (wtc?.work_types?.name || l.description || "—");
-    const rowAmount = isSov
+    const rowAmount = isDepositLine
+      ? (parseFloat(l.amount) || 0)
+      : isSov
       ? (parseFloat(sov.scheduled_value) || 0)
       : (wtc ? calcWtcPrice(wtc) : 0);
-    const billingPct = l.billing_pct ?? 0;
+    const billingPct = isDepositLine ? 100 : (l.billing_pct ?? 0);
     const lineTotal  = l.amount ?? 0;
 
     // Wrap long description labels against the width available before the amount col.

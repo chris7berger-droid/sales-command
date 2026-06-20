@@ -54,6 +54,10 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
   const [archiveBilled, setArchiveBilled] = useState(0);
   const [roundInvoice, setRoundInvoice] = useState(true);
   const [retentionPct, setRetentionPct] = useState("");
+  // §1c — deposit invoice flow. depositMode toggles the deposit path on for a
+  // proposal that requires one; depositAmount is the suggested-but-editable figure.
+  const [depositMode, setDepositMode] = useState(false);
+  const [depositAmount, setDepositAmount] = useState("");
   const money = roundInvoice ? fmt$ : fmt$c;
 
   const tenantCfgRef = useRef(null);
@@ -65,7 +69,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
     async function loadProposals() {
       const { data } = await supabase
         .from("proposals")
-        .select("id, customer, total, proposal_number, call_log_id, is_archive_proposal, historical_billed_amount, call_log(display_job_number, customer_name, job_name, show_cents)")
+        .select("id, customer, total, proposal_number, call_log_id, is_archive_proposal, historical_billed_amount, deposit_required, deposit_amount, call_log(display_job_number, customer_name, job_name, show_cents)")
         .eq("status", "Sold")
         .is("deleted_at", null)
         .order("created_at", { ascending: false });
@@ -129,6 +133,9 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
     setIntro("");
     setDescription("");
     setRoundInvoice(!p.call_log?.show_cents);
+    // Offer (don't force) the deposit path; prefill the suggested deposit amount.
+    setDepositMode(false);
+    setDepositAmount(p.deposit_required && parseFloat(p.deposit_amount) > 0 ? String(p.deposit_amount) : "");
 
     // Apply template substitutions for intro + description
     if (!tenantCfgRef.current) tenantCfgRef.current = await getTenantConfig();
@@ -212,9 +219,16 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 
   async function handleCreate() {
     if (!dueDate) { setError("Due date is required."); return; }
-    const isArchive = !!selProposal.is_archive_proposal;
+    // Deposit mode wins over the archive path when both could apply.
+    const isDeposit = depositMode;
+    const isArchive = !isDeposit && !!selProposal.is_archive_proposal;
     let archiveAmt = 0;
-    if (isArchive) {
+    let depositAmt = 0;
+    if (isDeposit) {
+      depositAmt = parseFloat(String(depositAmount).replace(/[^0-9.\-]/g, ""));
+      if (!depositAmt || depositAmt <= 0) { setError("Enter a deposit amount."); return; }
+      // Over-total is a WARN, not a block (surfaced inline in the form) — do not reject here.
+    } else if (isArchive) {
       archiveAmt = parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, ""));
       const remaining = (parseFloat(selProposal.total) || 0) - archiveBilled;
       if (!archiveAmt || archiveAmt <= 0) { setError("Enter an invoice amount."); return; }
@@ -226,8 +240,9 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
     setSaving(true);
     setError(null);
 
-    const retPct = parseFloat(retentionPct) || 0;
-    const grossForRetention = isArchive ? archiveAmt : invoiceTotal;
+    // Deposits carry no retention.
+    const retPct = isDeposit ? 0 : (parseFloat(retentionPct) || 0);
+    const grossForRetention = isDeposit ? depositAmt : (isArchive ? archiveAmt : invoiceTotal);
     const retAmt = Math.round(grossForRetention * (retPct / 100) * 100) / 100;
 
     // Generate next invoice ID — find the highest ID in the main sequence,
@@ -246,9 +261,11 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 
     const jobNum = selProposal.call_log?.display_job_number || selProposal.call_log?.job_name || "";
     const jobName = selProposal.call_log?.job_name || selProposal.customer || "";
-    const finalAmount = isArchive ? archiveAmt : invoiceTotal;
+    const finalAmount = isDeposit ? depositAmt : (isArchive ? archiveAmt : invoiceTotal);
 
-    // Create invoice
+    // Create invoice — type is set EXPLICITLY on every branch (Data Integrity #6):
+    // deposit→'deposit', archive/proposal→'regular'. Pay-app invoices are minted
+    // in NewPayAppModal ('pay-app'); this handler never produces one.
     const { data: inv, error: invErr } = await supabase
       .from("invoices")
       .insert([{
@@ -257,6 +274,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
         call_log_id: selProposal.call_log_id,
         job_name: jobName,
         status: "New",
+        type: isDeposit ? "deposit" : "regular",
         amount: Math.round(finalAmount * 100) / 100,
         discount: 0,
         proposal_id: selProposal.id,
@@ -272,12 +290,14 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 
     if (invErr) { setError(invErr.message); setSaving(false); return; }
 
-    if (isArchive) {
+    if (isDeposit || isArchive) {
+      // Deposit + archive share the same line shape: one row, null proposal_wtc_id.
+      const lineAmt = isDeposit ? depositAmt : archiveAmt;
       const { error: lineErr } = await supabase.from("invoice_lines").insert([{
         invoice_id: inv.id,
         proposal_wtc_id: null,
         billing_pct: null,
-        amount: Math.round(archiveAmt * 100) / 100,
+        amount: Math.round(lineAmt * 100) / 100,
       }]);
       if (lineErr) { setError(lineErr.message); setSaving(false); return; }
     } else {
@@ -385,7 +405,51 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
               </div>
             </div>
 
-            {selProposal.is_archive_proposal && (() => {
+            {/* §1c — Materials Deposit offer + amount. Shown when the proposal requires one. */}
+            {selProposal.deposit_required && parseFloat(selProposal.deposit_amount) > 0 && (
+              <div style={{ background: C.linenDeep, border: `1px solid ${C.green}`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 13, color: C.green, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>Materials Deposit Required</div>
+                    <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginTop: 2 }}>This proposal calls for a deposit of {money(parseFloat(selProposal.deposit_amount))}.</div>
+                  </div>
+                  <button
+                    onClick={() => setDepositMode(m => !m)}
+                    style={{ background: depositMode ? C.green : "transparent", border: `1px solid ${C.green}`, borderRadius: 6, padding: "8px 14px", color: depositMode ? "#fff" : C.green, fontSize: 11, fontWeight: 800, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}
+                  >
+                    {depositMode ? "✓ Deposit Invoice" : "Create Deposit Invoice"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {depositMode && (() => {
+              const total = parseFloat(selProposal.total) || 0;
+              const amt = parseFloat(String(depositAmount).replace(/[^0-9.\-]/g, "")) || 0;
+              const overTotal = amt > 0 && total > 0 && amt > total;
+              return (
+                <div style={{ background: C.linenDeep, borderRadius: 10, padding: 16, marginBottom: 10, border: `1px solid ${C.green}` }}>
+                  <div style={{ ...labelStyle, marginBottom: 4 }}>Deposit Amount</div>
+                  <div style={{ position: "relative" }}>
+                    <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: C.textFaint, fontFamily: F.ui }}>$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={depositAmount}
+                      onChange={e => setDepositAmount(e.target.value)}
+                      placeholder="0"
+                      style={{ ...inputStyle, paddingLeft: 24 }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 6 }}>Suggested from the proposal — editable.</div>
+                  {overTotal && (
+                    <div style={{ fontSize: 11, color: C.amber, fontFamily: F.ui, marginTop: 6 }}>⚠ Deposit exceeds the proposal total ({money(total)}).</div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {!depositMode && selProposal.is_archive_proposal && (() => {
               const total = parseFloat(selProposal.total) || 0;
               const remaining = total - archiveBilled;
               const amt = parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) || 0;
@@ -439,7 +503,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
               );
             })()}
 
-            {!selProposal.is_archive_proposal && <div style={{ flex: 1, overflowY: "auto", maxHeight: 380 }}>
+            {!depositMode && !selProposal.is_archive_proposal && <div style={{ flex: 1, overflowY: "auto", maxHeight: 380 }}>
               {wtcs.map((w, i) => {
                 const total = calcWtcPrice(w);
                 const billed = getBilledPct(w.id);
@@ -497,12 +561,13 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
               })}
             </div>}
 
-            {/* Due date + Retention */}
-            <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {/* Due date + Retention (deposits carry no retention) */}
+            <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: depositMode ? "1fr" : "1fr 1fr", gap: 12 }}>
               <div>
                 <div style={labelStyle}>Due Date *</div>
                 <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
               </div>
+              {!depositMode && (
               <div>
                 <div style={labelStyle}>Retention (%)</div>
                 <input type="number" min="0" max="100" step="0.5" value={retentionPct} onChange={e => setRetentionPct(e.target.value)} placeholder="0" style={inputStyle} />
@@ -512,6 +577,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
                   return <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Held back: {fmt$c(held)} · Net due: {fmt$c(gross - held)}</div>;
                 })()}
               </div>
+              )}
             </div>
 
             {/* Email Intro (goes in the customer email body) */}
@@ -544,13 +610,13 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
             {/* Total + Create */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
               <div>
-                <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.display, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Invoice Total</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(selProposal.is_archive_proposal ? (parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : invoiceTotal)}</div>
+                <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.display, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>{depositMode ? "Deposit Total" : "Invoice Total"}</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{money(depositMode ? (parseFloat(String(depositAmount).replace(/[^0-9.\-]/g, "")) || 0) : (selProposal.is_archive_proposal ? (parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : invoiceTotal))}</div>
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 {error && <div style={{ color: C.red, fontSize: 12, fontFamily: F.ui, maxWidth: 200 }}>{error}</div>}
-                <Btn onClick={handleCreate} disabled={saving || (selProposal.is_archive_proposal ? !(parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) > 0) : !hasAnyPct)}>
-                  {saving ? "Creating…" : "Create Invoice"}
+                <Btn onClick={handleCreate} disabled={saving || (depositMode ? !(parseFloat(String(depositAmount).replace(/[^0-9.\-]/g, "")) > 0) : (selProposal.is_archive_proposal ? !(parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) > 0) : !hasAnyPct))}>
+                  {saving ? "Creating…" : (depositMode ? "Create Deposit Invoice" : "Create Invoice")}
                 </Btn>
               </div>
             </div>
@@ -773,6 +839,9 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
                   )}
                 </div>
                 <div style={{ textAlign: "left" }}>
+                  {invoice.type === "deposit" && (
+                    <div style={{ display: "inline-block", background: "#43a047", color: "white", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "4px 10px", borderRadius: 4, marginBottom: 10 }}>Materials Deposit Invoice</div>
+                  )}
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Invoice #</div>
                   <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{invoice.id}</div>
                   {invoice.job_id && (
@@ -1351,6 +1420,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         retention_amount: 0,
         discount: 0,
         status: "New",
+        type: "regular", // a retention release is a normal A/R invoice
         show_cents: source.show_cents,
         description: `Retention release for invoice #${source.id}`,
         retention_release_of: source.id,
@@ -1492,6 +1562,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           intro: inv.intro,
           show_cents: inv.show_cents,
           status: "New",
+          type: inv.type || "regular", // replacement inherits the voided invoice's kind (a voided deposit stays a deposit)
         }]).select().single();
         if (newErr) { alert(`Replacement invoice insert failed: ${newErr.message}`); setSaving(false); return; }
 

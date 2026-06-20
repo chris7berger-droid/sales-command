@@ -183,6 +183,7 @@ export default function NewPayAppModal({ schedule, lines, proposal, onClose, onC
           call_log_id: proposal.call_log_id,
           job_name: jobName,
           status: "New",
+          type: "pay-app", // explicit per Data Integrity #6 — pay-app is the only kind this modal mints
           amount: Math.round(grossThisBilling * 100) / 100,
           discount: 0,
           proposal_id: proposal.id,

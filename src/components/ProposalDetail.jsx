@@ -38,6 +38,10 @@ const [intro, setIntro] = useState(pInit.intro || "");
 const [introLoaded, setIntroLoaded] = useState(!!pInit.intro);
 const [introSaving, setIntroSaving] = useState(false);
 const [introSaved, setIntroSaved] = useState(false);
+const [depositRequired, setDepositRequired] = useState(pInit.deposit_required || false);
+const [depositAmount, setDepositAmount] = useState(pInit.deposit_amount ? String(pInit.deposit_amount) : "");
+const [depositSaving, setDepositSaving] = useState(false);
+const [depositSaved, setDepositSaved] = useState(false);
 const [recipients, setRecipients] = useState([]);
 const [sendingToSchedule, setSendingToSchedule] = useState(false);
 const [sentToSchedule, setSentToSchedule] = useState(false);
@@ -113,6 +117,20 @@ async function saveIntro() {
       setSyncConflict({ changedFields: ["intro"] });
     }
   }
+}
+
+// §1b — deposit control. NOT a recompute-money path: deposit_amount is user-entered,
+// never derived via calcWtcPrice. Persists deposit_required + deposit_amount directly.
+async function saveDeposit(nextRequired, nextAmount) {
+  setDepositSaving(true);
+  const numAmt = nextRequired ? (parseFloat(nextAmount) || 0) : 0;
+  await supabase.from("proposals")
+    .update({ deposit_required: nextRequired, deposit_amount: numAmt })
+    .eq("id", p.id);
+  setP(prev => ({ ...prev, deposit_required: nextRequired, deposit_amount: numAmt }));
+  setDepositSaving(false);
+  setDepositSaved(true);
+  setTimeout(() => setDepositSaved(false), 2000);
 }
 
 // Auto-refresh when proposal is Sent (waiting for customer signature)
@@ -1091,6 +1109,51 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                 ))}
               </div>
             )}
+          </div>
+
+          {/* §1b — Materials Deposit callout. Distinct green-accented linen card. */}
+          <div style={{ background: C.linenCard, border: `1px solid ${C.green}`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: depositRequired ? 14 : 4 }}>
+              <div style={{ fontWeight: 800, fontSize: 12.5, color: C.green, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase" }}>Materials Deposit</div>
+              {depositSaved && <span style={{ fontSize: 11, color: C.green, fontWeight: 700, fontFamily: F.ui }}>Saved</span>}
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={depositRequired}
+                onChange={e => { const v = e.target.checked; setDepositRequired(v); saveDeposit(v, depositAmount); }}
+                style={{ width: 18, height: 18, accentColor: C.green, cursor: "pointer", flexShrink: 0 }}
+              />
+              <span style={{ fontSize: 14, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Deposit required</span>
+            </label>
+            {depositRequired && (() => {
+              const depositBasis = (sovContractSum != null && sovContractSum > 0) ? sovContractSum : (parseFloat(p.total) || 0);
+              const amt = parseFloat(depositAmount);
+              const overTotal = amt > 0 && depositBasis > 0 && amt > depositBasis;
+              return (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6, fontFamily: F.display }}>Deposit Amount</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div style={{ position: "relative", flex: 1 }}>
+                      <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 15, fontWeight: 700, color: C.textMuted, fontFamily: F.ui, pointerEvents: "none" }}>$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={depositAmount}
+                        onChange={e => setDepositAmount(e.target.value)}
+                        placeholder="0"
+                        style={{ width: "100%", padding: "10px 14px 10px 26px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, color: C.textHead, fontSize: 16, fontWeight: 700, fontFamily: F.ui, WebkitAppearance: "none" }}
+                      />
+                    </div>
+                    <Btn sz="sm" v="secondary" onClick={() => saveDeposit(depositRequired, depositAmount)} disabled={depositSaving}>{depositSaving ? "Saving..." : "Save"}</Btn>
+                  </div>
+                  {overTotal && (
+                    <div style={{ fontSize: 11, color: C.amber, fontFamily: F.ui, marginTop: 8 }}>⚠ Deposit exceeds the proposal total ({money(depositBasis)}).</div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           <div style={{ background: C.dark, border: `1px solid ${C.tealBorder}`, borderRadius: 10, padding: 20 }}>

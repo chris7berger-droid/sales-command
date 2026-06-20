@@ -18,12 +18,10 @@
 3. **Badge:** "Materials Deposit" badge on the tagged invoice (preview + PDF + public page), driven off the tag.
 4. **State:** `required` = `proposals.deposit_required`; `due` = tagged invoice's `sent_at` / `due_date`; `paid` = `paid_at`. (Consumed by the Schedule indicator — Cycle 2.)
 
-## Open — one decision
-**How to tag the deposit invoice:**
-- **A) `invoices.is_deposit` boolean** — orthogonal to `type`. A GC deposit is `type='pay-app'` AND `is_deposit=true`. Small additive migration. **Recommended.**
-- **B) Proposal-side link** (`proposals.deposit_invoice_id`) — no per-invoice flag; the proposal points at its deposit invoice.
+## Deposit-invoice tag — RESOLVED (A, 2026-06-20)
+**`invoices.is_deposit` boolean** — orthogonal to `type`. A GC deposit is `type='pay-app'` AND `is_deposit=true`; a direct deposit is `type='regular'` AND `is_deposit=true`. Set when the user marks an invoice as the deposit. The badge + required/due/paid state read off `is_deposit`.
 
-> The `invoices.type='deposit'` we already shipped **does not fit** this model — a GC deposit billed as a pay-app is `type='pay-app'` and can't also be `'deposit'`. So `type` is the wrong home for the tag; it goes vestigial — leave it, don't build on it.
+> The `invoices.type='deposit'` we already shipped **does not fit** and goes **vestigial** (a GC deposit is a pay-app, can't also be type 'deposit') — leave it, don't build on it; file cleanup.
 
 ## Out of scope
 - GC retention / pay-app rebuild — use the existing flow.

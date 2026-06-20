@@ -66,6 +66,9 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
   // proposal that requires one; depositAmount is the suggested-but-editable figure.
   const [depositMode, setDepositMode] = useState(false);
   const [depositAmount, setDepositAmount] = useState("");
+  // Live SOV contract sum for the selected proposal — the over-total basis must match
+  // ProposalDetail's (SOV contract sum when present, else proposals.total). (T5 #8)
+  const [depositSovSum, setDepositSovSum] = useState(null);
   const money = roundInvoice ? fmt$ : fmt$c;
 
   const tenantCfgRef = useRef(null);
@@ -144,6 +147,13 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
     // Offer (don't force) the deposit path; prefill the suggested deposit amount.
     setDepositMode(false);
     setDepositAmount(p.deposit_required && parseFloat(p.deposit_amount) > 0 ? String(p.deposit_amount) : "");
+    // Over-total basis = SOV contract sum when present, else proposals.total — same
+    // rule as ProposalDetail's deposit callout (T5 #8). Reset then load.
+    setDepositSovSum(null);
+    if (p.deposit_required && parseFloat(p.deposit_amount) > 0) {
+      supabase.from("billing_schedule").select("contract_sum").eq("proposal_id", p.id).maybeSingle()
+        .then(({ data }) => setDepositSovSum(data ? parseFloat(data.contract_sum) || 0 : null));
+    }
 
     // Apply template substitutions for intro + description
     if (!tenantCfgRef.current) tenantCfgRef.current = await getTenantConfig();
@@ -432,7 +442,8 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
             )}
 
             {depositMode && (() => {
-              const total = parseFloat(selProposal.total) || 0;
+              // Basis aligned with ProposalDetail: SOV contract sum when present, else total.
+              const total = (depositSovSum != null && depositSovSum > 0) ? depositSovSum : (parseFloat(selProposal.total) || 0);
               const amt = parseFloat(String(depositAmount).replace(/[^0-9.\-]/g, "")) || 0;
               const overTotal = amt > 0 && total > 0 && amt > total;
               return (

@@ -1231,9 +1231,9 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   }
 
   const isArchiveInvoice = lines.length > 0 && lines.every(l => !l.proposal_wtc_id && !l.billing_schedule_line_id);
-  // A deposit's line is null/null too (so isArchiveInvoice is also true) — invoiceKind
-  // disambiguates via invoices.type. Used to suppress retention in the edit form.
-  const isDepositInvoice = invoiceKind(inv, lines) === "deposit";
+  // Deposit is now a TAG on a real invoice (is_deposit), orthogonal to type/line-shape.
+  // Used to suppress + zero retention on a DIRECT (non-pay-app) deposit in the edit form.
+  const isDepositInvoice = !!inv.is_deposit;
 
   function startEditing() {
     setEditId(inv.id);
@@ -1277,13 +1277,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       return { id: l.id, billing_pct: pct, amount: Math.round(wtcTotal * (pct / 100) * 100) / 100 };
     });
     const newAmount = newLines.reduce((sum, l) => sum + l.amount, 0);
-    // A deposit carries NO retention. type is only enforced at create, so guard the
-    // edit write too (CLAUDE.md #6/#7 — guard the save, not just the hidden UI) and
-    // force retention to 0 regardless of any stale/edited retention input.
-    // Retention + discount are also owned by the pay-app flow. For a pay-app invoice
-    // preserve the stored values; otherwise recompute from the edit-form inputs. (plan §3)
-    const retPct   = isDepositInvoice ? 0 : linkedPayApp ? (parseFloat(inv.retention_pct) || 0)    : (parseFloat(editRetentionPct) || 0);
-    const retAmt   = isDepositInvoice ? 0 : linkedPayApp ? (parseFloat(inv.retention_amount) || 0) : Math.round(newAmount * (retPct / 100) * 100) / 100;
+    // Retention + discount are owned by the pay-app flow for a pay-app invoice —
+    // preserve the stored values there (a GC/pay-app deposit's retention lives in
+    // that flow; don't double-zero it). For a NON-pay-app invoice, recompute from the
+    // edit inputs — EXCEPT a direct (non-pay-app) deposit, which carries no retention,
+    // so force it to 0 (guard the write, not just the hidden UI — CLAUDE.md #6/#7).
+    const retPct   = linkedPayApp ? (parseFloat(inv.retention_pct) || 0)    : (isDepositInvoice ? 0 : (parseFloat(editRetentionPct) || 0));
+    const retAmt   = linkedPayApp ? (parseFloat(inv.retention_amount) || 0) : (isDepositInvoice ? 0 : Math.round(newAmount * (retPct / 100) * 100) / 100);
     const discount = linkedPayApp ? (parseFloat(inv.discount) || 0)         : (parseFloat(editDiscount) || 0);
 
     // Update invoice

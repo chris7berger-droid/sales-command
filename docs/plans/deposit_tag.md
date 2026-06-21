@@ -1,40 +1,43 @@
-# Deposit Tag — Plan (corrected, simplified)
+# Deposit Tag — Plan v2 (radically simplified)
 
-**Repo:** sales-command @ feat/billing-deposit
-**Date:** 2026-06-20 · **ERD:** Loop #36
-**Supersedes** the deposit half of `~/sch-command/docs/plans/billing_redesign_buildorder.md` §1 — which overbuilt a standalone deposit-invoice creation path.
+**Repo:** sales-command @ feat/billing-deposit · **Date:** 2026-06-21 · **ERD:** Loop #36
+**Supersedes v1** (this same file's history) — v1 over-engineered "mark the deposit invoice" into `invoices.is_deposit` + a partial unique index + clear-before-set + failure-compensation + a `deposit_pending` stash/consume through the pay-app void flow — **3 migrations**. T5 findings #1/#2/#3 were bugs in that machinery, not the feature. This collapses it to **one pointer**.
 
-**Intent (locked with Chris 2026-06-20):** Flag a job as needing a deposit, bill it with the **existing** invoice flow (pay-app for a GC, regular invoice for direct), and make its **required / due / paid** state visible — **no new invoice plumbing.**
+**Intent (locked):** Flag a job deposit-required, bill it with the existing flow, mark which invoice is the deposit, surface required/due/paid. No new plumbing beyond one pointer.
 
-## Done
-- **§1b checkbox + amount** on `ProposalDetail` summary. Verified it renders for **all** customers — the summary panel isn't customer-type-gated, so GC and direct proposals both show it. `proposals.deposit_required` / `deposit_amount` are live on prod.
+## Model — one field
+**`call_log.deposit_invoice_id`** (text FK → `invoices.id`, `ON DELETE SET NULL`, nullable). The job points at its deposit invoice. Single-select, badge, state, and atomicity all fall out of this — no other deposit-link state exists.
+
+## Keep (already built, correct)
+- §1b deposit checkbox + amount on `ProposalDetail` and `CallLogDetail` → write `call_log.deposit_required` / `deposit_amount`.
+- Deposit invoices render their **real lines** (synthetic single-line render stripped).
+- Retention guard — but re-key it off "is this the deposit invoice" (`call_log.deposit_invoice_id === inv.id`), non-pay-app branch only.
 
 ## Build
-0. **Move the flag to the job (`call_log`)** — locked 2026-06-20. Migration adds `call_log.deposit_required` + `deposit_amount`; the `proposals.deposit_*` columns we shipped go **vestigial** (leave; file cleanup). Why: a job is the universal record (proposal-less archive jobs can still carry a deposit), and Schedule reads it straight off the job — no proposal join.
-   - Repoint the §1b proposal-summary checkbox to write `call_log` — and **init it from `call_log`, not the proposal** (audit #5: a job can have multiple proposals; it's now a job-level field, so every proposal of the job shows the same shared value — don't frame it as per-proposal).
-   - **Add the same deposit control to the job-detail screen (`CallLogDetail`)** — per Chris's principle, the call_log job-detail is *the* home and should always carry all info.
-1. **Strip the overbuild (§1c):** remove the "Create Deposit Invoice" button and the archive-path deposit creation. Deposits are billed through the **normal flow** — a pay-app for a GC (retention handled there already), a regular invoice for direct.
-   - **Retention guard [audit #4 — don't kill it]:** the `handleSaveEdit` force-retention-0 + hidden retention input currently key on `invoiceKind==='deposit'`, which goes permanently false after the strip → a direct deposit edited in the form would re-acquire retention (the bug we closed). **Repoint the guard to `is_deposit`, and force-0 ONLY on the non-pay-app branch** (`type='regular'`). A pay-app deposit's retention is owned by the pay-app flow — don't double-zero it.
-2. **Tag the deposit invoice — RESOLVED 2026-06-20:** a **"Mark as deposit" toggle on the invoice** sets `is_deposit=true`.
-   - **Intent until sent:** the toggle can be set on a draft (`New`) invoice, but the deposit is **not "recorded"** — not counted in state, not shown as billed — **until that invoice is sent** (`sent_at` set). An unsent toggle leaves the job still showing deposit *required*.
-   - **Single-select per job [audit r2 #3/#5]:** at most one active `is_deposit` invoice per `call_log`. Marking a new one may freely steal the tag from an **unsent draft** prior; if the prior deposit is **sent or paid** (a real collected deposit), **refuse/confirm before stealing** — don't silently un-record a collected deposit. Enforce in-DB with a scoped partial unique index: `CREATE UNIQUE INDEX ... ON public.invoices (call_log_id) WHERE is_deposit AND deleted_at IS NULL AND voided_at IS NULL` (the WHERE scope is mandatory so a void-then-re-mark doesn't collide; do clear-before-set ordering). UI single-select alone is not the backstop.
-   - **Void-replacement copies the tag [audit r2 #2]:** the non-pay-app void path (`Invoices.jsx:1584-1602`) copies `type` to the replacement but **must also copy `is_deposit`** (replacement is `New`, so it won't count until re-sent — but the intent must survive the void).
-   - **Pull-back keeps the tag [audit r2 #4 — RESOLVED 2026-06-20, follow audit]:** do **NOT** clear `is_deposit` on pull-back. Pull-back nulls `sent_at`, so sent-gating already reverts the job to *required*; the tag is durable intent and survives, so pull-back → edit → re-send needs no re-toggle. UX: a draft (unsent) `is_deposit` invoice shows a small **"not sent"** indicator so a checked-but-required state doesn't look contradictory.
-3. **Badge — NOT line render [audit #1, BLOCKING]:** the badge reads `is_deposit`. **DELETE the synthetic single-line "Materials Deposit / 100% / flat amount" branches** (`invoicePdf.js:256-267`, `Invoices.jsx:901-922`, `PublicInvoicePage.jsx:207-213`) — they only fit the old archive-create shape. Under the new model a deposit is a normal pay-app (real SOV lines) or regular invoice (real WTC lines) and must render its **real lines**. Badge ≠ line-itemization; only the badge keys on `is_deposit`.
-4. **State (sent-gated) [audit r2 #1 — must exclude voided + deleted]:** the deposit counts only when its invoice is sent **and still active**. The canonical filter is `is_deposit AND sent_at IS NOT NULL AND deleted_at IS NULL AND voided_at IS NULL` (mirrors the dashboard's active filter — neutralizes void/delete exits without per-handler clears).
-   - `required` = `call_log.deposit_required` AND no **active sent** `is_deposit` invoice (flag is on call_log, not proposals).
-   - `due` = an active sent `is_deposit` invoice, unpaid → `sent_at` / `due_date`.
-   - `paid` = that invoice's `paid_at` (a paid deposit is sent + not voided/deleted → stays satisfied).
-   - A draft (unsent), voided, or deleted `is_deposit` invoice does **not** flip the job out of *required*. (Consumed by the Schedule indicator — Cycle 2.)
+0. **Migration — ONE clean file.** Add to `call_log`: `deposit_required` (bool default false), `deposit_amount` (numeric default 0), **`deposit_invoice_id` (text FK → invoices.id ON DELETE SET NULL, null)**. **Delete the held files `…130000` + `…140000`.** db:push blocked (sibling ledger) → editor + `repair --status applied` at the gate.
+   - `invoices.is_deposit`, the partial unique index, `deposit_pending` — **removed from scope.**
+   - `…120000` is already on prod and now **fully vestigial** (`proposals.deposit_*`, `invoices.type`) — leave the dead columns (harmless); cleanup is a backlog one-liner.
+1. **Mark toggle.** "Mark as deposit" on an invoice sets `call_log.deposit_invoice_id = inv.id`; untoggling the current one sets it `null`. **One atomic write** (verify-after-write). **Confirm first** only if the current `deposit_invoice_id` points at a **sent or paid** invoice — don't silently un-record a collected deposit.
+2. **Badge.** An invoice shows "Materials Deposit" when `call_log.deposit_invoice_id === inv.id` (add `deposit_invoice_id` to the invoice's `call_log(...)` join). All 3 surfaces (preview, PDF, public).
+3. **State (sent-gated + active).** Let **D** = the linked invoice, counted only if **active** (not voided/deleted) **and sent**:
+   - `required` = `deposit_required` AND no active-sent D
+   - `due` = active-sent, unpaid D → `sent_at` / `due_date`
+   - `paid` = D.`paid_at`
+   (Consumed by the Schedule indicator — Cycle 2.)
 
-## Deposit-invoice tag — RESOLVED (A, 2026-06-20)
-**`invoices.is_deposit` boolean** — orthogonal to `type`. A GC deposit is `type='pay-app'` AND `is_deposit=true`; a direct deposit is `type='regular'` AND `is_deposit=true`. Set when the user marks an invoice as the deposit. The badge + required/due/paid state read off `is_deposit`.
+## RIP (the over-engineering)
+- `invoices.is_deposit` column + **every** read of it (badge, state, retention guard → all re-key on the link or are deleted).
+- The toggle's clear-before-set + failure-compensation → replaced by one atomic write.
+- `deposit_pending` stash/consume in the pay-app void path **and** `NewPayAppModal`.
+- The partial unique index.
+- Void / pull-back **special handling** — state derives from the linked invoice's live status; no handlers needed. (`ON DELETE SET NULL` auto-clears the link if the invoice is deleted.)
 
-> The `invoices.type='deposit'` we already shipped **does not fit** and goes **vestigial** (a GC deposit is a pay-app, can't also be type 'deposit') — leave it, don't build on it; file cleanup.
+## Why this kills the T5 findings (they stop existing)
+- **#1 / #2** (un-record on untoggle / non-atomic move): a single atomic field write + a confirm on a sent/paid link. No half-state is reachable.
+- **#3** (pay-app void loses tag): there's no tag to lose — after a void the link points at the voided invoice → state reads "required" → re-bill, re-mark. No `deposit_pending`.
 
 ## Out of scope
-- GC retention / pay-app rebuild — use the existing flow.
-- The Schedule "deposit sent / days-passed / due" indicator — **Cycle 2** (its own plan + audit).
+- GC retention rebuild. Schedule "deposit sent / days / due" indicator → Cycle 2 (own plan + audit).
 
-## Resolved
-- Archive-imported jobs (no proposal) — **resolved 2026-06-20** by storing the flag on `call_log` (Build #0). Proposal-less jobs carry the deposit via the job-detail home.
+## Backlog
+- Drop the vestigial `120000` columns (`proposals.deposit_*`, `invoices.type`) in a cleanup migration.

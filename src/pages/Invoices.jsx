@@ -1541,6 +1541,14 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         await supabase.from("billing_schedule_pay_apps")
           .update({ status: "draft", submitted_at: null, invoice_id: null })
           .eq("id", linkedPayApp.id);
+        // Symmetric with the non-pay-app replacement copy: the deposit intent can't ride
+        // on the (not-yet-created) re-lock invoice, so stash it on the schedule. The next
+        // pay-app invoice NewPayAppModal mints for this schedule inherits is_deposit.
+        if (inv.is_deposit && linkedPayApp.billing_schedule_id) {
+          await supabase.from("billing_schedule")
+            .update({ deposit_pending: true })
+            .eq("id", linkedPayApp.billing_schedule_id);
+        }
         setLinkedPayApp(prev => prev ? { ...prev, status: "draft", submitted_at: null, invoice_id: null } : prev);
         setInv(prev => ({ ...prev, voided_at: nowIso, void_reason: reason }));
         setSaving(false);

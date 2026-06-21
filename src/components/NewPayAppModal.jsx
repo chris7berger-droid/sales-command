@@ -215,6 +215,17 @@ export default function NewPayAppModal({ schedule, lines, proposal, onClose, onC
         .update({ invoice_id: inv.id })
         .eq("id", payApp.id);
 
+      // 4b. Inherit a pending deposit tag (a prior deposit pay-app on this schedule was
+      // voided — see Invoices.jsx void path). One-shot: clear the flag whether or not the
+      // tag applies. If is_deposit collides (a deposit already exists on the job), the
+      // intent is already satisfied — clearing the flag and skipping is correct.
+      const { data: sch } = await supabase.from("billing_schedule").select("deposit_pending").eq("id", schedule.id).maybeSingle();
+      if (sch?.deposit_pending) {
+        const { error: depErr } = await supabase.from("invoices").update({ is_deposit: true }).eq("id", inv.id);
+        await supabase.from("billing_schedule").update({ deposit_pending: false }).eq("id", schedule.id);
+        if (depErr) console.warn("Deposit tag not applied to re-locked pay-app invoice:", depErr.message);
+      }
+
       // 5. Generate filled PDF only for fillable PDF templates.
       // Word/Excel/non-fillable templates are handled by the cheat-sheet
       // manual workflow on PayAppDetailModal (Upload Completed).

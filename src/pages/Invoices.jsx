@@ -1541,14 +1541,6 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         await supabase.from("billing_schedule_pay_apps")
           .update({ status: "draft", submitted_at: null, invoice_id: null })
           .eq("id", linkedPayApp.id);
-        // Symmetric with the non-pay-app replacement copy: the deposit intent can't ride
-        // on the (not-yet-created) re-lock invoice, so stash it on the schedule. The next
-        // pay-app invoice NewPayAppModal mints for this schedule inherits is_deposit.
-        if (inv.is_deposit && linkedPayApp.billing_schedule_id) {
-          await supabase.from("billing_schedule")
-            .update({ deposit_pending: true })
-            .eq("id", linkedPayApp.billing_schedule_id);
-        }
         setLinkedPayApp(prev => prev ? { ...prev, status: "draft", submitted_at: null, invoice_id: null } : prev);
         setInv(prev => ({ ...prev, voided_at: nowIso, void_reason: reason }));
         setSaving(false);
@@ -1586,7 +1578,6 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           show_cents: inv.show_cents,
           status: "New",
           type: inv.type || "regular", // replacement inherits the voided invoice's kind
-          is_deposit: inv.is_deposit,  // deposit intent survives the void (replacement is New → won't count until re-sent). Safe vs the unique index: the original is already voided above, so it's out of the active partial index.
         }]).select().single();
         if (newErr) { alert(`Replacement invoice insert failed: ${newErr.message}`); setSaving(false); return; }
 

@@ -1000,6 +1000,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [showQBLinkModal, setShowQBLinkModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(null);
+  const [markingDeposit, setMarkingDeposit] = useState(false);
   const [syncReLink, setSyncReLink] = useState(false);
   const [syncToast, setSyncToast] = useState(null);
   const [billing, setBilling] = useState(false);           // Bill Retention in-flight guard
@@ -1426,6 +1427,51 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     onUpdated && onUpdated();
   }
 
+  // Mark / unmark THIS invoice as the job's deposit (invoices.is_deposit). At most one
+  // ACTIVE deposit invoice per job — UI single-select here, partial unique index is the
+  // real backstop. Stealing from an unsent draft prior is free; stealing from a sent/paid
+  // prior (a real, recorded deposit) needs confirmation. Clear-before-set so the active
+  // partial unique index never sees two at once. (plan #2)
+  async function handleToggleDeposit() {
+    if (inv.voided_at || inv.deleted_at || markingDeposit) return;
+    const turningOn = !inv.is_deposit;
+    setMarkingDeposit(true);
+    if (turningOn && inv.call_log_id) {
+      const { data: priors, error: priorErr } = await supabase
+        .from("invoices")
+        .select("id, sent_at, paid_at")
+        .eq("call_log_id", inv.call_log_id)
+        .eq("is_deposit", true)
+        .is("deleted_at", null)
+        .is("voided_at", null)
+        .neq("id", inv.id);
+      if (priorErr) { alert(`Couldn't check the job's deposit status: ${priorErr.message}`); setMarkingDeposit(false); return; }
+      const prior = (priors || [])[0];
+      if (prior) {
+        if (prior.sent_at) {
+          // sent (or paid) = a real collected deposit — confirm before un-recording it.
+          if (!confirm(`This job already has a recorded deposit on invoice #${prior.id} (${prior.paid_at ? "paid" : "sent"}). Move the deposit tag to invoice #${inv.id}?`)) {
+            setMarkingDeposit(false);
+            return;
+          }
+        }
+        const { error: clrErr } = await supabase.from("invoices").update({ is_deposit: false }).eq("id", prior.id);
+        if (clrErr) { alert(`Couldn't move the deposit tag off #${prior.id}: ${clrErr.message}`); setMarkingDeposit(false); return; }
+      }
+    }
+    const { data: updated, error } = await supabase.from("invoices")
+      .update({ is_deposit: turningOn })
+      .eq("id", inv.id)
+      .select();
+    setMarkingDeposit(false);
+    if (error || !updated || updated.length < 1) {
+      alert(error?.message || "Couldn't update the deposit tag — refresh and try again.");
+      return;
+    }
+    setInv(prev => ({ ...prev, is_deposit: turningOn }));
+    onUpdated && onUpdated();
+  }
+
   async function handleVoidConfirm() {
     if (!voidReason.trim()) { alert("A reason is required for audit compliance."); return; }
     setSaving(true);
@@ -1507,7 +1553,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           intro: inv.intro,
           show_cents: inv.show_cents,
           status: "New",
-          type: inv.type || "regular", // replacement inherits the voided invoice's kind (a voided deposit stays a deposit)
+          type: inv.type || "regular", // replacement inherits the voided invoice's kind
+          is_deposit: inv.is_deposit,  // deposit intent survives the void (replacement is New → won't count until re-sent). Safe vs the unique index: the original is already voided above, so it's out of the active partial index.
         }]).select().single();
         if (newErr) { alert(`Replacement invoice insert failed: ${newErr.message}`); setSaving(false); return; }
 
@@ -1682,6 +1729,22 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             )}
             <StatCard label={inv.retention_amount > 0 ? "Payment Due" : "Net Total"} value={money((inv.amount || 0) - (inv.discount || 0) - (inv.retention_amount || 0))} accent={C.green} />
           </div>
+
+          {/* Mark-as-deposit tag (internal). is_deposit only "records" once the invoice
+              is sent — an unsent tag shows a 'not sent' indicator so a checked-but-still-
+              required state doesn't read as contradictory. (plan #2/#4) */}
+          {!inv.voided_at && !inv.deleted_at && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 24, padding: "12px 16px", background: C.linenDeep, border: `1px solid ${inv.is_deposit ? C.green : C.border}`, borderLeft: `4px solid ${inv.is_deposit ? C.green : C.border}`, borderRadius: 10 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: markingDeposit ? "wait" : "pointer" }}>
+                <input type="checkbox" checked={!!inv.is_deposit} disabled={markingDeposit} onChange={handleToggleDeposit} style={{ width: 18, height: 18, accentColor: C.green, cursor: markingDeposit ? "wait" : "pointer", flexShrink: 0 }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Mark as the job's deposit invoice</span>
+              </label>
+              {inv.is_deposit && (inv.sent_at
+                ? <span style={{ fontSize: 11, fontWeight: 700, color: C.green, fontFamily: F.ui, background: "rgba(67,160,71,0.14)", padding: "3px 10px", borderRadius: 6 }}>Recorded{inv.paid_at ? " · paid" : ""}</span>
+                : <span style={{ fontSize: 11, fontWeight: 700, color: C.amber, fontFamily: F.ui, background: "rgba(249,168,37,0.14)", padding: "3px 10px", borderRadius: 6 }}>Not sent — deposit not recorded yet</span>
+              )}
+            </div>
+          )}
         </>
       )}
 

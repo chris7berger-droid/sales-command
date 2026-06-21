@@ -4,7 +4,7 @@ import { createPublicClient } from "../lib/supabasePublic";
 import { useMemo } from "react";
 import { calcWtcPrice } from "../lib/calc";
 import { DEFAULTS } from "../lib/config";
-import { fmt$, fmt$c, fmtD, invoiceKind } from "../lib/utils";
+import { fmt$, fmt$c, fmtD } from "../lib/utils";
 
 export default function PublicInvoicePage() {
   const { token } = useParams();
@@ -95,8 +95,7 @@ export default function PublicInvoicePage() {
     const v = parseFloat(n) || 0;
     return effectiveShowCents ? `${v.toFixed(2)}%` : `${Math.round(v)}%`;
   };
-  const invKind = invoiceKind(invoice, lines);
-  const isDepositInvoice = invKind === "deposit";
+  const isDepositInvoice = !!invoice.is_deposit;
   const isArchive = !!invoice.proposals?.is_archive_proposal;
   const archiveSold = parseFloat(invoice.proposals?.total) || 0;
   const archiveWorkTypes = (invoice.proposals?.call_log?.job_work_types || []).map(j => j.work_types?.name).filter(Boolean).join(", ");

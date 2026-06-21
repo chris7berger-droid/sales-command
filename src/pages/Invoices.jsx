@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams, useLocation } from "react-rout
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
-import { fmt$, fmt$c, fmtD, invoiceKind } from "../lib/utils";
+import { fmt$, fmt$c, fmtD } from "../lib/utils";
 import { calcWtcPrice } from "../lib/calc";
 import { INV_C, PROP_C } from "../lib/mockData";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
@@ -595,8 +595,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
   const retentionAmt = parseFloat(invoice.retention_amount) || 0;
   const retentionPct = parseFloat(invoice.retention_pct) || 0;
   const netTotal = (invoice.amount || 0) - (invoice.discount || 0) - retentionAmt;
-  const invKind = invoiceKind(invoice, lines);
-  const isDepositInvoice = invKind === "deposit";
+  const isDepositInvoice = !!invoice.is_deposit;
 
   // Load billing contact from customer_contacts (Billing Contact role) → fall back to customers table
   useEffect(() => {

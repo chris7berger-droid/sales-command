@@ -12,7 +12,7 @@
 import jsPDF from "jspdf";
 import { supabase } from "./supabase";
 import { calcWtcPrice } from "./calc";
-import { fmt$, invoiceKind } from "./utils";
+import { fmt$ } from "./utils";
 
 /**
  * Generate a PDF of an invoice and upload it to Supabase storage.
@@ -26,8 +26,7 @@ import { fmt$, invoiceKind } from "./utils";
  * @returns {Promise<{pdfUrl: string, storagePath: string}>}
  */
 export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {}, callLog = {}, customer = {} }) {
-  const kind = invoiceKind(invoice, lines);
-  const isDepositInvoice = kind === "deposit";
+  const isDepositInvoice = !!invoice.is_deposit;
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const pageW = doc.internal.pageSize.getWidth();   // 612
   const pageH = doc.internal.pageSize.getHeight();  // 792

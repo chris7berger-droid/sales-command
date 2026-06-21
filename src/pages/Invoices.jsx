@@ -250,8 +250,8 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 
     // Create invoice — type set EXPLICITLY (Data Integrity #6): this handler only
     // mints regular/archive invoices ('regular'). A deposit is just a normal invoice
-    // later TAGGED via the Mark-as-deposit toggle (invoices.is_deposit) — no special
-    // create path. Pay-app invoices are minted in NewPayAppModal ('pay-app').
+    // later pointed at by call_log.deposit_invoice_id (Mark-as-deposit toggle) — no
+    // special create path. Pay-app invoices are minted in NewPayAppModal ('pay-app').
     const { data: inv, error: invErr } = await supabase
       .from("invoices")
       .insert([{

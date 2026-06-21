@@ -26,7 +26,7 @@ import { fmt$ } from "./utils";
  * @returns {Promise<{pdfUrl: string, storagePath: string}>}
  */
 export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {}, callLog = {}, customer = {} }) {
-  const isDepositInvoice = !!invoice.is_deposit;
+  const isDepositInvoice = (callLog?.deposit_invoice_id || null) === invoice.id;
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const pageW = doc.internal.pageSize.getWidth();   // 612
   const pageH = doc.internal.pageSize.getHeight();  // 792

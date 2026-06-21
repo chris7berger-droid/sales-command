@@ -815,29 +815,20 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
                       const wtc = l.proposal_wtc;
                       const sov = l.billing_schedule_line;
                       const isSov = !wtc && sov;
-                      // A deposit invoice's single line is null/null — bill the flat
-                      // deposit amount, not a recomputed WTC price (which would be $0).
-                      const isDepositLine = isDepositInvoice;
-                      const isArchiveLine = !isDepositLine && !wtc && !sov && archiveCtx.isArchive;
-                      const lineLabel = isDepositLine
-                        ? "Materials Deposit"
-                        : isSov
+                      const isArchiveLine = !wtc && !sov && archiveCtx.isArchive;
+                      const lineLabel = isSov
                         ? (sov.line_code ? `${sov.line_code} — ${sov.description}` : sov.description)
                         : isArchiveLine
                           ? (archiveCtx.workTypes || "—")
                           : (wtc?.work_types?.name || l.description || "—");
                       const wtcNum = wtc ? wtcIndex[wtc.id] : null;
                       const wtcCell = wtcNum ? `WTC ${wtcNum}` : "—";
-                      const rowTotal = isDepositLine
-                        ? (parseFloat(l.amount) || 0)
-                        : isSov
+                      const rowTotal = isSov
                         ? (parseFloat(sov.scheduled_value) || 0)
                         : isArchiveLine
                           ? archiveCtx.sold
                           : (wtc ? calcWtcPrice(wtc) : 0);
-                      const billingPct = isDepositLine
-                        ? 100
-                        : isArchiveLine
+                      const billingPct = isArchiveLine
                         ? (archiveCtx.sold > 0 ? ((parseFloat(l.amount) || 0) / archiveCtx.sold) * 100 : 0)
                         : (parseFloat(l.billing_pct) || 0);
                       return (

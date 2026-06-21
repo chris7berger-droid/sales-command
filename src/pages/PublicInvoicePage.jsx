@@ -203,16 +203,12 @@ export default function PublicInvoicePage() {
               <tbody>
                 {lines.map(l => {
                   const wtc = l.proposal_wtc;
-                  // Deposit line is null/null — show the flat deposit amount, not a $0 recompute.
-                  const isDepositLine = isDepositInvoice;
-                  const isArchiveLine = !isDepositLine && !wtc && isArchive;
-                  const lineLabel = isDepositLine ? "Materials Deposit" : isArchiveLine ? (archiveWorkTypes || "—") : (wtc?.work_types?.name || "—");
+                  const isArchiveLine = !wtc && isArchive;
+                  const lineLabel = isArchiveLine ? (archiveWorkTypes || "—") : (wtc?.work_types?.name || "—");
                   const wtcNum = wtc ? wtcIndex[wtc.id] : null;
                   const wtcCell = wtcNum ? `WTC ${wtcNum}` : "—";
-                  const rowAmount = isDepositLine ? (parseFloat(l.amount) || 0) : isArchiveLine ? archiveSold : (wtc ? calcWtcPrice(wtc) : 0);
-                  const billingPct = isDepositLine
-                    ? 100
-                    : isArchiveLine
+                  const rowAmount = isArchiveLine ? archiveSold : (wtc ? calcWtcPrice(wtc) : 0);
+                  const billingPct = isArchiveLine
                     ? (archiveSold > 0 ? ((parseFloat(l.amount) || 0) / archiveSold) * 100 : 0)
                     : (parseFloat(l.billing_pct) || 0);
                   return (

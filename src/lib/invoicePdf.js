@@ -252,19 +252,13 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     const wtc = l.proposal_wtc;
     const sov = l.billing_schedule_line;
     const isSov = !wtc && sov;
-    // Deposit line is null/null — show the flat deposit amount, not a $0 WTC recompute.
-    const isDepositLine = isDepositInvoice;
-    const lineLabel = isDepositLine
-      ? "Materials Deposit"
-      : isSov
+    const lineLabel = isSov
       ? (sov.line_code ? `${sov.line_code} — ${sov.description || ""}` : (sov.description || "—"))
       : (wtc?.work_types?.name || l.description || "—");
-    const rowAmount = isDepositLine
-      ? (parseFloat(l.amount) || 0)
-      : isSov
+    const rowAmount = isSov
       ? (parseFloat(sov.scheduled_value) || 0)
       : (wtc ? calcWtcPrice(wtc) : 0);
-    const billingPct = isDepositLine ? 100 : (l.billing_pct ?? 0);
+    const billingPct = l.billing_pct ?? 0;
     const lineTotal  = l.amount ?? 0;
 
     // Wrap long description labels against the width available before the amount col.

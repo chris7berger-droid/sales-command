@@ -46,8 +46,10 @@ const [intro, setIntro] = useState(pInit.intro || "");
 const [introLoaded, setIntroLoaded] = useState(!!pInit.intro);
 const [introSaving, setIntroSaving] = useState(false);
 const [introSaved, setIntroSaved] = useState(false);
-const [depositRequired, setDepositRequired] = useState(pInit.deposit_required || false);
-const [depositAmount, setDepositAmount] = useState(pInit.deposit_amount ? String(pInit.deposit_amount) : "");
+// Deposit-required is a JOB-level field (call_log) — every proposal of the job shows the
+// same shared value. Init from call_log, not the proposal (audit #5).
+const [depositRequired, setDepositRequired] = useState(pInit.call_log?.deposit_required || false);
+const [depositAmount, setDepositAmount] = useState(pInit.call_log?.deposit_amount ? String(pInit.call_log.deposit_amount) : "");
 const [depositSaving, setDepositSaving] = useState(false);
 const [depositSaved, setDepositSaved] = useState(false);
 const [depositError, setDepositError] = useState(null);
@@ -128,28 +130,30 @@ async function saveIntro() {
   }
 }
 
-// §1b — deposit control. NOT a recompute-money path: deposit_amount is user-entered,
-// never derived via calcWtcPrice. Persists deposit_required + deposit_amount directly.
+// §1b — deposit control. Writes the JOB record (call_log), not the proposal — the flag is
+// job-level, shared across the job's proposals. NOT a recompute-money path: deposit_amount
+// is user-entered, never derived via calcWtcPrice.
 async function saveDeposit(nextRequired, nextAmount) {
+  if (!p.call_log_id) { setDepositError("This proposal isn't linked to a job yet."); return; }
   setDepositSaving(true);
   setDepositError(null);
   const numAmt = nextRequired ? (parseFloat(nextAmount) || 0) : 0;
   // Verify-after-write: RLS can silently no-op an UPDATE (no error, 0 rows). Confirm a
   // row actually changed before claiming "Saved" — never report success on a no-op.
-  const { data: updated, error } = await supabase.from("proposals")
+  const { data: updated, error } = await supabase.from("call_log")
     .update({ deposit_required: nextRequired, deposit_amount: numAmt })
-    .eq("id", p.id)
+    .eq("id", p.call_log_id)
     .select();
   setDepositSaving(false);
   if (error || !updated || updated.length < 1) {
     // Roll the checkbox/amount back to the last persisted values so the UI can't drift
     // from the DB after a failed save.
-    setDepositRequired(p.deposit_required || false);
-    setDepositAmount(p.deposit_amount ? String(p.deposit_amount) : "");
+    setDepositRequired(p.call_log?.deposit_required || false);
+    setDepositAmount(p.call_log?.deposit_amount ? String(p.call_log.deposit_amount) : "");
     setDepositError(error?.message || "Couldn't save the deposit — refresh and try again.");
     return;
   }
-  setP(prev => ({ ...prev, deposit_required: nextRequired, deposit_amount: numAmt }));
+  setP(prev => ({ ...prev, call_log: { ...prev.call_log, deposit_required: nextRequired, deposit_amount: numAmt } }));
   setDepositSaved(true);
   setTimeout(() => setDepositSaved(false), 2000);
 }
@@ -160,7 +164,7 @@ useEffect(() => {
   const interval = setInterval(async () => {
     const { data } = await supabase
       .from("proposals")
-      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip, requires_pay_app))")
+      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, deposit_required, deposit_amount, customers(email, contact_email, business_address, business_city, business_state, business_zip, requires_pay_app))")
       .eq("id", p.id)
       .single();
     if (data && data.status !== p.status) setP(data);
@@ -542,7 +546,7 @@ async function deletePropAttachment(fullName) {
       const { error: clErr } = await supabase.from("call_log").update({ stage: "Wants Bid" }).eq("id", p.call_log_id);
       if (clErr) { alert("Pull back failed resetting job stage: " + clErr.message); return; }
     }
-    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
+    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, deposit_required, deposit_amount, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);
     const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true });
     setWtcs(wtcData || []);
@@ -713,7 +717,7 @@ async function deletePropAttachment(fullName) {
         .catch(() => {});
     }
     // Refresh
-    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
+    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, deposit_required, deposit_amount, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);
     setShowApproveModal(false);
     setApproveReason("");
@@ -723,7 +727,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
   if (p.cloned_from_proposal_id) return;
   const { count } = await supabase.from("proposals").select("id", { count: "exact", head: true }).eq("cloned_from_proposal_id", p.id).is("deleted_at", null);
   if (count > 0) setSyncConflict({ changedFields: ["sales_sow","size","unit","field_sow","sub_areas","materials","discount","discount_reason","travel:drive_rate","travel:drive_miles","travel:fly_rate","travel:fly_tickets","travel:stay_rate","travel:stay_nights","travel:per_diem_rate","travel:per_diem_days","travel:per_diem_crew"] });
-}} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} onInternalApprove={p.status === "Sent" ? async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowApproveModal(true); } : undefined} />;
+}} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, deposit_required, deposit_amount, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, deposit_required, deposit_amount, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} onInternalApprove={p.status === "Sent" ? async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, deposit_required, deposit_amount, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowApproveModal(true); } : undefined} />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>

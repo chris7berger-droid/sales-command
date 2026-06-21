@@ -1442,6 +1442,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       if (!confirm(`Invoice #${inv.id} is a recorded deposit (${inv.paid_at ? "paid" : "sent"}). Remove the deposit tag? The job will revert to showing a deposit as still required.`)) return;
     }
     setMarkingDeposit(true);
+    // Track the prior we clear so we can compensate (re-set it) if the set-new write
+    // fails — clear-prior + set-new are two non-transactional writes, and a failed
+    // set-new must NOT leave the job with zero active deposit + the prior un-recorded.
+    let clearedPrior = null;
     if (turningOn && inv.call_log_id) {
       const { data: priors, error: priorErr } = await supabase
         .from("invoices")
@@ -1463,17 +1467,31 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         }
         const { error: clrErr } = await supabase.from("invoices").update({ is_deposit: false }).eq("id", prior.id);
         if (clrErr) { alert(`Couldn't move the deposit tag off #${prior.id}: ${clrErr.message}`); setMarkingDeposit(false); return; }
+        clearedPrior = prior.id;
       }
     }
     const { data: updated, error } = await supabase.from("invoices")
       .update({ is_deposit: turningOn })
       .eq("id", inv.id)
       .select();
-    setMarkingDeposit(false);
     if (error || !updated || updated.length < 1) {
+      // Set-new failed — restore the prior we cleared so the job keeps exactly one
+      // active deposit. Safe vs the unique index: this invoice did NOT get tagged.
+      if (clearedPrior) {
+        const { error: restoreErr } = await supabase.from("invoices").update({ is_deposit: true }).eq("id", clearedPrior);
+        setMarkingDeposit(false);
+        if (restoreErr) {
+          alert(`Couldn't tag #${inv.id} (${error?.message || "unknown error"}) AND couldn't restore #${clearedPrior} (${restoreErr.message}). The job may have no active deposit — please re-check #${clearedPrior}.`);
+        } else {
+          alert(`Couldn't move the deposit tag to #${inv.id}: ${error?.message || "unknown error"}. The deposit was left on #${clearedPrior}.`);
+        }
+        return;
+      }
+      setMarkingDeposit(false);
       alert(error?.message || "Couldn't update the deposit tag — refresh and try again.");
       return;
     }
+    setMarkingDeposit(false);
     setInv(prev => ({ ...prev, is_deposit: turningOn }));
     onUpdated && onUpdated();
   }

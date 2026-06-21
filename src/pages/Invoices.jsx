@@ -1435,6 +1435,12 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   async function handleToggleDeposit() {
     if (inv.voided_at || inv.deleted_at || markingDeposit) return;
     const turningOn = !inv.is_deposit;
+    // Un-recording a collected deposit (sent or paid) needs confirmation — symmetric
+    // with the steal-from-a-sent/paid-prior guard on turning ON. Don't silently drop
+    // the tag off a deposit the customer has already been billed/paid.
+    if (!turningOn && (inv.sent_at || inv.paid_at)) {
+      if (!confirm(`Invoice #${inv.id} is a recorded deposit (${inv.paid_at ? "paid" : "sent"}). Remove the deposit tag? The job will revert to showing a deposit as still required.`)) return;
+    }
     setMarkingDeposit(true);
     if (turningOn && inv.call_log_id) {
       const { data: priors, error: priorErr } = await supabase

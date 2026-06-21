@@ -9,9 +9,13 @@
 --   call_log.deposit_required    — job is flagged deposit-required (§1b checkbox)
 --   call_log.deposit_amount      — the deposit figure (user-entered)
 --   call_log.deposit_invoice_id  — the job points at its ONE deposit invoice.
---                                  ON DELETE SET NULL auto-clears the link if that
---                                  invoice is hard-deleted (no handler needed). Single-
---                                  select, badge, and state all fall out of this pointer.
+--                                  ON DELETE SET NULL is a FK-integrity backstop only
+--                                  (the app soft-deletes, so it rarely fires). The real
+--                                  contract: every reader active-filters the pointer
+--                                  (the referenced invoice must have voided_at IS NULL AND
+--                                  deleted_at IS NULL to count) — so a voided/deleted
+--                                  deposit needs no handler, the link just stops counting.
+--                                  Single-select, badge, and state all fall out of this.
 --
 -- The vestigial 20260620120000 columns (proposals.deposit_*, invoices.type) are already
 -- on prod and now fully unused — LEFT in place (harmless); cleanup is a backlog one-liner.

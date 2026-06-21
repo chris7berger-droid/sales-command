@@ -1445,12 +1445,16 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       // Status of whatever the pointer currently references (this invoice on un-mark, or
       // another invoice we're about to steal it from).
       let cur;
-      if (currentId === inv.id) cur = { sent_at: inv.sent_at, paid_at: inv.paid_at };
+      if (currentId === inv.id) cur = { sent_at: inv.sent_at, paid_at: inv.paid_at, voided_at: inv.voided_at, deleted_at: inv.deleted_at };
       else {
-        const { data } = await supabase.from("invoices").select("sent_at, paid_at").eq("id", currentId).maybeSingle();
+        const { data } = await supabase.from("invoices").select("sent_at, paid_at, voided_at, deleted_at").eq("id", currentId).maybeSingle();
         cur = data;
       }
-      if (cur && (cur.sent_at || cur.paid_at)) {
+      // Only confirm for a LIVE collected deposit — a voided/deleted pointer invoice is
+      // inactive (state already reads "required"), so moving/clearing it is free. This
+      // mirrors the reader active-filter; no clear-on-void handler is needed.
+      const active = cur && !cur.voided_at && !cur.deleted_at;
+      if (active && (cur.sent_at || cur.paid_at)) {
         const what = cur.paid_at ? "paid" : "sent";
         const msg = turningOn
           ? `This job's deposit is invoice #${currentId} (${what}). Move the deposit to invoice #${inv.id}?`

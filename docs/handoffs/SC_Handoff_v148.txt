@@ -1,0 +1,88 @@
+SC_Handoff_v148 — Deposit Tag (Cycle 1) shipped + methodology additions
+Date: 2026-06-22 · Repo: sales-command (cross-repo: sch-command Cycle 2 staged)
+ERD: Loop #36 (still OPEN — needs /erd-close)
+
+═══════════════════════════════════════════════════════════════════════
+SESSION SUMMARY
+═══════════════════════════════════════════════════════════════════════
+Shipped the deposit-tag feature to prod. The job was framed as "just a tag,"
+over-engineered through the build/audit cycle, then radically simplified to a
+one-field model and shipped. Cross-repo design (GC pay-app + retention vs direct)
+was settled; the Schedule-side indicator was carved out as a separate Cycle 2.
+
+THE MODEL (v2, what shipped):
+- A job is flagged deposit-required on call_log (deposit_required, deposit_amount).
+- You bill the deposit with the EXISTING invoice flow (pay-app for GC w/ retention,
+  regular invoice for direct) — NO special deposit-invoice creation.
+- You mark the invoice with a "Mark as deposit" toggle → sets call_log.deposit_invoice_id
+  (one pointer per job). Single-select, badge, and required/due/paid state all derive
+  from that pointer, active-filtered (voided_at/deleted_at IS NULL) + sent-gated.
+
+═══════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED (merged to main 3962eaf, live on prod)
+═══════════════════════════════════════════════════════════════════════
+- Migration 20260621120000_deposit_one_field.sql — call_log.deposit_required,
+  deposit_amount, deposit_invoice_id (text FK→invoices.id ON DELETE SET NULL).
+  APPLIED to prod via SQL editor + repair --status applied (db:push blocked by
+  sibling sch-command ledger). Ledger shows it Local+Remote.
+- Deposit checkbox + amount: ProposalDetail summary (green "Materials Deposit"
+  callout) AND CallLogDetail (the job-detail home). Writes call_log, verify-after-write.
+- "Mark as deposit" toggle on invoices → call_log.deposit_invoice_id (one atomic write;
+  confirm before stealing from a sent/paid pointer; un-toggle symmetric).
+- "Materials Deposit" badge keyed on the pointer, all 3 surfaces (preview, invoicePdf.js,
+  PublicInvoicePage). Deposit invoices render their REAL lines.
+- Retention guard re-keyed to the pointer, non-pay-app branch only.
+- Migration 20260620120000 (earlier §1a — proposals.deposit_*, invoices.type) is on prod
+  but now VESTIGIAL/unused → cleanup filed as B51.
+
+SMOKE: passed on job 10159 (ZZ TEST). Tag → badge → send → Recorded confirmed by Chris.
+T4 + T5 (fresh terminals each) both passed the v2 build.
+
+═══════════════════════════════════════════════════════════════════════
+KEY DECISIONS
+═══════════════════════════════════════════════════════════════════════
+- Deposit flag lives on call_log (job-level), NOT proposals — so proposal-less archive
+  jobs can carry it and Schedule reads it off the job. (Job-detail = the home; see memory.)
+- Identify the deposit invoice by ONE pointer (call_log.deposit_invoice_id), NOT a per-
+  invoice is_deposit flag. Collapsed away: is_deposit column, partial unique index,
+  clear-before-set compensation, deposit_pending void-survival. The over-engineering's
+  bugs dissolved rather than needing patches.
+- No special "create deposit invoice" path — bill with the existing flow, then tag.
+  Chris explicitly does NOT want the create-side pre-fill complexity reopened.
+- A proposal-less INVOICE is impossible (every create path sets proposal_id) — verified.
+
+═══════════════════════════════════════════════════════════════════════
+BACKLOG (main)
+═══════════════════════════════════════════════════════════════════════
+- B51 (new, T4, low): drop vestigial deposit columns from 20260620120000.
+- B48 closed (obsolete under v2). B49/B50 open but predate v2 — re-verify when touched.
+
+═══════════════════════════════════════════════════════════════════════
+NEXT SESSION POINTERS
+═══════════════════════════════════════════════════════════════════════
+- CYCLE 2 (the real next work): Schedule deposit indicator (sent / days-passed / due) on
+  the scheduling-readiness surface. Fresh T1→T5 cycle. Starter doc:
+  sch-command/docs/plans/deposit_schedule_indicator_cycle2.md (on feat/billing-forecast).
+  Data contract already live on call_log. Note: sch-command CALL_LOG_SELECT (queries.js:67)
+  does NOT yet fetch the deposit columns — must add them.
+- ERD Loop #36 still OPEN — run /erd-close to bank the do-different.
+- Optional: B51 cleanup migration.
+
+═══════════════════════════════════════════════════════════════════════
+METHODOLOGY (new this session — in memory + commands)
+═══════════════════════════════════════════════════════════════════════
+- T5 added to the protocol: T1-Plan · T2-Audit · T3-Build · T4-buildvsplan · T5-CodeReview.
+  T4 = fidelity; T5 = adversarial bug-hunt on the actual diff. Each verification pass gets
+  a FRESH terminal (never the builder, never chained).
+- New command: /realign — mid-session reset when it's not jiving (lead with understanding,
+  ask only what's open). Lives in ~/.claude-commands.
+- New memories: feedback_simplify_when_audits_accrete, project_job_detail_is_home,
+  project_bridger_t5, feedback_build_audit_split (T5 update).
+
+═══════════════════════════════════════════════════════════════════════
+GIT STATE
+═══════════════════════════════════════════════════════════════════════
+- sales-command: main @ 3962eaf (merge) → 068e146 (backlog). Clean, pushed.
+  feat/billing-deposit DELETED (merged).
+- sch-command: feat/billing-forecast @ 544322a (Cycle 2 starter). Clean, pushed.
+- Both repos: 0 uncommitted, 0 unpushed.

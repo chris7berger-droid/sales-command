@@ -26,6 +26,7 @@ import { fmt$ } from "./utils";
  * @returns {Promise<{pdfUrl: string, storagePath: string}>}
  */
 export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {}, callLog = {}, customer = {} }) {
+  const isDepositInvoice = (callLog?.deposit_invoice_id || null) === invoice.id;
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const pageW = doc.internal.pageSize.getWidth();   // 612
   const pageH = doc.internal.pageSize.getHeight();  // 792
@@ -34,6 +35,7 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
 
   // Palette — match HTML preview
   const teal      = [48, 207, 172];
+  const green     = [67, 160, 71];    // #43a047 — Command Green (deposit badge)
   const dark      = [28, 24, 20];
   const gray      = [74, 66, 56];     // #4a4238 — body gray
   const lightGray = [136, 124, 110];  // #887c6e — secondary
@@ -151,6 +153,19 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
 
   // Right: Invoice # / Job # / Due Date
   let ry2 = sectionTop;
+  // Deposit badge — gated on invoice kind, sits above the Invoice # label.
+  if (isDepositInvoice) {
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    const badgeLabel = "MATERIALS DEPOSIT INVOICE";
+    const padX = 6, badgeH = 15;
+    const badgeW = doc.getTextWidth(badgeLabel) + padX * 2;
+    doc.setFillColor(...green);
+    doc.roundedRect(rightColX, ry2 - 9, badgeW, badgeH, 3, 3, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.text(badgeLabel, rightColX + padX, ry2 + 1);
+    ry2 += 18;
+  }
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...dark);

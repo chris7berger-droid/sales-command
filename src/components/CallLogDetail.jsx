@@ -36,6 +36,13 @@ function Field({ label, children, wide }) {
   );
 }
 
+// Keep a single decimal point as the user types — "1.2.3" → "1.23".
+const sanitizeAmount = (s) => {
+  const c = String(s).replace(/[^0-9.]/g, "");
+  const i = c.indexOf(".");
+  return i === -1 ? c : c.slice(0, i + 1) + c.slice(i + 1).replace(/\./g, "");
+};
+
 function Section({ title, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -112,6 +119,12 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [qbToast, setQbToast] = useState(null);
   const [wtDropOpen, setWtDropOpen] = useState(false);
   const wtDropRef = useRef(null);
+  // Deposit (job-level) — same control as ProposalDetail §1b, writes call_log directly.
+  const [depositRequired, setDepositRequired] = useState(job.deposit_required || false);
+  const [depositAmount, setDepositAmount] = useState(job.deposit_amount ? String(job.deposit_amount) : "");
+  const [depositSaving, setDepositSaving] = useState(false);
+  const [depositSaved, setDepositSaved] = useState(false);
+  const [depositError, setDepositError] = useState(null);
 
   useEffect(() => {
     if (!job.customer_id) return;
@@ -350,6 +363,29 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     return true;
   }
 
+  // Deposit-required is job-level — writes call_log directly with its own inline saver
+  // (independent of the main edit form / edit mode). Verify-after-write; never report
+  // "Saved" on a silent RLS no-op.
+  async function saveDeposit(nextRequired, nextAmount) {
+    setDepositSaving(true);
+    setDepositError(null);
+    const numAmt = nextRequired ? (parseFloat(nextAmount) || 0) : 0;
+    const { data: updated, error } = await supabase.from("call_log")
+      .update({ deposit_required: nextRequired, deposit_amount: numAmt })
+      .eq("id", job.id)
+      .select();
+    setDepositSaving(false);
+    if (error || !updated || updated.length < 1) {
+      setDepositRequired(job.deposit_required || false);
+      setDepositAmount(job.deposit_amount ? String(job.deposit_amount) : "");
+      setDepositError(error?.message || "Couldn't save the deposit — refresh and try again.");
+      return;
+    }
+    setDepositSaved(true);
+    setTimeout(() => setDepositSaved(false), 2000);
+    (onJobRefresh || onSaved) && (onJobRefresh || onSaved)();
+  }
+
   const sc = stageColor(form.stage);
   const iStyle = { ...inputStyle, ...(editing ? {} : { opacity: 0.75, pointerEvents: "none" }) };
 
@@ -487,6 +523,44 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         ) : (job.customer_name || "—")}
         {job.customer_type ? ` · ${job.customer_type}` : ""}
         {job.created_at ? ` · Created ${new Date(job.created_at).toLocaleDateString()}` : ""}
+      </div>
+
+      {/* Deposit (job-level) — same control as ProposalDetail §1b. */}
+      <div style={{ background: C.linenCard, border: `1px solid ${C.green}`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: 20, marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: depositRequired ? 14 : 4 }}>
+          <div style={{ fontWeight: 800, fontSize: 12.5, color: C.green, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase" }}>Materials Deposit</div>
+          {depositSaved && <span style={{ fontSize: 11, color: C.green, fontWeight: 700, fontFamily: F.ui }}>Saved</span>}
+          {depositError && <span style={{ fontSize: 11, color: C.red, fontWeight: 700, fontFamily: F.ui }}>Not saved</span>}
+        </div>
+        {depositError && <div style={{ fontSize: 11, color: C.red, fontFamily: F.ui, marginBottom: 8 }}>{depositError}</div>}
+        <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={depositRequired}
+            onChange={e => { const v = e.target.checked; setDepositRequired(v); saveDeposit(v, depositAmount); }}
+            style={{ width: 18, height: 18, accentColor: C.green, cursor: "pointer", flexShrink: 0 }}
+          />
+          <span style={{ fontSize: 14, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Deposit required</span>
+        </label>
+        {depositRequired && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6, fontFamily: F.display }}>Deposit Amount</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ position: "relative", flex: 1 }}>
+                <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 15, fontWeight: 700, color: C.textMuted, fontFamily: F.ui, pointerEvents: "none" }}>$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={depositAmount}
+                  onChange={e => setDepositAmount(sanitizeAmount(e.target.value))}
+                  placeholder="0"
+                  style={{ width: "100%", padding: "10px 14px 10px 26px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, color: C.textHead, fontSize: 16, fontWeight: 700, fontFamily: F.ui, WebkitAppearance: "none" }}
+                />
+              </div>
+              <Btn sz="sm" v="secondary" onClick={() => saveDeposit(depositRequired, depositAmount)} disabled={depositSaving}>{depositSaving ? "Saving..." : "Save"}</Btn>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Job Info */}

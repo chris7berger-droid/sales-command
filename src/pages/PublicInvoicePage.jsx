@@ -30,7 +30,7 @@ export default function PublicInvoicePage() {
 
       const { data: inv, error: invErr } = await supabase
         .from("invoices")
-        .select("*, proposals(total, is_archive_proposal, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))")
+        .select("*, proposals(total, is_archive_proposal, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, deposit_invoice_id, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))")
         .eq("viewing_token", token)
         .single();
 
@@ -95,6 +95,7 @@ export default function PublicInvoicePage() {
     const v = parseFloat(n) || 0;
     return effectiveShowCents ? `${v.toFixed(2)}%` : `${Math.round(v)}%`;
   };
+  const isDepositInvoice = (invoice.proposals?.call_log?.deposit_invoice_id || null) === invoice.id;
   const isArchive = !!invoice.proposals?.is_archive_proposal;
   const archiveSold = parseFloat(invoice.proposals?.total) || 0;
   const archiveWorkTypes = (invoice.proposals?.call_log?.job_work_types || []).map(j => j.work_types?.name).filter(Boolean).join(", ");
@@ -167,6 +168,9 @@ export default function PublicInvoicePage() {
               )}
             </div>
             <div style={{ textAlign: "left" }}>
+              {isDepositInvoice && (
+                <div style={{ display: "inline-block", background: "#43a047", color: "white", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "4px 10px", borderRadius: 4, marginBottom: 10 }}>Materials Deposit Invoice</div>
+              )}
               <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Invoice #</div>
               <div style={{ fontSize: 12, color: "#887c6e" }}>{invoice.id}</div>
               {invoice.job_id && (

@@ -13,6 +13,14 @@ import ProposalPDFModal from "./ProposalPDFModal";
 import MultiGCWizard from "./MultiGCWizard";
 import SyncConflictModal from "./SyncConflictModal";
 
+// Keep a single decimal point as the user types — collapses multi-dot input so
+// "1.2.3" → "1.23" cleanly (the prior parse silently truncated at the 2nd dot).
+const sanitizeAmount = (s) => {
+  const c = String(s).replace(/[^0-9.]/g, "");
+  const i = c.indexOf(".");
+  return i === -1 ? c : c.slice(0, i + 1) + c.slice(i + 1).replace(/\./g, "");
+};
+
 function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember, onNavigateJob, onNavigateInvoice }) {
   const [p, setP] = useState(pInit);
   const money = p.call_log?.show_cents ? fmt$c : fmt$;
@@ -38,6 +46,13 @@ const [intro, setIntro] = useState(pInit.intro || "");
 const [introLoaded, setIntroLoaded] = useState(!!pInit.intro);
 const [introSaving, setIntroSaving] = useState(false);
 const [introSaved, setIntroSaved] = useState(false);
+// Deposit-required is a JOB-level field (call_log) — every proposal of the job shows the
+// same shared value. Init from call_log, not the proposal (audit #5).
+const [depositRequired, setDepositRequired] = useState(pInit.call_log?.deposit_required || false);
+const [depositAmount, setDepositAmount] = useState(pInit.call_log?.deposit_amount ? String(pInit.call_log.deposit_amount) : "");
+const [depositSaving, setDepositSaving] = useState(false);
+const [depositSaved, setDepositSaved] = useState(false);
+const [depositError, setDepositError] = useState(null);
 const [recipients, setRecipients] = useState([]);
 const [sendingToSchedule, setSendingToSchedule] = useState(false);
 const [sentToSchedule, setSentToSchedule] = useState(false);
@@ -115,13 +130,41 @@ async function saveIntro() {
   }
 }
 
+// §1b — deposit control. Writes the JOB record (call_log), not the proposal — the flag is
+// job-level, shared across the job's proposals. NOT a recompute-money path: deposit_amount
+// is user-entered, never derived via calcWtcPrice.
+async function saveDeposit(nextRequired, nextAmount) {
+  if (!p.call_log_id) { setDepositError("This proposal isn't linked to a job yet."); return; }
+  setDepositSaving(true);
+  setDepositError(null);
+  const numAmt = nextRequired ? (parseFloat(nextAmount) || 0) : 0;
+  // Verify-after-write: RLS can silently no-op an UPDATE (no error, 0 rows). Confirm a
+  // row actually changed before claiming "Saved" — never report success on a no-op.
+  const { data: updated, error } = await supabase.from("call_log")
+    .update({ deposit_required: nextRequired, deposit_amount: numAmt })
+    .eq("id", p.call_log_id)
+    .select();
+  setDepositSaving(false);
+  if (error || !updated || updated.length < 1) {
+    // Roll the checkbox/amount back to the last persisted values so the UI can't drift
+    // from the DB after a failed save.
+    setDepositRequired(p.call_log?.deposit_required || false);
+    setDepositAmount(p.call_log?.deposit_amount ? String(p.call_log.deposit_amount) : "");
+    setDepositError(error?.message || "Couldn't save the deposit — refresh and try again.");
+    return;
+  }
+  setP(prev => ({ ...prev, call_log: { ...prev.call_log, deposit_required: nextRequired, deposit_amount: numAmt } }));
+  setDepositSaved(true);
+  setTimeout(() => setDepositSaved(false), 2000);
+}
+
 // Auto-refresh when proposal is Sent (waiting for customer signature)
 useEffect(() => {
   if (p.status !== "Sent") return;
   const interval = setInterval(async () => {
     const { data } = await supabase
       .from("proposals")
-      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip, requires_pay_app))")
+      .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, deposit_required, deposit_amount, customers(email, contact_email, business_address, business_city, business_state, business_zip, requires_pay_app))")
       .eq("id", p.id)
       .single();
     if (data && data.status !== p.status) setP(data);
@@ -503,7 +546,7 @@ async function deletePropAttachment(fullName) {
       const { error: clErr } = await supabase.from("call_log").update({ stage: "Wants Bid" }).eq("id", p.call_log_id);
       if (clErr) { alert("Pull back failed resetting job stage: " + clErr.message); return; }
     }
-    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
+    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, deposit_required, deposit_amount, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);
     const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true });
     setWtcs(wtcData || []);
@@ -674,7 +717,7 @@ async function deletePropAttachment(fullName) {
         .catch(() => {});
     }
     // Refresh
-    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
+    const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, deposit_required, deposit_amount, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);
     setShowApproveModal(false);
     setApproveReason("");
@@ -684,7 +727,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
   if (p.cloned_from_proposal_id) return;
   const { count } = await supabase.from("proposals").select("id", { count: "exact", head: true }).eq("cloned_from_proposal_id", p.id).is("deleted_at", null);
   if (count > 0) setSyncConflict({ changedFields: ["sales_sow","size","unit","field_sow","sub_areas","materials","discount","discount_reason","travel:drive_rate","travel:drive_miles","travel:fly_rate","travel:fly_tickets","travel:stay_rate","travel:stay_nights","travel:per_diem_rate","travel:per_diem_days","travel:per_diem_crew"] });
-}} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} onInternalApprove={p.status === "Sent" ? async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowApproveModal(true); } : undefined} />;
+}} onClose={async (openPDF = false) => { const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, deposit_required, deposit_amount, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowWTC(false); setActiveWtcId(null); setWtcInitialTab(null); const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id).order("created_at", { ascending: true }); setWtcs(wtcData || []); if (openPDF) { setPdfMode("send"); setShowPDF(true); } }} />;  if (showPDF) return <ProposalPDFModal key={p.id + '-pdf'} proposal={p} mode={pdfMode} onClose={async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, deposit_required, deposit_amount, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); }} onInternalApprove={p.status === "Sent" ? async () => { setShowPDF(false); const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, deposit_required, deposit_amount, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single(); if (data) setP(data); setShowApproveModal(true); } : undefined} />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -1091,6 +1134,52 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                 ))}
               </div>
             )}
+          </div>
+
+          {/* §1b — Materials Deposit callout. Distinct green-accented linen card. */}
+          <div style={{ background: C.linenCard, border: `1px solid ${C.green}`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: depositRequired ? 14 : 4 }}>
+              <div style={{ fontWeight: 800, fontSize: 12.5, color: C.green, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase" }}>Materials Deposit</div>
+              {depositSaved && <span style={{ fontSize: 11, color: C.green, fontWeight: 700, fontFamily: F.ui }}>Saved</span>}
+              {depositError && <span style={{ fontSize: 11, color: C.red, fontWeight: 700, fontFamily: F.ui }}>Not saved</span>}
+            </div>
+            {depositError && <div style={{ fontSize: 11, color: C.red, fontFamily: F.ui, marginBottom: 8 }}>{depositError}</div>}
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={depositRequired}
+                onChange={e => { const v = e.target.checked; setDepositRequired(v); saveDeposit(v, depositAmount); }}
+                style={{ width: 18, height: 18, accentColor: C.green, cursor: "pointer", flexShrink: 0 }}
+              />
+              <span style={{ fontSize: 14, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Deposit required</span>
+            </label>
+            {depositRequired && (() => {
+              const depositBasis = (sovContractSum != null && sovContractSum > 0) ? sovContractSum : (parseFloat(p.total) || 0);
+              const amt = parseFloat(depositAmount);
+              const overTotal = amt > 0 && depositBasis > 0 && amt > depositBasis;
+              return (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6, fontFamily: F.display }}>Deposit Amount</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div style={{ position: "relative", flex: 1 }}>
+                      <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 15, fontWeight: 700, color: C.textMuted, fontFamily: F.ui, pointerEvents: "none" }}>$</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={depositAmount}
+                        onChange={e => setDepositAmount(sanitizeAmount(e.target.value))}
+                        placeholder="0"
+                        style={{ width: "100%", padding: "10px 14px 10px 26px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, color: C.textHead, fontSize: 16, fontWeight: 700, fontFamily: F.ui, WebkitAppearance: "none" }}
+                      />
+                    </div>
+                    <Btn sz="sm" v="secondary" onClick={() => saveDeposit(depositRequired, depositAmount)} disabled={depositSaving}>{depositSaving ? "Saving..." : "Save"}</Btn>
+                  </div>
+                  {overTotal && (
+                    <div style={{ fontSize: 11, color: C.amber, fontFamily: F.ui, marginTop: 8 }}>⚠ Deposit exceeds the proposal total ({money(depositBasis)}).</div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           <div style={{ background: C.dark, border: `1px solid ${C.tealBorder}`, borderRadius: 10, padding: 20 }}>

@@ -5,6 +5,7 @@
 **Backlog:** Refines/closes the **invoice half** of **F30** (T2 — "CC support on pay app + invoice send flows"). Pay-app half stays open.
 **Author:** build session (T3), pre-audit draft · **Revised:** T1 (planning) folding T2 audit, 2026-06-25 — see **Audit Amendments (post-T2)**
 **Status:** ✅ A4 ratified **Option A** (2026-06-25) — build unblocked. See §4.5 + Audit Amendments.
+**T5 (code review):** 10 findings, report-only → T3. #1 (stale email vs C9 allowlist) ratified **Option B + mandatory live display** (2026-06-25) — see **Audit Amendments (post-T5)**. #2–#10 are T3 mechanical fixes.
 
 Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from code, verify · **[DESIGN-OPEN]** = needs a call · **[BLOCKED]** = depends on unresolved item.
 
@@ -90,9 +91,10 @@ invoice_recipients:
 - `invoice_id` is **text** (invoices.id is text), unlike proposal_recipients' text proposal_id — confirm FK type matches.
 - Migration filename: next free timestamp via `npm run db:push` collision check. Do NOT push yet (see §8).
 
-### 4.2 UI — Recipients section in `InvoiceDetail` (`Invoices.jsx`) [LOCKED behavior]
+### 4.2 UI — Recipients section in `InvoiceDetail` (`Invoices.jsx`) [LOCKED behavior] [AMENDED post-T5 — see Audit Amendments (post-T5)]
 
 - Port the proposal Recipients card into the **InvoiceDetail body** (not only the send view), so recipients are managed before sending. Place it near the existing billing/contact area.
+- **Live email display [LOCKED — T5 #1, Option B]:** for any recipient with a `customer_contact_id`, the Recipients list must **display the linked contact's current email** (from the joined `customer_contacts`), NOT the stored `invoice_recipients.contact_email` snapshot. The embed at `:1285` already pulls the contact — add `email` to it and prefer the live value. This keeps the screen accurate on every open after a Customers-page edit. Stored `contact_email` is a fallback only for orphan rows (`customer_contact_id = null`). Optional polish: re-fetch recipients when the invoice view regains focus to shrink the rare already-open-during-edit window (no real-time broadcast exists — the UpdateBanner only watches app deploys, not data).
 - **Styling [DESIGN-OPEN]:** the proposal card uses linen tokens (`C.linenCard`, etc.); the invoice detail/send view currently uses white/`#F9FAFB` "paper" styling (`:917-925`). Per CLAUDE.md "no white backgrounds in internal app," the Recipients card should use linen tokens like the proposal version. Confirm placement doesn't sit inside the print/paper region.
 - Rows: name/email/phone, role pill, **Main/Viewer toggle** (checkbox or pill toggle — mirror `toggleSigner` semantics: setting one main unsets the others), Edit, Delete, "Save to Customer" for orphan rows.
 - "+ Add Contact": reuse the exact picker pattern (`customer_contacts` not-yet-added + inline new-contact form).
@@ -118,6 +120,8 @@ invoice_recipients:
 - **(i) 0 rows** → fall back to today's single resolved billing-contact as the `main` (zero-regression for legacy / not-yet-configured invoices).
 - **(ii) exactly one `main`** (+ any viewers) → proceed.
 - **(iii) rows exist but NO `main`** → return **400 and BLOCK send** — mirror the existing "No customer email on file" guard at `send-invoice:101-106`. Do **not** silently elevate a viewer. (UI also blocks this per §4.3, but the fn is the authoritative gate.)
+
+**Live email resolution at send [LOCKED — T5 #1, Option B] [AMENDED post-T5]:** before the allowlist gate, for any recipient with a `customer_contact_id`, **resolve its email from the live `customer_contacts` row**, not the stored `contact_email` snapshot. Send to and allowlist-check that live value. Because a linked recipient's email IS a current customer contact, it passes the allowlist by construction — fixing the stale-snapshot send-block **without weakening C9** (consistent with the documented soft-allowlist model). Orphan rows (`customer_contact_id = null`) use the stored `contact_email` and must still pass the gate; if they don't (e.g. the contact was deleted), refuse with a clear "recipient's contact no longer exists — re-add them" error (ties to T5 #2), never a raw 400.
 
 **Per-recipient allowlist gate — soft C9 model [#3/A5] [LOCKED — security]:** run the gate **per recipient**, including orphan rows with `customer_contact_id = null`, against the customer's contacts ∪ `customers.{billing_email,contact_email,email}` (the `send-pay-app:186-209` pattern). Off-allowlist email → refuse that recipient with a clear error.
 - *Accepted limitation (1 tenant):* this is intentionally **soft** — `createNewRecipient` (§4.2) writes the typed email into `customer_contacts` first, so any contact added through the UI auto-passes the gate. It blocks raw body-injected addresses, not UI-added ones. Kept as-is per the C9 model; revisit if multi-tenant ships.
@@ -220,6 +224,26 @@ T2 found the feature's one LOCKED promise — **"viewers can't pay"** — was no
 ### Adjacent (filed to backlog, not this task) — see §6
 - Stripe Payment Links reusable-by-default / double-charge window (pre-existing, relates to F30).
 - Per-recipient `viewed_at` not derivable from one shared token.
+
+---
+
+## Audit Amendments (post-T5)
+
+_T5 code review (`/code-review high`) found 10 issues (7 correctness, 3 cleanup), report-only → T3 fixes. Nine are mechanical fixes T3 owns. **One (#1) was routed to T1 because it touches the C9 anti-injection control** and was decided with Chris on 2026-06-25._
+
+### T5 #1 — stale recipient email vs. the C9 allowlist → **RATIFIED Option B + mandatory live display**
+
+**Problem:** `invoice_recipients.contact_email` is a snapshot taken at add-time. The send-time allowlist (C9) only admits emails that currently exist in the customer's contacts. If a contact is **edited or deleted on the Customers page** after being added as a recipient, the snapshot goes stale, fails the allowlist, and **hard-blocks the send with a 400** — a legitimately-added recipient gets locked out. The display also shows the stale email, which erodes user trust.
+
+**Options weighed:** A = propagate contact edits onto recipient rows (rejected: rewrites "who we sent to" on already-sent invoices, and doesn't handle the delete/orphan case); B = resolve the live contact email at send + display for linked rows (recommended); C = both.
+
+**Decision — Option B, with live display made mandatory (not optional):**
+- **Send (§4.4):** for recipients with a `customer_contact_id`, resolve email from the **live** `customer_contacts` row for both the allowlist check and the actual send. Linked email is a current contact → passes the allowlist by construction → **C9 not weakened**. Orphan rows use the stored snapshot and must still pass; off-allowlist → clear "contact no longer exists, re-add" error (ties to T5 #2), not a raw 400.
+- **Display (§4.2):** the Recipients list shows the **live** linked-contact email (add `email` to the `:1285` embed; prefer it over the stored snapshot), so the screen is accurate on every open. Stored `contact_email` is fallback for orphans only.
+- **Why not A:** the existing UpdateBanner is deploy-detection only (polls the JS bundle hash every 5 min — `UpdateBanner.jsx`), NOT a data-change broadcast, so it would never refresh a stale contact email anyway. B's on-open live read is the right lever; A's edit-propagation would corrupt the historical send record. Optional cheap polish: re-fetch recipients on invoice-view focus to shrink the rare already-open-during-edit window.
+
+### T5 #2–#10 — T3's to fix (no T1 decision needed)
+Mechanical correctness (#2 surface "main missing email" in UI vs edge-fn 400; #3 billing-contact double-add dedup; #4 `ensureMainSeeded` early-return stranding first viewer; #5 Send modal omits `customers.email`; #6 require valid email on "+ New Contact"; #7 `toggleMain` non-atomic) + cleanup (#8–10). T3 revises against cited source per item. #2 pairs with the orphan-error path above.
 
 ---
 

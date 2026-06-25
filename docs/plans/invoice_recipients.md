@@ -6,6 +6,7 @@
 **Author:** build session (T3), pre-audit draft · **Revised:** T1 (planning) folding T2 audit, 2026-06-25 — see **Audit Amendments (post-T2)**
 **Status:** ✅ A4 ratified **Option A** (2026-06-25) — build unblocked. See §4.5 + Audit Amendments.
 **T5 (code review):** 10 findings, report-only → T3. #1 (stale email vs C9 allowlist) ratified **Option B + mandatory live display** (2026-06-25) — see **Audit Amendments (post-T5)**. #2–#10 are T3 mechanical fixes.
+**T5 (security review):** 1 surviving finding (High) — pay link shipped to anon despite button removal. Ratified **Level 2** (column REVOKE `FROM anon` + explicit select), verified non-breaking — see §4.5 + Audit Amendments (post-T5) #SEC1.
 
 Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from code, verify · **[DESIGN-OPEN]** = needs a call · **[BLOCKED]** = depends on unresolved item.
 
@@ -139,13 +140,20 @@ invoice_recipients:
 
 **Sender confirmation email (`:273-302`):** list all recipients (main + viewers) for a paper trail (satisfies F30 part 4); include any viewer-send warnings.
 
-### 4.5 PublicInvoicePage — remove the Pay Now button [LOCKED — A4 Option A ratified 2026-06-25]
+### 4.5 PublicInvoicePage — remove the Pay Now button + STOP shipping the pay link to anon [LOCKED — A4 Option A ratified 2026-06-25; AMENDED post-T5 security: Level 2]
 
 **Why:** the public invoice page is reached via one `viewing_token` shared by main + all viewers, and the page can't distinguish them. As long as the page renders its own Pay button, a viewer can pay — defeating the §1 promise. Option A closes this by making the page **view/print only**; the payer pays via the **Pay Now button in their email** (unchanged).
 
 - Remove the Pay Now button + its checkout handler from `PublicInvoicePage.jsx:132-136` and `:278-282` (verify exact anchors at build time). Keep the invoice summary, View/Print, and any "questions?" footer.
 - **Deliberate behavior change (applies to ALL invoices, not just multi-recipient):** today both the email and the page carry a Pay button; after this, only the **email** does. The payer can still always pay — their email button is the canonical path (and `send-invoice` already emails it). Note this in the build handoff and smoke-test it (single-recipient invoice still payable via email).
-- No DB/RLS change here — purely removing a client-side affordance. Does not depend on `invoice_recipients`.
+
+**[T5 SECURITY — Level 2, LOCKED 2026-06-25] Removing the button is not enough — the pay link must stop reaching anon at all.** `PublicInvoicePage.jsx:33` fetches `select("*")`, which still ships `stripe_checkout_url` (a live, payable Stripe Payment Link) to every viewer's browser (Network tab / React state), reachable via the shared `viewing_token`. Two-part fix:
+- **(a) Explicit client select [required]:** replace `PublicInvoicePage.jsx:33` `select("*", proposals(...))` with an **explicit column list** that omits `stripe_checkout_url`, `stripe_payment_link_id`, `stripe_checkout_id`, `qb_invoice_id`, `qb_payment_id`. Verified: the page references **no** stripe/qb column after the fetch, so nothing on the page breaks. (Also required because after (b), an anon `select("*")` would error on the revoked columns.)
+- **(b) Column-level REVOKE [the real boundary]:** migration — `REVOKE SELECT (stripe_checkout_url, stripe_payment_link_id, stripe_checkout_id, qb_invoice_id, qb_payment_id) ON public.invoices FROM anon;`. This makes the columns physically unreadable by `anon` regardless of how a request is crafted (closes the hand-crafted-anon-request hole that (a) alone leaves open).
+  - **GOTCHA 1:** `FROM anon` ONLY — never `FROM public` (that would strip `authenticated` and break the internal app, which legitimately reads these columns: `Invoices.jsx:1238,1681,1762,1776-1778,2320`, void/QB/resend flows).
+  - **GOTCHA 2:** do not follow with a blanket `GRANT SELECT ON invoices TO anon` — that re-exposes the columns. Keep the migration self-contained.
+- **Verified non-breaking (anon surface fully traced 2026-06-25):** the only anon readers are `PublicInvoicePage` (this page) and `PublicSigningPage` (never queries invoices). `InvoicePaidPage` does no DB query. Edge fns use `service_role` (unaffected). Composes with the existing `invoices_public_view_token` ROW policy (privilege layer ≠ RLS-policy layer) — does not reawaken the `20260502130000` anti-pattern.
+- This part DOES add a migration + an edge to the anon boundary — it is no longer "purely client-side."
 
 ---
 
@@ -156,7 +164,8 @@ invoice_recipients:
 | `supabase/migrations/<new>.sql` | Create `invoice_recipients` + RLS + indexes |
 | `src/pages/Invoices.jsx` | Recipients section in InvoiceDetail; rewire send view + `handleSend` |
 | `supabase/functions/send-invoice/index.ts` | Load recipients, allowlist-gate, main-vs-viewer email split, per-row `sent_at`, sender summary |
-| `src/pages/PublicInvoicePage.jsx` | **A4 Option A:** remove Pay Now button + checkout handler (`:132-136`, `:278-282`); page becomes view/print only |
+| `src/pages/PublicInvoicePage.jsx` | **A4 Option A:** remove Pay Now button + checkout handler (`:132-136`, `:278-282`); **T5 Level 2 (a):** replace `:33` `select("*")` with explicit columns omitting `stripe_*`/`qb_*` |
+| `supabase/migrations/<new2>.sql` | **T5 Level 2 (b):** `REVOKE SELECT (stripe_checkout_url, stripe_payment_link_id, stripe_checkout_id, qb_invoice_id, qb_payment_id) ON public.invoices FROM anon;` (FROM anon only — see §4.5 gotchas) |
 | `docs/BACKLOG.md` | Update F30 (invoice half closed; pay-app half open) |
 | `CLAUDE.md` | Add `invoice_recipients` to the Supabase Column Reference |
 
@@ -241,6 +250,14 @@ _T5 code review (`/code-review high`) found 10 issues (7 correctness, 3 cleanup)
 - **Send (§4.4):** for recipients with a `customer_contact_id`, resolve email from the **live** `customer_contacts` row for both the allowlist check and the actual send. Linked email is a current contact → passes the allowlist by construction → **C9 not weakened**. Orphan rows use the stored snapshot and must still pass; off-allowlist → clear "contact no longer exists, re-add" error (ties to T5 #2), not a raw 400.
 - **Display (§4.2):** the Recipients list shows the **live** linked-contact email (add `email` to the `:1285` embed; prefer it over the stored snapshot), so the screen is accurate on every open. Stored `contact_email` is fallback for orphans only.
 - **Why not A:** the existing UpdateBanner is deploy-detection only (polls the JS bundle hash every 5 min — `UpdateBanner.jsx`), NOT a data-change broadcast, so it would never refresh a stale contact email anyway. B's on-open live read is the right lever; A's edit-propagation would corrupt the historical send record. Optional cheap polish: re-fetch recipients on invoice-view focus to shrink the rare already-open-during-edit window.
+
+### T5 Security #SEC1 — pay link still shipped to anon (High) → **RATIFIED Level 2** (column REVOKE + explicit select)
+
+**Found by `/security-review` (confidence 9/10); the one finding that survived verification — RLS, C9 allowlist, Stripe mint-once, viewer-template separation all cleared.** §4.5 removed the public-page Pay *button*, but `PublicInvoicePage.jsx:33` still does `select("*")`, shipping `stripe_checkout_url` (a live payable Stripe link) to every viewer's browser via the shared `viewing_token`. A viewer reads it from devtools/Network and pays → the exact double-pay the feature exists to prevent.
+
+**Decision — Level 2 (real boundary, not just hide):** (a) explicit client select omitting `stripe_*`/`qb_*` on `:33`; (b) migration `REVOKE SELECT (...) ON public.invoices FROM anon`. Level 1 (client select only) was rejected — it leaves a hand-crafted anon-request hole (anon key is in the bundle; RLS is row-level, not column-level). Full spec + gotchas in §4.5.
+
+**Verified non-breaking before locking (anon surface fully traced):** only anon readers are PublicInvoicePage + PublicSigningPage (latter never reads invoices); InvoicePaidPage does no query; all internal `stripe_*`/`qb_*` reads are `authenticated` (untouched by `FROM anon`); composes with the existing `invoices_public_view_token` row policy.
 
 ### T5 #2–#10 — T3's to fix (no T1 decision needed)
 Mechanical correctness (#2 surface "main missing email" in UI vs edge-fn 400; #3 billing-contact double-add dedup; #4 `ensureMainSeeded` early-return stranding first viewer; #5 Send modal omits `customers.email`; #6 require valid email on "+ New Contact"; #7 `toggleMain` non-atomic) + cleanup (#8–10). T3 revises against cited source per item. #2 pairs with the orphan-error path above.

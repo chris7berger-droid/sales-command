@@ -4,7 +4,7 @@
 **Date:** 2026-06-25
 **Backlog:** Refines/closes the **invoice half** of **F30** (T2 — "CC support on pay app + invoice send flows"). Pay-app half stays open.
 **Author:** build session (T3), pre-audit draft · **Revised:** T1 (planning) folding T2 audit, 2026-06-25 — see **Audit Amendments (post-T2)**
-**Status:** ⛔ BUILD BLOCKED pending Chris's A4 A/B ratification (§7 A4 + Audit Amendments).
+**Status:** ✅ A4 ratified **Option A** (2026-06-25) — build unblocked. See §4.5 + Audit Amendments.
 
 Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from code, verify · **[DESIGN-OPEN]** = needs a call · **[BLOCKED]** = depends on unresolved item.
 
@@ -120,6 +120,14 @@ invoice_recipients:
 
 **Sender confirmation email (`:273-302`):** list all recipients (main + viewers) for a paper trail (satisfies F30 part 4); include any viewer-send warnings.
 
+### 4.5 PublicInvoicePage — remove the Pay Now button [LOCKED — A4 Option A ratified 2026-06-25]
+
+**Why:** the public invoice page is reached via one `viewing_token` shared by main + all viewers, and the page can't distinguish them. As long as the page renders its own Pay button, a viewer can pay — defeating the §1 promise. Option A closes this by making the page **view/print only**; the payer pays via the **Pay Now button in their email** (unchanged).
+
+- Remove the Pay Now button + its checkout handler from `PublicInvoicePage.jsx:132-136` and `:278-282` (verify exact anchors at build time). Keep the invoice summary, View/Print, and any "questions?" footer.
+- **Deliberate behavior change (applies to ALL invoices, not just multi-recipient):** today both the email and the page carry a Pay button; after this, only the **email** does. The payer can still always pay — their email button is the canonical path (and `send-invoice` already emails it). Note this in the build handoff and smoke-test it (single-recipient invoice still payable via email).
+- No DB/RLS change here — purely removing a client-side affordance. Does not depend on `invoice_recipients`.
+
 ---
 
 ## 5. Files to touch
@@ -129,6 +137,7 @@ invoice_recipients:
 | `supabase/migrations/<new>.sql` | Create `invoice_recipients` + RLS + indexes |
 | `src/pages/Invoices.jsx` | Recipients section in InvoiceDetail; rewire send view + `handleSend` |
 | `supabase/functions/send-invoice/index.ts` | Load recipients, allowlist-gate, main-vs-viewer email split, per-row `sent_at`, sender summary |
+| `src/pages/PublicInvoicePage.jsx` | **A4 Option A:** remove Pay Now button + checkout handler (`:132-136`, `:278-282`); page becomes view/print only |
 | `docs/BACKLOG.md` | Update F30 (invoice half closed; pay-app half open) |
 | `CLAUDE.md` | Add `invoice_recipients` to the Supabase Column Reference |
 
@@ -151,7 +160,7 @@ invoice_recipients:
 - **A1 [DESIGN-OPEN]** Main/viewer UI affordance: user said "checkbox." Proposal uses a pill toggle. Recommend a checkbox labeled "Main recipient (gets pay link)" that radio-behaves (checking one unchecks others). Confirm.
 - **A2 [DESIGN-OPEN]** Seed behavior: auto-insert a `main` row for the resolved billing contact on first load, vs. implicit main until the user edits. Recommend implicit fallback in the edge fn (no auto-write) + UI showing the resolved billing contact as the default main, so we don't mutate data just by opening the screen.
 - **A3 [LOCKED — specified]** Exactly-one-main invariant across add/toggle/delete. Resolved in §4.4 (three-branch resolution, branch iii returns 400) + §4.3 (UI blocks send with no main). Deleting the main → "no main" → send blocked, never silent viewer promotion.
-- **A4 [BLOCKED — awaiting A/B decision]** **The feature's §1 LOCKED promise ("viewers can't pay") is NOT delivered as drawn.** `PublicInvoicePage.jsx:132-136` & `:278-282` render a live Pay Now button to anyone with the invoice's `viewing_token`; there is one shared token per invoice, so a viewer opening the View link can pay. The view-only *email* (§4.4) is necessary but **not sufficient** — the *page* still exposes payment. Closing this needs a decision (Option A: gate/remove the page's Pay button; Option B: per-recipient tokens). **Build must not start until Chris ratifies.** See Audit Amendments.
+- **A4 [LOCKED — Option A ratified 2026-06-25]** The §1 promise ("viewers can't pay") was not deliverable via the email split alone: `PublicInvoicePage.jsx:132-136` & `:278-282` render Pay Now on the shared-`viewing_token` page. **Resolved by Option A** — remove the Pay button from the public page (§4.5); payer pays via their email button. Option B (per-recipient tokens) was declined for this loop. Build unblocked.
 - **A5 [LOCKED — specified, security]** Per-recipient soft-allowlist gate (incl. orphan rows) — specified in §4.4. Accepted soft limitation documented (UI-added contacts auto-pass; blocks body-injected addresses).
 - **A6 [LOCKED]** `invoices.id` is text → `invoice_recipients.invoice_id` is text; all queries treat it as text. Specified in §4.1.
 - **A7 [LOCKED — specified]** Stripe link minted once before any loop; `checkoutUrl` referenced only in the main branch; viewer template has no `checkoutUrl` param at all. Specified in §4.4.
@@ -160,10 +169,11 @@ invoice_recipients:
 
 ## 8. Build / deploy discipline
 
-- **GATE [BLOCKED]: build must not start until Chris ratifies the A4 A/B decision** (see §7 A4 + Audit Amendments). Option B forks the feature into two passes and marks the pay-gating pass [BLOCKED] on per-recipient tokens.
+- **A4 ratified Option A (2026-06-25) — build unblocked.** Pay-gating is handled by §4.5 (remove the public-page Pay button), not per-recipient tokens.
 - Build code + local checks (`npm run build`) on `feat/invoice-recipients` only.
 - **Do NOT** push the migration or deploy the edge fn until a `/buildvsplan` pass clears the diff (build-vs-plan deploy gate). Migration push uses `npm run db:push` after `scripts/check-migration-safety.sh`.
 - Smoke `send-invoice` against a TEST recipient after deploy (verify main gets pay link, viewer gets view-only, sender summary lists both) before calling it done.
+- **Smoke A4/§4.5:** confirm a single-recipient invoice is still payable via the **email** Pay button after the public-page button is removed (don't regress the existing pay path), and that the public page no longer renders Pay Now.
 
 ---
 
@@ -171,9 +181,11 @@ invoice_recipients:
 
 _T2 audit folded in by T1 (planning) on 2026-06-25. All findings below were tagged **CAUSED-BY**. LOCKED sections were amended via pointer, not silent edit._
 
-### ⛔ Gating decision for Chris (A4) — build is BLOCKED until ratified
+### ✅ Gating decision (A4) — RATIFIED Option A (2026-06-25)
 
-T2 found the feature's one LOCKED promise — **"viewers can't pay"** — is not achievable as the plan was drawn. The view-only *email* (§4.4) was necessary but never sufficient: the public invoice *page* itself shows a Pay button to anyone with the link, and main + viewers all share **one** `viewing_token`. So a viewer clicks "View Full Invoice" and can pay. This is a payment-security decision, so it routes to Chris — the build terminal must not improvise it. **Presented separately in chat as an A/B ratify.**
+T2 found the feature's one LOCKED promise — **"viewers can't pay"** — was not achievable as the plan was drawn. The view-only *email* (§4.4) was necessary but never sufficient: the public invoice *page* itself shows a Pay button to anyone with the link, and main + viewers all share **one** `viewing_token`. So a viewer clicks "View Full Invoice" and can pay.
+
+**Chris ratified Option A:** remove the Pay Now button from `PublicInvoicePage` (now §4.5) — the page becomes view/print only and the payer pays via the Pay button in their email. Option B (per-recipient tokens) declined for this loop. Build unblocked.
 
 ### Findings folded in
 

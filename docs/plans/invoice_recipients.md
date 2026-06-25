@@ -3,7 +3,8 @@
 **Branch:** `feat/invoice-recipients`
 **Date:** 2026-06-25
 **Backlog:** Refines/closes the **invoice half** of **F30** (T2 — "CC support on pay app + invoice send flows"). Pay-app half stays open.
-**Author:** build session (T3), pre-audit draft
+**Author:** build session (T3), pre-audit draft · **Revised:** T1 (planning) folding T2 audit, 2026-06-25 — see **Audit Amendments (post-T2)**
+**Status:** ⛔ BUILD BLOCKED pending Chris's A4 A/B ratification (§7 A4 + Audit Amendments).
 
 Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from code, verify · **[DESIGN-OPEN]** = needs a call · **[BLOCKED]** = depends on unresolved item.
 
@@ -40,11 +41,11 @@ This supersedes F30's lighter "CC textarea → Resend `cc:`" spec: a plain CC wo
 
 - **Frontend resolve** (`Invoices.jsx:613-633`): finds `customer_contacts` with `is_billing_contact` / `role='Billing Contact'` (primary first, else newest), falls back to `customers.{billing_email,contact_email}`. Stored in `billingEmail`/`billingName` state.
 - **Send view** (`Invoices.jsx:909-933`): shows a single read-only "Sending to" box. No picker.
-- **Send handler** (`handleSend` `:648-679`): invokes `send-invoice` with single `customerEmail`, then fires `qb-sync-invoice`.
-- **Edge fn** (`send-invoice/index.ts`): re-resolves the billing email server-side from the DB (does NOT trust body `customerEmail` — H10/C9 trust-boundary hardening), mints a Stripe payment link (`:157-188`), sends ONE email to `customerEmail` (`:221-259`) containing a **Pay Now** button (`checkoutUrl`, `:251`) and a **View Full Invoice** link (`viewInvoiceUrl` from `invoice.viewing_token`, `:253`). Sender gets a confirmation copy (`:273-302`).
+- **Send handler** (`handleSend` `:648-679`): currently passes `customerEmail`/`amount` in the body, but **the edge fn ignores both** — its destructure at `send-invoice:26` omits `customerEmail`/`amount` and it re-resolves them server-side (`:80-99`). So the frontend value is already dead weight; this plan stops sending it. Then fires `qb-sync-invoice`.
+- **Edge fn** (`send-invoice/index.ts`): re-resolves the billing email server-side from the DB (does NOT trust body `customerEmail`/`amount` — H10/C9 trust-boundary hardening, destructure at `:26`, resolve at `:80-99`), mints a Stripe payment link (`:157-188`), sends ONE email to `customerEmail` (`:221-259`) containing a **Pay Now** button (`checkoutUrl`, `:251`) and a **View Full Invoice** link (`viewInvoiceUrl` from `invoice.viewing_token`, `:253`). Sender gets a confirmation copy (`:273-302`).
 - **`invoices` table** has `viewing_token (uuid)` → public read-only page at `/invoice/{token}` (PublicInvoicePage).
 
-**Key insight [DERIVED]:** the pay link (`checkoutUrl`, Stripe-hosted) and the view link (`viewInvoiceUrl`, our `viewing_token` page) are already separate URLs. Viewers simply get an email with the view link and **no** Pay Now button. → must VERIFY PublicInvoicePage exposes no independent pay action (see §7 audit item A4).
+**Key insight — CORRECTED post-T2 [LOCKED — audit-disproved]:** the original draft assumed the view link was safe because the pay link (`checkoutUrl`) is a separate Stripe URL. **The audit disproved this.** `PublicInvoicePage.jsx:132-136` and `:278-282` render a live **Pay Now** button to anyone holding the invoice's `viewing_token`, and there is **one** `viewing_token` per invoice shared by main + all viewers. A viewer who opens the "View Full Invoice" link **can pay** — the page cannot tell main from viewer. This breaks the §1 LOCKED promise ("viewers can't pay") as drawn. Resolution is the gating A/B decision — see **A4** in §7 and the **Audit Amendments (post-T2)** block.
 
 ---
 
@@ -69,7 +70,7 @@ invoice_recipients:
   tenant_id (uuid NOT NULL DEFAULT get_user_tenant_id(), FK tenant_config)
 ```
 
-- **RLS:** follow the standard tenant pattern (4 policies: select/insert/update/delete scoped to `tenant_id = get_user_tenant_id()`), matching `proposal_recipients` / `customer_contacts`. Read `CLAUDE_RLS.md` before writing policies; index `tenant_id` and `invoice_id`.
+- **RLS [LOCKED — audit-confirmed]:** the standard 4-policy tenant pattern (select/insert/update/delete scoped to `tenant_id = get_user_tenant_id()`) with `tenant_id` DEFAULT `get_user_tenant_id()` matches `sql/rls_child_tables.sql:205-238` exactly. **No anon policy is needed** — the public page (PublicInvoicePage) never queries `invoice_recipients`. Read `CLAUDE_RLS.md` before writing; index `tenant_id` and `invoice_id`.
 - **One `main` per invoice:** enforce in UI (mirror `toggleSigner`). NOT a DB constraint (proposals don't have one either).
 - `invoice_id` is **text** (invoices.id is text), unlike proposal_recipients' text proposal_id — confirm FK type matches.
 - Migration filename: next free timestamp via `npm run db:push` collision check. Do NOT push yet (see §8).
@@ -83,21 +84,41 @@ invoice_recipients:
 - **Default seed:** when the section first loads with no rows, seed the resolved billing contact as the **main** (don't force the user to re-pick what the old single-recipient flow already knew). Open question whether to auto-insert a row or treat the resolved billing contact as an implicit main until edited — see §7 A2.
 - Handlers mirror `ProposalDetail`: `reloadRecipients`, `pickExistingContact`, `createNewRecipient`, `saveRecipient`, `deleteRecipient`, `saveToCustomerFile`, `toggleMain` (= `toggleSigner` renamed).
 
-### 4.3 Send view + handler (`Invoices.jsx:909-933`, `:648-679`) [LOCKED]
+### 4.3 Send view + handler (`Invoices.jsx:909-933`, `:648-679`) [LOCKED] [AMENDED post-T2 — see Audit Amendments]
 
-- Send view: replace the single "Sending to" box with a recipient summary — main (gets pay link) + viewers (view-only), reflecting `invoice_recipients`. Guard: block send if no `main` resolvable.
-- `handleSend`: no longer passes a single `customerEmail`. The edge fn loads recipients from the DB (do NOT trust body — consistent with C9). Body keeps `invoiceId` + display fields only.
+- Send view: replace the single "Sending to" box with a recipient summary — main (gets pay link) + viewers (view-only), reflecting `invoice_recipients`.
+- **Block send when there are recipient rows but none is `main`** (mirror the edge-fn 400 guard in §4.4 branch iii). The UI must surface "No main recipient — pick who gets the pay link" and disable Send, rather than letting the request reach the edge fn. This mirrors the existing disabled-send behavior when `billingEmail` is empty (`:919`, `:927`).
+- `handleSend`: no longer passes `customerEmail`/`amount` (the edge fn already ignores both — see §3). The edge fn loads recipients from the DB (do NOT trust body — consistent with C9). Body keeps `invoiceId` + display fields only.
 
-### 4.4 Edge fn `send-invoice/index.ts` [LOCKED]
+### 4.4 Edge fn `send-invoice/index.ts` [LOCKED] [AMENDED post-T2 — see Audit Amendments]
 
-- After resolving the invoice + customer chain, **load `invoice_recipients` for this invoice** (server-side, tenant-scoped).
-- **Recipient set & fallback:** if no rows exist (legacy invoices / not yet configured), fall back to today's single-billing-contact behavior as `main` — zero-regression path.
-- **Allowlist gate [LOCKED — security]:** validate every recipient email against the customer's own contacts ∪ `customers.{billing_email,contact_email,email}` (the C9 soft-allowlist model already used by `send-pay-app:182-217`). Drop/refuse off-allowlist addresses so a low-priv user can't exfiltrate invoice PDFs/links to arbitrary inboxes.
-- **Main** → existing Pay Now email (mint Stripe link as today; only the main email contains `checkoutUrl`).
-- **Viewers** → view-only email: same invoice summary + `viewInvoiceUrl` (viewing_token page), **no Pay Now button**. New small template or a `payable: boolean` flag on the existing template.
-- Mint the Stripe payment link **once** (not per-recipient) — viewers never receive it.
-- Stamp `sent_at` per `invoice_recipients` row.
-- Sender confirmation email (`:273-302`): list all recipients (main + viewers) for a paper trail (satisfies F30 part 4).
+**Load (tenant-scoped, belt-and-suspenders) [#6]:** after resolving the invoice + customer chain, load `invoice_recipients`:
+```
+.from("invoice_recipients").select(...)
+  .eq("invoice_id", invoiceId)
+  .eq("tenant_id", invoice.tenant_id)   // fn runs as service_role → RLS bypassed; scope explicitly (send-pay-app S5 pattern)
+```
+
+**Recipient resolution — THREE explicit branches [#2/A3]** (do not collapse into one; never promote a viewer to main):
+- **(i) 0 rows** → fall back to today's single resolved billing-contact as the `main` (zero-regression for legacy / not-yet-configured invoices).
+- **(ii) exactly one `main`** (+ any viewers) → proceed.
+- **(iii) rows exist but NO `main`** → return **400 and BLOCK send** — mirror the existing "No customer email on file" guard at `send-invoice:101-106`. Do **not** silently elevate a viewer. (UI also blocks this per §4.3, but the fn is the authoritative gate.)
+
+**Per-recipient allowlist gate — soft C9 model [#3/A5] [LOCKED — security]:** run the gate **per recipient**, including orphan rows with `customer_contact_id = null`, against the customer's contacts ∪ `customers.{billing_email,contact_email,email}` (the `send-pay-app:186-209` pattern). Off-allowlist email → refuse that recipient with a clear error.
+- *Accepted limitation (1 tenant):* this is intentionally **soft** — `createNewRecipient` (§4.2) writes the typed email into `customer_contacts` first, so any contact added through the UI auto-passes the gate. It blocks raw body-injected addresses, not UI-added ones. Kept as-is per the C9 model; revisit if multi-tenant ships.
+
+**Stripe link — mint exactly once, BEFORE any recipient loop [#4/A7]:** keep the mint at `send-invoice:157-188`. `checkoutUrl` is referenced **only** in the main branch. Do not move the mint inside a loop; do not pass `checkoutUrl` to any viewer path.
+
+**Two separate email templates [#4/A7]** (NOT a `payable` boolean on one shared template):
+- **Main** → existing Pay Now email (`checkoutUrl` + `viewInvoiceUrl`).
+- **Viewer** → a **separate template that has no `checkoutUrl` parameter at all** (compile-time impossible to leak the pay link): invoice summary + `viewInvoiceUrl` only. *(Independent of A4 — A4 governs whether the view *page* exposes its own Pay button; this governs the email.)*
+
+**Multi-send failure semantics [#5]** (new — plan was silent):
+- Send the **main first**. A main-send failure **aborts** the whole operation and returns an error (the invoice isn't "sent" if the payer never got it).
+- After main succeeds, send each viewer. A viewer-send failure is **non-fatal** — collect into a `warnings: []` array in the response (mirror the non-fatal sender-notification at `send-invoice:299-301`).
+- Stamp `invoice_recipients.sent_at` **per row, only on that row's own success** — never blanket-stamp.
+
+**Sender confirmation email (`:273-302`):** list all recipients (main + viewers) for a paper trail (satisfies F30 part 4); include any viewer-send warnings.
 
 ---
 
@@ -119,31 +140,67 @@ invoice_recipients:
 - **Pay-app recipients** (the other half of F30) — separate task.
 - Backfill of historical invoices into `invoice_recipients` — none; fallback path covers legacy invoices.
 
+**ADJACENT findings (T2-tagged — file as backlog, NOT this task's work):**
+- **Stripe Payment Links are reusable by default** — the double-charge window relies on `stripe-webhook` deactivation on paid. Pre-existing (exists today regardless of this change); relates to F30. → file as backlog row.
+- **Per-recipient `viewed_at`** not derivable from one shared `viewing_token` (already deferred above). → backlog if/when per-recipient tokens land (Option B).
+
 ---
 
 ## 7. Risks / open questions for audit
 
 - **A1 [DESIGN-OPEN]** Main/viewer UI affordance: user said "checkbox." Proposal uses a pill toggle. Recommend a checkbox labeled "Main recipient (gets pay link)" that radio-behaves (checking one unchecks others). Confirm.
 - **A2 [DESIGN-OPEN]** Seed behavior: auto-insert a `main` row for the resolved billing contact on first load, vs. implicit main until the user edits. Recommend implicit fallback in the edge fn (no auto-write) + UI showing the resolved billing contact as the default main, so we don't mutate data just by opening the screen.
-- **A3 [LOCKED, verify impl]** Exactly-one-main invariant — must hold across add, toggle, delete (deleting the main should surface "no main" and block send, not silently send to a viewer).
-- **A4 [DERIVED — must verify]** Confirm PublicInvoicePage (`/invoice/{viewing_token}`) exposes **no** independent pay action; if it does, viewers could still pay via the view link and the double-payment guard is incomplete.
-- **A5 [LOCKED — security]** Allowlist must gate viewers too, not just main (C9 threat model). Off-allowlist viewer = refuse or drop with a clear error, not silent send.
-- **A6** `invoices.id` is text; ensure FK + all queries treat `invoice_id` as text.
-- **A7** Money-bearing edge fn — re-confirm the Stripe link is minted once and only attached to the main email; a refactor slip that loops the mint or attaches `checkoutUrl` to a viewer reintroduces the double-pay bug.
+- **A3 [LOCKED — specified]** Exactly-one-main invariant across add/toggle/delete. Resolved in §4.4 (three-branch resolution, branch iii returns 400) + §4.3 (UI blocks send with no main). Deleting the main → "no main" → send blocked, never silent viewer promotion.
+- **A4 [BLOCKED — awaiting A/B decision]** **The feature's §1 LOCKED promise ("viewers can't pay") is NOT delivered as drawn.** `PublicInvoicePage.jsx:132-136` & `:278-282` render a live Pay Now button to anyone with the invoice's `viewing_token`; there is one shared token per invoice, so a viewer opening the View link can pay. The view-only *email* (§4.4) is necessary but **not sufficient** — the *page* still exposes payment. Closing this needs a decision (Option A: gate/remove the page's Pay button; Option B: per-recipient tokens). **Build must not start until Chris ratifies.** See Audit Amendments.
+- **A5 [LOCKED — specified, security]** Per-recipient soft-allowlist gate (incl. orphan rows) — specified in §4.4. Accepted soft limitation documented (UI-added contacts auto-pass; blocks body-injected addresses).
+- **A6 [LOCKED]** `invoices.id` is text → `invoice_recipients.invoice_id` is text; all queries treat it as text. Specified in §4.1.
+- **A7 [LOCKED — specified]** Stripe link minted once before any loop; `checkoutUrl` referenced only in the main branch; viewer template has no `checkoutUrl` param at all. Specified in §4.4.
 
 ---
 
 ## 8. Build / deploy discipline
 
+- **GATE [BLOCKED]: build must not start until Chris ratifies the A4 A/B decision** (see §7 A4 + Audit Amendments). Option B forks the feature into two passes and marks the pay-gating pass [BLOCKED] on per-recipient tokens.
 - Build code + local checks (`npm run build`) on `feat/invoice-recipients` only.
 - **Do NOT** push the migration or deploy the edge fn until a `/buildvsplan` pass clears the diff (build-vs-plan deploy gate). Migration push uses `npm run db:push` after `scripts/check-migration-safety.sh`.
 - Smoke `send-invoice` against a TEST recipient after deploy (verify main gets pay link, viewer gets view-only, sender summary lists both) before calling it done.
 
 ---
 
+## Audit Amendments (post-T2)
+
+_T2 audit folded in by T1 (planning) on 2026-06-25. All findings below were tagged **CAUSED-BY**. LOCKED sections were amended via pointer, not silent edit._
+
+### ⛔ Gating decision for Chris (A4) — build is BLOCKED until ratified
+
+T2 found the feature's one LOCKED promise — **"viewers can't pay"** — is not achievable as the plan was drawn. The view-only *email* (§4.4) was necessary but never sufficient: the public invoice *page* itself shows a Pay button to anyone with the link, and main + viewers all share **one** `viewing_token`. So a viewer clicks "View Full Invoice" and can pay. This is a payment-security decision, so it routes to Chris — the build terminal must not improvise it. **Presented separately in chat as an A/B ratify.**
+
+### Findings folded in
+
+| # | Audit ID | Where | What changed |
+|---|---|---|---|
+| 1 | A4 | §3, §7 A4, §8 | The "separate pay vs view URL" assumption was **disproved** — `PublicInvoicePage.jsx:132-136`/`:278-282` render Pay Now on the shared `viewing_token` page. A4 → **[BLOCKED — awaiting A/B]**; build gated. |
+| 2 | A3 | §4.4, §4.3 | Fallback split into **three** explicit edge-fn branches: 0 rows → billing-contact main; one main → send; rows-but-no-main → **400 + block** (mirror `:101-106`). Never promote a viewer. UI blocks too. |
+| 3 | A5 | §4.4 | Allowlist clarified as the **soft C9 model**, run **per-recipient incl. orphans** (`send-pay-app:186-209`). Documented accepted limitation: `createNewRecipient` writes to `customer_contacts` so UI-added emails auto-pass. |
+| 4 | A7 | §4.4 | Viewer email is a **separate template with no `checkoutUrl` param** (not a `payable` flag). Stripe link minted **once before any loop**; `checkoutUrl` only in main branch. |
+| 5 | — (new) | §4.4 | **Multi-send failure semantics** added: main sent first (failure aborts); viewer failures non-fatal → `warnings[]`; `sent_at` stamped per-row on that row's own success only. |
+| 6 | — | §4.4 | Recipient load uses `.eq("invoice_id",…)` **and** `.eq("tenant_id", invoice.tenant_id)` — fn runs service_role (RLS bypassed). |
+
+### Doc nits corrected
+- §3 prose: clarified `send-invoice` already ignores body `customerEmail`/`amount` (destructure omits them at `:26`; resolves server-side `:80-99`).
+- §4.1 RLS marked **[LOCKED — audit-confirmed]**: 4-policy tenant pattern + `tenant_id DEFAULT get_user_tenant_id()` matches `sql/rls_child_tables.sql:205-238`; no anon policy needed (public page never queries this table).
+
+### Adjacent (filed to backlog, not this task) — see §6
+- Stripe Payment Links reusable-by-default / double-charge window (pre-existing, relates to F30).
+- Per-recipient `viewed_at` not derivable from one shared token.
+
+---
+
 ## Audit manifest
 
 **Scope:** this plan doc + the four cited code anchors (`ProposalDetail.jsx:931-1066`, `Invoices.jsx:613-679` & `:909-933`, `send-invoice/index.ts`). Read-only.
+
+**Note (post-T2):** manifest below is the pre-build round. **Hold any `/auditcriteria` regen until the A4 A/B decision is ratified** — Option B forks the scope (per-recipient tokens become a second pass), which materially changes what a re-audit would size. Regenerating now would size an audit for a plan whose shape is still pending Chris's call.
 
 **Finding cap:** default per /auditcriteria.
 

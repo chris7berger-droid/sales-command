@@ -1,0 +1,149 @@
+SC Handoff v151 — invoice-recipients SHIPPED: loop closed, merged, deployed, smoked
+Repo: sales-command
+Branch: main (feat/invoice-recipients merged + deleted)
+Date: 2026-06-25
+Role: T1 planning/orchestration — ran the full 5-terminal loop to close + ship.
+Source of truth: docs/plans/invoice_recipients.md (Audit Amendments post-T2 + post-T5).
+
+=== Session Summary ===
+Closed and shipped the invoice-recipients feature (invoice half of F30). Invoices
+now support multiple recipients with a main/viewer split: exactly one MAIN gets the
+Stripe pay link, VIEWERS get a view-only email — mirrors the proposal Recipients UI.
+This session drove the loop end to end: T1 plan → T2 plan-audit → A4 ratify (Option A)
+→ T5 code-review (#1 Option B) + security-review (#SEC1 Level 2) → T4 buildvsplan →
+T3 build/fix → merge → deploy → smoke. Two real payment-security holes were caught and
+closed BEFORE a dollar moved: (A4) the public invoice page rendered a Pay button to any
+viewer sharing the viewing_token, and (#SEC1) the page still SHIPPED the live Stripe link
+in its response even after the button was removed. The #SEC1 fix itself had to be
+corrected mid-deploy — a column-level REVOKE turned out to be a no-op under anon's
+table-level grant — and was re-done as default-deny (REVOKE-all + GRANT safe columns),
+verified against prod as anon. Feature is LIVE on main. Also did cross-repo methodology
+work (see last section). F30 pay-app half remains open.
+
+=== Changes Shipped ===
+Build (T3) landed in PRs #27–#29 to main; full per-item build detail is in v150
+(commit db45ab8). Post-v150 commits this close-out:
+
+- 6a915e1  Plan §8: REVERSE deploy order this round (T4 round-2 #SEC1 trap).
+    The #SEC1 REVOKE breaks anon select("*"); prod's public page still did select("*")
+    until the new UI shipped → migration-first would 500 every invoice link. Locked
+    order: UI merge → migrations → edge fn.
+- a617147  PR #27 — merge T3 build (db45ab8) to main.
+- 3b1652b  Fix #SEC1: column REVOKE was a no-op — REVOKE-all + GRANT safe cols.
+    20260625130000's `REVOKE SELECT (cols) FROM anon` did nothing: anon holds
+    TABLE-LEVEL SELECT on invoices (the public page's RLS needs it), and a table grant
+    covers every column — a column REVOKE can't carve a hole in it. Verified leaking in
+    prod (anon read of stripe_checkout_url = HTTP 200 after 130000). Corrected via new
+    migration 20260625140000_anon_invoices_column_grant.sql: REVOKE SELECT ON invoices
+    FROM anon, then GRANT SELECT on only the 15 columns PublicInvoicePage reads (no
+    stripe_*/qb_*). Post-fix verified: anon read of stripe_checkout_url → 42501
+    permission denied; the 15 safe columns → 200.
+- 478c8e8  Merge origin/main into branch (pick up parallel main commits).
+- 3e375f2  PR #28 — merge the #SEC1 correction to main.
+- a2562f1  Plan §4.5(b): correct #SEC1 writeup — column REVOKE no-op → default-deny GRANT.
+- a3150f4  PR #29 — final merge to main.
+
+Plan-doc amendments this session (all on the branch before merge): T2 fold-in +
+A4 Option A ratify; post-T5 #1 Option B + mandatory live display; #SEC1 Level 2 +
+the default-deny correction; §8 reversed deploy order.
+
+=== Deployed ===
+Project ref: pbgvgjjuhnpsumnowuym (shared with Schedule Command).
+- DB migrations (live in prod):
+    20260625120000_invoice_recipients.sql — new table + RLS + indexes.
+    20260625140000_anon_invoices_column_grant.sql — default-deny anon column grant (#SEC1).
+    20260625130000_revoke_payment_cols_from_anon.sql — IN THE TREE BUT A NO-OP,
+      superseded by 140000. Left in place (already applied/inert); do not "fix" it.
+  Applied via Supabase SQL editor + `supabase migration repair --status applied
+  20260625140000` — db:push was blocked by sibling Schedule Command ledger entries
+  (shared project; expected — see project_supabase_custom_guc_blocked memory).
+- Edge fn: send-invoice redeployed (--no-verify-jwt) with recipient resolution +
+  shared C9 allowlist (_shared/recipientAllowlist.ts).
+- UI: merged to main → Vercel auto-deploy (prod).
+Deploy order followed the §8 reversal: UI first, then migrations, then edge fn.
+
+=== Decisions / Choices Made ===
+- A4 → Option A (remove the public-page Pay button; payer pays via email button).
+  Option B (per-recipient viewing tokens) declined as a separate larger task — would
+  fork the feature. Page is now view/print only.
+- #1 → Option B + mandatory live display. For linked recipients, resolve the email
+  LIVE from customer_contacts at send AND display, instead of the stored snapshot.
+  A linked email is a current contact, so it passes the C9 allowlist by construction
+  — fixes the stale-snapshot send-block WITHOUT weakening C9. Rejected Option A
+  (propagate edits onto recipient rows): it would rewrite "who we sent to" on already-
+  sent invoices and didn't cover deletes.
+- #SEC1 → Level 2 (real boundary), then corrected to default-deny. We deliberately
+  did NOT settle for "hide the column in the client select" (Level 1) — anon holds the
+  key, RLS is row-level, so a hand-crafted request could still pull the column. The
+  column-level REVOKE we first wrote was a no-op under the table grant; the working fix
+  is REVOKE-all + GRANT only safe columns. LESSON BANKED as memory
+  feedback_column_revoke_noop: never trust a column REVOKE under a table-level grant;
+  use default-deny and smoke-verify as anon.
+- #8 (shared RecipientsCard across invoice + proposal) DEFERRED — a ~419-line cross-
+  surface refactor touching the shipped ProposalDetail inside a High-security batch.
+  Shipped the security/correctness fixes clean; do the DRY extraction deliberately later.
+- Deploy order reversed this round (UI before migrations) — see §8 / commit 6a915e1.
+
+=== New Backlog Items ===
+- F37 (T3, Open) — Stripe Payment Links reusable-by-default / double-charge window
+  relies on stripe-webhook deactivation. Pre-existing (ADJACENT), relates to F30.
+- F38 (T4, Open) — per-recipient invoice viewed_at tracking; blocked on per-recipient
+  tokens (the declined A4 Option B). Low value.
+- CANDIDATE (not yet filed): "Extract shared RecipientsCard across invoice + proposal
+  flows" (code-review #8). Decide whether to file as its own row.
+
+=== Closed This Session ===
+- F30 invoice half — DONE (built + hardened + shipped). Row stays "In Progress"
+  because the PAY-APP half is still open. Do not mark F30 Closed yet.
+
+=== Verification ===
+- T4 /buildvsplan round 2 (build db45ab8 + the #SEC1 correction): 0 Tier-1 blockers;
+  1 Tier-2 carry-forward (addRecipient TOCTOU — neutralized by edge fn, capped Low,
+  left as-is); GO.
+- T5 /code-review (high) + /security-review: 10 + 1 findings, all addressed (#8 deferred).
+- #SEC1 verified AS ANON against prod: read of stripe_checkout_url → 42501 permission
+  denied; the 15 display columns → 200. The leak is closed at the DB layer, not just UI.
+- Smoke test: COMPLETE (Chris confirmed build + smoke done). Expected §8 behaviors:
+  main gets pay link, viewer gets view-only, single-recipient still payable via email,
+  public page has no Pay button.
+- Tier-2 TOCTOU (rapid double-add → two main rows) is NOT separately fixed by design —
+  edge fn takes mainRows[0] + demotes the rest, so a single pay link is preserved.
+
+=== Not Touched ===
+- send-pay-app/index.ts — F30 PAY-APP half, out of scope. The shared C9 allowlist
+  (_shared/recipientAllowlist.ts) is in place for it to adopt when that half is built.
+- ProposalDetail.jsx / proposal_recipients — untouched (the #8 deferral).
+
+=== Next Session Pointers ===
+- F30 pay-app half is the natural next build: add the same recipient/CC support to the
+  pay-app send flow and switch send-pay-app to the shared recipientAllowlist.ts helper.
+- Decide whether code-review #8 (shared RecipientsCard) becomes its own backlog row.
+- Migration note for anyone reading the tree: 20260625130000 is an inert no-op
+  superseded by 140000 — don't re-apply or "repair" it.
+- This was a clean, fully-shipped close; no pre-flight smoke needed before fresh work.
+
+=== Files To Know ===
+- docs/plans/invoice_recipients.md — full plan + all audit amendments (T2, T5, #SEC1).
+- src/pages/Invoices.jsx — InvoiceDetail Recipients card + addRecipient/toggleMain;
+  InvoicePDFModal send view.
+- supabase/functions/send-invoice/index.ts — recipient resolution + live-email + allowlist.
+- supabase/functions/_shared/recipientAllowlist.ts — shared C9 allowlist (NEW).
+- src/pages/PublicInvoicePage.jsx — explicit 15-column select (#SEC1a).
+- supabase/migrations/20260625140000_anon_invoices_column_grant.sql — the WORKING
+  #SEC1 boundary (default-deny). 130000 is the no-op it replaced.
+- CLAUDE.md — invoice_recipients added to the Supabase Column Reference.
+
+=== Cross-Repo (methodology, this session) ===
+- claude-commands repo: /auditcriteria + /runaudit made plan-type aware — feature plans
+  now use a §0 Baseline gate instead of the bug-only §0 Reproduction (committed + pushed,
+  origin/main 020857b). Memory updated: feedback_four_terminal_roles now records the full
+  5-terminal pipeline (T5 = /code-review, + /security-review for money/RLS surfaces).
+
+=== Git State ===
+- Branch: main, clean, in sync with origin/main @ a3150f4.
+- feat/invoice-recipients: merged (PRs #27–29) and deleted (local + remote).
+- No open PRs for this work. No scratch projects.
+
+=== End State ===
+Merged, deployed, smoke-verified — invoice-recipients is LIVE on prod. Loop closed.
+Ready for a fresh session (next natural target: F30 pay-app half).

@@ -200,7 +200,15 @@ invoice_recipients:
 - **A4 ratified Option A (2026-06-25) — build unblocked.** Pay-gating is handled by §4.5 (remove the public-page Pay button), not per-recipient tokens.
 - Build code + local checks (`npm run build`) on `feat/invoice-recipients` only.
 - **Do NOT** push the migration or deploy the edge fn until a `/buildvsplan` pass clears the diff (build-vs-plan deploy gate). Migration push uses `npm run db:push` after `scripts/check-migration-safety.sh`.
+
+- **⚠️ DEPLOY ORDER IS REVERSED THIS ROUND — UI FIRST, THEN MIGRATIONS (T4 round-2, 2026-06-25).** The `#SEC1` REVOKE migration (`20260625130000`) makes anon `select("*")` on `invoices` **error**. Prod's live `PublicInvoicePage` still does `select("*")` until the new explicit-select UI ships — so pushing the migration first **500s every customer's invoice link**. `npm run db:push` sends *both* pending migrations together, which is exactly the trap. Correct order:
+  1. **Merge UI → `main` first** (Vercel deploys the explicit-select page). Public page now reads zero revoked columns — safe whether or not the revoke has landed.
+  2. **`scripts/check-migration-safety.sh` → `npm run db:push`** (pushes both migrations: `invoice_recipients` create + the `130000` REVOKE). Public page already safe; table now exists.
+  3. **Deploy `send-invoice --no-verify-jwt`** last (bundles the recipient-allowlist logic). *(Edge fn must come AFTER the migration — branch-i handles 0 rows, not a missing table; deploying it before `invoice_recipients` exists would error the query.)*
+  - Harmless window between step 1 and 2 (≤1 tenant, you control timing): recipients UI inert (adds no-op, send uses legacy branch-i), public page fine. **Do NOT `db:push` before the UI merge.**
+
 - Smoke `send-invoice` against a TEST recipient after deploy (verify main gets pay link, viewer gets view-only, sender summary lists both) before calling it done.
+- **Smoke #SEC1:** after the revoke lands, confirm anon `select("*")` on `invoices` now **errors**, and the public page still loads via its explicit select.
 - **Smoke A4/§4.5:** confirm a single-recipient invoice is still payable via the **email** Pay button after the public-page button is removed (don't regress the existing pay path), and that the public page no longer renders Pay Now.
 
 ---

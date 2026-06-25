@@ -28,9 +28,16 @@ export default function PublicInvoicePage() {
       const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!token || !uuidRe.test(token)) { setError("Invalid invoice link."); setLoading(false); return; }
 
+      // Explicit column list (T5 security #SEC1): never select stripe_*/qb_*
+      // here. The anon viewing_token reaches this page, and select("*") shipped
+      // the live Stripe pay link (stripe_checkout_url) to every viewer's
+      // browser — a viewer could read it from the Network tab and pay. The page
+      // uses no stripe/qb column after the fetch, so omitting them is
+      // non-breaking. Belt-and-suspenders REVOKE on those columns FROM anon
+      // lives in migration 20260625130000. (plan §4.5)
       const { data: inv, error: invErr } = await supabase
         .from("invoices")
-        .select("*, proposals(total, is_archive_proposal, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, deposit_invoice_id, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))")
+        .select("id, proposal_id, job_id, job_name, status, amount, discount, due_date, paid_at, description, show_cents, retention_amount, retention_pct, voided_at, viewing_token, proposals(total, is_archive_proposal, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, deposit_invoice_id, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))")
         .eq("viewing_token", token)
         .single();
 
@@ -124,16 +131,14 @@ export default function PublicInvoicePage() {
         }
       `}</style>
 
-      {/* Action bar */}
+      {/* Action bar — view/print only. The pay link is delivered to the main
+          recipient by email; the public page does not expose a Pay button
+          because its viewing_token is shared by all recipients and can't tell
+          the payer from a view-only recipient. (invoice_recipients plan §4.5) */}
       <div data-inv-actions style={{ background: "white", borderBottom: "1px solid #e5e0d8", padding: "12px 24px", display: "flex", justifyContent: "center", gap: 12 }}>
         <button onClick={() => window.print()} style={{ background: "none", border: "1.5px solid #d1cdc7", borderRadius: 7, padding: "8px 18px", fontSize: 13, fontWeight: 600, color: "#4a4238", cursor: "pointer", fontFamily: "inherit" }}>
           Print / Save PDF
         </button>
-        {!isPaid && invoice.stripe_checkout_url && (
-          <a href={invoice.stripe_checkout_url} style={{ background: "#30cfac", color: "#1c1814", border: "none", borderRadius: 7, padding: "8px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", textDecoration: "none", display: "inline-block" }}>
-            Pay Now
-          </a>
-        )}
       </div>
 
       <div data-inv-page style={{ padding: "32px 20px", display: "flex", justifyContent: "center" }}>
@@ -275,11 +280,8 @@ export default function PublicInvoicePage() {
             </div>
           ) : (
             <div style={{ borderTop: "1.5px solid rgba(28,24,20,0.15)", paddingTop: 20, textAlign: "center" }}>
-              {invoice.stripe_checkout_url && (
-                <a href={invoice.stripe_checkout_url} style={{ display: "inline-block", background: "#30cfac", color: "#1c1814", padding: "14px 40px", borderRadius: 8, textDecoration: "none", fontWeight: 700, fontSize: 15, marginBottom: 16 }}>
-                  Pay Now
-                </a>
-              )}
+              {/* Pay button intentionally removed (plan §4.5) — payment is made via
+                  the secure link emailed to the main recipient, not from this page. */}
               <div style={{ fontSize: 11, color: "#887c6e", fontStyle: "italic" }}>
                 Payment due upon receipt{invoice.due_date ? ` · Due by ${fmtD(invoice.due_date)}` : ""}
               </div>

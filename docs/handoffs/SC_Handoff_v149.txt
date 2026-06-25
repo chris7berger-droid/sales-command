@@ -1,0 +1,122 @@
+SC Handoff v149 — Code Review findings: invoice-recipients subsystem
+Repo: sales-command
+Branch: feat/invoice-recipients
+Date: 2026-06-25
+Role: T5 /code-review (high effort, workflow-backed: 37 agents, 8 finder angles, every candidate independently verified — 27 verified → 18 kept, 9 refuted)
+
+Status: REPORT ONLY. Fixes go back to T3. Nothing edited.
+
+Scope reviewed: new invoice-recipients subsystem (invoice_recipients table + RLS
+migration, InvoiceDetail Recipients card + handlers, send-invoice edge-fn allowlist
+gate). Diff: git diff @{upstream}...HEAD on feat/invoice-recipients.
+
+T4-CLEARED items were honored and NOT re-flagged:
+  - 3-branch resolution + no-main->400; stray 2nd main demoted to viewer (:158-160)
+  - viewer template has no checkoutUrl; main-fail aborts / viewer-fail->warnings[]
+  - PublicInvoicePage Pay button fully removed (no stray checkout path)
+  - viewed_at intentionally unwired (parity column, §6)
+  - ensureMainSeeded TOCTOU (:1101) — accepted Low, not escalated (demotion holds single pay link)
+
+Two root causes drive the correctness findings:
+  (A) edge-fn allowlist is rebuilt only from LIVE customer data, so any stale/orphaned
+      recipient email hard-fails the send (400) or silently drops a viewer copy.
+  (B) new UI gates don't validate the chosen main actually has a deliverable email —
+      invalid states reach a cryptic edge-fn 400 or a doubled email to the billing contact.
+
+==================================================================
+CORRECTNESS — send-blocking (priority order)
+==================================================================
+
+1. [CONFIRMED] Stale recipient email hard-blocks send (400)  -- MOST IMPORTANT
+   send-invoice/index.ts:165 (+ Invoices.jsx:1189, migration 20260625120000:23)
+   Allowlist gate `!allowedRecipients.has(norm(mainRecipient.email))` keys off live
+   customer_contacts emails, but invoice_recipients.contact_email only re-syncs when
+   edited through the recipient card. Edit/delete that contact via the Customers page
+   -> recipient email goes stale -> previously-sendable invoice returns
+   400 "Main recipient <x> is not a known contact for this customer", no obvious cause.
+   Note: saveRecipient (1189) only mirrors the email into customer_contacts when
+   r.customer_contact_id is set, so orphan/auto-seeded recipients write nowhere the
+   allowlist can see.
+
+2. [CONFIRMED] Main recipient with no email -> cryptic 400
+   Invoices.jsx:667
+   Old unconditional `if (!billingEmail) return` guard replaced by noMainBlock +
+   0-rows-only billing-email check. Nothing verifies the chosen main has an email.
+   Toggle an email-less viewer to Main -> Send stays enabled (disabled only on
+   sending||noMainBlock; noMainBlock false when a main exists) -> edge fn aborts
+   400 "Main recipient (none) is not a known contact" instead of a clear
+   "main recipient is missing an email".
+
+3. [CONFIRMED] Billing contact added FIRST -> duplicated as main + viewer (two emails)
+   Invoices.jsx:1127
+   Dedup guard `if (recipients.some(r => r.customer_contact_id === c.id)) return;`
+   reads stale React state, then ensureMainSeeded() inserts billing contact as `main`,
+   then pickExistingContact/createNewRecipient inserts the SAME contact as `viewer`.
+   Result: listed twice, gets pay-link main email + redundant view-only copy.
+
+4. [CONFIRMED] First viewer on email-less customer -> unsendable (rows-but-no-main)
+   Invoices.jsx:1107
+   ensureMainSeeded early-returns when custInfo.billingEmail is empty. Customer with no
+   Billing Contact and no billing_email: first added recipient creates rows-but-no-main
+   -> send-invoice branch (iii) 400 "recipients but no main recipient". User must know
+   to promote via the Main/Viewer toggle to escape.
+
+5. [CONFIRMED] Send modal omits customers.email -> card promises a recipient Send can't deliver
+   Invoices.jsx:608 (vs card :1280, edge fn :98)
+   Three divergent resolutions of the billing email. Card (1280) + edge fn (98) include
+   customers.email; Send modal (608/629) does NOT. Customer whose only address is
+   customers.email: card shows "Main · pay link", Send shows "No billing email on file"
+   and handleSend (673) blocks — even though the edge fn WOULD have sent. Dead-ends a
+   sendable invoice.
+
+6. [CONFIRMED] New contact requires no email -> junk contact + silently dropped viewer
+   Invoices.jsx:1141
+   `if (draft.email && !isValidEmail(draft.email))` only validates when present.
+   "+ New Contact" with name only -> blank-email customer_contacts row (permanent
+   customer-file pollution) + blank-email viewer that the edge fn silently skips at send
+   (warning only). Intended recipient never gets the copy.
+
+7. [PLAUSIBLE] toggleMain non-atomic -> zero-main window
+   Invoices.jsx:1123
+   Two sequential UPDATEs (demote old main, promote new). Failure between them
+   (network blip / RLS no-op) leaves rows-but-no-main -> 400 until user notices and
+   re-toggles.
+
+==================================================================
+CLEANUP — reuse / efficiency
+==================================================================
+
+8. [CONFIRMED] ~419 lines of recipient logic duplicated from the proposal flow
+   Invoices.jsx:1101 (+ 1149, 1273, 1285)
+   Table, RLS migration, card UI, handlers (toggleMain/pickExistingContact/
+   createNewRecipient/saveRecipient/deleteRecipient/saveToCustomerFile) mirror
+   proposal_recipients/ProposalDetail line-for-line. Will drift; a fix to one surface
+   silently misses the other. Candidate: shared RecipientsCard / hook.
+
+9. [PLAUSIBLE] Allowlist construction copy-pasted from send-pay-app
+   send-invoice/index.ts:118 (vs send-pay-app/index.ts:186-199)
+   C9 anti-injection allowlist now verbatim in two (soon three) edge fns. _shared/
+   module already exists (cors.ts, tenantAuth.ts). Extract
+   buildContactAllowlist(supabase, customer, customerId). A future fix to one fn leaves
+   the other's injection gate un-patched.
+
+10. [CONFIRMED] Send modal re-fetches invoice_recipients the parent already holds
+    Invoices.jsx:651 (+ send-invoice:368, Invoices.jsx:1267)
+    InvoicePDFModal re-queries invoice_recipients for the same invoice InvoiceDetail
+    already loaded into `recipients`. Pass parent's recipients as a prop; keep modal's
+    fetch only as the standalone/list-view fallback.
+
+==================================================================
+REFUTED (9) — not re-raising, listed so T3 doesn't re-chase:
+==================================================================
+  - Send-modal useEffect dep-key vs invoice.id snapshot — divergence not constructible
+  - Recipients card full duplication framed as bug — DRY only, no runtime effect (see #8)
+  - send-invoice esc/norm vs shared escapeHtml — style only, call sites are element text
+  - Billing-contact resolution "third re-impl" in loadData — paths currently agree
+  - saveRecipient sequential independent writes — efficiency micro-nit
+  - saveToCustomerFile reimplements createNewRecipient block — DRY micro-nit
+  - allowlist set construction (dup of #9, kept as #9)
+  - deleteRecipient no result-check vs CLAUDE.md RLS rule — cited harm unreachable here
+  - InvoicePDFModal hardcoded hex vs C.linen tokens — matches existing modal pattern
+
+Next: T3 fixes (start with #1, #2). Re-run /code-review after.

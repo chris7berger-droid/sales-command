@@ -1,0 +1,110 @@
+SC Handoff v150 — T3 build: fold T5 security + code-review into invoice-recipients
+Repo: sales-command
+Branch: feat/invoice-recipients
+Date: 2026-06-25
+Role: T3 build/edit. Folded T5 /code-review (v149) + /security-review findings.
+Source of truth: docs/plans/invoice_recipients.md (Audit Amendments post-T5 + §4.2/§4.4/§4.5).
+
+=== Session Summary ===
+Round-2 build pass on the invoice-recipients feature. T5 reported 10 code-review
+findings + 1 surviving security finding (#SEC1, High), report-only → T3. All
+fixed here against the cited source per item, except #8 (deferred — see below).
+Build commit: db45ab8. npm run build passes. NOTHING pushed/deployed — held for T4.
+
+=== Changes Shipped (commit db45ab8) ===
+SECURITY #SEC1 (High) — stop shipping the live Stripe pay link to anon (plan §4.5):
+  - src/pages/PublicInvoicePage.jsx:33 — select("*") replaced with an explicit
+    invoices column list that omits stripe_checkout_url, stripe_payment_link_id,
+    stripe_checkout_id, qb_invoice_id, qb_payment_id. Verified the page reads none
+    of them after fetch, so non-breaking.
+  - supabase/migrations/20260625130000_revoke_payment_cols_from_anon.sql (NEW) —
+    REVOKE SELECT(those 5 cols) ON public.invoices FROM anon. FROM anon ONLY
+    (never FROM public — would break the authenticated internal app). No trailing
+    GRANT. Column-level privilege boundary; composes with the existing
+    invoices_public_view_token ROW policy (separate layer).
+
+#1 — stale recipient email vs C9 allowlist (Option B + mandatory live display):
+  - supabase/functions/send-invoice/index.ts — for recipients WITH a
+    customer_contact_id, resolve email LIVE from customer_contacts (via the
+    shared allowlist helper's liveEmailById map) for both the allowlist check
+    and the actual send. Orphan rows use the stored snapshot and must still pass
+    the gate. Main off-allowlist now returns "no longer a contact on file —
+    re-add", not a raw 400. C9 NOT weakened (a linked email is a current contact).
+  - src/pages/Invoices.jsx — Recipients card + send modal display the live linked
+    email; added `email` to the customer_contacts embed (both selects).
+
+#2 — main-missing-email surfaced in UI (Invoices.jsx): mainMissingEmail gates the
+    Send button + shows a clear message instead of bouncing off the edge-fn 400.
+#3 — billing-contact double-add: new addRecipient() helper dedups on ONE fresh DB
+    read (by contact id, or email for orphans) and never seeds the billing main
+    when the contact being added IS the billing contact. No more main+viewer dupe.
+#4 — first viewer on an email-less customer: addRecipient makes the new row `main`
+    when there's no billing email to seed → never creates rows-but-no-main.
+#5 — send modal billing resolution now includes customers.email (Invoices.jsx
+    ~:608/:629/:633) so modal agrees with the card + edge fn on what's sendable.
+#6 — "+ New Contact" requires a valid email (createNewRecipient) — no blank-email
+    customer_contacts rows / silently-dropped viewers.
+#7 — toggleMain promotes the new main FIRST then demotes others (.neq self) —
+    transient two-main (edge fn demotes extra → single pay link), never zero-main.
+#9 — extracted the C9 allowlist to supabase/functions/_shared/recipientAllowlist.ts
+    (buildContactAllowlist + normEmail). send-invoice adopts it now; send-pay-app
+    keeps its inline copy until the pay-app half of F30 is built (natural time to
+    switch it — avoids touching a deployed out-of-scope fn in a security batch).
+#10 — InvoicePDFModal takes parent `recipients` as a prop (passed from
+    InvoiceDetail on the Send/Resend modal); its own fetch is kept as the
+    standalone fallback (now also pulls customer_contacts(email) for live display).
+
+=== Decisions ===
+- #8 (extract a shared RecipientsCard/hook used by BOTH invoice + proposal flows):
+  DEFERRED to its own loop. It's a ~419-line cross-surface refactor that would
+  edit ProposalDetail.jsx (a shipped, working, T4-cleared-adjacent surface) inside
+  a High-security fix batch. Per Stay-Scoped + Build-It-Right, the safer EV call is
+  to ship the security + correctness fixes cleanly and do the DRY extraction
+  deliberately later. #9 (shared allowlist) and #10 (modal prop) WERE done — they're
+  contained. Flag for Chris: confirm whether #8 should be its own backlog item.
+- #9 deliberately does NOT modify send-pay-app (out of scope; its F30 half is open).
+  The shared helper is in place for that fn to adopt when its build happens.
+
+=== New / Closed Backlog Items ===
+- F30 still In Progress (invoice half built + hardened; pay-app half open). No new
+  rows filed this pass. Candidate new row to consider: "Extract shared
+  RecipientsCard across invoice + proposal flows (code-review #8)".
+
+=== Verification ===
+- npm run build → exit 0, ✓ built (544 modules).
+- Edge-fn invariants re-checked: Stripe minted once before any loop; checkoutUrl
+  only in main template; viewer template has no checkoutUrl; sent_at stamped per
+  row. (Carried from v148/T4-cleared; untouched this pass.)
+- NOT smoke-tested against live (migration + edge deploy held for T4).
+
+=== Not Touched ===
+- T4-cleared items (3-branch resolution, no-main→400, stray-2nd-main→viewer,
+  viewer-template separation, Pay-button removal, viewed_at unwired) — honored.
+- send-pay-app/index.ts — out of scope (F30 pay-app half).
+- ProposalDetail.jsx / proposal_recipients — untouched (see #8 deferral).
+
+=== Next Session Pointers ===
+- Back to T4 /buildvsplan on commit db45ab8 BEFORE any deploy. Two unpushed
+  migrations now on the branch: 20260625120000_invoice_recipients +
+  20260625130000_revoke_payment_cols_from_anon. Deploy ORDER matters:
+  push migrations FIRST, then edge fn, then merge/UI.
+- T4 should pressure: (a) REVOKE is FROM anon only + no GRANT re-exposes; explicit
+  select truly omits all 5 cols; (b) live-email resolution can't be tricked into
+  sending to an off-allowlist address; (c) addRecipient dedup/role races under the
+  one-fresh-read model; (d) toggleMain two-main window is genuinely safe.
+- Then §8 smoke (TEST recipient): main gets pay link, viewer gets view-only,
+  single-recipient still payable via email, public page has no Pay button AND the
+  Network response no longer carries stripe_checkout_url.
+
+=== Files To Know ===
+- src/pages/Invoices.jsx — InvoiceDetail Recipients card + addRecipient/toggleMain/
+  pickExistingContact/createNewRecipient; InvoicePDFModal send view + handleSend.
+- supabase/functions/send-invoice/index.ts — recipient resolution + allowlist + send.
+- supabase/functions/_shared/recipientAllowlist.ts — shared C9 allowlist (NEW).
+- src/pages/PublicInvoicePage.jsx — explicit select (#SEC1a).
+- supabase/migrations/20260625130000_revoke_payment_cols_from_anon.sql — REVOKE (NEW).
+
+=== Git State ===
+- Branch feat/invoice-recipients @ db45ab8 (local; NOT pushed).
+- Lineage: db45ab8 (T5 fixes) → fb69ab7/d3c7420/80f4b34 (plan + v149) → 9e546f2
+  (round-1 build) → c1fcb2a (backlog) → 98cb3a8 (manifest r2).

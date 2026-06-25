@@ -199,6 +199,20 @@ proposal_recipients: id (uuid), proposal_id (text FK proposals ON DELETE CASCADE
   into customer_contacts. Only one row per proposal can have
   role='signer' (enforced in UI, not DB).
 
+invoice_recipients: id (uuid), invoice_id (text FK invoices ON DELETE CASCADE,
+  NOT NULL), contact_name (text), contact_email (text), phone (text),
+  role (text NOT NULL DEFAULT 'viewer', CHECK role IN ('main','viewer')),
+  sent_at (timestamptz), viewed_at (timestamptz — parity only, NOT wired),
+  customer_contact_id (uuid FK customer_contacts ON DELETE SET NULL),
+  created_at (timestamptz), tenant_id (uuid NOT NULL DEFAULT
+  get_user_tenant_id(), FK tenant_config) — added 20260625120000.
+  Invoice equivalent of proposal_recipients. The Recipients section on
+  InvoiceDetail renders this table. Exactly one row should have role='main'
+  (the payer who gets the Stripe pay link), enforced in UI not DB; the rest
+  are 'viewer' (view-only email, no pay link). send-invoice resolves 3 ways:
+  0 rows → fall back to billing contact as main; one main → send; rows but
+  no main → 400 block. No anon RLS policy (public page never queries it).
+
 proposals: ... intro (text) — introduction text shown above SOW
 
 customers: ... qb_customer_id (text) — QB parent customer ID

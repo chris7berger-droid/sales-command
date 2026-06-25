@@ -577,11 +577,13 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
   const [sending, setSending] = useState(false);
   const [sendDone, setSendDone] = useState(false);
   const [sendError, setSendError] = useState(null);
+  const [sendWarnings, setSendWarnings] = useState([]);
   const [approving, setApproving] = useState(false);
   const [billingEmail, setBillingEmail] = useState("");
   const [billingName, setBillingName] = useState("");
   const [jobsiteAddress, setJobsiteAddress] = useState("");
   const [loadingContact, setLoadingContact] = useState(true);
+  const [recips, setRecips] = useState([]);
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
   const [repContact, setRepContact] = useState({ phone: "", email: "" });
 
@@ -640,22 +642,44 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
         const wtNames = (cl?.job_work_types || []).map(j => j.work_types?.name).filter(Boolean).join(", ");
         setArchiveCtx({ isArchive: true, sold: parseFloat(prop.total) || 0, workTypes: wtNames });
       }
+
+      // Recipients (main + viewers). The Recipients section in InvoiceDetail
+      // manages these; here we only read them to show the send summary and gate
+      // the Send button. 0 rows → legacy single-recipient send (edge fn falls
+      // back to the billing contact as main). (plan §4.3)
+      const { data: recipRows } = await supabase
+        .from("invoice_recipients")
+        .select("contact_name, contact_email, role")
+        .eq("invoice_id", invoice.id)
+        .order("created_at");
+      setRecips(recipRows || []);
+
       setLoadingContact(false);
     }
     loadContact();
   }, [invoice.proposal_id]);
 
+  const mainRecip = recips.find(r => r.role === "main") || null;
+  const viewerRecips = recips.filter(r => r.role === "viewer");
+  const hasRecipRows = recips.length > 0;
+  const noMainBlock = hasRecipRows && !mainRecip; // rows exist but none is main → blocked
+
   async function handleSend() {
-    if (!billingEmail) { setSendError("No billing email found. Add one to the customer record."); return; }
+    // Block when recipient rows exist but none is main (mirrors the edge-fn 400
+    // guard). UI gate; the edge fn is the authoritative gate. (plan §4.3)
+    if (noMainBlock) { setSendError("No main recipient — pick who gets the pay link in the Recipients section."); return; }
+    // Legacy / not-yet-configured invoice (0 rows): edge fn falls back to the
+    // billing contact, so require one to exist (matches old behavior).
+    if (!hasRecipRows && !billingEmail) { setSendError("No billing email found. Add a recipient or a billing email on the customer record."); return; }
     setSending(true);
     setSendError(null);
     try {
+      // Recipients are loaded server-side from the DB — body carries display
+      // fields only (customerEmail/amount are no longer trusted or sent). (plan §4.3)
       const { data, error: fnError } = await supabase.functions.invoke("send-invoice", {
         body: {
           invoiceId: invoice.id,
-          customerEmail: billingEmail,
           customerName: billingName || "Customer",
-          amount: netTotal,
           jobName: invoice.job_name || "",
           jobId: invoice.job_id || "",
           dueDate: invoice.due_date || null,
@@ -665,6 +689,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
       });
       if (fnError) throw new Error(fnError.message || "Send failed.");
       if (data?.error) throw new Error(data.error);
+      setSendWarnings(Array.isArray(data?.warnings) ? data.warnings : []);
       // Sync to QuickBooks (non-blocking, skip test jobs)
       if (!(invoice.job_name || "").toLowerCase().includes("test")) {
         supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: invoice.id } })
@@ -909,22 +934,50 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
           {view === "send" && !sendDone && !hideSend && (
             <div style={{ maxWidth: 520, margin: "0 auto" }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 6 }}>Send Invoice</div>
-              <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 24 }}>This will email the customer an invoice with a secure payment link.</div>
+              <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 24 }}>The main recipient gets a secure payment link. Viewers get a view-only copy.</div>
               {loadingContact ? (
-                <div style={{ color: "#6B7280", fontSize: 13 }}>Loading billing contact...</div>
+                <div style={{ color: "#6B7280", fontSize: 13 }}>Loading recipients...</div>
               ) : (
                 <>
-                  <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Sending to</div>
-                    <div style={{ fontWeight: 600, color: "#111827" }}>{billingEmail || <span style={{ color: "#e53935" }}>No billing email on file</span>}</div>
-                    {billingName && <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2 }}>{billingName}</div>}
-                  </div>
-                  <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Amount</div>
-                    <div style={{ fontWeight: 700, color: "#111827", fontSize: 18 }}>{money(netTotal)}</div>
-                  </div>
+                  {noMainBlock ? (
+                    <div style={{ background: "rgba(229,57,53,0.06)", border: "1px solid rgba(229,57,53,0.3)", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 13, color: "#e53935", fontWeight: 600 }}>
+                      No main recipient — pick who gets the pay link in the Recipients section, then come back to send.
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Main — gets pay link</div>
+                        {hasRecipRows ? (
+                          <>
+                            <div style={{ fontWeight: 600, color: "#111827" }}>{mainRecip.contact_email || <span style={{ color: "#e53935" }}>No email</span>}</div>
+                            {mainRecip.contact_name && <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2 }}>{mainRecip.contact_name}</div>}
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ fontWeight: 600, color: "#111827" }}>{billingEmail || <span style={{ color: "#e53935" }}>No billing email on file</span>}</div>
+                            {billingName && <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2 }}>{billingName}</div>}
+                          </>
+                        )}
+                      </div>
+                      {viewerRecips.length > 0 && (
+                        <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Viewers — view-only copy ({viewerRecips.length})</div>
+                          {viewerRecips.map((v, i) => (
+                            <div key={i} style={{ fontWeight: 600, color: "#111827", marginTop: i === 0 ? 0 : 4 }}>
+                              {v.contact_email || <span style={{ color: "#e53935" }}>No email</span>}
+                              {v.contact_name && <span style={{ fontSize: 11, fontWeight: 400, color: "#6B7280" }}> · {v.contact_name}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Amount</div>
+                        <div style={{ fontWeight: 700, color: "#111827", fontSize: 18 }}>{money(netTotal)}</div>
+                      </div>
+                    </>
+                  )}
                   {sendError && <div style={{ fontSize: 12, color: "#e53935", marginBottom: 12, background: "rgba(229,57,53,0.06)", border: "1px solid rgba(229,57,53,0.2)", borderRadius: 8, padding: "10px 14px" }}>{sendError}</div>}
-                  <button onClick={handleSend} disabled={sending} style={{ width: "100%", background: sending ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: sending ? "default" : "pointer", fontFamily: "inherit" }}>
+                  <button onClick={handleSend} disabled={sending || noMainBlock} style={{ width: "100%", background: (sending || noMainBlock) ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: (sending || noMainBlock) ? "default" : "pointer", fontFamily: "inherit" }}>
                     {sending ? "Sending..." : "Send Invoice with Pay Link"}
                   </button>
                 </>
@@ -936,7 +989,13 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
             <div style={{ textAlign: "center", padding: "40px 20px" }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: "#111827", marginBottom: 8 }}>Invoice Sent</div>
-              <div style={{ fontSize: 14, color: "#6B7280", marginBottom: 24 }}>The customer will receive an email with a secure payment link.</div>
+              <div style={{ fontSize: 14, color: "#6B7280", marginBottom: 24 }}>The main recipient will receive an email with a secure payment link; any viewers get a view-only copy.</div>
+              {sendWarnings.length > 0 && (
+                <div style={{ textAlign: "left", maxWidth: 420, margin: "0 auto 24px", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 10, padding: "12px 16px", fontSize: 12.5, color: "#92400e" }}>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Some viewer copies didn't send:</div>
+                  {sendWarnings.map((w, i) => <div key={i} style={{ marginTop: i === 0 ? 0 : 3 }}>· {String(w)}</div>)}
+                </div>
+              )}
               <button onClick={onClose} style={{ background: "none", border: "1.5px solid #E5E7EB", borderRadius: 8, padding: "9px 20px", fontSize: 13, fontWeight: 600, color: "#4B5563", cursor: "pointer", fontFamily: "inherit" }}>Close</button>
             </div>
           )}
@@ -1006,6 +1065,172 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [billing, setBilling] = useState(false);           // Bill Retention in-flight guard
   const [releaseInvoiceId, setReleaseInvoiceId] = useState(null); // id of the release invoice spawned off this source
 
+  // Recipients (main + viewers) — ported from the proposal Recipients card.
+  const [recipients, setRecipients] = useState([]);
+  const [customerContacts, setCustomerContacts] = useState([]);
+  const [custInfo, setCustInfo] = useState({ id: null, name: "", billingEmail: "", billingName: "", billingContactId: null });
+  const [editingRecipient, setEditingRecipient] = useState(null);
+  const [recipDraft, setRecipDraft] = useState({});
+  const [showAddPicker, setShowAddPicker] = useState(false);
+  const [newContactOpen, setNewContactOpen] = useState(false);
+  const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+
+  async function reloadRecipients() {
+    const { data } = await supabase
+      .from("invoice_recipients")
+      .select("*, customer_contacts(id, role, is_primary)")
+      .eq("invoice_id", inv.id)
+      .order("created_at");
+    setRecipients(data || []);
+  }
+  async function reloadCustomerContacts() {
+    if (!custInfo.id) return;
+    const { data } = await supabase
+      .from("customer_contacts")
+      .select("id, name, email, phone, role, is_primary, is_billing_contact, created_at")
+      .eq("customer_id", custInfo.id)
+      .order("created_at");
+    setCustomerContacts(data || []);
+  }
+
+  // Seed an explicit `main` row before adding a viewer, so the edge fn never
+  // hits the "rows but no main" 400 block on the common "just add a viewer"
+  // path. Fresh DB read (not stale state); fires only on a user add action,
+  // never on load (plan §4.2 / A2). No billing contact → skip; the edge fn's
+  // 0-row fallback still covers a fully-unconfigured invoice.
+  async function ensureMainSeeded() {
+    const { data: rows } = await supabase
+      .from("invoice_recipients")
+      .select("id, role, contact_email")
+      .eq("invoice_id", inv.id);
+    if ((rows || []).some(r => r.role === "main")) return;
+    if (!custInfo.billingEmail) return;
+    const bLc = custInfo.billingEmail.trim().toLowerCase();
+    const existing = (rows || []).find(r => (r.contact_email || "").trim().toLowerCase() === bLc);
+    if (existing) {
+      await supabase.from("invoice_recipients").update({ role: "main" }).eq("id", existing.id);
+    } else {
+      await supabase.from("invoice_recipients").insert({
+        invoice_id: inv.id,
+        contact_name: custInfo.billingName || "",
+        contact_email: custInfo.billingEmail,
+        role: "main",
+        customer_contact_id: custInfo.billingContactId || null,
+      });
+    }
+  }
+
+  async function toggleMain(id) {
+    const r = recipients.find(x => x.id === id);
+    if (!r) return;
+    if (r.role === "main") {
+      await supabase.from("invoice_recipients").update({ role: "viewer" }).eq("id", id);
+    } else {
+      await supabase.from("invoice_recipients").update({ role: "viewer" }).eq("invoice_id", inv.id).eq("role", "main");
+      await supabase.from("invoice_recipients").update({ role: "main" }).eq("id", id);
+    }
+    await reloadRecipients();
+  }
+
+  async function pickExistingContact(c) {
+    if (recipients.some(r => r.customer_contact_id === c.id)) return;
+    await ensureMainSeeded();
+    await supabase.from("invoice_recipients").insert({
+      invoice_id: inv.id,
+      contact_name: c.name || "",
+      contact_email: c.email || "",
+      phone: c.phone || "",
+      role: "viewer",
+      customer_contact_id: c.id,
+    });
+    await reloadRecipients();
+  }
+
+  async function createNewRecipient() {
+    if (!custInfo.id) return;
+    const draft = recipDraft;
+    if (draft.email && !isValidEmail(draft.email)) { alert("Invalid email address"); return; }
+    const emailLc = (draft.email || "").trim().toLowerCase();
+    let contactId = null;
+    if (emailLc) {
+      const existing = customerContacts.find(c => (c.email || "").trim().toLowerCase() === emailLc);
+      if (existing) contactId = existing.id;
+    }
+    if (!contactId) {
+      const { data: newC } = await supabase.from("customer_contacts").insert({
+        customer_id: custInfo.id,
+        name: draft.name || "",
+        email: draft.email || "",
+        phone: draft.phone || "",
+        role: draft.role || "Project Manager",
+      }).select().single();
+      if (newC) contactId = newC.id;
+    }
+    if (recipients.some(r => r.customer_contact_id === contactId)) {
+      setNewContactOpen(false);
+      setRecipDraft({});
+      await reloadCustomerContacts();
+      return;
+    }
+    await ensureMainSeeded();
+    await supabase.from("invoice_recipients").insert({
+      invoice_id: inv.id,
+      contact_name: draft.name || "",
+      contact_email: draft.email || "",
+      phone: draft.phone || "",
+      role: "viewer",
+      customer_contact_id: contactId,
+    });
+    setNewContactOpen(false);
+    setRecipDraft({});
+    await Promise.all([reloadRecipients(), reloadCustomerContacts()]);
+  }
+
+  async function saveRecipient(id) {
+    const draft = recipDraft;
+    if (draft.email && !isValidEmail(draft.email)) { alert("Invalid email address"); return; }
+    const r = recipients.find(x => x.id === id);
+    await supabase.from("invoice_recipients").update({ contact_name: draft.name, contact_email: draft.email, phone: draft.phone }).eq("id", id);
+    if (r?.customer_contact_id) {
+      await supabase.from("customer_contacts").update({ name: draft.name, email: draft.email, phone: draft.phone, role: draft.role }).eq("id", r.customer_contact_id);
+    }
+    setEditingRecipient(null);
+    setRecipDraft({});
+    await Promise.all([reloadRecipients(), reloadCustomerContacts()]);
+  }
+
+  async function deleteRecipient(id) {
+    if (!window.confirm("Remove this recipient from the invoice? (The contact stays on the customer file.)")) return;
+    await supabase.from("invoice_recipients").delete().eq("id", id);
+    await reloadRecipients();
+  }
+
+  async function saveToCustomerFile(id) {
+    if (!custInfo.id) return;
+    const r = recipients.find(x => x.id === id);
+    if (!r) return;
+    const emailLc = (r.contact_email || "").trim().toLowerCase();
+    let contactId = null;
+    if (emailLc) {
+      const existing = customerContacts.find(c => (c.email || "").trim().toLowerCase() === emailLc);
+      if (existing) contactId = existing.id;
+    }
+    if (!contactId) {
+      const { data: newC } = await supabase.from("customer_contacts").insert({
+        customer_id: custInfo.id,
+        name: r.contact_name || "",
+        email: r.contact_email || "",
+        phone: r.phone || "",
+        role: "Project Manager",
+      }).select().single();
+      if (newC) contactId = newC.id;
+    }
+    if (contactId) {
+      await supabase.from("invoice_recipients").update({ customer_contact_id: contactId }).eq("id", id);
+    }
+    await Promise.all([reloadRecipients(), reloadCustomerContacts()]);
+  }
+
   // Auto-refresh: poll for payment status updates when invoice is Sent/Waiting
   useEffect(() => {
     if (inv.status === "Paid" || inv.status === "New") return;
@@ -1025,10 +1250,45 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       // recent QB link/unlink action — list-cached props can be stale.
       const { data: freshInv } = await supabase
         .from("invoices")
-        .select("*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))")
+        .select("*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id, customer_id, customers(billing_email, billing_name, contact_email, email, first_name, last_name, name)))")
         .eq("id", inv.id)
         .maybeSingle();
       if (freshInv) setInv(prev => ({ ...prev, ...freshInv }));
+
+      // Recipients (main + viewers) for the send flow. Resolve the billing
+      // contact (same order as the edge fn / send modal) so the Recipients card
+      // can show it as the default main and seed it on first add. (plan §4.2)
+      {
+        const cl = freshInv?.proposals?.call_log;
+        const cust = cl?.customers;
+        const customerId = cl?.customer_id || null;
+        let bEmail = "", bName = "", bContactId = null;
+        if (customerId) {
+          const { data: contactsAll } = await supabase
+            .from("customer_contacts")
+            .select("id, name, email, phone, role, is_primary, is_billing_contact, created_at")
+            .eq("customer_id", customerId)
+            .order("created_at");
+          setCustomerContacts(contactsAll || []);
+          const billingMatches = (contactsAll || []).filter(c => c.is_billing_contact || c.role === "Billing Contact");
+          const bc = billingMatches.length
+            ? (billingMatches.find(c => c.is_primary) || [...billingMatches].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0])
+            : null;
+          if (bc?.email) { bEmail = bc.email; bName = bc.name || ""; bContactId = bc.id; }
+        }
+        if (!bEmail && cust) {
+          bEmail = cust.billing_email || cust.contact_email || cust.email || "";
+          bName = cust.billing_name || [cust.first_name, cust.last_name].filter(Boolean).join(" ") || cust.name || "";
+        }
+        setCustInfo({ id: customerId, name: cl?.customer_name || "", billingEmail: bEmail, billingName: bName, billingContactId: bContactId });
+
+        const { data: recs } = await supabase
+          .from("invoice_recipients")
+          .select("*, customer_contacts(id, role, is_primary)")
+          .eq("invoice_id", inv.id)
+          .order("created_at");
+        setRecipients(recs || []);
+      }
 
       // If this invoice's retention has been billed, find the release invoice
       // it spawned so the detail can link to it ("Retention billed → #X").
@@ -1811,6 +2071,131 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         )}
       </div>}
 
+
+      {/* Recipients (main gets the pay link, viewers get a view-only copy) */}
+      {!inv.voided_at && !linkedPayApp && (
+        <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
+          <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Recipients</div>
+          <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui, marginBottom: 12 }}>The <strong>main</strong> recipient gets the secure pay link. Viewers get a view-only copy.</div>
+
+          {recipients.length === 0 ? (
+            /* No explicit rows yet — show the resolved billing contact as the default main (no write). */
+            <div style={{ padding: "10px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6, display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>{custInfo.billingName || custInfo.name || <span style={{ color: C.textFaint, fontStyle: "italic" }}>Billing contact</span>}</div>
+                <div style={{ fontSize: 12, color: custInfo.billingEmail ? C.textMuted : C.textFaint, fontFamily: F.ui, marginTop: 1 }}>
+                  {custInfo.billingEmail || <span style={{ fontStyle: "italic" }}>No billing email on file — add one on the customer record</span>}
+                </div>
+              </div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Main · pay link</div>
+            </div>
+          ) : (
+            <>
+              {!recipients.some(r => r.role === "main") && (
+                <div style={{ padding: "8px 12px", background: "rgba(229,57,53,0.08)", border: `1px solid ${C.red}`, borderRadius: 8, marginBottom: 6, fontSize: 12, color: C.red, fontFamily: F.ui, fontWeight: 600 }}>
+                  No main recipient — pick who gets the pay link. Sending is blocked until one is set.
+                </div>
+              )}
+              {recipients.map(r => {
+                const isEditing = editingRecipient === r.id;
+                const isMain = r.role === "main";
+                const custRole = r.customer_contacts?.role || "Contact";
+                const name = r.contact_name || "";
+                const email = r.contact_email || "";
+                const phone = r.phone || "";
+                return (
+                  <div key={r.id} style={{ padding: "10px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6 }}>
+                    {isEditing ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input value={recipDraft.name || ""} onChange={e => setRecipDraft(d => ({ ...d, name: e.target.value }))} placeholder="Name" style={{ flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                          <select value={recipDraft.role || "Project Manager"} onChange={e => setRecipDraft(d => ({ ...d, role: e.target.value }))} style={{ padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }}>
+                            <option>Project Manager</option>
+                            <option>Office Manager</option>
+                            <option>Billing Contact</option>
+                          </select>
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input value={recipDraft.email || ""} onChange={e => setRecipDraft(d => ({ ...d, email: e.target.value }))} placeholder="Email" style={{ flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                          <input value={recipDraft.phone || ""} onChange={e => setRecipDraft(d => ({ ...d, phone: e.target.value }))} placeholder="Phone" style={{ flex: 0.7, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                        </div>
+                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                          <Btn sz="sm" v="ghost" onClick={() => { setEditingRecipient(null); setRecipDraft({}); }}>Cancel</Btn>
+                          <Btn sz="sm" onClick={() => saveRecipient(r.id)}>Save</Btn>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>{name || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No name</span>}</div>
+                          <div style={{ fontSize: 12, color: email && !isValidEmail(email) ? (C.red || "#e53935") : C.textMuted, fontFamily: F.ui, marginTop: 1 }}>
+                            {email || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No email</span>}
+                            {email && !isValidEmail(email) && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700 }}>Invalid</span>}
+                          </div>
+                          {phone && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 1 }}>{phone}</div>}
+                        </div>
+                        <button onClick={() => toggleMain(r.id)} title={isMain ? "Main recipient (gets pay link). Click to make a viewer." : "Make this the main recipient (gets pay link)"} style={{ fontSize: 10, fontWeight: 700, color: isMain ? C.teal : C.textMuted, background: isMain ? C.dark : "none", border: isMain ? `1px solid ${C.dark}` : `1px solid ${C.borderStrong}`, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}>{isMain ? "Main" : "Viewer"}</button>
+                        {!r.customer_contact_id && (
+                          <button onClick={() => saveToCustomerFile(r.id)} title="Add this recipient to the parent customer's contact list" style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: "none", border: `1px dashed ${C.tealBorder || C.teal}`, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}>Save to Customer</button>
+                        )}
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{custRole}</div>
+                        <button onClick={() => { setEditingRecipient(r.id); setRecipDraft({ name, email, phone, role: custRole !== "Contact" ? custRole : "Project Manager" }); }} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>Edit</button>
+                        <button onClick={() => deleteRecipient(r.id)} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.red || "#e53935", cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }} title="Remove from this invoice (customer contact stays)">Delete</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {showAddPicker ? (
+            <div style={{ padding: "10px 12px", background: C.linenDeep, border: `1px solid ${C.borderStrong}`, borderRadius: 8, marginTop: 4, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>Add from customer contacts</div>
+              {(() => {
+                const available = customerContacts.filter(c => !recipients.some(r => r.customer_contact_id === c.id));
+                if (available.length === 0) return <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, fontStyle: "italic" }}>No other contacts on file for this customer.</div>;
+                return available.map(c => (
+                  <button key={c.id} onClick={() => pickExistingContact(c)} style={{ textAlign: "left", display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 6, cursor: "pointer", fontFamily: F.ui }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.textHead }}>{c.name || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No name</span>}</div>
+                      <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 1 }}>{c.email || <span style={{ color: C.textFaint, fontStyle: "italic" }}>No email</span>}</div>
+                    </div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{c.role || "Contact"}</div>
+                  </button>
+                ));
+              })()}
+              {newContactOpen ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10, background: C.linen, border: `1px solid ${C.border}`, borderRadius: 6 }}>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input value={recipDraft.name || ""} onChange={e => setRecipDraft(d => ({ ...d, name: e.target.value }))} placeholder="Name" style={{ flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                    <select value={recipDraft.role || "Project Manager"} onChange={e => setRecipDraft(d => ({ ...d, role: e.target.value }))} style={{ padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }}>
+                      <option>Project Manager</option>
+                      <option>Office Manager</option>
+                      <option>Billing Contact</option>
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input value={recipDraft.email || ""} onChange={e => setRecipDraft(d => ({ ...d, email: e.target.value }))} placeholder="Email" style={{ flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                    <input value={recipDraft.phone || ""} onChange={e => setRecipDraft(d => ({ ...d, phone: e.target.value }))} placeholder="Phone" style={{ flex: 0.7, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                  </div>
+                  <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                    <Btn sz="sm" v="ghost" onClick={() => { setNewContactOpen(false); setRecipDraft({}); }}>Cancel</Btn>
+                    <Btn sz="sm" onClick={createNewRecipient}>Save</Btn>
+                  </div>
+                </div>
+              ) : (
+                <Btn sz="sm" v="ghost" onClick={() => { setNewContactOpen(true); setRecipDraft({ name: "", email: "", phone: "", role: "Project Manager" }); }}>+ New Contact</Btn>
+              )}
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <Btn sz="sm" v="ghost" onClick={() => { setShowAddPicker(false); setNewContactOpen(false); setRecipDraft({}); }}>Done</Btn>
+              </div>
+            </div>
+          ) : (
+            <Btn sz="sm" v="ghost" onClick={() => setShowAddPicker(true)} style={{ marginTop: 4 }} disabled={!custInfo.id}>+ Add Contact</Btn>
+          )}
+        </div>
+      )}
 
       {/* Action buttons */}
       <div style={{ display: "flex", gap: 10 }}>

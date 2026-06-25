@@ -124,16 +124,14 @@ export default function PublicInvoicePage() {
         }
       `}</style>
 
-      {/* Action bar */}
+      {/* Action bar — view/print only. The pay link is delivered to the main
+          recipient by email; the public page does not expose a Pay button
+          because its viewing_token is shared by all recipients and can't tell
+          the payer from a view-only recipient. (invoice_recipients plan §4.5) */}
       <div data-inv-actions style={{ background: "white", borderBottom: "1px solid #e5e0d8", padding: "12px 24px", display: "flex", justifyContent: "center", gap: 12 }}>
         <button onClick={() => window.print()} style={{ background: "none", border: "1.5px solid #d1cdc7", borderRadius: 7, padding: "8px 18px", fontSize: 13, fontWeight: 600, color: "#4a4238", cursor: "pointer", fontFamily: "inherit" }}>
           Print / Save PDF
         </button>
-        {!isPaid && invoice.stripe_checkout_url && (
-          <a href={invoice.stripe_checkout_url} style={{ background: "#30cfac", color: "#1c1814", border: "none", borderRadius: 7, padding: "8px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", textDecoration: "none", display: "inline-block" }}>
-            Pay Now
-          </a>
-        )}
       </div>
 
       <div data-inv-page style={{ padding: "32px 20px", display: "flex", justifyContent: "center" }}>
@@ -275,11 +273,8 @@ export default function PublicInvoicePage() {
             </div>
           ) : (
             <div style={{ borderTop: "1.5px solid rgba(28,24,20,0.15)", paddingTop: 20, textAlign: "center" }}>
-              {invoice.stripe_checkout_url && (
-                <a href={invoice.stripe_checkout_url} style={{ display: "inline-block", background: "#30cfac", color: "#1c1814", padding: "14px 40px", borderRadius: 8, textDecoration: "none", fontWeight: 700, fontSize: 15, marginBottom: 16 }}>
-                  Pay Now
-                </a>
-              )}
+              {/* Pay button intentionally removed (plan §4.5) — payment is made via
+                  the secure link emailed to the main recipient, not from this page. */}
               <div style={{ fontSize: 11, color: "#887c6e", fontStyle: "italic" }}>
                 Payment due upon receipt{invoice.due_date ? ` · Due by ${fmtD(invoice.due_date)}` : ""}
               </div>

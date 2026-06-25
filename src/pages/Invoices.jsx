@@ -566,7 +566,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 }
 
 // ── Invoice PDF Modal ─────────────────────────────────────────────────────
-function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideSend = false, teamMember }) {
+function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideSend = false, teamMember, recipients: parentRecipients }) {
   const money = invoice.show_cents ? fmt$c : fmt$;
   const fmtPct = (n) => {
     const v = parseFloat(n) || 0;
@@ -605,7 +605,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
       if (!invoice.proposal_id) { setLoadingContact(false); return; }
       const { data: prop } = await supabase
         .from("proposals")
-        .select("call_log_id, total, is_archive_proposal, call_log(customer_id, customer_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, customers(billing_email, billing_name, contact_email, first_name, last_name, name), job_work_types(work_types(name)))")
+        .select("call_log_id, total, is_archive_proposal, call_log(customer_id, customer_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, customers(billing_email, billing_name, contact_email, email, first_name, last_name, name), job_work_types(work_types(name)))")
         .eq("id", invoice.proposal_id)
         .maybeSingle();
       const cl = prop?.call_log;
@@ -626,11 +626,13 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
           setBillingEmail(bc.email);
           setBillingName(bc.name || "");
         } else if (cust) {
-          setBillingEmail(cust.billing_email || cust.contact_email || "");
+          // Include customers.email so the modal agrees with the Recipients card
+          // and the edge fn on what's sendable (T5 #5).
+          setBillingEmail(cust.billing_email || cust.contact_email || cust.email || "");
           setBillingName(cust.billing_name || [cust.first_name, cust.last_name].filter(Boolean).join(" ") || cust.name || "");
         }
       } else if (cust) {
-        setBillingEmail(cust.billing_email || cust.contact_email || "");
+        setBillingEmail(cust.billing_email || cust.contact_email || cust.email || "");
         setBillingName(cust.billing_name || [cust.first_name, cust.last_name].filter(Boolean).join(" ") || cust.name || "");
       }
 
@@ -646,28 +648,43 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
       // Recipients (main + viewers). The Recipients section in InvoiceDetail
       // manages these; here we only read them to show the send summary and gate
       // the Send button. 0 rows → legacy single-recipient send (edge fn falls
-      // back to the billing contact as main). (plan §4.3)
-      const { data: recipRows } = await supabase
-        .from("invoice_recipients")
-        .select("contact_name, contact_email, role")
-        .eq("invoice_id", invoice.id)
-        .order("created_at");
-      setRecips(recipRows || []);
+      // back to the billing contact as main). (plan §4.3) When the parent
+      // (InvoiceDetail) already holds the recipient list, it's passed in as a
+      // prop and this fetch is skipped (T5 #10). The embed pulls the linked
+      // contact's live email so the summary matches the send (T5 #1).
+      if (!parentRecipients) {
+        const { data: recipRows } = await supabase
+          .from("invoice_recipients")
+          .select("contact_name, contact_email, role, customer_contact_id, customer_contacts(email)")
+          .eq("invoice_id", invoice.id)
+          .order("created_at");
+        setRecips(recipRows || []);
+      }
 
       setLoadingContact(false);
     }
     loadContact();
   }, [invoice.proposal_id]);
 
-  const mainRecip = recips.find(r => r.role === "main") || null;
-  const viewerRecips = recips.filter(r => r.role === "viewer");
-  const hasRecipRows = recips.length > 0;
+  // Prefer the live linked-contact email over the stored snapshot (T5 #1).
+  const liveRecipEmail = (r) => (r?.customer_contact_id && r?.customer_contacts?.email) || r?.contact_email || "";
+  const sourceRecips = parentRecipients ?? recips;
+  const mainRecip = sourceRecips.find(r => r.role === "main") || null;
+  const viewerRecips = sourceRecips.filter(r => r.role === "viewer");
+  const hasRecipRows = sourceRecips.length > 0;
   const noMainBlock = hasRecipRows && !mainRecip; // rows exist but none is main → blocked
+  const mainEmail = liveRecipEmail(mainRecip);
+  // Main exists but has no deliverable email — surface in the UI rather than
+  // letting it reach the edge-fn 400 (T5 #2).
+  const mainMissingEmail = hasRecipRows && !!mainRecip && !mainEmail.trim();
 
   async function handleSend() {
     // Block when recipient rows exist but none is main (mirrors the edge-fn 400
     // guard). UI gate; the edge fn is the authoritative gate. (plan §4.3)
     if (noMainBlock) { setSendError("No main recipient — pick who gets the pay link in the Recipients section."); return; }
+    // Main is set but has no email — block here with a clear message instead of
+    // bouncing off the edge-fn 400 (T5 #2).
+    if (mainMissingEmail) { setSendError("The main recipient has no email address. Add one in the Recipients section, or pick a different main recipient."); return; }
     // Legacy / not-yet-configured invoice (0 rows): edge fn falls back to the
     // billing contact, so require one to exist (matches old behavior).
     if (!hasRecipRows && !billingEmail) { setSendError("No billing email found. Add a recipient or a billing email on the customer record."); return; }
@@ -949,7 +966,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
                         <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Main — gets pay link</div>
                         {hasRecipRows ? (
                           <>
-                            <div style={{ fontWeight: 600, color: "#111827" }}>{mainRecip.contact_email || <span style={{ color: "#e53935" }}>No email</span>}</div>
+                            <div style={{ fontWeight: 600, color: mainMissingEmail ? "#e53935" : "#111827" }}>{mainEmail || <span style={{ color: "#e53935" }}>No email — add one in Recipients</span>}</div>
                             {mainRecip.contact_name && <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2 }}>{mainRecip.contact_name}</div>}
                           </>
                         ) : (
@@ -962,12 +979,15 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
                       {viewerRecips.length > 0 && (
                         <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
                           <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Viewers — view-only copy ({viewerRecips.length})</div>
-                          {viewerRecips.map((v, i) => (
-                            <div key={i} style={{ fontWeight: 600, color: "#111827", marginTop: i === 0 ? 0 : 4 }}>
-                              {v.contact_email || <span style={{ color: "#e53935" }}>No email</span>}
-                              {v.contact_name && <span style={{ fontSize: 11, fontWeight: 400, color: "#6B7280" }}> · {v.contact_name}</span>}
-                            </div>
-                          ))}
+                          {viewerRecips.map((v, i) => {
+                            const vEmail = liveRecipEmail(v);
+                            return (
+                              <div key={i} style={{ fontWeight: 600, color: "#111827", marginTop: i === 0 ? 0 : 4 }}>
+                                {vEmail || <span style={{ color: "#e53935" }}>No email</span>}
+                                {v.contact_name && <span style={{ fontSize: 11, fontWeight: 400, color: "#6B7280" }}> · {v.contact_name}</span>}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                       <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
@@ -977,7 +997,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
                     </>
                   )}
                   {sendError && <div style={{ fontSize: 12, color: "#e53935", marginBottom: 12, background: "rgba(229,57,53,0.06)", border: "1px solid rgba(229,57,53,0.2)", borderRadius: 8, padding: "10px 14px" }}>{sendError}</div>}
-                  <button onClick={handleSend} disabled={sending || noMainBlock} style={{ width: "100%", background: (sending || noMainBlock) ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: (sending || noMainBlock) ? "default" : "pointer", fontFamily: "inherit" }}>
+                  <button onClick={handleSend} disabled={sending || noMainBlock || mainMissingEmail} style={{ width: "100%", background: (sending || noMainBlock || mainMissingEmail) ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: (sending || noMainBlock || mainMissingEmail) ? "default" : "pointer", fontFamily: "inherit" }}>
                     {sending ? "Sending..." : "Send Invoice with Pay Link"}
                   </button>
                 </>
@@ -1078,7 +1098,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   async function reloadRecipients() {
     const { data } = await supabase
       .from("invoice_recipients")
-      .select("*, customer_contacts(id, role, is_primary)")
+      .select("*, customer_contacts(id, role, is_primary, email)")
       .eq("invoice_id", inv.id)
       .order("created_at");
     setRecipients(data || []);
@@ -1093,23 +1113,39 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     setCustomerContacts(data || []);
   }
 
-  // Seed an explicit `main` row before adding a viewer, so the edge fn never
-  // hits the "rows but no main" 400 block on the common "just add a viewer"
-  // path. Fresh DB read (not stale state); fires only on a user add action,
-  // never on load (plan §4.2 / A2). No billing contact → skip; the edge fn's
-  // 0-row fallback still covers a fully-unconfigured invoice.
-  async function ensureMainSeeded() {
-    const { data: rows } = await supabase
+  // Add a recipient with the right role, seeding the billing main when needed.
+  // One FRESH DB read drives every decision (no stale React state — fixes the
+  // T5 #3 double-add and the T5 #4 stranded-first-viewer races):
+  //   - Dedup: if this contact (by id, or by email for orphans) is already a
+  //     recipient — including the just-seeded billing main — do nothing (#3).
+  //   - Seed the billing contact as `main` first ONLY when there's no main yet,
+  //     a billing email exists, and the contact being added isn't itself the
+  //     billing contact (so the billing contact is never listed twice — #3).
+  //   - Role: the new row is `main` only when there's still no main after
+  //     seeding (email-less customer with nothing to seed — #4); else `viewer`.
+  // Fires on a user add action, never on load (plan §4.2 / A2).
+  async function addRecipient(row) {
+    const { data: existing } = await supabase
       .from("invoice_recipients")
-      .select("id, role, contact_email")
+      .select("id, role, customer_contact_id, contact_email")
       .eq("invoice_id", inv.id);
-    if ((rows || []).some(r => r.role === "main")) return;
-    if (!custInfo.billingEmail) return;
-    const bLc = custInfo.billingEmail.trim().toLowerCase();
-    const existing = (rows || []).find(r => (r.contact_email || "").trim().toLowerCase() === bLc);
-    if (existing) {
-      await supabase.from("invoice_recipients").update({ role: "main" }).eq("id", existing.id);
-    } else {
+    const rows = existing || [];
+    const emailLc = (row.contact_email || "").trim().toLowerCase();
+
+    const isDup = rows.some(r =>
+      (row.customer_contact_id && r.customer_contact_id === row.customer_contact_id) ||
+      (emailLc && (r.contact_email || "").trim().toLowerCase() === emailLc)
+    );
+    if (isDup) { await reloadRecipients(); return; }
+
+    const hasMain = rows.some(r => r.role === "main");
+    const billingLc = (custInfo.billingEmail || "").trim().toLowerCase();
+    const addingIsBilling =
+      (!!row.customer_contact_id && !!custInfo.billingContactId && row.customer_contact_id === custInfo.billingContactId) ||
+      (!!emailLc && !!billingLc && emailLc === billingLc);
+
+    let seededMain = false;
+    if (!hasMain && custInfo.billingEmail && !addingIsBilling) {
       await supabase.from("invoice_recipients").insert({
         invoice_id: inv.id,
         contact_name: custInfo.billingName || "",
@@ -1117,7 +1153,19 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         role: "main",
         customer_contact_id: custInfo.billingContactId || null,
       });
+      seededMain = true;
     }
+
+    const role = (hasMain || seededMain) ? "viewer" : "main";
+    await supabase.from("invoice_recipients").insert({
+      invoice_id: inv.id,
+      contact_name: row.contact_name || "",
+      contact_email: row.contact_email || "",
+      phone: row.phone || "",
+      role,
+      customer_contact_id: row.customer_contact_id || null,
+    });
+    await reloadRecipients();
   }
 
   async function toggleMain(id) {
@@ -1126,64 +1174,44 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     if (r.role === "main") {
       await supabase.from("invoice_recipients").update({ role: "viewer" }).eq("id", id);
     } else {
-      await supabase.from("invoice_recipients").update({ role: "viewer" }).eq("invoice_id", inv.id).eq("role", "main");
+      // Promote the new main FIRST, then demote the others. A failure between
+      // the two leaves a transient TWO-main state (the edge fn demotes the
+      // extra to viewer → single pay link preserved) rather than a ZERO-main
+      // state that would block the send (T5 #7).
       await supabase.from("invoice_recipients").update({ role: "main" }).eq("id", id);
+      await supabase.from("invoice_recipients").update({ role: "viewer" }).eq("invoice_id", inv.id).eq("role", "main").neq("id", id);
     }
     await reloadRecipients();
   }
 
   async function pickExistingContact(c) {
-    if (recipients.some(r => r.customer_contact_id === c.id)) return;
-    await ensureMainSeeded();
-    await supabase.from("invoice_recipients").insert({
-      invoice_id: inv.id,
-      contact_name: c.name || "",
-      contact_email: c.email || "",
-      phone: c.phone || "",
-      role: "viewer",
-      customer_contact_id: c.id,
-    });
-    await reloadRecipients();
+    await addRecipient({ contact_name: c.name || "", contact_email: c.email || "", phone: c.phone || "", customer_contact_id: c.id });
   }
 
   async function createNewRecipient() {
     if (!custInfo.id) return;
     const draft = recipDraft;
-    if (draft.email && !isValidEmail(draft.email)) { alert("Invalid email address"); return; }
-    const emailLc = (draft.email || "").trim().toLowerCase();
+    // Require a valid email — a blank-email contact pollutes the customer file
+    // and the matching viewer is silently dropped at send (T5 #6).
+    if (!draft.email || !isValidEmail(draft.email)) { alert("Enter a valid email address for this recipient."); return; }
+    const emailLc = draft.email.trim().toLowerCase();
     let contactId = null;
-    if (emailLc) {
-      const existing = customerContacts.find(c => (c.email || "").trim().toLowerCase() === emailLc);
-      if (existing) contactId = existing.id;
-    }
+    const existing = customerContacts.find(c => (c.email || "").trim().toLowerCase() === emailLc);
+    if (existing) contactId = existing.id;
     if (!contactId) {
       const { data: newC } = await supabase.from("customer_contacts").insert({
         customer_id: custInfo.id,
         name: draft.name || "",
-        email: draft.email || "",
+        email: draft.email,
         phone: draft.phone || "",
         role: draft.role || "Project Manager",
       }).select().single();
       if (newC) contactId = newC.id;
     }
-    if (recipients.some(r => r.customer_contact_id === contactId)) {
-      setNewContactOpen(false);
-      setRecipDraft({});
-      await reloadCustomerContacts();
-      return;
-    }
-    await ensureMainSeeded();
-    await supabase.from("invoice_recipients").insert({
-      invoice_id: inv.id,
-      contact_name: draft.name || "",
-      contact_email: draft.email || "",
-      phone: draft.phone || "",
-      role: "viewer",
-      customer_contact_id: contactId,
-    });
+    await addRecipient({ contact_name: draft.name || "", contact_email: draft.email, phone: draft.phone || "", customer_contact_id: contactId });
     setNewContactOpen(false);
     setRecipDraft({});
-    await Promise.all([reloadRecipients(), reloadCustomerContacts()]);
+    await reloadCustomerContacts();
   }
 
   async function saveRecipient(id) {
@@ -1284,7 +1312,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
         const { data: recs } = await supabase
           .from("invoice_recipients")
-          .select("*, customer_contacts(id, role, is_primary)")
+          .select("*, customer_contacts(id, role, is_primary, email)")
           .eq("invoice_id", inv.id)
           .order("created_at");
         setRecipients(recs || []);
@@ -2101,7 +2129,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                 const isMain = r.role === "main";
                 const custRole = r.customer_contacts?.role || "Contact";
                 const name = r.contact_name || "";
-                const email = r.contact_email || "";
+                // Prefer the linked contact's LIVE email over the stored snapshot
+                // so the card stays accurate after a Customers-page edit (T5 #1).
+                // Orphan rows (no customer_contact_id) fall back to the snapshot.
+                const email = (r.customer_contact_id && r.customer_contacts?.email) || r.contact_email || "";
                 const phone = r.phone || "";
                 return (
                   <div key={r.id} style={{ padding: "10px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6 }}>
@@ -2314,6 +2345,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           lines={lines}
           wtcIndex={wtcIndex}
           teamMember={teamMember}
+          recipients={recipients}
           hideSend={!!linkedPayApp}
           onClose={() => setShowPDF(false)}
           onSent={async (responseData) => {

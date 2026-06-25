@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { authenticateCaller, unauthorizedResponse } from "../_shared/tenantAuth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { buildContactAllowlist, normEmail } from "../_shared/recipientAllowlist.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -114,19 +115,25 @@ serve(async (req) => {
     // ── Soft allowlist (audit C9): the customer's known contacts ∪ the
     // customer record's emails. Run per recipient incl. orphan rows. UI-added
     // contacts auto-pass because createNewRecipient writes them to
-    // customer_contacts first; this blocks raw body-injected addresses. (plan §4.4 #3)
-    const norm = (s: any) => String(s || "").trim().toLowerCase();
-    const allowedRecipients = new Set<string>();
-    if (customer?.billing_email) allowedRecipients.add(norm(customer.billing_email));
-    if (customer?.contact_email) allowedRecipients.add(norm(customer.contact_email));
-    if ((customer as any)?.email) allowedRecipients.add(norm((customer as any).email));
-    if (customerId) {
-      const { data: allContacts } = await supabase
-        .from("customer_contacts")
-        .select("email")
-        .eq("customer_id", customerId);
-      for (const c of allContacts || []) if (c.email) allowedRecipients.add(norm(c.email));
-    }
+    // customer_contacts first; this blocks raw body-injected addresses. Shared
+    // with the pay-app send fn via _shared/recipientAllowlist. (plan §4.4 #3 / T5 #9)
+    const norm = normEmail;
+    const { allowed: allowedRecipients, liveEmailById } = await buildContactAllowlist(supabase, customer, customerId);
+
+    // Resolve a recipient's email LIVE for any linked row (T5 #1): the stored
+    // contact_email is a snapshot that goes stale when the contact is edited on
+    // the Customers page. The live customer_contacts email IS a current contact,
+    // so it passes the allowlist by construction — fixing the stale-snapshot
+    // send-block WITHOUT weakening C9. Orphan rows (no customer_contact_id, or a
+    // contact whose email is now blank) fall back to the stored snapshot, which
+    // must still pass the allowlist. (plan §4.4 Live email resolution)
+    const resolveEmail = (r: any): string => {
+      if (r.customer_contact_id) {
+        const live = liveEmailById.get(r.customer_contact_id);
+        if (live) return live;
+      }
+      return String(r.contact_email || "");
+    };
 
     // ── Three-branch recipient resolution (plan §4.4 #2/A3). Never promote a viewer.
     const mainRows = (recipientRows || []).filter((r: any) => r.role === "main");
@@ -154,16 +161,25 @@ serve(async (req) => {
       // else — including any stray second 'main' row — is treated as a viewer,
       // so a pay link can never reach more than one inbox.
       const m = mainRows[0];
-      mainRecipient = { id: m.id, email: String(m.contact_email || ""), name: m.contact_name || customerName || "" };
+      mainRecipient = { id: m.id, email: resolveEmail(m), name: m.contact_name || customerName || "" };
       viewerRecipients = (recipientRows as any[])
         .filter((r) => r.id !== m.id)
-        .map((r) => ({ id: r.id, email: String(r.contact_email || ""), name: r.contact_name || "" }));
+        .map((r) => ({ id: r.id, email: resolveEmail(r), name: r.contact_name || "" }));
     }
 
-    // The main recipient must be on the allowlist (and have an address), or abort —
-    // the invoice isn't "sent" if the payer never gets it.
-    if (!mainRecipient.email || !allowedRecipients.has(norm(mainRecipient.email))) {
-      return new Response(JSON.stringify({ error: `Main recipient ${mainRecipient.email || "(none)"} is not a known contact for this customer.` }), {
+    // The main recipient must have a deliverable, allowlisted address, or abort —
+    // the invoice isn't "sent" if the payer never gets it. Distinguish the two
+    // failure modes so the message is actionable (mirrors the UI gate, T5 #2):
+    if (!mainRecipient.email) {
+      return new Response(JSON.stringify({ error: "The main recipient has no email address. Add an email to that contact, or choose a different main recipient." }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400,
+      });
+    }
+    if (!allowedRecipients.has(norm(mainRecipient.email))) {
+      // Reachable only for an orphan main whose snapshot is stale (a linked main
+      // resolves live and passes by construction). (plan §4.4 / T5 #1+#2)
+      return new Response(JSON.stringify({ error: `The main recipient (${mainRecipient.email}) is no longer a contact on file for this customer — re-add them as a recipient, then send.` }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 400,
       });
@@ -366,8 +382,12 @@ serve(async (req) => {
     // non-fatal → collect into warnings[]. Stamp sent_at per row on its own
     // success only — never blanket-stamp. (plan §4.4 #5)
     for (const v of viewerRecipients) {
-      if (!v.email || !allowedRecipients.has(norm(v.email))) {
-        warnings.push(`${v.email || "(no email)"} — not a known contact for this customer; skipped.`);
+      if (!v.email) {
+        warnings.push(`${v.name || "A viewer"} has no email address — skipped. Add one on the customer record and re-send.`);
+        continue;
+      }
+      if (!allowedRecipients.has(norm(v.email))) {
+        warnings.push(`${v.email} is no longer a contact on file for this customer — skipped. Re-add them as a recipient to include them.`);
         continue;
       }
       try {

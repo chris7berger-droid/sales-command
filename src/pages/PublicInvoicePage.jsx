@@ -28,9 +28,16 @@ export default function PublicInvoicePage() {
       const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!token || !uuidRe.test(token)) { setError("Invalid invoice link."); setLoading(false); return; }
 
+      // Explicit column list (T5 security #SEC1): never select stripe_*/qb_*
+      // here. The anon viewing_token reaches this page, and select("*") shipped
+      // the live Stripe pay link (stripe_checkout_url) to every viewer's
+      // browser — a viewer could read it from the Network tab and pay. The page
+      // uses no stripe/qb column after the fetch, so omitting them is
+      // non-breaking. Belt-and-suspenders REVOKE on those columns FROM anon
+      // lives in migration 20260625130000. (plan §4.5)
       const { data: inv, error: invErr } = await supabase
         .from("invoices")
-        .select("*, proposals(total, is_archive_proposal, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, deposit_invoice_id, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))")
+        .select("id, proposal_id, job_id, job_name, status, amount, discount, due_date, paid_at, description, show_cents, retention_amount, retention_pct, voided_at, viewing_token, proposals(total, is_archive_proposal, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, deposit_invoice_id, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))")
         .eq("viewing_token", token)
         .single();
 

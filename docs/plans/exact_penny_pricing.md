@@ -79,17 +79,27 @@ At each of the ~15 sites (§0), compute `usesExactPricing(proposal)` from the al
 - `PublicInvoicePage.jsx:40` — anon embed
 - `WTCCalculator.jsx:2045` — parent proposal load
 
-**Three sites need MORE than a SELECT [item 2, A1/A2/REG-D1] — the hardened warn will now expose them:**
-- `Invoices.jsx:2480` — the deep-link "Create invoice" proposal fetch: add `created_at` to its select.
-- `WTCCalculator` — a SELECT alone does NOT close it (nothing currently stores or forwards `created_at`, and the write handlers have no proposal row in scope). Thread `created_at` from the `:2045` jobInfo fetch into component **state**, then into the `proposals.total` write scope (`handleSave`, `:1988/:2014`) AND the `proposalData` preview object (`:2065`).
-- **PayApp PDF proposal source** — replace the `Invoices.jsx:2363` synthetic stub (`{ call_log_id: ... }`) and the BillingSchedule prop with a **real proposal object carrying `created_at`**. Needed **even with §3.6 cents-display deferred**, so the stored invoice line/amount is exact.
+**[A1, Block 2] EVERY proposal fetch must SELECT BOTH `created_at` AND `pricing_anchor_at`.** Dropping `pricing_anchor_at` means a sister cloned from a pre-cutoff source (anchor = pre-cutoff, `created_at` = post-cutoff) reads `created_at` → computes **EXACT** when it must be **CEIL** → **under-bills the clone.** The dev-warn is **blind** to a missing nullable column, so this is contract, not optional.
+
+**[A3, Block 4 — convergence lever] Define ONE shared select fragment and splice it into every proposal fetch so the column set cannot drift:**
+```js
+const PROPOSAL_ERA = "created_at, pricing_anchor_at";
+```
+Use `PROPOSAL_ERA` in each `from("proposals").select(...)` / `proposals(...)` embed. No future fetch can add `created_at` but forget `pricing_anchor_at`.
+
+**Three sites need MORE than a SELECT [item 2, A1/A2/REG-D1] — the hardened warn exposes wrong-object / missing-`created_at`, but NOT a missing `pricing_anchor_at`:**
+- `Invoices.jsx:2480` — the deep-link "Create invoice" proposal fetch: add **both `created_at` and `pricing_anchor_at`**.
+- `WTCCalculator` — a SELECT alone does NOT close it (nothing currently stores or forwards the era cols, and the write handlers have no proposal row in scope). Thread **both `created_at` and `pricing_anchor_at`** from the `:2045` jobInfo fetch into component **state**, then into the `proposals.total` write scope (`handleSave`, `:1988/:2014`) AND the `proposalData` preview object (`:2065`).
+- **PayApp PDF proposal source** — replace the `Invoices.jsx:2363` synthetic stub (`{ call_log_id: ... }`) and the BillingSchedule prop with a **real proposal object carrying both `created_at` and `pricing_anchor_at`**. Needed **even with §3.6 cents-display deferred**, so the stored invoice line/amount is exact.
 
 Files: `ProposalDetail.jsx`, `Invoices.jsx`, `invoicePdf.js`, `PublicInvoicePage.jsx`, `MultiGCWizard.jsx`, `WTCCalculator.jsx` (alias path).
 
-### 3.2.1 Line-sum reconciliation [D-sum]
-`getLineAmount = calcWtcPrice(wtc) * (pct/100)` — even though §3.1 routes `calcWtcPrice` through `roundPrice`, the per-line **× pct** multiply is not rounded consistently, so summed lines can drift from the header by a cent. **Fix: round each line via `roundPrice` FIRST, then set `invoice.amount = sum of the already-rounded lines` — never `round(rawSum)`.**
+### 3.2.1 Line-sum reconciliation [D-sum · CORRECTED post-R3 REG-B1]
+`getLineAmount = calcWtcPrice(wtc) * (pct/100)` — the per-line **× pct** multiply is not rounded consistently, so summed lines can drift from the header by a cent. **Fix: cent-round each line with `Math.round(x*100)/100` for BOTH eras — NOT `roundPrice` (which ceils when `exact=false` and would over-bill committed legacy partial invoices, violating §2 forward-only). Then set `invoice.amount = sum of the cent-rounded lines` — never `round(rawSum)`.**
+- **The ceil-vs-exact choice lives ONLY inside `calcWtcPrice(wtc, override, exact)` on the per-WTC base — never on the `× pct` line.**
+- **[A2, Block 3] Thread the ARG, not just the SELECT:** at `:197`, `getLineAmount` must pass `calcWtcPrice(wtc, undefined, usesExactPricing(proposal))`. Adding the SELECT is necessary but NOT sufficient — without the `exact` arg the post-cutoff WTC base still ceils.
 - Sites: `Invoices.jsx:197` (`getLineAmount`), `:200`/`:264` (`invoiceTotal` sum), `:294` (per-line store).
-- `calc.js` threading alone does NOT fix this — it lives in invoice assembly.
+- `calc.js` threading alone does NOT fix the sum — it lives in invoice assembly.
 - Ensure the **QB push uses the reconciled header** so QB lines == QB header (no 1¢ split between detail and total).
 
 ### 3.3 `WTCCalculator.jsx` inline ceils [LOCKED]
@@ -107,8 +117,18 @@ Reads the frozen snapshot only. New proposals show exact via §3.4; old signed p
 **Ratified fix — option (b) via a dedicated era column** (chosen for integrity/durability over overloading `created_at`):
 - Add nullable `proposals.pricing_anchor_at timestamptz`. Normal proposals leave it null.
 - `usesExactPricing` keys off `pricing_anchor_at ?? created_at` (§3.1).
-- `clone_proposal_to_gcs` sets the sister's `pricing_anchor_at = COALESCE(v_source.pricing_anchor_at, v_source.created_at)` (chains correctly for clone-of-clone).
-- Backfill the **one** existing sister to its source's era.
+- **`clone_proposal_to_gcs` [Block 6 / C2]:** add `pricing_anchor_at` to **both** the INSERT column list **and** the VALUES list, set to `COALESCE(v_source.pricing_anchor_at, v_source.created_at)`. (First arm is forward-defensive — the RPC currently rejects nested clones, so `v_source.pricing_anchor_at` is null today [ADJ-M4].) It's `CREATE OR REPLACE`, so **after deploy, smoke-verify a freshly-cloned sister row actually carries `pricing_anchor_at`.**
+- **Backfill existing sister(s) [Block 5 / C1]** with set-based SQL (not a one-row hand-edit):
+  ```sql
+  UPDATE public.proposals s
+     SET pricing_anchor_at = src.created_at
+    FROM public.proposals src
+   WHERE s.cloned_from_proposal_id = src.id
+     AND s.pricing_anchor_at IS NULL;
+  ```
+  (`src` is always an original — nested clones are rejected. Confirm no sister has a **hard-deleted** source before relying on the join.)
+- **Migration discipline:** timestamp **after `20260625140000`**; run `scripts/check-migration-safety.sh`; push via `npm run db:push` (shared backend).
+- **Rollback order [ADJ-M5]:** additive/reversible, but order-dependent — revert the app/SELECTs FIRST, then drop the column. Dropping the column while the app still selects it 400s every proposal fetch.
 - `created_at` stays truthful (real clone time); the pricing era is explicit and self-documenting.
 - **Rejected:** overloading `created_at` (makes the column lie about creation time → rots reporting/sorting) and JS-lineage joins at every price site (re-creates the coverage burden the audit hammered).
 
@@ -125,12 +145,12 @@ Reads the frozen snapshot only. New proposals show exact via §3.4; old signed p
 
 ## §4 Files to touch
 - `src/lib/calc.js` — core rule + helpers (era = `pricing_anchor_at ?? created_at`)
-- **Migration (additive) + RPC:** `proposals.pricing_anchor_at timestamptz NULL`; one-line `clone_proposal_to_gcs` change to set it from the source's era; backfill the 1 existing sister. Follow CLAUDE.md migration discipline (`scripts/check-migration-safety.sh`, `npm run db:push`). [§3.5.1]
+- **Migration (additive) + RPC [§3.5.1]:** `proposals.pricing_anchor_at timestamptz NULL`; `clone_proposal_to_gcs` adds `pricing_anchor_at` to its INSERT columns + VALUES (`COALESCE(v_source.pricing_anchor_at, v_source.created_at)`); set-based backfill of existing sisters. Timestamp **after `20260625140000`**; `scripts/check-migration-safety.sh`; `npm run db:push`; post-deploy smoke-verify a fresh clone carries the column.
 - `src/components/ProposalDetail.jsx` — 5 call sites
 - `src/pages/Invoices.jsx` — 7 calc call sites + line-sum reconciliation (`:197/:200/:264/:294`, §3.2.1) + `:2480` deep-link select + `:2363` stub→real proposal
 - `src/lib/invoicePdf.js` — calc call site + new `proposal` param (cents-DISPLAY deferred → §5) [D1]
 - `src/components/PayAppDetailModal.jsx` — `:343` caller passes `proposal` into `generateInvoicePdf` [D1]
-- `src/pages/PublicInvoicePage.jsx` — add `created_at` to the **anon embed at `:40`** (direct PostgREST embed — NOT an RPC, no migration) [A3]
+- `src/pages/PublicInvoicePage.jsx` — add **both `created_at` and `pricing_anchor_at`** to the **anon embed at `:40`** (direct PostgREST embed — NOT an RPC, no migration) [A1, A3]
 - `src/components/MultiGCWizard.jsx` — 5 calc call sites (in scope; pass real proposal + `exact`) [§3.5.2]
 - `src/pages/WTCCalculator.jsx` — 3 alias sites + 5 inline ceils + parent-proposal `created_at` in scope
 
@@ -148,6 +168,7 @@ Reads the frozen snapshot only. New proposals show exact via §3.4; old signed p
 - **Est. code:** ~110–140 lines net (**Sales Command only**) — calc core ~30 (era + hardened both-path dev-warn), ~10 SELECT/embed + state-threading edits (+ `pricing_anchor_at` alongside `created_at`), line-sum reconciliation, ~15 call-site rewires, 5 inline-ceil swaps, `invoicePdf` `proposal` param, **MultiGC 5 sites**, **1 additive migration + 1-line clone RPC + 1-row backfill** (§3.5.1). PDF cents-display deferred (§5).
 - **Time budget:** **~180 min** (added MultiGC wiring + the `pricing_anchor_at` migration/RPC). Cross-repo (E1) still excluded. *Pending ERD lock confirmation.*
 - Smoke tests: old sent proposal unchanged (ceil); old draft now exact; new proposal exact end-to-end (preview → lock → snapshot → invoice → PDF agree); pull-back-then-resend stays ceil.
+- **[A3, Block 4 — the ONLY detector for the missing-`pricing_anchor_at` class; the dev-warn is blind to it]** Clone a **PRE-cutoff** proposal **AFTER** the cutoff, then assert the sister bills **CEIL** end-to-end (preview → freeze → invoice).
 
 ---
 
@@ -202,6 +223,25 @@ Round-2 `/runaudit` (against `f827b3c`): **11 findings** (9 in-cap / 2 regressio
 **Adjacent / framing (not build targets):** F1 (PDF-cents rationale was inverted — HTML already does cents, jsPDF is the laggard; corrected in §3.6/§5), F2 (ProposalDetail is safe only via `select('*')` — don't route a thin proposal into it later), F3 (sec: no new RLS/tenant/storage holes; `send-invoice` distrusts the client amount, reads the DB row).
 
 > **Manifest note:** the manifest below is the **round-3** manifest (regenerated `2026-06-26` against `76756bd`). Adds the schema/migration layer (`pricing_anchor_at` + clone RPC + 1-row backfill), MultiGC back in scope, PDF-cents deferred. Round 3 is convergence verification + new-migration-surface.
+
+---
+
+## Audit Amendments (post-R3) — CONVERGED · final pre-build
+
+Round-3 `/runaudit` (against `76756bd`): **6 in-cap (+4 adjacent)** · **0C/2H/4M (+1 regression)** · pattern: **era-edge-fix-wording**. **CONVERGED** — R2 9 in-cap → R3 6 (~33% drop; ~44% by root-cause group). 0 Critical; the structural questions (MultiGC allocation, QB totals, clone freeze≠bill) closed clean. The two Highs were one-line edge fixes — one over-billed legacy (REG-B1), one under-billed clones (A1). **This is the final revision — BUILD after this, no round 4.**
+
+**Fixes folded in (build targets):**
+- **Block 1 / REG-B1** — line rounding uses `Math.round(x*100)/100` for BOTH eras, NOT `roundPrice` (ceil would over-bill legacy partials) → §3.2.1
+- **Block 2 / A1** — every proposal fetch SELECTs BOTH `created_at` AND `pricing_anchor_at` (warn is blind to a missing nullable col) → §3.2, §4
+- **Block 3 / A2** — thread the `exact` ARG into `calcWtcPrice(wtc, undefined, exact)` at `:197` (SELECT alone insufficient) → §3.2.1
+- **Block 4 / A3 (convergence lever)** — one shared `PROPOSAL_ERA` select fragment so columns can't drift + a clone-PRE-cutoff-bills-CEIL smoke test → §3.2, §6
+- **Block 5 / C1** — set-based backfill SQL (not a one-row edit) → §3.5.1
+- **Block 6 / C2** — clone RPC: `pricing_anchor_at` in INSERT cols + VALUES; timestamp after `20260625140000`; post-deploy smoke-verify → §3.5.1, §4
+
+**Adjacent — filed to `docs/BACKLOG.md` (pre-existing, NOT this loop's build target):**
+- **ADJ-D3** — multi-invoice cumulative 1¢ drift across partial invoices vs `proposals.total` (pre-exists under ceil; exact marginally more frequent; D-sum only reconciles within one invoice).
+- **ADJ-D4** — override-sister mispricing: clone copies `v_source.total` ignoring `markup_override_pct`, and invoice sites call `calcWtcPrice(wtc)` with no override → an override sister bills at source markup (pre-existing; exact widens the visible gap).
+- **ADJ-M4** (COALESCE first-arm unreachable today) and **ADJ-M5** (rollback order) — folded as doc notes into §3.5.1.
 
 ---
 

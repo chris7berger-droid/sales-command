@@ -56,12 +56,27 @@ Pull-back/resend keeps the original process automatically — `created_at` is ne
 
 ### 3.1 Core — `src/lib/calc.js` [LOCKED]
 - Add constant `EXACT_PRICING_CUTOFF = Date.parse("2026-06-26T12:00:00-05:00")`.
-- Add `export function usesExactPricing(proposal)` → `true` only if `proposal.created_at` parses and `>= cutoff`; `false` otherwise (missing/unparseable → legacy ceil).
+- Add `export function usesExactPricing(proposal)`:
+  - Read `proposal?.created_at` with **optional chaining**. [B2]
+  - Return `true` only if `created_at` parses and `>= cutoff`; `false` otherwise (missing/unparseable → legacy ceil).
+  - **Shape guard [B3, big-call Option 2]:** if handed a **WTC-shaped** object (has `proposal_id`), ignore it and return `false` — never read a WTC's own `created_at`. If handed a **proposal-shaped** object (has `status`/`total`) that lacks `created_at`, emit a **dev-mode `console.warn`** so a missing SELECT fails loudly in dev instead of silently rounding up in prod.
 - Add `roundPrice(raw, exact)` → `exact ? Math.round(raw * 100) / 100 : Math.ceil(raw)`.
-- Thread `exact = false` param into `calcWtcPrice`, `calcWtcBreakdown`, `calcProposalTotal`; route their final math through `roundPrice`.
+- **Append `exact` LAST positionally [B1]** — never insert before existing args:
+  - `calcWtcPrice(wtc, markupOverride, exact = false)`
+  - `calcProposalTotal(wtcs, markupOverride, exact = false)`
+  - `calcWtcBreakdown(wtc, exact = false)`
+  - Route each function's final math through `roundPrice`.
 
 ### 3.2 Wire call sites [LOCKED intent, DERIVED scope]
-At each of the ~15 sites (§0), compute `usesExactPricing(proposal)` from the already-loaded proposal and pass it as the new `exact` arg. Files: `ProposalDetail.jsx`, `Invoices.jsx`, `invoicePdf.js`, `PublicInvoicePage.jsx`, `MultiGCWizard.jsx`, `WTCCalculator.jsx` (alias path).
+At each of the ~15 sites (§0), compute `usesExactPricing(proposal)` from the already-loaded **proposal object — never the WTC `w`** — and pass it as the trailing `exact` arg. [A1, A2]
+
+**`created_at` is not currently SELECTed — it must be added** to these explicit selects/embeds, or the rule silently no-ops to ceil: [A1, A2, A3, B2, C3]
+- `Invoices.jsx:67` — new-invoice proposal fetch
+- `Invoices.jsx` InvoiceDetail `proposals(...)` embeds at `:607, :1281, :1470, :2316, :2434, :2465`
+- `PublicInvoicePage.jsx:40` — anon embed
+- `WTCCalculator.jsx:2045` — parent proposal load
+
+Files: `ProposalDetail.jsx`, `Invoices.jsx`, `invoicePdf.js`, `PublicInvoicePage.jsx`, `MultiGCWizard.jsx`, `WTCCalculator.jsx` (alias path).
 
 ### 3.3 `WTCCalculator.jsx` inline ceils [LOCKED]
 Replace the 5 inline `Math.ceil` (1126, 1180, 1375, 1560, 2085) with the same rule so the live preview matches what gets locked and billed.
@@ -72,14 +87,19 @@ Lock & Approve already computes via `calcWtcPrice`/`calcWtcTotal`, so wiring §3
 ### 3.5 Signing page — no change [DERIVED]
 Reads the frozen snapshot only. New proposals show exact via §3.4; old signed proposals are untouched.
 
+### 3.6 Invoice PDF — pass proposal + render exact cents [LOCKED]
+- `generateInvoicePdf` gains a new **`proposal` param** so it can compute `usesExactPricing` and pass `exact` into `calcWtcPrice` (`invoicePdf.js:259`). Update the caller at `PayAppDetailModal.jsx:343` to pass the proposal. [D1]
+- **The PDF must render cents** via a cents-aware formatter — NOT `fmt$` (`maximumFractionDigits: 0`). [C1] The customer is charged exact cents via Stripe + the email pay link, so the **document must equal the charge**. Whole-dollar PDF display while charging exact cents is a correctness defect, not deferred polish.
+
 ---
 
 ## §4 Files to touch
 - `src/lib/calc.js` — core rule + helpers
 - `src/components/ProposalDetail.jsx` — 5 call sites
 - `src/pages/Invoices.jsx` — 7 call sites
-- `src/lib/invoicePdf.js` — 1 call site (must receive proposal)
-- `src/pages/PublicInvoicePage.jsx` — 1 call site (public RPC must expose `created_at`)
+- `src/lib/invoicePdf.js` — calc call site + new `proposal` param + cents-aware formatter [C1, D1]
+- `src/components/PayAppDetailModal.jsx` — `:343` caller passes `proposal` into `generateInvoicePdf` [D1]
+- `src/pages/PublicInvoicePage.jsx` — add `created_at` to the **anon embed at `:40`** (direct PostgREST embed — NOT an RPC, no migration) [A3]
 - `src/components/MultiGCWizard.jsx` — 5 call sites
 - `src/pages/WTCCalculator.jsx` — 3 alias sites + 5 inline ceils + parent-proposal `created_at` in scope
 
@@ -87,29 +107,53 @@ Reads the frozen snapshot only. New proposals show exact via §3.4; old signed p
 
 ## §5 Out of scope / deferred
 - Retroactively converting pre-cutoff proposals (manual override / recreate instead).
-- Changing the proposal **display** to always show cents (separate `fmt$` concern — see §7).
+- Changing **internal list/summary** displays to show cents (still uses `fmt$`). The **invoice PDF** cents fix is now IN scope (§3.6, C1) — only non-billing display surfaces stay deferred.
 - Any change to QB invoice push, Stripe, or retention math.
 
 ---
 
 ## §6 Estimate / time budget
-- **Est. code:** ~40–60 lines net (calc core ~20, wiring ~1 line/site × ~20 sites).
-- **Time budget:** **90 min** (build + smoke on preview). *Pending ERD lock confirmation.*
+- **Est. code:** ~90–120 lines net — calc core ~30 (incl. shape guards + dev warn), ~9 SELECT/embed edits (add `created_at`), ~15 call-site rewires (pass proposal, not `w`), 5 inline-ceil swaps, `invoicePdf` `proposal` param + cents formatter (~15), `PayAppDetailModal` caller. **Plus a cross-repo edit** in `sch-command` (§7 R5).
+- **Time budget:** **~150 min** (was 90; SELECT wiring + PDF cents + cross-repo raised it). *Pending ERD lock confirmation.*
 - Smoke tests: old sent proposal unchanged (ceil); old draft now exact; new proposal exact end-to-end (preview → lock → snapshot → invoice → PDF agree); pull-back-then-resend stays ceil.
 
 ---
 
 ## §7 Risks / open questions for audit
-- **R1 [DERIVED]** `created_at` must be in scope at every call site. Highest-risk spots: `invoicePdf.js` (proposal passed into PDF builder?), `PublicInvoicePage.jsx` (does the public RPC return `created_at`?), and `WTCCalculator.jsx` (parent proposal loaded?). If absent, the safe default makes it ceil — correct behavior is silently lost, not broken.
-- **R2 [DESIGN-OPEN]** Display: `fmt$` uses `maximumFractionDigits: 0` (CLAUDE.md), so some screens show whole dollars even when the stored/billed value is exact. Confirm the invoice + PDF surface the cents — otherwise the exact amount is correct but invisible to the customer.
+- **R1 [RESOLVED → §3.2/§3.6]** `created_at` must be in scope at every call site; round-1 named the exact missing SELECTs/embeds (now listed in §3.2). `PublicInvoicePage` is a direct **anon embed** (`:40`), not an RPC — 1-line fix, no migration. The dev-mode `console.warn` (B3) makes any remaining gap fail loudly in dev. Watch pattern: **created_at-scope-silent-noop**.
+- **R2 [RESOLVED → §3.6]** Invoice **PDF** cents is now a build target (C1, charge==document). Remaining `fmt$` whole-dollar display on internal list/summary surfaces stays deferred — cosmetic, not a charge mismatch.
 - **R3 [DERIVED]** `MultiGCWizard` allocates across GCs by per-WTC price; verify exact vs ceil doesn't break a sum-to-total invariant there.
 - **R4 [LOCKED, accepted]** Transient quirk: an old proposal pulled back shows exact while edited, then snaps back to ceil on resend. Not customer-facing. Accepted.
+- **R5 [E1, cross-repo]** Exact-penny `proposals.total` / `invoices.amount` can make `fullyBilled` / `remaining` checks miss by a cent in **`sch-command` `billingForecast.js`** — the real cross-repo consumer (NOT `BillingScheduleSection.jsx`, which is same-repo Sales Command). Add a **cent tolerance** to those comparisons. Cross-repo task; coordinate per the shared-data contract. *(Exact path `src/lib/billingForecast.js` is [DERIVED] — handoff text was partially garbled; confirm at build.)*
+
+---
+
+## Audit Amendments (post-R1)
+
+Round-1 `/runaudit` (against commit `0613c3a`): **14 findings** (9 in-cap / 3 over-cap / 2 adjacent) · **2C/4H/3M (+2 adj)** · pattern: **created_at-scope-silent-noop**. The two CRITICALs: the feature as planned would **silently bill ceil on the primary invoice path** because `created_at` was never SELECTed and `usesExactPricing` had no shape guard / dev warning. Folded into §3.1, §3.2, §3.6, §4, §6, §7 above.
+
+**In-cap findings folded in (this revision's build targets):**
+- **B1** — `exact` param appended last positionally → §3.1
+- **B2** — optional-chain `created_at` + SELECT it everywhere → §3.1, §3.2
+- **B3** — shape guard (ignore WTC objects) + dev `console.warn` → §3.1
+- **A1/A2/A3** — real wiring; add `created_at` to named SELECTs/embeds; `PublicInvoicePage` is an anon embed (1-line `:40`), not an RPC → §3.2, §4
+- **C1** — invoice PDF renders exact cents (charge==document) → §3.6, §5
+- **D1** — `generateInvoicePdf` gains `proposal` param; caller `PayAppDetailModal.jsx:343` → §3.6, §4
+- **E1** — cross-repo cent tolerance in `sch-command` `billingForecast.js` → §7 R5
+- **Manifest cross-repo file corrected** (item 8): real consumer is `billingForecast.js`, not `BillingScheduleSection.jsx` → manifest below
+
+**Deferred — fast-follow / backlog (NOT this revision's build target):**
+- **C2, C3 (over-cap remainder), D2** — over-cap findings; track for a follow-up pass.
+- **ADJ-1** — adjacent finding; file to `docs/BACKLOG.md`, out of this surface.
+- _(Full text of deferred findings lives in the round-1 audit output in the audit terminal.)_
+
+> **Manifest note:** the section below is the **round-1** manifest. Re-run `/auditcriteria` to regenerate it for the round-2 pass (surface grew: PDF cents, cross-repo, SELECT wiring).
 
 ---
 
 ## Audit manifest
 
-_Generated by `/auditcriteria` on 2026-06-26. Consumed by `/runaudit` to size the adversarial audit pass._
+_Generated by `/auditcriteria` on 2026-06-26 (round 1). Consumed by `/runaudit` to size the adversarial audit pass._
 
 ### Bottom line (plain English)
 Small but money-touching pricing change with surprisingly wide reach — the round-up lives in 7 spots and the new exact number flows into invoices and the Schedule Command billing schedule. Three reviewers: one on whether the exact-vs-round-up decision actually reaches every screen, one on whether each screen has the proposal's date it needs (or silently falls back to rounding and hides the feature), and one on downstream fallout (does it shift billing-schedule totals, and do the cents even show up on the invoice/PDF). Focused check, not a deep audit.
@@ -149,14 +193,15 @@ Cross-tenant findings cap at Med (live_tenants == 1). Multi-user race findings c
 - UI / components (`ProposalDetail`, `WTCCalculator`, `Invoices`, `PublicInvoicePage`, `MultiGCWizard`, `invoicePdf`)
 - Data layer (`calc.js` pricing, invoice live-recompute)
 - State model / business logic (the derived-price rounding decision + lifecycle consistency)
-- Cross-repo (`scheduled_value` / `proposals.total` consumed by Schedule Command)
+- Cross-repo (`proposals.total` + `invoices.amount` consumed by `sch-command` `billingForecast.js`)
 
 ### New mechanisms introduced
 - New helper functions: `usesExactPricing(proposal)`, `roundPrice(raw, exact)` (2)
 - New columns / tables / triggers / RLS / routes / jobs: none
 
 ### Cross-system reach
-- Schedule Command (sibling repo, shared Supabase): reads `scheduled_value` (`BillingScheduleSection.jsx`) and `proposals.total`, both written here from `calcWtcPrice`. The rounding change shifts those values by up to $0.99/line.
+- Schedule Command (sibling repo `sch-command`, shared Supabase): **`billingForecast.js`** reads `proposals.total` + `invoices.amount`. The rounding change shifts those by up to $0.99/line and can flip `fullyBilled` / `remaining` by a cent → needs a cent tolerance there (§7 R5). [R1 audit E1]
+- **Correction (round-1 finding):** `scheduled_value` / `BillingScheduleSection.jsx` is a **same-repo (Sales Command)** file, NOT the cross-repo consumer the original manifest named.
 - Service-role / bypass write paths: none
 
 ### Irreversibility
@@ -164,7 +209,7 @@ none — all changes reversible (no migration, backfill, or public API change)
 
 ### Known weak points
 - **created_at scope (R1)** — the rule no-ops to ceil wherever `proposals.created_at` isn't in scope. Highest risk: `invoicePdf.js`, `PublicInvoicePage` public RPC payload, `WTCCalculator` parent proposal. A miss is silent (correct-looking, feature absent).
-- **Cross-repo drift** — shifting `scheduled_value`/`proposals.total` could perturb Schedule Command billing-schedule sums or forecast reconciliation; plan does not yet analyze that consumer.
+- **Cross-repo drift** — shifting `proposals.total`/`invoices.amount` perturbs `sch-command` `billingForecast.js` (`fullyBilled`/`remaining`); addressed by the cent tolerance in §7 R5.
 - **Display (R2)** — `fmt$` uses `maximumFractionDigits: 0`; exact cents may be computed correctly but rounded away visually on invoice/PDF.
 - **MultiGC invariant (R3)** — allocation sums per-WTC price; exact vs ceil could break a sum-to-total expectation.
 - **Lifecycle consistency** — plan claims freeze(lock)==invoice(recompute) because `created_at` is immutable; worth an adversarial trace to confirm no surface uses status/`sent_at` as a proxy.

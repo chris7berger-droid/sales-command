@@ -11,7 +11,7 @@
 
 import jsPDF from "jspdf";
 import { supabase } from "./supabase";
-import { calcWtcPrice } from "./calc";
+import { calcWtcPrice, usesExactPricing } from "./calc";
 import { fmt$ } from "./utils";
 
 /**
@@ -25,7 +25,7 @@ import { fmt$ } from "./utils";
  * @param {object} args.customer - customers row (billing_name, billing_email, contact_email, first_name, last_name, name, business_address/city/state/zip, billing_address/city/state/zip)
  * @returns {Promise<{pdfUrl: string, storagePath: string}>}
  */
-export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {}, callLog = {}, customer = {} }) {
+export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {}, callLog = {}, customer = {}, proposal = {} }) {
   const isDepositInvoice = (callLog?.deposit_invoice_id || null) === invoice.id;
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const pageW = doc.internal.pageSize.getWidth();   // 612
@@ -256,7 +256,7 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
       : (wtc?.work_types?.name || l.description || "—");
     const rowAmount = isSov
       ? (parseFloat(sov.scheduled_value) || 0)
-      : (wtc ? calcWtcPrice(wtc) : 0);
+      : (wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(proposal)) : 0);
     const billingPct = l.billing_pct ?? 0;
     const lineTotal  = l.amount ?? 0;
 

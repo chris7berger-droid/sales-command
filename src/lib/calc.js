@@ -2,6 +2,59 @@
 // Single source of truth. Used by WTCCalculator, Proposals, Invoices,
 // and PublicSigningPage. Do NOT duplicate these in component files.
 
+// ── Exact-penny pricing (§exact_penny_pricing plan) ─────────────────────
+// Proposals whose pricing era is at/after noon Central 2026-06-26 bill to the
+// exact penny (Math.round to cent). Everything created before keeps the legacy
+// round-UP (Math.ceil). The era is `pricing_anchor_at ?? created_at`: normally
+// created_at, but a multi-GC clone inherits its SOURCE's era via
+// pricing_anchor_at so a clone never silently flips ceil↔exact.
+export const EXACT_PRICING_CUTOFF = Date.parse("2026-06-26T12:00:00-05:00");
+
+// Shared SELECT fragment — the pricing-era columns. Splice into EVERY
+// `from("proposals").select(...)` and `proposals(...)` embed so the column set
+// can never drift. Dropping pricing_anchor_at here silently mis-bills clones,
+// and the dev-warn is BLIND to a missing nullable column (null reads identical
+// to absent), so this fragment is a contract, not a convenience.
+export const PROPOSAL_ERA = "created_at, pricing_anchor_at";
+
+// Decide whether a proposal prices to the exact penny. SAFE DEFAULT = ceil:
+// any missing/unparseable era, wrong object, or thin embed returns false, so no
+// unwired path can silently produce exact (which would under-bill).
+export function usesExactPricing(proposal) {
+  // (a) wrong-object guard — a WTC row carries `proposal_id`; a proposal does
+  // not (it has `id`). Never read a WTC's own created_at.
+  if (proposal && proposal.proposal_id != null) {
+    if (import.meta.env?.DEV) {
+      console.warn(
+        "[usesExactPricing] got a WTC-shaped object (has proposal_id); expected a proposal. Returning false (legacy ceil).",
+        proposal
+      );
+    }
+    return false;
+  }
+  const era = proposal?.pricing_anchor_at ?? proposal?.created_at;
+  const ts = era ? Date.parse(era) : NaN;
+  if (Number.isNaN(ts)) {
+    // (b) thin-proposal guard — looks like a proposal embed (has call_log_id,
+    // no proposal_id) but the era cols were never SELECTed. Warn loudly so a
+    // missing PROPOSAL_ERA fragment screams in dev instead of silently ceiling.
+    if (import.meta.env?.DEV && proposal?.call_log_id != null && proposal?.proposal_id == null) {
+      console.warn(
+        "[usesExactPricing] proposal missing created_at/pricing_anchor_at — add the PROPOSAL_ERA fragment to this SELECT. Returning false (legacy ceil).",
+        proposal
+      );
+    }
+    return false;
+  }
+  return ts >= EXACT_PRICING_CUTOFF;
+}
+
+// Round a raw dollar figure: exact → nearest cent (kills float dust), legacy →
+// round UP to the whole dollar (unchanged behavior).
+export function roundPrice(raw, exact) {
+  return exact ? Math.round(raw * 100) / 100 : Math.ceil(raw);
+}
+
 export function calcLabor({ regular_hours, ot_hours, markup_pct, burden_rate, ot_burden_rate, size }) {
   const regularCost = (regular_hours || 0) * (burden_rate || 0);
   const otCost = (ot_hours || 0) * (ot_burden_rate || 0);
@@ -33,7 +86,7 @@ export function calcTravel(t) {
   return drive + fly + stay + per_diem;
 }
 
-export function calcWtcBreakdown(wtc) {
+export function calcWtcBreakdown(wtc, exact = false) {
   const rate = wtc.prevailing_wage ? (wtc.pw_rate || 0) : (wtc.burden_rate || 0);
   const otRate = wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0);
   const labor = calcLabor({
@@ -50,14 +103,14 @@ export function calcWtcBreakdown(wtc) {
     return s + base + tax + freight;
   }, 0);
   const trav = calcTravel(wtc.travel);
-  const totalPrice = Math.ceil(labor.total + mats + trav - (wtc.discount || 0));
+  const totalPrice = roundPrice(labor.total + mats + trav - (wtc.discount || 0), exact);
   const totalCost = labor.subtotal + matsCost + trav;
   const profit = totalPrice - totalCost;
   const margin = totalPrice > 0 ? (profit / totalPrice) * 100 : 0;
   return { price: totalPrice, cost: totalCost, profit, margin, discount: wtc.discount || 0 };
 }
 
-export function calcWtcPrice(wtc, markup_override_pct) {
+export function calcWtcPrice(wtc, markup_override_pct, exact = false) {
   const rate = wtc.prevailing_wage ? (wtc.pw_rate || 0) : (wtc.burden_rate || 0);
   const otRate = wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0);
   const effectiveMarkup = markup_override_pct != null
@@ -73,9 +126,9 @@ export function calcWtcPrice(wtc, markup_override_pct) {
   });
   const mats = (wtc.materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
   const trav = calcTravel(wtc.travel);
-  return Math.ceil(labor.total + mats + trav - (wtc.discount || 0));
+  return roundPrice(labor.total + mats + trav - (wtc.discount || 0), exact);
 }
 
-export function calcProposalTotal(wtcs, markup_override_pct) {
-  return (wtcs || []).reduce((sum, w) => sum + calcWtcPrice(w, markup_override_pct), 0);
+export function calcProposalTotal(wtcs, markup_override_pct, exact = false) {
+  return (wtcs || []).reduce((sum, w) => sum + calcWtcPrice(w, markup_override_pct, exact), 0);
 }

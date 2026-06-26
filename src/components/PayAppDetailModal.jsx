@@ -346,6 +346,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
           tenantConfig,
           callLog: { ...proposal.call_log, subcontractor_job_no: jobNumber, deposit_invoice_id: clDep?.deposit_invoice_id || null },
           customer,
+          proposal,
         });
         invoicePdfUrl = result.pdfUrl;
         await supabase.from("invoices").update({ pdf_url: invoicePdfUrl }).eq("id", invoice.id);

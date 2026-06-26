@@ -4,7 +4,7 @@ import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
-import { calcWtcPrice } from "../lib/calc";
+import { calcWtcPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
 import { INV_C, PROP_C } from "../lib/mockData";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 import SectionHeader from "../components/SectionHeader";
@@ -65,7 +65,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
     async function loadProposals() {
       const { data } = await supabase
         .from("proposals")
-        .select("id, customer, total, proposal_number, call_log_id, is_archive_proposal, historical_billed_amount, call_log(display_job_number, customer_name, job_name, show_cents)")
+        .select(`id, customer, total, proposal_number, call_log_id, is_archive_proposal, historical_billed_amount, ${PROPOSAL_ERA}, call_log(display_job_number, customer_name, job_name, show_cents)`)
         .eq("status", "Sold")
         .is("deleted_at", null)
         .order("created_at", { ascending: false });
@@ -104,7 +104,8 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
         if (cl?.customers?.requires_pay_app) {
           const { data: wtcRows } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id);
           if (wtcRows?.length) {
-            const total = wtcRows.reduce((s, w) => s + calcWtcPrice(w), 0);
+            const exact = usesExactPricing(p);
+            const total = wtcRows.reduce((s, w) => s + calcWtcPrice(w, undefined, exact), 0);
             const { data: newSch } = await supabase.from("billing_schedule").insert({
               proposal_id: p.id, contract_sum: total, retainage_pct: 5, status: "active",
             }).select().single();
@@ -112,7 +113,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
               const lines = wtcRows.map((w, i) => ({
                 billing_schedule_id: newSch.id,
                 description: w.work_types?.name || `Work Type ${i + 1}`,
-                scheduled_value: calcWtcPrice(w),
+                scheduled_value: calcWtcPrice(w, undefined, exact),
                 ordinal: i,
               }));
               await supabase.from("billing_schedule_lines").insert(lines);
@@ -194,7 +195,13 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 
   function getLineAmount(wtc) {
     const pct = parseFloat(billingPcts[wtc.id]) || 0;
-    return calcWtcPrice(wtc) * (pct / 100);
+    // Exact/ceil choice lives ONLY on the per-WTC base inside calcWtcPrice.
+    // Then cent-round EACH line for BOTH eras with Math.round (NOT roundPrice —
+    // ceiling here would over-bill a legacy partial). invoiceTotal sums these
+    // rounded lines, and invoice.amount = that sum, so header == Σ lines (no 1¢
+    // detail/total split). (plan §3.2.1)
+    const raw = calcWtcPrice(wtc, undefined, usesExactPricing(selProposal)) * (pct / 100);
+    return Math.round(raw * 100) / 100;
   }
 
   const invoiceTotal = wtcs.reduce((sum, w) => sum + getLineAmount(w), 0);
@@ -291,7 +298,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
           invoice_id: inv.id,
           proposal_wtc_id: w.id,
           billing_pct: parseFloat(billingPcts[w.id]),
-          amount: Math.round(getLineAmount(w) * 100) / 100,
+          amount: getLineAmount(w), // already cent-rounded (§3.2.1)
         }));
       if (lines.length > 0) {
         const { error: lineErr } = await supabase.from("invoice_lines").insert(lines);
@@ -445,7 +452,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 
             {!selProposal.is_archive_proposal && <div style={{ flex: 1, overflowY: "auto", maxHeight: 380 }}>
               {wtcs.map((w, i) => {
-                const total = calcWtcPrice(w);
+                const total = calcWtcPrice(w, undefined, usesExactPricing(selProposal));
                 const billed = getBilledPct(w.id);
                 const remaining = getRemainingPct(w.id);
                 const pctVal = parseFloat(billingPcts[w.id]) || 0;
@@ -605,7 +612,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
       if (!invoice.proposal_id) { setLoadingContact(false); return; }
       const { data: prop } = await supabase
         .from("proposals")
-        .select("call_log_id, total, is_archive_proposal, call_log(customer_id, customer_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, customers(billing_email, billing_name, contact_email, email, first_name, last_name, name), job_work_types(work_types(name)))")
+        .select(`call_log_id, total, is_archive_proposal, ${PROPOSAL_ERA}, call_log(customer_id, customer_name, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, customers(billing_email, billing_name, contact_email, email, first_name, last_name, name), job_work_types(work_types(name)))`)
         .eq("id", invoice.proposal_id)
         .maybeSingle();
       const cl = prop?.call_log;
@@ -868,7 +875,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
                         ? (parseFloat(sov.scheduled_value) || 0)
                         : isArchiveLine
                           ? archiveCtx.sold
-                          : (wtc ? calcWtcPrice(wtc) : 0);
+                          : (wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(invoice.proposals)) : 0);
                       const billingPct = isArchiveLine
                         ? (archiveCtx.sold > 0 ? ((parseFloat(l.amount) || 0) / archiveCtx.sold) * 100 : 0)
                         : (parseFloat(l.billing_pct) || 0);
@@ -1278,7 +1285,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       // recent QB link/unlink action — list-cached props can be stale.
       const { data: freshInv } = await supabase
         .from("invoices")
-        .select("*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id, customer_id, customers(billing_email, billing_name, contact_email, email, first_name, last_name, name)))")
+        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id, customer_id, customers(billing_email, billing_name, contact_email, email, first_name, last_name, name)))`)
         .eq("id", inv.id)
         .maybeSingle();
       if (freshInv) setInv(prev => ({ ...prev, ...freshInv }));
@@ -1377,7 +1384,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         if (sch) {
           const { data: prop } = await supabase
             .from("proposals")
-            .select("id, customer, call_log_id, call_log(customer_name, job_name, display_job_number)")
+            .select(`id, customer, call_log_id, ${PROPOSAL_ERA}, call_log(customer_name, job_name, display_job_number)`)
             .eq("id", proposalId)
             .maybeSingle();
           setBillingProposal(prop || null);
@@ -1467,7 +1474,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
       const { data: refreshed } = await supabase
         .from("invoices")
-        .select("*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))")
+        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))`)
         .eq("id", inv.id)
         .maybeSingle();
       if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
@@ -1562,7 +1569,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         return { id: l.id, billing_pct: l.billing_pct, amount: parseFloat(l.amount) || 0 };
       }
       const wtc = l.proposal_wtc;
-      const wtcTotal = wtc ? calcWtcPrice(wtc) : 0;
+      const wtcTotal = wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(inv.proposals)) : 0;
       const pct = parseFloat(editPcts[l.id]) || 0;
       return { id: l.id, billing_pct: pct, amount: Math.round(wtcTotal * (pct / 100) * 100) / 100 };
     });
@@ -2072,7 +2079,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                   const wtcNum = wtc ? wtcIndex[wtc.id] : null;
                   const wtcCell = wtcNum ? `WTC ${wtcNum}` : "—";
                   const storedAmt = parseFloat(l.amount) || 0;
-                  const rowTotal = isSov ? (parseFloat(sov.scheduled_value) || 0) : (wtc ? calcWtcPrice(wtc) : (isArchiveLine ? (editing ? (parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : storedAmt) : 0));
+                  const rowTotal = isSov ? (parseFloat(sov.scheduled_value) || 0) : (wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(inv.proposals)) : (isArchiveLine ? (editing ? (parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : storedAmt) : 0));
                   const editPct = parseFloat(editPcts[l.id]) || 0;
                   const editAmt = isArchiveLine ? rowTotal : rowTotal * (editPct / 100);
                   return (
@@ -2313,7 +2320,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             setSyncReLink(false);
             const { data: refreshed } = await supabase
               .from("invoices")
-              .select("*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))")
+              .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))`)
               .eq("id", inv.id)
               .maybeSingle();
             if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
@@ -2361,7 +2368,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         <PayAppDetailModal
           payAppId={linkedPayApp.id}
           schedule={{ id: linkedPayApp.billing_schedule_id }}
-          proposal={{ call_log_id: inv.proposals?.call_log_id }}
+          proposal={inv.proposals || { call_log_id: inv.proposals?.call_log_id }}
           onClose={() => setShowPayAppReview(false)}
           onChanged={() => onUpdated?.()}
         />
@@ -2431,7 +2438,7 @@ export default function Invoices({ setSubPage, teamMember }) {
   const load = async () => {
     const data = await fetchAll(
       "invoices",
-      "*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))",
+      `*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))`,
       { filters: [["is", "deleted_at", null]], order: { column: "sent_at", ascending: false } }
     );
     setInvoices(data);
@@ -2462,7 +2469,7 @@ export default function Invoices({ setSubPage, teamMember }) {
     (async () => {
       const { data } = await supabase
         .from("invoices")
-        .select("*, proposals(call_log_id, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))")
+        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))`)
         .eq("id", routeInvoiceId)
         .is("deleted_at", null)
         .maybeSingle();
@@ -2478,7 +2485,7 @@ export default function Invoices({ setSubPage, teamMember }) {
     (async () => {
       const { data } = await supabase
         .from("proposals")
-        .select("id, customer, total, proposal_number, call_log_id, is_archive_proposal, historical_billed_amount, call_log(display_job_number, customer_name, job_name, show_cents)")
+        .select(`id, customer, total, proposal_number, call_log_id, is_archive_proposal, historical_billed_amount, ${PROPOSAL_ERA}, call_log(display_job_number, customer_name, job_name, show_cents)`)
         .eq("id", proposalId)
         .is("deleted_at", null)
         .maybeSingle();

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
-import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice as calcWtcTotal } from "../lib/calc";
+import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice as calcWtcTotal, roundPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 
 // ── Design tokens ──────────────────────────────────────────────────────────
@@ -1109,7 +1109,7 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
       </div>
     </div>
   );
-}function Summary({ labor, materials, travel, discount, size, unit }) {
+}function Summary({ labor, materials, travel, discount, size, unit, exact = false }) {
   const laborTotal   = labor.total || 0;
   const matTotal     = materials.reduce((s, i) => s + calcMaterialRow(i), 0);
   const matsCost     = materials.reduce((s, i) => {
@@ -1123,7 +1123,7 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
   const travelTotal  = calcTravel(travel);
   const discountAmt  = discount.amount || 0;
   const subtotal     = laborTotal + matTotal + travelTotal;
-  const proposalPrice = Math.ceil(subtotal - discountAmt);
+  const proposalPrice = roundPrice(subtotal - discountAmt, exact);
   const totalCost     = (labor.subtotal || 0) + matsCost + travelTotal;
   const profitDollars = proposalPrice - totalCost;
   const profitMargin  = proposalPrice > 0 ? (profitDollars / proposalPrice) * 100 : 0;
@@ -1164,7 +1164,7 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
   );
 }
 
-function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, saved, locked, onLock, onGeneratePDF }) {
+function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, saved, locked, onLock, onGeneratePDF, exact = false }) {
   const laborTotal    = labor.total || 0;
   const matTotal      = materials.reduce((s, i) => s + calcMaterialRow(i), 0);
   const matsCost      = materials.reduce((s, i) => {
@@ -1177,7 +1177,7 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
   }, 0);
   const travelTotal   = calcTravel(travel);
   const discountAmt   = discount.amount || 0;
-  const proposalPrice = Math.ceil(laborTotal + matTotal + travelTotal - discountAmt);
+  const proposalPrice = roundPrice(laborTotal + matTotal + travelTotal - discountAmt, exact);
   const totalCost     = (labor.subtotal || 0) + matsCost + travelTotal;
   const profitDollars = proposalPrice - totalCost;
   const profitMargin  = proposalPrice > 0 ? (profitDollars / proposalPrice) * 100 : 0;
@@ -1370,9 +1370,10 @@ function SummaryTab({ labor, materials, travel, discount, sow, bidding, onSave, 
   if (!open) return null;
 
   const { labor, materials, travel, discount, sow, proposalNumber, jobInfo = {} } = proposal;
+  const exact = usesExactPricing(proposal);
   const matTotal      = (materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
   const travelTotal   = calcTravel(travel || {});
-  const proposalPrice = Math.ceil((labor.total || 0) + matTotal + travelTotal - ((discount || {}).amount || 0));
+  const proposalPrice = roundPrice((labor.total || 0) + matTotal + travelTotal - ((discount || {}).amount || 0), exact);
   const today         = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, address: "" });
@@ -1555,9 +1556,10 @@ function CustomerSigningPage({ proposal, onClose }) {
   const [signed, setSigned] = useState(false);
 
   const { labor, materials, travel, discount, sow } = proposal;
+  const exact = usesExactPricing(proposal);
   const matTotal      = (materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
   const travelTotal   = Object.values(travel || {}).reduce((s, v) => s + (parseFloat(v) || 0), 0);
-  const proposalPrice = Math.ceil((labor.total || 0) + matTotal + travelTotal - ((discount || {}).amount || 0));
+  const proposalPrice = roundPrice((labor.total || 0) + matTotal + travelTotal - ((discount || {}).amount || 0), exact);
 
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email });
 
@@ -1984,7 +1986,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     // Update proposals.total by summing ALL WTCs for this proposal
     if (proposalId) {
       const { data: allWtcs } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", proposalId);
-      const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcTotal(w), 0);
+      const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcTotal(w, undefined, exact), 0);
       await supabase.from("proposals").update({ total: proposalTotal }).eq("id", proposalId);
     }
     setSaved(true);
@@ -2010,7 +2012,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     if (proposalId) {
       const { data } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", proposalId);
       allWtcs = data || [];
-      const proposalTotal = allWtcs.reduce((sum, w) => sum + calcWtcTotal(w), 0);
+      const proposalTotal = allWtcs.reduce((sum, w) => sum + calcWtcTotal(w, undefined, exact), 0);
       await supabase.from("proposals").update({ total: proposalTotal }).eq("id", proposalId);
     }
     if (wtcId) {
@@ -2020,7 +2022,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       let lockedLineTotal = null;
       if (newLocked) {
         const me = (allWtcs || []).find(w => w.id === wtcId);
-        const computed = me ? calcWtcTotal(me) : NaN;
+        const computed = me ? calcWtcTotal(me, undefined, exact) : NaN;
         if (Number.isFinite(computed)) lockedLineTotal = computed;
       }
       await supabase
@@ -2033,6 +2035,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const [showSigning, setShowSigning] = useState(false);
   const [proposalNumber, setProposalNumber] = useState(null);
   const [jobInfo, setJobInfo] = useState({ customerName: "", jobsiteAddress: "", customerAddress: "", jobName: "", displayJobNumber: "" });
+  const [pricingEra, setPricingEra] = useState(null); // { created_at, pricing_anchor_at } from the parent proposal — drives exact pricing
   const [proposalSold, setProposalSold] = useState(false);
   const [isFirstWtc, setIsFirstWtc] = useState(true);
   const [wtcNumber, setWtcNumber] = useState(null);
@@ -2043,12 +2046,13 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     async function loadJobInfo() {
       const { data } = await supabase
         .from("proposals")
-        .select("proposal_number, customer, status, call_log(job_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, customer_id, customers(business_address, business_city, business_state, business_zip))")
+        .select(`proposal_number, customer, status, ${PROPOSAL_ERA}, call_log(job_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, customer_id, customers(business_address, business_city, business_state, business_zip))`)
         .eq("id", proposalId)
         .single();
       if (data?.proposal_number) setProposalNumber(data.proposal_number);
       if (["Sold","Signed"].includes(data?.status)) setProposalSold(true);
       if (data) {
+        setPricingEra({ created_at: data.created_at, pricing_anchor_at: data.pricing_anchor_at });
         const cl = data.call_log;
         const cust = cl?.customers;
         setJobInfo({
@@ -2062,7 +2066,8 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     }
     loadJobInfo();
   }, [proposalId]);
-  const proposalData = { labor: laborComputed, materials, travel, discount, sow, proposalNumber, jobInfo };
+  const exact = usesExactPricing(pricingEra);
+  const proposalData = { labor: laborComputed, materials, travel, discount, sow, proposalNumber, jobInfo, created_at: pricingEra?.created_at, pricing_anchor_at: pricingEra?.pricing_anchor_at };
 
   const tabs = TABS.map(t => t.key);
   const idx = tabs.indexOf(tab);
@@ -2082,7 +2087,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const printTravelTotal = calcTravel(travel);
   const printDiscountAmt = discount.amount || 0;
   const printSubtotal = (printLaborComputed.total || 0) + printMatTotal + printTravelTotal;
-  const printProposalPrice = Math.ceil(printSubtotal - printDiscountAmt);
+  const printProposalPrice = roundPrice(printSubtotal - printDiscountAmt, exact);
   const printTotalCost = (printLaborComputed.subtotal || 0) + printMatsCost + printTravelTotal;
   const printProfitDollars = printProposalPrice - printTotalCost;
   const printProfitMargin = printProposalPrice > 0 ? (printProfitDollars / printProposalPrice) * 100 : 0;
@@ -2185,9 +2190,9 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
           {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} onSave={handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} datesTbd={bidding.dates_tbd} />}
           {tab === "travel"  && <TravelTab data={travel} onChange={proposalSold ? undefined : v => { setTravel(v); setSaved(false); }} />}
           {tab === "discount" && <DiscountTab data={discount} onChange={proposalSold ? undefined : v => { setDiscount(v); setSaved(false); }} />}
-          {tab === "summary" && <SummaryTab labor={laborComputed} materials={materials} travel={travel} discount={discount} sow={sow} bidding={bidding} onSave={handleSave} saved={saved} locked={locked} onLock={handleLock} onGeneratePDF={() => { if (onClose) onClose(true); }} />}
+          {tab === "summary" && <SummaryTab labor={laborComputed} materials={materials} travel={travel} discount={discount} sow={sow} bidding={bidding} onSave={handleSave} saved={saved} locked={locked} onLock={handleLock} onGeneratePDF={() => { if (onClose) onClose(true); }} exact={exact} />}
         </div>
-<Summary labor={laborComputed} materials={materials} travel={travel} discount={discount} size={sow.size} unit={sow.unit} />
+<Summary labor={laborComputed} materials={materials} travel={travel} discount={discount} size={sow.size} unit={sow.unit} exact={exact} />
 
       </div>
       </div>

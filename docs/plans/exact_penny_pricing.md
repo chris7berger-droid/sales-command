@@ -113,8 +113,8 @@ Reads the frozen snapshot only. New proposals show exact via §3.4; old signed p
 ---
 
 ## §6 Estimate / time budget
-- **Est. code:** ~90–120 lines net — calc core ~30 (incl. shape guards + dev warn), ~9 SELECT/embed edits (add `created_at`), ~15 call-site rewires (pass proposal, not `w`), 5 inline-ceil swaps, `invoicePdf` `proposal` param + cents formatter (~15), `PayAppDetailModal` caller. **Plus a cross-repo edit** in `sch-command` (§7 R5).
-- **Time budget:** **~150 min** (was 90; SELECT wiring + PDF cents + cross-repo raised it). *Pending ERD lock confirmation.*
+- **Est. code:** ~80–110 lines net (**Sales Command only**) — calc core ~30 (incl. shape guards + dev warn), ~9 SELECT/embed edits (add `created_at`), ~15 call-site rewires (pass proposal, not `w`), 5 inline-ceil swaps, `invoicePdf` `proposal` param + cents formatter (~15), `PayAppDetailModal` caller.
+- **Time budget:** **~140 min** (was 90; SELECT wiring + PDF cents raised it). Cross-repo work is **not** in this budget — §7 R5 is a separate sch-command task. *Pending ERD lock confirmation.*
 - Smoke tests: old sent proposal unchanged (ceil); old draft now exact; new proposal exact end-to-end (preview → lock → snapshot → invoice → PDF agree); pull-back-then-resend stays ceil.
 
 ---
@@ -124,7 +124,7 @@ Reads the frozen snapshot only. New proposals show exact via §3.4; old signed p
 - **R2 [RESOLVED → §3.6]** Invoice **PDF** cents is now a build target (C1, charge==document). Remaining `fmt$` whole-dollar display on internal list/summary surfaces stays deferred — cosmetic, not a charge mismatch.
 - **R3 [DERIVED]** `MultiGCWizard` allocates across GCs by per-WTC price; verify exact vs ceil doesn't break a sum-to-total invariant there.
 - **R4 [LOCKED, accepted]** Transient quirk: an old proposal pulled back shows exact while edited, then snaps back to ceil on resend. Not customer-facing. Accepted.
-- **R5 [E1, cross-repo]** Exact-penny `proposals.total` / `invoices.amount` can make `fullyBilled` / `remaining` checks miss by a cent in **`sch-command` `billingForecast.js`** — the real cross-repo consumer (NOT `BillingScheduleSection.jsx`, which is same-repo Sales Command). Add a **cent tolerance** to those comparisons. Cross-repo task; coordinate per the shared-data contract. *(Exact path `src/lib/billingForecast.js` is [DERIVED] — handoff text was partially garbled; confirm at build.)*
+- **R5 [E1 — ADJACENT, out of this build]** Our change writes exact-penny `proposals.total` / `invoices.amount`. Schedule Command **reads** those and runs its *own* `fullyBilled` / `remaining` math that may assume whole dollars, so pennies *could* throw it off by a cent. This is a robustness gap **inside `sch-command`**, not a calculation we export — and it is **UNVERIFIED** (we have not opened the file). **Not a build target here.** Action: verify whether `sch-command` `billingForecast.js` (path [DERIVED], confirm) actually mishandles penny amounts; if real, file a **separate sch-command task** to add a cent tolerance. Sales Command's change does not depend on it.
 
 ---
 
@@ -139,10 +139,10 @@ Round-1 `/runaudit` (against commit `0613c3a`): **14 findings** (9 in-cap / 3 ov
 - **A1/A2/A3** — real wiring; add `created_at` to named SELECTs/embeds; `PublicInvoicePage` is an anon embed (1-line `:40`), not an RPC → §3.2, §4
 - **C1** — invoice PDF renders exact cents (charge==document) → §3.6, §5
 - **D1** — `generateInvoicePdf` gains `proposal` param; caller `PayAppDetailModal.jsx:343` → §3.6, §4
-- **E1** — cross-repo cent tolerance in `sch-command` `billingForecast.js` → §7 R5
-- **Manifest cross-repo file corrected** (item 8): real consumer is `billingForecast.js`, not `BillingScheduleSection.jsx` → manifest below
+- **Manifest cross-repo claim corrected** (item 8): `BillingScheduleSection.jsx` is same-repo; any true cross-repo consumer is adjacent + unverified → manifest below
 
 **Deferred — fast-follow / backlog (NOT this revision's build target):**
+- **E1 (adjacent, cross-repo)** — verify whether `sch-command` mishandles penny amounts; if real, separate sch-command task with a cent tolerance (§7 R5). Unverified; no SC dependency.
 - **C2, C3 (over-cap remainder), D2** — over-cap findings; track for a follow-up pass.
 - **ADJ-1** — adjacent finding; file to `docs/BACKLOG.md`, out of this surface.
 - _(Full text of deferred findings lives in the round-1 audit output in the audit terminal.)_
@@ -200,8 +200,8 @@ Cross-tenant findings cap at Med (live_tenants == 1). Multi-user race findings c
 - New columns / tables / triggers / RLS / routes / jobs: none
 
 ### Cross-system reach
-- Schedule Command (sibling repo `sch-command`, shared Supabase): **`billingForecast.js`** reads `proposals.total` + `invoices.amount`. The rounding change shifts those by up to $0.99/line and can flip `fullyBilled` / `remaining` by a cent → needs a cent tolerance there (§7 R5). [R1 audit E1]
-- **Correction (round-1 finding):** `scheduled_value` / `BillingScheduleSection.jsx` is a **same-repo (Sales Command)** file, NOT the cross-repo consumer the original manifest named.
+- Schedule Command (sibling repo `sch-command`, shared Supabase) **reads** `proposals.total` + `invoices.amount` (likely in `billingForecast.js`, unverified). Its own `fullyBilled`/`remaining` math may assume whole dollars → possible cent-level drift. **Adjacent / out of this build** — verify, then file separately if real (§7 R5). No calculation crosses repos.
+- **Correction (round-1 finding):** `scheduled_value` / `BillingScheduleSection.jsx` is a **same-repo (Sales Command)** file, NOT a cross-repo consumer.
 - Service-role / bypass write paths: none
 
 ### Irreversibility

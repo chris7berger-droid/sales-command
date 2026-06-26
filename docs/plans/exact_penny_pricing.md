@@ -32,14 +32,14 @@ Customers increasingly (≈2–3×/week, no customer-type pattern) pay the **exa
 
 ## §2 The rule [LOCKED]
 
-A proposal prices to the **exact penny** iff `proposals.created_at >= 2026-06-26T12:00:00-05:00` (noon Central). Otherwise it rounds up (`Math.ceil`), exactly as today.
+A proposal prices to the **exact penny** iff its **pricing era** `>= 2026-06-26T12:00:00-05:00` (noon Central). The pricing era is `pricing_anchor_at ?? created_at` — normally `created_at`, but a multi-GC clone inherits the **source's** era via `pricing_anchor_at` (§3.5.1). Otherwise it rounds up (`Math.ceil`), exactly as today.
 
 - **[LOCKED] Trigger is `created_at`, an immutable field** — NOT `status`/`sent_at`. Mutable triggers break consistency: the app freezes price at Lock (status `Draft`) but recomputes the invoice live later (status `Sent`), so a status-based rule would freeze exact and bill ceil — re-creating the exact bug. `created_at` never changes, so preview, freeze, invoice, PDF, and snapshot always agree.
 - **[LOCKED] Round-to-cent = `Math.round(raw * 100) / 100`** (matches existing invoice rounding; kills float dust).
 - **[LOCKED] Safe default = ceil.** Calc functions default to `Math.ceil` when the proposal/`created_at` is missing or unparseable, so any unwired call site keeps today's behavior — no path silently produces a wrong number.
 - **[LOCKED] Forward-only.** This does NOT retroactively fix pre-cutoff proposals (incl. the one that prompted this work). Those are handled manually (override the invoice amount) or by recreating as a new proposal.
 - **[LOCKED] Old unsent drafts (the 11) stay ceil.** To make one exact, recreate it. Accepted given only 11 exist.
-- **[LOCKED] No DB changes, no migrations, no edge functions.**
+- **[LOCKED — AMENDED post-R2 (ratified 2026-06-26): one additive migration allowed.]** Was "no DB changes / migrations / edge functions." Ratified exception: a single **nullable** column `proposals.pricing_anchor_at` + a one-line `clone_proposal_to_gcs` RPC change, to fix the multi-GC clone freeze≠bill **durably** (§3.5.1). Still: no edge-function changes, no destructive / heavy-backfill migration.
 
 Behavior table:
 
@@ -57,9 +57,12 @@ Pull-back/resend keeps the original process automatically — `created_at` is ne
 ### 3.1 Core — `src/lib/calc.js` [LOCKED]
 - Add constant `EXACT_PRICING_CUTOFF = Date.parse("2026-06-26T12:00:00-05:00")`.
 - Add `export function usesExactPricing(proposal)`:
-  - Read `proposal?.created_at` with **optional chaining**. [B2]
-  - Return `true` only if `created_at` parses and `>= cutoff`; `false` otherwise (missing/unparseable → legacy ceil).
-  - **Shape guard [B3, big-call Option 2]:** if handed a **WTC-shaped** object (has `proposal_id`), ignore it and return `false` — never read a WTC's own `created_at`. If handed a **proposal-shaped** object (has `status`/`total`) that lacks `created_at`, emit a **dev-mode `console.warn`** so a missing SELECT fails loudly in dev instead of silently rounding up in prod.
+  - Read the **pricing era** = `proposal?.pricing_anchor_at ?? proposal?.created_at` (optional chaining). [B2] `pricing_anchor_at` is normally null (→ `created_at`); a multi-GC clone carries the source's era here (§3.5.1).
+  - Return `true` only if the era parses and `>= cutoff`; `false` otherwise (missing/unparseable → legacy ceil).
+  - **Shape guard + LOUD dev-warn [B3 → item-1 hardened, the convergence lever]:** `usesExactPricing` must `console.warn` (dev-mode) on **both** silent paths so any miss screams during the §6 smoke test:
+    - **(a) wrong object** — handed a `proposal_id`-bearing object (a WTC `w` passed instead of the proposal): warn and return `false`; never read a WTC's own `created_at`.
+    - **(b) thin proposal missing `created_at`** — detected via a signal the thin invoice embeds actually carry: **`has call_log_id && !proposal_id`** (NOT just `status`/`total`, which thin embeds may omit): warn.
+    Goal: a missed SELECT or wrong-object pass is loud in dev, never a silent prod ceil.
 - Add `roundPrice(raw, exact)` → `exact ? Math.round(raw * 100) / 100 : Math.ceil(raw)`.
 - **Append `exact` LAST positionally [B1]** — never insert before existing args:
   - `calcWtcPrice(wtc, markupOverride, exact = false)`
@@ -70,13 +73,24 @@ Pull-back/resend keeps the original process automatically — `created_at` is ne
 ### 3.2 Wire call sites [LOCKED intent, DERIVED scope]
 At each of the ~15 sites (§0), compute `usesExactPricing(proposal)` from the already-loaded **proposal object — never the WTC `w`** — and pass it as the trailing `exact` arg. [A1, A2]
 
-**`created_at` is not currently SELECTed — it must be added** to these explicit selects/embeds, or the rule silently no-ops to ceil: [A1, A2, A3, B2, C3]
+**`created_at` (and the new `pricing_anchor_at`) are not currently SELECTed — both must be added** to these explicit selects/embeds, or the rule silently no-ops to ceil: [A1, A2, A3, B2, C3]
 - `Invoices.jsx:67` — new-invoice proposal fetch
 - `Invoices.jsx` InvoiceDetail `proposals(...)` embeds at `:607, :1281, :1470, :2316, :2434, :2465`
 - `PublicInvoicePage.jsx:40` — anon embed
 - `WTCCalculator.jsx:2045` — parent proposal load
 
+**Three sites need MORE than a SELECT [item 2, A1/A2/REG-D1] — the hardened warn will now expose them:**
+- `Invoices.jsx:2480` — the deep-link "Create invoice" proposal fetch: add `created_at` to its select.
+- `WTCCalculator` — a SELECT alone does NOT close it (nothing currently stores or forwards `created_at`, and the write handlers have no proposal row in scope). Thread `created_at` from the `:2045` jobInfo fetch into component **state**, then into the `proposals.total` write scope (`handleSave`, `:1988/:2014`) AND the `proposalData` preview object (`:2065`).
+- **PayApp PDF proposal source** — replace the `Invoices.jsx:2363` synthetic stub (`{ call_log_id: ... }`) and the BillingSchedule prop with a **real proposal object carrying `created_at`**. Needed **even with §3.6 cents-display deferred**, so the stored invoice line/amount is exact.
+
 Files: `ProposalDetail.jsx`, `Invoices.jsx`, `invoicePdf.js`, `PublicInvoicePage.jsx`, `MultiGCWizard.jsx`, `WTCCalculator.jsx` (alias path).
+
+### 3.2.1 Line-sum reconciliation [D-sum]
+`getLineAmount = calcWtcPrice(wtc) * (pct/100)` — even though §3.1 routes `calcWtcPrice` through `roundPrice`, the per-line **× pct** multiply is not rounded consistently, so summed lines can drift from the header by a cent. **Fix: round each line via `roundPrice` FIRST, then set `invoice.amount = sum of the already-rounded lines` — never `round(rawSum)`.**
+- Sites: `Invoices.jsx:197` (`getLineAmount`), `:200`/`:264` (`invoiceTotal` sum), `:294` (per-line store).
+- `calc.js` threading alone does NOT fix this — it lives in invoice assembly.
+- Ensure the **QB push uses the reconciled header** so QB lines == QB header (no 1¢ split between detail and total).
 
 ### 3.3 `WTCCalculator.jsx` inline ceils [LOCKED]
 Replace the 5 inline `Math.ceil` (1126, 1180, 1375, 1560, 2085) with the same rule so the live preview matches what gets locked and billed.
@@ -87,42 +101,61 @@ Lock & Approve already computes via `calcWtcPrice`/`calcWtcTotal`, so wiring §3
 ### 3.5 Signing page — no change [DERIVED]
 Reads the frozen snapshot only. New proposals show exact via §3.4; old signed proposals are untouched.
 
-### 3.6 Invoice PDF — pass proposal + render exact cents [LOCKED]
-- `generateInvoicePdf` gains a new **`proposal` param** so it can compute `usesExactPricing` and pass `exact` into `calcWtcPrice` (`invoicePdf.js:259`). Update the caller at `PayAppDetailModal.jsx:343` to pass the proposal. [D1]
-- **The PDF must render cents** via a cents-aware formatter — NOT `fmt$` (`maximumFractionDigits: 0`). [C1] The customer is charged exact cents via Stripe + the email pay link, so the **document must equal the charge**. Whole-dollar PDF display while charging exact cents is a correctness defect, not deferred polish.
+### 3.5.1 Multi-GC clone path [E1 — LOCKED · option (b) via `pricing_anchor_at`, ratified 2026-06-26]
+**Problem (verified in `supabase/migrations/20260519230000_sister_wtc_auto_lock.sql`):** `clone_proposal_to_gcs` inserts the sister with `created_at = now()` and copies the source's `total` / `locked_line_total` via SQL (no `roundPrice`); the sister also carries `cloned_from_proposal_id`. So a sister cloned from a **pre-cutoff** job gets a fresh post-cutoff `created_at` → live invoice recompute = **exact** while the inherited frozen snapshot = **ceil** → **freeze ≠ bill** on a live path. (MultiGC is live in prod — one sister out today.)
+
+**Ratified fix — option (b) via a dedicated era column** (chosen for integrity/durability over overloading `created_at`):
+- Add nullable `proposals.pricing_anchor_at timestamptz`. Normal proposals leave it null.
+- `usesExactPricing` keys off `pricing_anchor_at ?? created_at` (§3.1).
+- `clone_proposal_to_gcs` sets the sister's `pricing_anchor_at = COALESCE(v_source.pricing_anchor_at, v_source.created_at)` (chains correctly for clone-of-clone).
+- Backfill the **one** existing sister to its source's era.
+- `created_at` stays truthful (real clone time); the pricing era is explicit and self-documenting.
+- **Rejected:** overloading `created_at` (makes the column lie about creation time → rots reporting/sorting) and JS-lineage joins at every price site (re-creates the coverage burden the audit hammered).
+
+### 3.5.2 Multi-GC scope this round [A3 — LOCKED · IN SCOPE, ratified 2026-06-26]
+**Correction:** an earlier draft called MultiGC "not live" — that was from stale memory, not code. **MultiGC is live in prod** (`clone_proposal_to_gcs` deployed; `MultiGCWizard` rendered at `ProposalDetail.jsx:1374`; one sister out). So the clone path is **in scope this round** — exact pricing would otherwise mis-bill clones (§3.5.1).
+- Wire MultiGCWizard's 5 calc sites (`220, 526, 584, 585, 630`) to pass the proposal + `exact`.
+- D2 preview: the wizard previews **target** proposals that don't exist until confirm; preview pricing should use the **source** `sp` era via the same `pricing_anchor_at ?? created_at` rule (a confirmed sister carries the right `pricing_anchor_at`). The §3.1 warn will catch any WTC-shaped object passed by mistake.
+
+### 3.6 Invoice PDF — proposal param retained; cents DISPLAY deferred [RE-SCOPED post-R2]
+- **RETAINED this round [D1]:** the PDF path must receive a **real proposal** (not the `Invoices.jsx:2363` stub) so the **stored** invoice line/amount is exact — see §3.2 "PayApp PDF proposal source." This is about the *amount*, needed even though cents-display is deferred.
+- **DEFERRED → §5 [C1 reversed post-R2]:** rendering cents on the PDF moves to a separate loop. Round-2 finding: the HTML/web invoice already shows cents; only the jsPDF attachment lags.
 
 ---
 
 ## §4 Files to touch
-- `src/lib/calc.js` — core rule + helpers
+- `src/lib/calc.js` — core rule + helpers (era = `pricing_anchor_at ?? created_at`)
+- **Migration (additive) + RPC:** `proposals.pricing_anchor_at timestamptz NULL`; one-line `clone_proposal_to_gcs` change to set it from the source's era; backfill the 1 existing sister. Follow CLAUDE.md migration discipline (`scripts/check-migration-safety.sh`, `npm run db:push`). [§3.5.1]
 - `src/components/ProposalDetail.jsx` — 5 call sites
-- `src/pages/Invoices.jsx` — 7 call sites
-- `src/lib/invoicePdf.js` — calc call site + new `proposal` param + cents-aware formatter [C1, D1]
+- `src/pages/Invoices.jsx` — 7 calc call sites + line-sum reconciliation (`:197/:200/:264/:294`, §3.2.1) + `:2480` deep-link select + `:2363` stub→real proposal
+- `src/lib/invoicePdf.js` — calc call site + new `proposal` param (cents-DISPLAY deferred → §5) [D1]
 - `src/components/PayAppDetailModal.jsx` — `:343` caller passes `proposal` into `generateInvoicePdf` [D1]
 - `src/pages/PublicInvoicePage.jsx` — add `created_at` to the **anon embed at `:40`** (direct PostgREST embed — NOT an RPC, no migration) [A3]
-- `src/components/MultiGCWizard.jsx` — 5 call sites
+- `src/components/MultiGCWizard.jsx` — 5 calc call sites (in scope; pass real proposal + `exact`) [§3.5.2]
 - `src/pages/WTCCalculator.jsx` — 3 alias sites + 5 inline ceils + parent-proposal `created_at` in scope
 
 ---
 
 ## §5 Out of scope / deferred
 - Retroactively converting pre-cutoff proposals (manual override / recreate instead).
-- Changing **internal list/summary** displays to show cents (still uses `fmt$`). The **invoice PDF** cents fix is now IN scope (§3.6, C1) — only non-billing display surfaces stay deferred.
+- Changing **internal list/summary** displays to show cents (still uses `fmt$`).
+- **Pay-app PDF cents (deferred follow-up loop) [C1, reversed post-R2]:** make the pay-app PDF honor the existing `invoice.show_cents` toggle (`fmt$c`), and fix the **retention omission in `netTotal`** (`invoicePdf.js:306`). Separate loop — not this build. (The PDF still receives a real proposal so the stored *amount* is exact — §3.6.)
 - Any change to QB invoice push, Stripe, or retention math.
 
 ---
 
 ## §6 Estimate / time budget
-- **Est. code:** ~80–110 lines net (**Sales Command only**) — calc core ~30 (incl. shape guards + dev warn), ~9 SELECT/embed edits (add `created_at`), ~15 call-site rewires (pass proposal, not `w`), 5 inline-ceil swaps, `invoicePdf` `proposal` param + cents formatter (~15), `PayAppDetailModal` caller.
-- **Time budget:** **~140 min** (was 90; SELECT wiring + PDF cents raised it). Cross-repo work is **not** in this budget — §7 R5 is a separate sch-command task. *Pending ERD lock confirmation.*
+- **Est. code:** ~110–140 lines net (**Sales Command only**) — calc core ~30 (era + hardened both-path dev-warn), ~10 SELECT/embed + state-threading edits (+ `pricing_anchor_at` alongside `created_at`), line-sum reconciliation, ~15 call-site rewires, 5 inline-ceil swaps, `invoicePdf` `proposal` param, **MultiGC 5 sites**, **1 additive migration + 1-line clone RPC + 1-row backfill** (§3.5.1). PDF cents-display deferred (§5).
+- **Time budget:** **~180 min** (added MultiGC wiring + the `pricing_anchor_at` migration/RPC). Cross-repo (E1) still excluded. *Pending ERD lock confirmation.*
 - Smoke tests: old sent proposal unchanged (ceil); old draft now exact; new proposal exact end-to-end (preview → lock → snapshot → invoice → PDF agree); pull-back-then-resend stays ceil.
 
 ---
 
 ## §7 Risks / open questions for audit
 - **R1 [RESOLVED → §3.2/§3.6]** `created_at` must be in scope at every call site; round-1 named the exact missing SELECTs/embeds (now listed in §3.2). `PublicInvoicePage` is a direct **anon embed** (`:40`), not an RPC — 1-line fix, no migration. The dev-mode `console.warn` (B3) makes any remaining gap fail loudly in dev. Watch pattern: **created_at-scope-silent-noop**.
-- **R2 [RESOLVED → §3.6]** Invoice **PDF** cents is now a build target (C1, charge==document). Remaining `fmt$` whole-dollar display on internal list/summary surfaces stays deferred — cosmetic, not a charge mismatch.
-- **R3 [DERIVED]** `MultiGCWizard` allocates across GCs by per-WTC price; verify exact vs ceil doesn't break a sum-to-total invariant there.
+- **R2 [RE-SCOPED → §5]** Invoice **PDF cents display** is deferred to a separate loop (round-2 reversal: web/HTML already shows cents; only the jsPDF attachment lags + a retention bug at `invoicePdf.js:306`). The PDF still receives a real proposal so the stored **amount** is exact (§3.2/§3.6).
+- **R3 [RESOLVED → §3.5.1/§3.5.2, IN SCOPE]** MultiGC is live; clone freeze≠bill fixed via `pricing_anchor_at` (clone inherits source era). Still verify the MultiGC allocation **sum-to-total invariant** holds under exact pricing.
+- **R6 [D-sum, in scope §3.2.1]** Per-line `× pct` rounding must reconcile: round each line first, sum the rounded lines for `invoice.amount` (not `round(rawSum)`), and QB header == QB lines. Prevents a 1¢ detail/total split.
 - **R4 [LOCKED, accepted]** Transient quirk: an old proposal pulled back shows exact while edited, then snaps back to ceil on resend. Not customer-facing. Accepted.
 - **R5 [E1 — ADJACENT, out of this build]** Our change writes exact-penny `proposals.total` / `invoices.amount`. Schedule Command **reads** those and runs its *own* `fullyBilled` / `remaining` math that may assume whole dollars, so pennies *could* throw it off by a cent. This is a robustness gap **inside `sch-command`**, not a calculation we export — and it is **UNVERIFIED** (we have not opened the file). **Not a build target here.** Action: verify whether `sch-command` `billingForecast.js` (path [DERIVED], confirm) actually mishandles penny amounts; if real, file a **separate sch-command task** to add a cent tolerance. Sales Command's change does not depend on it.
 
@@ -146,6 +179,29 @@ Round-1 `/runaudit` (against commit `0613c3a`): **14 findings** (9 in-cap / 3 ov
 - **C2, C3 (over-cap remainder), D2** — over-cap findings; track for a follow-up pass.
 - **ADJ-1** — adjacent finding; file to `docs/BACKLOG.md`, out of this surface.
 - _(Full text of deferred findings lives in the round-1 audit output in the audit terminal.)_
+
+---
+
+## Audit Amendments (post-R2)
+
+Round-2 `/runaudit` (against `f827b3c`): **11 findings** (9 in-cap / 2 regressions) · **0C/4H/5M (+2 regression)** · pattern: **warn-net-holes (PLATEAU — no ≥30% drop vs round 1)**. The headline is the plateau: the loop converges not by hunting more screens but by **hardening the dev-warn** (§3.1) so the §6 smoke test surfaces any remaining coverage miss mechanically. Round 3 verifies the loud warn + a clean smoke pass, NOT more site-hunting.
+
+**Ratified this revision:**
+- **§3.6 PDF-cents DEFERRED** to a separate loop (honor existing `invoice.show_cents`/`fmt$c` + fix retention omission `invoicePdf.js:306`) → §5. The PDF still receives a real proposal so the stored *amount* is exact.
+
+**In-cap findings folded in (build targets):**
+- **Item 1** — hardened both-path dev-warn (wrong-object `proposal_id`; thin proposal `call_log_id && !proposal_id`) → §3.1
+- **Item 2 / REG-D1** — coverage a SELECT alone misses: `Invoices.jsx:2480`, WTCCalculator state-threading (`:2045`→`:1988/:2014/:2065`), PayApp PDF stub→real proposal (`:2363`) → §3.2
+- **Item 3 / D-sum** — line-sum reconciliation (round lines first, sum rounded; QB header==lines) → §3.2.1, §7 R6
+
+**RATIFIED 2026-06-26 (were design-open; corrected after MultiGC confirmed LIVE in prod via code, not memory):**
+- **Item 4 / E1 (clone path)** → §3.5.1 — **LOCKED option (b) via a dedicated `pricing_anchor_at` column** (chosen for integrity/durability over overloading `created_at`). Clone inherits source era; `created_at` stays truthful.
+- **Item 5 / A3 (MultiGC scope)** → §3.5.2 — **LOCKED IN SCOPE** (not deferred). The earlier "not live" was stale memory; MultiGC is live, so the clone path is fixed this round.
+- **Scope note:** lifts §2's no-migration lock for one additive column + a one-line clone RPC change (ratified).
+
+**Adjacent / framing (not build targets):** F1 (PDF-cents rationale was inverted — HTML already does cents, jsPDF is the laggard; corrected in §3.6/§5), F2 (ProposalDetail is safe only via `select('*')` — don't route a thin proposal into it later), F3 (sec: no new RLS/tenant/storage holes; `send-invoice` distrusts the client amount, reads the DB row).
+
+> **Manifest note:** the manifest below is the **round-2** manifest and is now **stale** — it predates the MultiGC / `pricing_anchor_at` ratify. Re-run `/auditcriteria` to regenerate for round 3: surface now includes an **additive migration + clone RPC + MultiGC wiring** (so "Irreversibility: none" no longer holds — it's an additive, reversible column), with PDF-cents deferred.
 
 ---
 

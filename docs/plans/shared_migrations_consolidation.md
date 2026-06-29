@@ -149,10 +149,10 @@ If we don't want to do the full move immediately, Option D (sibling-aware safety
 *(supersedes §7)*
 - "Abort is free before Step 4" is **true only if** Step 2 does zero applies and no rename of an already-applied version (A1). Mechanics confirmed sound: `supabase link` writes a per-directory `.temp/project-ref`, so linking `command-suite-db` does not unlink siblings, and `migration list --linked` is read-only.
 
-### Design decision — sequence the move (Option 2), pending Chris's ratify
-- **Pass 1** (all reversible): mechanical freeze → dynamic complete inventory → unlink siblings → prove the ledger fully reconciles with **zero true orphans**.
-- **Pass 2** (irreversible): file assembly + tooling relocation, only after Pass 1 verifies clean.
-- Rationale: the irreversible move never runs against an unverified inventory. Audit-recommended; matches the "build it right" posture. **[DESIGN-OPEN] — Chris ratifies Option 1 (one pass) vs Option 2 (sequence).**
+### Design decision — sequence the move (Option 2) — [LOCKED] RATIFIED 2026-06-29
+- **Pass 1** (all reversible): mechanical freeze → dynamic complete inventory → unlink siblings → prove the ledger fully reconciles with **zero true orphans**. Hard gate — Pass 2 does not begin until Pass 1 verifies clean.
+- **Pass 2** (irreversible): file assembly into `command-suite-db` + tooling relocation.
+- Rationale: the irreversible move never runs against an unverified inventory. Audit-recommended; matches the "build it right" posture. **Chris ratified two-pass on 2026-06-29; Option 1 (one-pass) is closed.**
 
 ### Adjacent findings → backlog (not this plan)
 - AR-Command-Center unwired — no `supabase/`, no link. Drop from cutover scope; discover linked checkouts dynamically (A2) rather than assume a fixed set.

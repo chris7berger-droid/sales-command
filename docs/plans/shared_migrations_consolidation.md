@@ -209,3 +209,37 @@ A1's "rename only when version NOT in ledger" is re-keyed on **file identity**: 
 - Does the ledger-driven inventory correctly KEEP the 2 applied-history-only files and EXCLUDE the 3 abandoned ones?
 - Is the Pass-1 → Pass-2 order now correct (reconcile + gate before any assembly)?
 - Any remaining apply or rename-of-applied-version inside Pass 1?
+
+---
+
+# Amendments — Audit Round 3 (2026-06-29): Mechanical Gate
+
+**[LOCKED] RATIFIED 2026-06-29 (Chris).** Round 3 found the round-2 hand-built KEEP/EXCLUDE list **factually inverted** — independently confirmed by two agents and reproduced. Root cause: it matched on the 14-digit version alone, but the ledger stores `(version, name)` and this shared history has same-version twins from renames/reverts across repos. **This section supersedes the round-2 "Keystone correction" hand-built file list and §6 Pass-1 step 3's hand-built table.** The canonical set is now DERIVED mechanically and GATED by the existing collision script — no hand-typed list anywhere.
+
+## Ground truth (verified against prod 2026-06-29)
+- The ledger (`schema_migrations`) holds **82** applied versions — **not 74**. The 74 was sales-command's `main` only; the ledger also holds Schedule's and Field's applied migrations on the shared backend. **The canonical set = the 82 ledger rows, spanning all repos.** A one-repo hand-count structurally cannot see this — it is the core reason hand-derivation failed every round.
+- The ledger stores `(version, name)`; matching on version alone is wrong. Illustrative (verified), NOT a canonical hand-list:
+  - Version `20260427120000` is a **3-way** twin in git history (`create_token_rpcs`, `tighten_anon_rls_signing_flow`, `invoices_intro`). The ledger names the winner **`invoices_intro`** (live on main); the other two are abandoned.
+  - Version `20260512120000` → ledger name **`jobs_material_status_additive`** (a Schedule Command migration). The history-only `20260512120000_multi_gc_allocation` is an abandoned pre-rename draft; the real `multi_gc_allocation` ran at `20260513000000` (ledger-named, live).
+- The round-2 "KEEP these 2 history-only files" instruction is **STRUCK** — both were abandoned twins.
+
+## §6 Pass-1 step 3 + gate — REWRITTEN as a mechanical derivation
+Replace the hand-built reconciliation table with:
+
+**3. Derive the canonical set mechanically (no hand judgement).**
+   a. Pull the full ledger: every `(version, name)` row (the 82) — the authoritative record of what ran.
+   b. For each `(version, name)`, locate exactly one file whose 14-digit version **AND** name-slug match, searching across **all** linked repos' git (ref tips + history) — sales, sch, field. The name disambiguates same-version twins.
+   c. Any git file whose `(version, name)` is **not** a ledger row → abandoned/superseded → EXCLUDE.
+   d. A ledger `(version, name)` with no matching file anywhere → true orphan → recover SQL from `statements`, else **STOP**.
+
+**4. Mechanical Pass-1 gate.** Assemble the derived candidate set into a scratch dir and run `scripts/check-migration-collision.mjs` against it. Gate passes ONLY on **zero collisions** (no two assembled files share a 14-digit version) AND zero unresolved orphans. This is the tool you already own, run once as the gate — not new automation. A hand-typed KEEP/EXCLUDE list is **not permitted**.
+
+## Folded corrections (round-3 C/D/E/F)
+- **C (regression fix):** §6 Pass-2 step 7 must `supabase unlink` **all** app repos **including sales-command** (sales is linked only through Pass 1 for reconciliation reads; unlink it at retire). Independent of the `config.toml`/§9 deferral — `supabase start` needs no remote link. Restores A4's "unlink is the real enforcement."
+- **D:** This block **supersedes A6's recovery source order** → **git-first, statements-last** (git ref tips → git history → `statements` → STOP). `statements` is empty for `repair --status applied` rows, so it is the last resort, not the first.
+- **E:** The freeze-window emergency-push path must ALSO copy the pushed file into `command-suite-db/supabase/migrations/` and re-run the step-6 verify gate — otherwise the new prod ledger row is an instant stray at the zero-strays go/no-go.
+- **F:** Strike the round-2 "under-collect: ref-tips would falsely orphan these 2" rationale — it rested on the misclassified twins. The ledger-driven `(version, name)` rule stands on its own; no genuine applied-history-only example is claimed.
+- **Step-5 assertion:** add an explicit "no two assembled files share a 14-digit version" check (belt-and-suspenders alongside the collision script).
+
+## Round 4 audit focus
+- Mechanical confirmation only: does the ledger-derived `(version, name)` set, run through `check-migration-collision.mjs`, pass with zero collisions, with all 82 ledger rows matched to exactly one file or a STOP-flagged orphan? No hand-verification of a hand-built list.

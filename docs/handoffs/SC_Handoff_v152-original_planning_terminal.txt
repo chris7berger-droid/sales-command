@@ -1,0 +1,119 @@
+SC Handoff v152 — Original Planning Terminal (T1): exact-penny-pricing (design genesis, locked decisions + rationale)
+Repo: sales-command
+Branch: feat/exact-penny-pricing
+Date: 2026-06-29  (design + planning ran 2026-06-26; this closeout written 2026-06-29)
+Unique ID: V152-Original Planning Terminal
+Role: PLANNING terminal (T1 in the split: T1 Plan / T2 plan-audit / T3 Build / T4 buildvsplan / T5 code-review/security).
+  I own the original problem framing, the plan document (docs/plans/exact_penny_pricing.md §0–§7), the
+  /auditcriteria manifests, and the human design ratifications. I do not build, audit-loop (that's T2),
+  or review code (T4/T5). My lens = WHY the design is what it is.
+Source of truth: docs/plans/exact_penny_pricing.md (CONVERGED post-R3 @ 6225b52; build @ 9092bdb + fixes @ c807a81).
+NOTE: All six terminals share number v152 with a per-terminal suffix so none collide on this branch, and
+  ALL ran on this machine / this branch. The full picture is the union of SC_Handoff_v152-*.txt — read
+  them together. This file is the design/planning lens; T2 owns the audit arc, T4 spec-vs-code, T5 runtime+security.
+
+=== The problem (why this work exists) ===
+Customers were paying the EXACT contract amount (~2–3×/week, no customer-type pattern) while Sales Command
+billed a ROUNDED-UP figure. Root cause, confirmed in code at design time: WTC prices were Math.ceil'd UP to
+the whole dollar (calc.js:53/76 + 5 inline copies in WTCCalculator), and invoices inherit that by recomputing
+live. The round-up (up to $0.99/WTC line) is a presentation artifact, NOT a contractual amount — the exact
+figure customers pay equals our PRE-ceil line total (labor + mats + travel − discount). So the fix is to stop
+the ceil from reaching the billed number for new work, while leaving everything already committed untouched.
+
+=== Locked design decisions + WHY (the planning lens; alternatives rejected) ===
+1. TRIGGER = an IMMUTABLE timestamp, NOT status. [LOCKED]
+   Rule: a proposal prices exact iff its pricing era >= 2026-06-26 12:00 Central; else ceil (today's behavior).
+   We rejected keying off status/"sent" because the app FREEZES price at Lock (status Draft) but RECOMPUTES the
+   invoice live later (status Sent). A mutable trigger would freeze exact and bill ceil — re-creating the exact
+   bug. created_at never changes → preview/freeze/invoice/PDF/snapshot always agree. This single decision is the
+   spine of the whole feature.
+2. CUTOFF = noon Central 2026-06-26. [LOCKED]  ***See operational flag below — this value needs a deploy-time call.***
+3. FORWARD-ONLY. [LOCKED] Does NOT retroactively fix pre-cutoff proposals (including the one that triggered this
+   work). Those are handled manually (override the invoice) or by recreating as a new proposal. The 11 existing
+   unsent drafts STAY ceil; recreate one to flip it. Chris accepted this given only 11 exist.
+4. SAFE DEFAULT = ceil. [LOCKED] calc fns default exact=false, so any unwired site keeps today's behavior — no
+   path silently produces a WRONG number (worst case is "exact didn't kick in yet," caught in smoke).
+5. MULTI-GC CLONES — durable fix via a NEW column, chosen over a clever shortcut. [LOCKED, option (b)]
+   A clone gets a fresh post-cutoff created_at but copies the source's frozen (ceil) snapshot → freeze≠bill.
+   We added nullable proposals.pricing_anchor_at; era = pricing_anchor_at ?? created_at; the clone RPC stamps
+   the sister's anchor = COALESCE(source.pricing_anchor_at, source.created_at). REJECTED overloading created_at
+   (makes the column lie about creation time → rots sorting/reporting) and JS-lineage joins at every price site
+   (re-creates the coverage burden). Chris explicitly chose integrity/durability over the convenience of "no
+   migration," which is why §2's no-migration lock was lifted for this ONE additive column. MultiGC is LIVE in
+   prod (Chris corrected my stale-memory "not live" claim mid-design — verified in code: clone RPC deployed,
+   MultiGCWizard rendered at ProposalDetail.jsx:1374, one sister out). So this was in-scope, not deferrable.
+6. PDF cents-display DEFERRED to its own loop. [LOCKED] The web/HTML invoice already shows cents; only the jsPDF
+   attachment lags, and an existing invoice.show_cents/fmt$c toggle + a retention-omission bug (invoicePdf.js:306)
+   make it a separate, self-contained task. The PDF still receives a real proposal so the stored AMOUNT is exact.
+7. E1 (sch-command penny tolerance) SCOPED OUT as adjacent. [LOCKED] Git isolates code, not the shared Supabase
+   backend; sch-command's own fullyBilled/remaining math is the gap, it's unverified, and it's not a calc we
+   export. Separate sch-command task if/when it bites.
+
+=== How the plan converged (pointer; T2 owns the detail) ===
+Three adversarial audit rounds (T2's SC_Handoff_v152-plan_audit_terminal.txt has the round-by-round arc):
+R1 2C/4H/3M (created_at-scope-silent-noop) → R2 0C/4H/5M PLATEAU (warn-net-holes) → R3 0C/2H/4M CONVERGED
+(era-edge-fix-wording). The plan's own ## Audit manifest + ## Audit Amendments (post-R1/R2/R3) sections carry
+the in-doc trail. Planning takeaway: the convergence lever was hardening the dev-warn + a shared PROPOSAL_ERA
+select fragment + one keystone smoke test — NOT enumerating more screens.
+
+=== Reconciliation with build + sibling terminals ===
+- BUILD (9092bdb) implemented §3 faithfully; T4/buildvsplan gated it GO and confirmed the migration
+  (20260626150000_pricing_anchor_at.sql) is LIVE on prod as of 2026-06-29.
+- The plan's two round-3 Highs both held in the build: REG-B1 (legacy over-bill via roundPrice-on-lines) did
+  NOT ship — lines cent-round with Math.round; A1 (clone under-bill via dropped pricing_anchor_at) is SAFE —
+  the era selects carry both columns (and select('*') sites cover it for free).
+- T5/code-review found one real money bug NOT in my plan lens: a WTCCalculator async-era write race (HIGH, #1).
+  It was FIXED in c807a81. Correctly outside the plan-spec lens (operational/code, not design).
+- T5/security: diff is security-clean. Two PRE-EXISTING anon-grant gaps surfaced and filed: B55 (HIGH — anon
+  invoice-viewer can read proposals.signing_token via missing column-grant) and B56 (LOW — unused anon write
+  grants). Both are separate shared-prod migrations, NOT this branch.
+
+=== Backlog I filed from this loop (closes T2's open question) ===
+T2's handoff lists ADJ-D3/ADJ-D4 as "NOT filed as of my last check." They ARE filed — I logged them here:
+- B52 (T3) — multi-invoice cumulative 1¢ drift: summed cent-rounded partial invoices can land 1¢ off
+  proposals.total across a draw schedule; D-sum only reconciles WITHIN one invoice. Pre-existing under ceil.
+- B53 (T2) — override-sister mispricing: clone copies source.total ignoring per-GC markup_override_pct, and
+  invoice sites call calcWtcPrice(wtc) with no override → an override sister bills at SOURCE markup. Pre-existing.
+- B54 — exact-penny code-review cleanups (#5/#6/#9/#10 etc.), deferred. Filed by the build terminal.
+Both B52/B53 are pre-existing, surfaced-by (not caused-by) this work, and explicitly out of this build.
+
+=== THE ONE THING TO RUN BEFORE MERGE (shared keystone — every terminal agrees) ===
+§6 smoke test: clone a PRE-cutoff proposal AFTER the cutoff, then verify the sister bills CEIL end-to-end
+(preview → freeze → invoice → PDF → public page). This is the ONLY detector for the round-3 A1 / pricing_anchor_at
+class — the dev-warn is structurally blind to a missing/null nullable column. The easy half (old=ceil, new=exact,
+line-sum==header, pull-back/resend stays ceil) should also pass, but the clone-CEIL path is the keystone.
+
+=== OPERATIONAL FLAG — a design-parameter decision owed before/at deploy (planning's call) ===
+The cutoff (noon Central 2026-06-26) is now 3 DAYS PAST and the branch is not yet merged/deployed to prod
+(only the migration column is live). T5/code-review #3 raised this: any proposal created in the cutoff→deploy
+gap was quoted/sent under OLD ceil code but is flagged EXACT era; editing it post-deploy would silently rewrite
+stored ceil lines DOWN to the penny, diverging from the figure already sent. RECOMMENDATION (a planning call,
+not a code bug): at merge/deploy, RESET EXACT_PRICING_CUTOFF (calc.js:11) to a near-future timestamp so the
+boundary is "from deploy forward," matching reality — OR deploy immediately to shrink the window to ~zero.
+Decide this consciously before merge; the migration being already-live does not resolve it.
+
+=== Open / deferred (status) ===
+- B52 / B53 — FILED (above). Pre-existing pricing bugs, separate tracks.
+- B54 — FILED (code-review cleanups, deferred).
+- B55 (HIGH) / B56 (LOW) — FILED (anon grant gaps; security terminal's track; separate shared-prod migrations).
+- E1 — sch-command billingForecast.js penny tolerance; scoped out, UNVERIFIED; separate sch-command task.
+- §3.6 PDF cents-display — deferred to its own loop (honor show_cents/fmt$c + fix retention omission invoicePdf.js:306).
+- Convergence-lever drift (T4 Tier-3 / T2): a few sites use select('*') instead of PROPOSAL_ERA — functionally
+  fine (star returns both era cols), drift risk only. Optional cleanup, not a blocker.
+
+=== Next steps to ship (for the closing/merge terminal) ===
+1. Decide the cutoff operational call above (reset to near-future OR deploy-now). Planning's recommendation: reset.
+2. Run the keystone clone-PRE-cutoff-bills-CEIL smoke test + the easy-half smoke set.
+3. Then merge feat/exact-penny-pricing → main (the migration is already live; no separate db:push needed for it).
+4. The 8 stray remote-only ledger entries (T4 Tier-2 #2) are pre-existing, did NOT block this migration's push,
+   and are NOT a gate for this branch — address on their own track.
+
+=== Git State (this terminal) ===
+- I authored the plan doc + the three ## Audit manifest sections and applied the three plan-revision passes
+  (commits: 0613c3a, f43c58d, f827b3c, 76756bd, 59c00c2, 6225b52) and filed B52/B53 (1535113-era backlog edits).
+- Adding only this handoff file (SC_Handoff_v152-original_planning_terminal.txt); committing it to the branch.
+- Branch is ahead of origin by the sibling-terminal handoff commits. NOTE: T2's handoff
+  (SC_Handoff_v152-plan_audit_terminal.txt) is currently UNTRACKED on the branch — fold it into the closeout
+  commit/push so all six ship together (T2 recommended exactly this).
+- No push or merge performed by this terminal — those are Chris's call after the keystone smoke test + the
+  cutoff decision.

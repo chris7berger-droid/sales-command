@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
-import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcWtcBreakdown } from "../lib/calc";
+import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcWtcBreakdown, usesExactPricing } from "../lib/calc";
 import { PROP_C } from "../lib/mockData";
 import { getTenantConfig } from "../lib/config";
 import WTCCalculator from "../pages/WTCCalculator";
@@ -301,9 +301,10 @@ async function deletePropAttachment(fullName) {
     // (audit H6) can read it via SECURITY DEFINER RPC without receiving
     // burden_rate / markup_pct / materials. When unlocking: clear it so
     // a stale snapshot doesn't outlive the locked state.
+    const exact = usesExactPricing(p);
     let lockedLineTotal = null;
     if (newLocked) {
-      const computed = calcWtcPrice(wtc);
+      const computed = calcWtcPrice(wtc, undefined, exact);
       if (Number.isFinite(computed)) lockedLineTotal = computed;
     }
     await supabase
@@ -313,7 +314,7 @@ async function deletePropAttachment(fullName) {
     setWtcs(prev => prev.map(w => w.id === wtcId ? { ...w, locked: newLocked, locked_line_total: lockedLineTotal } : w));
     // Sync proposals.total
     const { data: allWtcs } = await supabase.from("proposal_wtc").select("*, work_types(name)").eq("proposal_id", p.id);
-    const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcPrice(w), 0);
+    const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcPrice(w, undefined, exact), 0);
     await supabase.from("proposals").update({ total: proposalTotal }).eq("id", p.id);
 
     // Auto-create billing schedule when all WTCs locked and customer requires pay app
@@ -329,7 +330,7 @@ async function deletePropAttachment(fullName) {
             const lines = allWtcs.map((w, i) => ({
               billing_schedule_id: sch.id,
               description: w.work_types?.name || `Work Type ${i + 1}`,
-              scheduled_value: calcWtcPrice(w),
+              scheduled_value: calcWtcPrice(w, undefined, exact),
               ordinal: i,
             }));
             await supabase.from("billing_schedule_lines").insert(lines);
@@ -826,7 +827,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             {wtcs.map((wtc, wtcIdx) => {
               const checks = getWtcChecks(wtc);
               const pct = Math.round((checks.filter(c => c.done).length / checks.length) * 100);
-              const price = calcWtcPrice(wtc);
+              const price = calcWtcPrice(wtc, undefined, usesExactPricing(p));
               const wtcLabel = `WTC ${wtcIdx + 1}`;
               const typeName = wtc.work_types?.name;
               const isExpanded = expandedWtc === wtc.id || (expandedWtc === "auto" && wtcs.length === 1);
@@ -1204,7 +1205,8 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               );
             })()}
             {wtcs.length > 0 && (() => {
-              const breakdowns = wtcs.map(w => ({ ...calcWtcBreakdown(w), name: w.work_types?.name || "Unnamed" }));
+              const exact = usesExactPricing(p);
+              const breakdowns = wtcs.map(w => ({ ...calcWtcBreakdown(w, exact), name: w.work_types?.name || "Unnamed" }));
               const totals = breakdowns.reduce((a, b) => ({ price: a.price + b.price, cost: a.cost + b.cost, profit: a.profit + b.profit, discount: a.discount + b.discount }), { price: 0, cost: 0, profit: 0, discount: 0 });
               totals.margin = totals.price > 0 ? (totals.profit / totals.price) * 100 : 0;
               const hdr = { fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "center" };

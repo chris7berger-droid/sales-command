@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { createPublicClient } from "../lib/supabasePublic";
 import { useMemo } from "react";
-import { calcWtcPrice } from "../lib/calc";
+import { calcWtcPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
 import { DEFAULTS } from "../lib/config";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
 
@@ -37,7 +37,7 @@ export default function PublicInvoicePage() {
       // lives in migration 20260625130000. (plan §4.5)
       const { data: inv, error: invErr } = await supabase
         .from("invoices")
-        .select("id, proposal_id, job_id, job_name, status, amount, discount, due_date, paid_at, description, show_cents, retention_amount, retention_pct, voided_at, viewing_token, proposals(total, is_archive_proposal, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, deposit_invoice_id, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))")
+        .select(`id, proposal_id, job_id, job_name, status, amount, discount, due_date, paid_at, description, show_cents, retention_amount, retention_pct, voided_at, viewing_token, proposals(total, is_archive_proposal, ${PROPOSAL_ERA}, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, deposit_invoice_id, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))`)
         .eq("viewing_token", token)
         .single();
 
@@ -211,7 +211,7 @@ export default function PublicInvoicePage() {
                   const lineLabel = isArchiveLine ? (archiveWorkTypes || "—") : (wtc?.work_types?.name || "—");
                   const wtcNum = wtc ? wtcIndex[wtc.id] : null;
                   const wtcCell = wtcNum ? `WTC ${wtcNum}` : "—";
-                  const rowAmount = isArchiveLine ? archiveSold : (wtc ? calcWtcPrice(wtc) : 0);
+                  const rowAmount = isArchiveLine ? archiveSold : (wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(invoice.proposals)) : 0);
                   const billingPct = isArchiveLine
                     ? (archiveSold > 0 ? ((parseFloat(l.amount) || 0) / archiveSold) * 100 : 0)
                     : (parseFloat(l.billing_pct) || 0);

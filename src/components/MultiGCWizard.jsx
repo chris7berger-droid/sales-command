@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fmt$ } from "../lib/utils";
-import { calcWtcPrice, calcProposalTotal } from "../lib/calc";
+import { calcWtcPrice, calcProposalTotal, usesExactPricing } from "../lib/calc";
 
 const inputStyle = {
   padding: "10px 14px", borderRadius: 8,
@@ -217,7 +217,7 @@ export default function MultiGCWizard({ sourceProposalId, onClose, onSaved }) {
     );
   }
 
-  const sourceTotal = calcProposalTotal(sourceWtcs, parseFloat(sp?.markup_override_pct) || 0);
+  const sourceTotal = calcProposalTotal(sourceWtcs, parseFloat(sp?.markup_override_pct) || 0, usesExactPricing(sp));
   const displayLabel = `${sp.call_log?.display_job_number || ""} P${sp.proposal_number || ""}`;
 
   return (
@@ -502,6 +502,9 @@ function Screen2({ targets, activeTab, setActiveTab, setTarget, contactsByCustom
 /* ── Screen 3: Pricing ─────────────────────────────────────────────── */
 
 function Screen3({ targets, setTarget, sourceWtcs, sourceTotal, sp, expandedWtcs, setExpandedWtcs }) {
+  // D2: target sisters don't exist yet — preview off the SOURCE era. A confirmed
+  // sister inherits the right pricing_anchor_at via the clone RPC. (plan §3.5.2)
+  const exact = usesExactPricing(sp);
   return (
     <div>
       <StepLabel n={3} label="Pricing" />
@@ -523,7 +526,7 @@ function Screen3({ targets, setTarget, sourceWtcs, sourceTotal, sp, expandedWtcs
       {/* Per-sister pricing cards */}
       {targets.map((t, idx) => {
         const sisterTotal = (sourceWtcs || []).reduce(
-          (sum, w) => sum + calcWtcPrice(w, parseFloat(t.markup_override_pct) || 0), 0
+          (sum, w) => sum + calcWtcPrice(w, parseFloat(t.markup_override_pct) || 0, exact), 0
         );
         const delta = sisterTotal - sourceTotal;
         const expanded = expandedWtcs[idx];
@@ -581,8 +584,8 @@ function Screen3({ targets, setTarget, sourceWtcs, sourceTotal, sp, expandedWtcs
             {expanded && (
               <div style={{ marginTop: 8, paddingLeft: 4 }}>
                 {sourceWtcs.map((w, wi) => {
-                  const wtcPrice = calcWtcPrice(w, parseFloat(t.markup_override_pct) || 0);
-                  const sourceWtcPrice = calcWtcPrice(w);
+                  const wtcPrice = calcWtcPrice(w, parseFloat(t.markup_override_pct) || 0, exact);
+                  const sourceWtcPrice = calcWtcPrice(w, undefined, exact);
                   return (
                     <div key={w.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12, fontFamily: F.ui, color: C.textBody }}>
                       <span>WTC {wi + 1} — {w.work_types?.name || "Unknown"}</span>
@@ -607,6 +610,7 @@ function Screen3({ targets, setTarget, sourceWtcs, sourceTotal, sp, expandedWtcs
 /* ── Screen 4: Review ──────────────────────────────────────────────── */
 
 function Screen4({ targets, sp, sourceWtcs, sourceTotal, displayLabel, saving, error, handleCreate, contactsByCustomer }) {
+  const exact = usesExactPricing(sp);
   return (
     <div>
       <StepLabel n={4} label="Review" />
@@ -627,7 +631,7 @@ function Screen4({ targets, sp, sourceWtcs, sourceTotal, displayLabel, saving, e
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginBottom: 20 }}>
         {targets.map((t, idx) => {
           const sisterTotal = (sourceWtcs || []).reduce(
-            (sum, w) => sum + calcWtcPrice(w, parseFloat(t.markup_override_pct) || 0), 0
+            (sum, w) => sum + calcWtcPrice(w, parseFloat(t.markup_override_pct) || 0, exact), 0
           );
           const contacts = contactsByCustomer[t.customer_id] || [];
           const signer = contacts.find(c => c.id === t.primary_contact_id);

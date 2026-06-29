@@ -11,7 +11,7 @@
 
 import jsPDF from "jspdf";
 import { supabase } from "./supabase";
-import { calcWtcPrice } from "./calc";
+import { calcWtcPrice, usesExactPricing } from "./calc";
 import { fmt$ } from "./utils";
 
 /**
@@ -25,7 +25,7 @@ import { fmt$ } from "./utils";
  * @param {object} args.customer - customers row (billing_name, billing_email, contact_email, first_name, last_name, name, business_address/city/state/zip, billing_address/city/state/zip)
  * @returns {Promise<{pdfUrl: string, storagePath: string}>}
  */
-export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {}, callLog = {}, customer = {} }) {
+export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {}, callLog = {}, customer = {}, proposal = {} }) {
   const isDepositInvoice = (callLog?.deposit_invoice_id || null) === invoice.id;
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const pageW = doc.internal.pageSize.getWidth();   // 612
@@ -254,9 +254,14 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     const lineLabel = isSov
       ? (sov.line_code ? `${sov.line_code} — ${sov.description || ""}` : (sov.description || "—"))
       : (wtc?.work_types?.name || l.description || "—");
+    // `proposal` carries the pricing era (created_at/pricing_anchor_at) so a WTC
+    // line honors exact-vs-ceil. NOTE: the only caller today (PayAppDetailModal)
+    // passes pay-app invoices whose lines are SOV (isSov), so this branch is
+    // currently unreached — it's wired for a future regular-invoice PDF caller
+    // per plan §3.6. SOV rowAmount comes straight from scheduled_value.
     const rowAmount = isSov
       ? (parseFloat(sov.scheduled_value) || 0)
-      : (wtc ? calcWtcPrice(wtc) : 0);
+      : (wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(proposal)) : 0);
     const billingPct = l.billing_pct ?? 0;
     const lineTotal  = l.amount ?? 0;
 

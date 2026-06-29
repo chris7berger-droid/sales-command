@@ -1,0 +1,120 @@
+SC Handoff v152 — T4/buildvsplan: exact-penny-pricing (build matches spec; migration now live, GO)
+Repo: sales-command
+Branch: feat/exact-penny-pricing @ 9092bdb (build commit; verified working diff vs origin/main)
+Date: 2026-06-29
+Role: buildvsplan terminal — /buildvsplan (read-only gate between "build done" and "Chris smoke tests").
+Source of truth: docs/plans/exact_penny_pricing.md (CONVERGED, post-R3, no round 4).
+NOTE: All six terminals share number v152 with a per-terminal suffix so none collide on
+this branch. This one is the build-vs-plan terminal (SC_Handoff_v152-buildvsplan_terminal.txt).
+Final/closing terminal: read all SC_Handoff_v152-*.txt together for the full six-terminal picture.
+
+=== Method ===
+Read the full plan + the migration. Ran live read-only schema probes against the shared prod
+backend (pbgvgjjuhnpsumnowuym) with the anon key, ran scripts/check-migration-safety.sh, and
+fanned out 3 parallel Explore reviewers (data-wiring/SELECT-coverage, calc-core/line-sum, clone-
+RPC/migration/anon-grant). Adversarial framing: assume the build is incomplete until proven.
+Did NOT edit/commit source, push, deploy, or run any mutating DB op. Punch-list only.
+FRESHNESS NOTE: the spec-vs-code analysis + 3 reviewers ran 2026-06-26; the live DB probes were
+RE-RUN 2026-06-29 (today) because state can move between sessions. The headline below reflects
+the fresh re-probe, which REVERSED my earlier (2026-06-26) reading.
+
+=== Verdict ===
+The code is a faithful, near-complete implementation of §3 — calc core, line-sum reconciliation,
+all ~15 calc sites, the 5 inline-ceil swaps, and the clone RPC all match spec. As of the 2026-06-29
+re-probe the migration IS live in prod (column exists), so the earlier deploy-order blocker is
+RESOLVED. Smoke test: GO — proceed, watching the §6 clone-PRE-cutoff-bills-CEIL case.
+
+=== HEADLINE (corrected 2026-06-29) ===
+My ORIGINAL 2026-06-26 probe returned HTTP 400 "column proposals.pricing_anchor_at does not exist"
+and I wrote that the migration was NOT live — flagging a conflict with the code-review handoff
+(SC_Handoff_v152-codereview_terminal.txt #3) which said it WAS live. That conflict is now RESOLVED
+IN CODE-REVIEW'S FAVOR. Re-probing today (2026-06-29):
+  GET /proposals?select=pricing_anchor_at   -> HTTP 401 "permission denied for table invoices"
+  GET /proposals?select=created_at (control)-> HTTP 401 "permission denied for table invoices"  (same)
+  GET /proposals?select=<bogus> (control)   -> HTTP 400 "column ... does not exist"
+pricing_anchor_at now behaves IDENTICALLY to the known-existing created_at and DIFFERENTLY from a
+bogus column -> the column EXISTS in prod. The migration was pushed sometime in the 2026-06-26 ->
+2026-06-29 window (between my last use and now). Treat the column as PRESENT in prod.
+
+=== Findings (tiered: spec item / status / file:line / why) ===
+
+TIER 1 — RESOLVED (was the blocker; migration now deployed):
+  1. [RESOLVED 2026-06-29] Migration now live in prod (re-probe above). The ~10 explicit
+     ${PROPOSAL_ERA} selects no longer 400:
+       Invoices.jsx:68, 615, 1288, 1477, 2323, 2441, 2472, 2488
+       PublicInvoicePage.jsx:40  (anon public-invoice embed)
+       WTCCalculator.jsx:2049
+     No fix required. (Historical note: on 2026-06-26 these would all have 400'd; the migration-
+     first ordering per plan §3.5.1/§4 was evidently honored before deploy.)
+
+TIER 2 — verify before prod (not code bugs):
+  2. Migration ledger: 8 pre-existing remote-only stray entries; clear path before db:push.
+     scripts/check-migration-safety.sh: Check A PASS (branch not behind main); Check B FAIL —
+     remote ledger entries with no file on ANY branch:
+       20260503190000, 20260512120000, 20260512120100, 20260528120000,
+       20260528133000, 20260612120000, 20260616120000, 20260618120000
+     NOT my timestamp, NOT introduced by this build — the known stray-ledger state. Script exits 0
+     (warns, no hard block). Per CLAUDE.md: do NOT auto-`repair --status reverted`; confirm against
+     prod first or proceed if this is the accepted baseline. New 20260626150000 is a clean entry,
+     will push.
+  3. [LIKELY CONFIRMED 2026-06-29] Anon table-grant on public.proposals — the new col reads fine.
+     Downgraded from a CRITICAL raised by the migration/anon reviewer. No REVOKE or column-grant on
+     proposals exists in any migration (unlike invoices, which got 20260625130000 REVOKE +
+     20260625140000 GRANT), so proposals retains the Supabase default TABLE-LEVEL anon SELECT ->
+     new nullable col auto-readable. Today's re-probe corroborates: pricing_anchor_at resolves
+     identically to the known-existing created_at at the column layer (both 401 RLS, neither 400),
+     so the column is exposed to anon the same as every other proposals column. Optional final
+     CONFIRM: load a real public invoice link end-to-end. Overlaps the security terminal's
+     PublicInvoicePage lens — different angle (theirs: overbroad anon exposure; mine: does the new
+     col read at all). No conflict.
+     (NOTE: the 401 carries "permission denied for table invoices" — the proposals anon RLS path
+     references invoices; present for created_at too, pre-existing, not introduced by this build.)
+
+TIER 3 — pattern/drift only (no runtime effect; for /code-review, not a build target):
+  4. Convergence-lever not fully applied. ProposalDetail.jsx:166/550/721/731 and MultiGCWizard.jsx:76
+     use select("*") instead of the PROPOSAL_ERA constant. Functionally correct (star returns both
+     era cols) — NOTE: this directly corrects the calc/line-sum reviewer, who flagged MultiGCWizard:76
+     as a HIGH "under-bills clones" gap. It does NOT under-bill: star includes pricing_anchor_at +
+     created_at, so usesExactPricing(sp) reads real values. Drift risk only (a future hand-written
+     select here could omit the col, and the dev-warn is blind to a missing nullable col).
+
+=== Built to spec (verified MATCH) ===
+- calc.js core (§3.1): EXACT_PRICING_CUTOFF noon-Central (:11); usesExactPricing era =
+  pricing_anchor_at ?? created_at with BOTH-path dev-warns — wrong-object proposal_id (:26-34) +
+  thin-proposal call_log_id && !proposal_id (:41-46), DEV-gated; roundPrice (:54-56); exact appended
+  LAST with =false defaults on all 3 fns, each routed through roundPrice (:89/:113/:129-133);
+  PROPOSAL_ERA exported (:18).
+- Line-sum reconciliation (§3.2.1): getLineAmount cent-rounds with Math.round(x*100)/100 (NOT
+  roundPrice) for both eras + threads the arg calcWtcPrice(wtc, undefined, usesExactPricing(...))
+  (Invoices.jsx:203-204); invoice.amount = sum of rounded lines (:207/:271); handleSaveEdit
+  reconciles identically (:1574-1576); stored header feeds QB.
+- All ~15 calc sites pass exact from the PROPOSAL object (never the WTC): ProposalDetail, Invoices,
+  invoicePdf:259, PublicInvoicePage:214, MultiGCWizard (sp), WTCCalculator state-threaded
+  (:2055 -> :2070).
+- 5 inline Math.ceil in WTCCalculator all replaced (1126/1180/1376/1562/2090); none remain.
+- Clone RPC: byte-for-byte identical to 20260519230000 except pricing_anchor_at added to INSERT
+  cols + VALUES = COALESCE(v_source.pricing_anchor_at, v_source.created_at); SECURITY DEFINER +
+  search_path + REVOKE/GRANT footer intact.
+- Backfill set-based with IS NULL guard; column additive nullable, no default; timestamp sorts last.
+
+=== Sequence to green (for closing terminal) ===
+  Migration is already live (Tier-1 RESOLVED), so the path is shorter than my 2026-06-26 draft:
+  1) Smoke test: old sent = ceil, new = exact, AND the §6 key test — clone a PRE-cutoff proposal
+     AFTER the cutoff and assert the sister bills CEIL end-to-end (the one hole the dev-warn can't see).
+  2) Optional: load a real public invoice link to close out Tier-2 #3 (anon read of the new col).
+  3) The 8 stray ledger entries (Tier-2 #2) are pre-existing and did NOT block this migration's
+     push; address on their own track, not a gate for this branch.
+
+=== Recommendation to closing terminal ===
+- My original Tier-1 deploy-order blocker is RESOLVED — the migration is live as of 2026-06-29.
+  Code-review's #3 ("migration already live") was correct; my 2026-06-26 probe was stale.
+- BUT code-review's #1 (WTCCalculator async-era race, HIGH) and #3 (cutoff-already-past edit-
+  window rewrite) are CODE/operational concerns independent of deploy state — they still stand and
+  are the real pre-ship items. Read -codereview, -security, and this handoff together.
+- This branch's build faithfully matches plan §3; no spec-vs-code gaps block ship from my lens.
+
+=== Git State (this terminal) ===
+- Did NOT modify any source. No mutating DB ops (read-only probes only). Added only this handoff
+  file; committing it to feat/exact-penny-pricing.
+- Working tree was clean at gate time (build terminal's edits already committed @ 9092bdb).
+- No push performed by this terminal unless Chris confirmed it separately.

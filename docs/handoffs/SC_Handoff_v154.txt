@@ -1,0 +1,127 @@
+SC_Handoff_v154  —  2026-06-29
+================================================================
+PURPOSE: Build-session closeout for Pass 2 of the Command Suite
+migration consolidation. Pass 2 is EXECUTED and verified; three
+retire PRs are open and awaiting merge. This handoff records what
+shipped, what's verified, and the post-merge follow-ups.
+
+----------------------------------------------------------------
+SESSION SUMMARY
+----------------------------------------------------------------
+Executed Pass 2 of docs/plans/shared_migrations_consolidation.md.
+Created the dedicated command-suite-db repo as the single source of
+truth for all Command Suite migrations (matching the shared project's
+single ledger), relocated the migration tooling, retired migrations
+from the three app repos, and proved the new push path end-to-end.
+
+The whole operation was file-reorg + tooling-move ONLY. The single
+deliberate prod write was the Step-5 smoke (a no-op SELECT 1).
+
+----------------------------------------------------------------
+CHANGES SHIPPED
+----------------------------------------------------------------
+NEW REPO: github.com/chris7berger-droid/command-suite-db (private)
+  - supabase/migrations/ = 82 canonical files (74 from sales, 8 from
+    sch; field had none), assembled in timestamp order, byte-identical
+    to sources. + 1 smoke migration = 83 now.
+  - Tooling relocated: check-migration-collision.mjs (with the new
+    optional dir-arg), check-migration-safety.sh, scripts/git-hooks/
+    pre-push, install-git-hooks.sh; pre-push hook installed.
+  - package.json db:push wrapper; README documents the new daily flow
+    + the "install-hooks once per clone" symlink caveat.
+  - ONLY repo linked to pbgvgjjuhnpsumnowuym; the only pusher.
+
+RETIRE PRs (OPEN — merge at your pace):
+  - sales-command #32 (branch plan/shared-migrations-consolidation):
+    carries the plan + 4 audit rounds + the sales retire + backlog
+    (O7/O9/O10) + this handoff.
+  - sch-command #9 (branch retire/migration-consolidation)
+  - field-command #1 (branch retire/migration-consolidation)
+  Each removes the db:push script, deletes the relocated collision
+  script (sales also deletes safety.sh + hook + installer), and
+  rewrites CLAUDE.md migration sections to point at command-suite-db.
+  Migration FILES + config.toml left in place (see §9 below).
+
+UNLINK (local, done on THIS machine): sales-command + its 4 worktrees,
+  sch-command, field-command all `supabase unlink`ed. sales-command's
+  .temp was git-tracked, so its unlink is committed (git-durable);
+  sch/field .temp is gitignored (local-only unlink — see follow-ups).
+
+----------------------------------------------------------------
+DECISIONS (ratified by Chris this session)
+----------------------------------------------------------------
+- New repo name/location: command-suite-db, private, chris7berger-droid.
+- Retire edits land via Branch + PR per app repo (not direct-to-main).
+  Rationale: durability is two-axis — git-durable enforcement AND a
+  durable, readable record of WHY; PR is that record. The "unlink now /
+  defer edits" option was rejected (leans on machine-local link state
+  that drifts; the committed edits are what's git-durable).
+- Ran the Step-5 smoke (the one permitted prod apply) with explicit go.
+
+----------------------------------------------------------------
+VERIFICATION
+----------------------------------------------------------------
+- Step 0 bijection (read-only): 82/82 ledger (version,name) rows matched
+  to exactly one file across sales+sch+field (git history + worktrees),
+  0 orphans, 0 dup versions, exactly the 6 known-abandoned extras.
+- Cross-machine freeze: this machine + laptop both confirmed no unpushed
+  migration commits; 4 sales worktrees scanned (no uncommitted migs).
+- Assembled set == ledger set: 82=82, 0 orphans, 0 extras, 0 dup
+  versions, 0 body byte-mismatches.
+- Verify gate: command-suite-db `migration list --linked` = 82=82, zero
+  strays. Go.
+- Smoke: `npm run db:push` from command-suite-db applied a no-op cleanly
+  (safety PASS -> collision OK 83/82 -> push). Post-apply ledger 83=83,
+  zero strays.
+
+----------------------------------------------------------------
+NOT TOUCHED / DEFERRED
+----------------------------------------------------------------
+- §9 OPEN: whether app repos keep migrations/ as a read-only snapshot or
+  remove them. Left in place + config.toml left in place (coupled). A
+  separate follow-up once decided.
+- Edge-function consolidation (same split, different mechanism) — its own
+  follow-up plan, NOT this one.
+- App-repo migrations/ files were NOT deleted (per §9 deferral).
+
+----------------------------------------------------------------
+POST-MERGE FOLLOW-UPS (do after merging the 3 PRs)
+----------------------------------------------------------------
+1. LAPTOP unlink. sch/field .temp is gitignored, so the laptop's sch +
+   field stay locally linked until you unlink them there once:
+       cd ~/sch-command   && supabase unlink
+       cd ~/field-command && supabase unlink
+   (sales-command auto-unlinks on the laptop via the tracked .temp
+   deletion when it pulls merged main.)
+2. command-suite-db on the laptop / any new clone:
+       git clone git@github.com:chris7berger-droid/command-suite-db.git
+       cd command-suite-db && npm run install-hooks
+       supabase login && supabase link --project-ref pbgvgjjuhnpsumnowuym
+3. Decide §9 (read-only snapshot vs remove migrations/ in app repos),
+   then sequence config.toml removal if removing.
+4. The 4 sales-command feature worktrees (deposit-checkbox-fill,
+   inquiry-modal-redesign, inquiry-wizard-drop-step-one,
+   invoice-sent-buttons-stale) carry the old db:push tooling on their
+   branches until they rebase/merge main. They're unlinked locally; no
+   action needed unless one tries to push a migration.
+
+----------------------------------------------------------------
+GIT STATE
+----------------------------------------------------------------
+- command-suite-db: main @ 30f7845 (pushed). Linked to prod.
+- sales-command: plan/shared-migrations-consolidation @ be56e11 + this
+  handoff (PR #32, open). main unchanged until merge.
+- sch-command: retire/migration-consolidation pushed (PR #9). Working
+  checkout restored to feat/billing-forecast (untouched).
+- field-command: retire/migration-consolidation pushed (PR #1). main
+  checkout untouched.
+- All suite checkouts on this machine unlinked except command-suite-db.
+
+----------------------------------------------------------------
+FILES TO KNOW
+----------------------------------------------------------------
+- docs/plans/shared_migrations_consolidation.md (the plan; §6 as amended
+  through round 4 is the procedure; Pass-1 cert + Pass-2 build notes)
+- ~/command-suite-db/README.md (new daily migration flow)
+- ~/command-suite-db/scripts/ (the relocated tooling)
+================================================================

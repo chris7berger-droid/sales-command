@@ -300,33 +300,25 @@ This applies to both the CallLog wizard upload and CallLogDetail upload.
 - `src/lib/config.js` — Tenant config (getTenantConfig, DEFAULTS)
 - `src/App.jsx` — Root nav + auth state
 
-## Pushing Migrations
+## Database Migrations — moved to `command-suite-db`
 
-Always use `npm run db:push` instead of raw `supabase db push`. The wrapper
-runs a collision check against the prod ledger before pushing — it catches
-timestamp collisions across repos sharing the same Supabase project. If it
-reports a collision, rename your migration file to the next free timestamp.
-If the ledger is unreachable, re-auth with `supabase login` and
-`supabase link --project-ref pbgvgjjuhnpsumnowuym`.
+**sales-command no longer owns or pushes migrations.** As of 2026-06-29 all
+Command Suite migrations live in the dedicated repo **`command-suite-db`**
+(`github.com/chris7berger-droid/command-suite-db`) — the single source of truth
+matching the shared project's single ledger. See
+`docs/plans/shared_migrations_consolidation.md` for the consolidation plan and
+its four-round audit.
 
-## Migration push discipline
+To make a database change (new table, column, policy, grant): author and push it
+in `command-suite-db` (`npm run db:push` there), not here. The push tooling,
+safety script, collision check, and pre-push hook all relocated to that repo.
 
-Before any `supabase db push`, run `scripts/check-migration-safety.sh`. Before
-any `supabase migration repair`, run the same script. The git pre-push hook
-(`scripts/git-hooks/pre-push`) enforces the first rule mechanically — do not
-bypass with `--no-verify`.
+The `supabase/migrations/` files still present here are a **read-only historical
+snapshot** (kept pending the §9 local-`supabase start` decision); do not push
+from this repo — it is unlinked from the Supabase project.
 
-`repair --status reverted` is ONLY correct for ledger entries with no
-corresponding migration file anywhere in the repo (across all branches). When
-`supabase migration list` shows remote-only entries, the right answer is almost
-always `git merge origin/main` — not a ledger rewrite. On 2026-05-18 three live
-migrations were incorrectly marked reverted because a feature branch was behind
-main; the ledger had to be manually restored.
-
-The safety script never invokes `repair`; if a true stray ledger entry needs
-reverting, do it manually after confirming with prod.
-
-New clones: run `scripts/install-git-hooks.sh` once to install the pre-push hook.
+`repair --status reverted` on a live ledger entry remains forbidden (2026-05-18
+incident) — that rule now lives with the tooling in `command-suite-db`.
 
 ## Production
 

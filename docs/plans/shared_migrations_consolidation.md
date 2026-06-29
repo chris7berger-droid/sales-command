@@ -243,3 +243,27 @@ Replace the hand-built reconciliation table with:
 
 ## Round 4 audit focus
 - Mechanical confirmation only: does the ledger-derived `(version, name)` set, run through `check-migration-collision.mjs`, pass with zero collisions, with all 82 ledger rows matched to exactly one file or a STOP-flagged orphan? No hand-verification of a hand-built list.
+
+---
+
+# Amendments — Audit Round 4 (2026-06-29): Bijection Gate + Pass-1 CERTIFIED
+
+**[LOCKED] RATIFIED 2026-06-29 (Chris).** Design converged (4 flat rounds). Final gate re-spec below, and the reversible Pass-1 certification was **EXECUTED read-only** — result recorded. No round 5: further prose audit adds nothing; execution is the proof.
+
+## Gate re-spec (supersedes round-3 "collision script as the gate")
+Reading `check-migration-collision.mjs` confirmed it only flags same-version-different-name, (a) hardcodes `MIGRATION_DIR`, (b) never asserts ledger coverage → misses orphans + extras. Therefore:
+- **PRIMARY GATE = `(version,name)` set-equality (bijection):** the assembled candidate set must map one-to-one onto the ledger `(version,name)` rows — zero orphans (ledger row w/o file), zero extras inside the canonical set, zero duplicate versions. This is pass/fail.
+- **Collision script = SECONDARY.** To point it at a scratch dir add: `const MIGRATION_DIR = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : "supabase/migrations";` run from cwd=linked sales-command. Require the real success line; **forbid `--skip-collision-check`** at the gate.
+- **Step 3e:** multiple bodies for one `(version,name)` → canonical = latest commit on `main`.
+- The round-2 hand-typed EXCLUDE-3 list is **struck** (extras are derived, not hand-listed).
+
+## Pass-1 certification — EXECUTED 2026-06-29 (read-only; nothing mutated, nothing unlinked)
+Pulled all 82 ledger `(version,name)` rows; enumerated every migration file across sales+sch+field (all git history + working trees → 88 distinct); matched on `(version,name)`:
+- **82/82 ledger rows matched to exactly one file · 0 orphans · 0 duplicate versions → BIJECTION CLEAN.**
+- Because all 82 matched on this machine with zero orphans, no ledger migration is hiding on an unpushed branch elsewhere.
+- **6 extras (abandoned → excluded):** `20260427120000_create_token_rpcs`, `20260427120000_tighten_anon_rls_signing_flow`, `20260427120100_drop_anon_signing_policies`, `20260512120000_multi_gc_allocation`, `20260620130000_deposit_tag`, `20260620140000_billing_schedule_deposit_pending`. (Confirms round-3: the round-2 "KEEP" files are abandoned.)
+
+**Conclusion: Pass-1 reconciliation is CERTIFIED clean.** Canonical set for `command-suite-db` = the 82 ledger-matched files; the 6 abandoned files excluded. Design proven.
+
+## Remaining work = Pass 2 only (build session)
+Per §6 as amended: create `command-suite-db`, assemble the 82 certified files in timestamp order, move tooling (incl. the collision-script dir-arg), verify `migration list` zero strays, `supabase unlink` ALL app repos incl. sales, post-cutover smoke. Execute with the freeze (all-machines-pushed assertion + unlink) actually in place. **No further plan audit — BUILD-READY.**

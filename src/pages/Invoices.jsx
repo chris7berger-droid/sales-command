@@ -573,7 +573,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 }
 
 // ── Invoice PDF Modal ─────────────────────────────────────────────────────
-function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideSend = false, teamMember, recipients: parentRecipients }) {
+function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbSynced, hideSend = false, teamMember, recipients: parentRecipients }) {
   const money = invoice.show_cents ? fmt$c : fmt$;
   const fmtPct = (n) => {
     const v = parseFloat(n) || 0;
@@ -714,9 +714,12 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
       if (fnError) throw new Error(fnError.message || "Send failed.");
       if (data?.error) throw new Error(data.error);
       setSendWarnings(Array.isArray(data?.warnings) ? data.warnings : []);
-      // Sync to QuickBooks (non-blocking, skip test jobs)
+      // Sync to QuickBooks (non-blocking, skip test jobs). When it resolves the
+      // server has written qb_invoice_id — tell the parent to refetch so the
+      // "Sync to QuickBooks" button clears in place (no remount needed).
       if (!(invoice.job_name || "").toLowerCase().includes("test")) {
         supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: invoice.id } })
+          .then(() => onQbSynced && onQbSynced())
           .catch(() => {});
       }
       setSendDone(true);
@@ -1118,6 +1121,19 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       .eq("customer_id", custInfo.id)
       .order("created_at");
     setCustomerContacts(data || []);
+  }
+  // Re-read this invoice row and merge into local state. Used after send and
+  // after the (async, fire-and-forget) QB sync resolves, so action buttons
+  // reconcile with server-written fields (status, qb_invoice_id) in place —
+  // without needing a navigate-away/return to remount. Mirrors the inline
+  // refetch in handleQBSync / QBLink onLinked.
+  async function reloadInv() {
+    const { data: refreshed } = await supabase
+      .from("invoices")
+      .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))`)
+      .eq("id", inv.id)
+      .maybeSingle();
+    if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
   }
 
   // Add a recipient with the right role, seeding the billing main when needed.
@@ -2358,9 +2374,11 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           onSent={async (responseData) => {
             const updates = { status: "Sent", sent_at: new Date().toISOString(), viewing_token_expires_at: new Date(Date.now() + 90 * 86400000).toISOString(), stripe_checkout_id: null, stripe_checkout_url: responseData?.checkoutUrl || null, stripe_payment_link_id: responseData?.paymentLinkId || null };
             await supabase.from("invoices").update(updates).eq("id", inv.id);
-            setInv(prev => ({ ...prev, ...updates }));
+            setInv(prev => ({ ...prev, ...updates }));   // instant feedback
+            await reloadInv();                            // reconcile server-written fields (e.g. qb_invoice_id from the pay-app approve path, which syncs before onSent)
             onUpdated && onUpdated();
           }}
+          onQbSynced={async () => { await reloadInv(); onUpdated && onUpdated(); }}
         />
       )}
 

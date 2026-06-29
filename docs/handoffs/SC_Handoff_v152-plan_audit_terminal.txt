@@ -1,0 +1,60 @@
+SC Handoff v152 — Plan Audit Terminal (T2): exact-penny-pricing (3-round adversarial loop; CONVERGED at R3, no round 4)
+Repo: sales-command
+Branch: feat/exact-penny-pricing
+Date: 2026-06-29  (the 3 audit rounds themselves ran 2026-06-26; this closeout written 2026-06-29)
+Role: PLAN-AUDIT terminal (T2 in the terminal split: T1 Plan / T2 plan-audit / T3 Build / T4 buildvsplan / T5 code-review). I audit the PLAN DOCUMENT, never code or runtime — /auditcriteria (manifest sizing) + /runaudit (adversarial multi-agent audit). READ-ONLY on source/DB; my output is findings + plan-revision prompts that the build terminal (T3) then implements. Spec-vs-code (T4/buildvsplan) and code/runtime review (T5/code-review, +security) are different lenses in their own v152 handoffs.
+Source of truth: docs/plans/exact_penny_pricing.md (CONVERGED post-R3; plan revision pass 3 @ 6225b52).
+NOTE: All six terminals share number v152 with a per-terminal suffix so none collide on this branch, and ALL ran on this machine / this branch. The full picture is the union of SC_Handoff_v152-*.txt — read them together. This file is the PLAN-AUDIT lens (plan-doc correctness, pre-build); buildvsplan/code-review/security cover spec-vs-code and runtime.
+
+=== What this terminal did ===
+Ran the ERD audit loop on the exact-penny-pricing plan three times. Each round = regenerate the manifest with /auditcriteria (size the pass, set the finding cap, brief prior rounds so agents don't re-litigate), then /runaudit fanning out 3 parallel adversarial agents on distinct angles, then synthesize one capped, root-cause-grouped report with a paste-ready build-terminal prompt. Adversarial framing throughout: find what's wrong, cite file:line, tag CAUSED-BY vs ADJACENT, cap severity to the single-tenant/low-concurrency deployment reality. I edited the plan only to write/replace the ## Audit manifest section; I never touched source, migrations, or prod.
+
+=== The arc (round by round) ===
+
+ROUND 1 — revision 0613c3a → response f43c58d.  3 agents: pricing-coverage / created_at-scope / cross-repo-display.
+  14 findings (9 in-cap), 2C/4H/3M (+2 adjacent). Pattern: created_at-scope-silent-noop.
+  The headline: the feature as drafted would have SILENTLY BILLED CEIL on the primary invoice path — `created_at` was never SELECTed at the new-invoice fetch (Invoices.jsx:67) or the InvoiceDetail save embeds, and usesExactPricing had no shape guard. So the rule would no-op to ceil and look correct. Two CRITICALs.
+  Also corrected a manifest premise error: `scheduled_value` does NOT exist in sch-command; `BillingScheduleSection.jsx` is a Sales Command file; the real cross-repo consumer is sch-command/src/lib/billingForecast.js. The original /auditcriteria manifest named the wrong file.
+  Outcome: pass 1 folded in B1/B2/B3 (param-order, optional-chain, shape guard) + A1/A2/A3 (real SELECT wiring; PublicInvoicePage is an anon embed, not an RPC). Then E1 (sch-command penny tolerance) was scoped OUT as adjacent → f827b3c.
+
+ROUND 2 — revision f827b3c → response 76756bd.  3 agents: created_at-coverage-regression / PDF-cents-signature / calc-MultiGC.
+  11 findings (9 in-cap), 0C/4H/5M (+2 regressions). Pattern: warn-net-holes. **PLATEAU** (no >=30% drop vs round 1).
+  The key methodological moment of the whole loop: round 2 found roughly as much as round 1, and the cause was diagnosable — the plan kept patching missed SELECT sites one at a time (whack-a-mole), AND the dev-warn that was supposed to catch misses had two blind spots (thin invoice embeds with no status/total; a WTC object passed by mistake). Enumeration would never converge. The fix was not "find more screens" — it was HARDEN THE WARN so the smoke test surfaces misses mechanically (the convergence lever).
+  Regressions caught: C1 (PDF-cents was mis-specified — fmt$c and a per-invoice show_cents toggle already existed; "always cents" would contradict the HTML invoice the customer sees) and D1 (the generateInvoicePdf wiring silently no-op'd because the forwarded proposal was a synthetic stub with no created_at).
+  Outcome: pass 2 hardened the both-path warn; ratified MultiGC back IN SCOPE (the "not live" claim was stale memory — code showed it IS live, one sister out in prod); fixed clone freeze!=bill DURABLY via a new nullable column proposals.pricing_anchor_at (era = pricing_anchor_at ?? created_at), lifting §2's no-migration lock for that one additive column; deferred §3.6 PDF-cents display to its own loop → 76756bd.
+
+ROUND 3 — revision 76756bd → response 6225b52.  3 agents: migration-clone-integrity / doubled-coverage-warn / MultiGC-linesum.
+  6 in-cap, 0C/2H/4M (+1 regression, +4 adjacent). Pattern: era-edge-fix-wording. **CONVERGED** (~33% drop in-cap; ~44% by root-cause group). Plateau guard NOT triggered.
+  The two Highs were the interesting result — both were bugs in the plan's OWN prescribed fixes, pointing in OPPOSITE money directions:
+    • REG-B1 (over-bill legacy): the round-2 D-sum fix said "round each line via roundPrice" — but roundPrice ceils when exact=false, so it would dollar-ceil legacy partial-invoice lines that are cent-rounded today → over-bill COMMITTED legacy invoices, violating §2 forward-only. Fix: cent-round lines with Math.round for BOTH eras; the ceil/exact choice lives only inside calcWtcPrice on the per-WTC base, never on the × pct line.
+    • A1 (under-bill clones): the four clone-bill SELECTs were told to add `created_at` ONLY, dropping the new `pricing_anchor_at`. A sister cloned from a pre-cutoff source has pricing_anchor_at=pre-cutoff but created_at=post-cutoff, so dropping the column makes it read EXACT when it must be CEIL → under-bill the clone. And the hardened warn is STRUCTURALLY BLIND to this: a missing nullable column is indistinguishable from a present-null one.
+  Convergence wins (genuinely closed, stated plainly): MultiGC REPLICATES WTCs per sister rather than splitting a total, so the 3-round-unverified sum-to-total invariant is N/A (nothing to allocate); QB derives the header from line items (no TotalAmt sent), so QB total == sum of stored lines, R6 satisfied; E1 clone freeze==bill holds; both warn predicates sound.
+  The permanent closer (A3): a single shared PROPOSAL_ERA select constant + a §6 smoke test that clones a PRE-cutoff proposal AFTER the cutoff and asserts the sister bills CEIL end-to-end. That smoke test is the ONLY detector for the A1 class, because the warn can't see it.
+  Outcome: recommended the 6-item fix list, NO scope-cut (the era-coverage mechanism is load-bearing and the loop had converged), and BUILD — no round 4.
+
+=== Why the loop ended at 3 (and didn't sprawl) ===
+Round 2 was a plateau and I said so; the move was to harden the safety net, not enumerate further. Round 3 then dropped >=30% with 0 Critical, the big structural questions all closed clean, and the only Highs were one-line fix-wording corrections. That is what convergence looks like — so I recommended building, not auditing a fourth time. Chris's standing plateau-guard instruction (cut, don't expand) was evaluated explicitly each round; the cut was never needed because the surface kept tightening.
+
+=== Reconciliation with the build + sibling terminals ===
+(I read the build commits and the other v152 handoffs to close this out faithfully.)
+- BUILD (9092bdb) implemented §3 faithfully; buildvsplan (SC_Handoff_v152-buildvsplan_terminal.txt) gated it GO and confirmed the migration is LIVE in prod as of 2026-06-29.
+- My REG-B1 (legacy over-bill) → CONFIRMED FIXED: buildvsplan reports getLineAmount cent-rounds with Math.round (NOT roundPrice) and threads exact into calcWtcPrice. The wording trap did not ship.
+- My A1 (under-bill clones via dropped pricing_anchor_at) → CONFIRMED SAFE: buildvsplan reports the ~10 era selects include both columns, and the select('*') sites (ProposalDetail, MultiGCWizard:76) return both columns for free. The calc/line-sum reviewer's "under-bills clones" HIGH on MultiGCWizard:76 was a false alarm for exactly this reason — select('*') covers it.
+- My A3 convergence lever → PARTIALLY applied: PROPOSAL_ERA exists and is used at the hand-written selects, but a few sites use select('*') instead (functionally fine; drift risk only — a future hand-written select there could omit the col, and the dev-warn is blind to it). buildvsplan flagged the same drift (their Tier-3 #4). Consistent.
+- A code-review fix landed that I did NOT raise: c807a81 "WTCCalculator era write-race (#1)" — an async-era race in the build (operational/code concern, not a plan-spec gap). Correctly outside my plan-level lens; the code-review terminal owns it.
+- Security: round 1 surfaced an anon cost/markup leak on PublicInvoicePage (proposal_wtc(*) exposes burden_rate/markup_pct to any viewing_token holder). The security terminal carried this lens further; B55 (HIGH anon signing_token column-grant gap) + B56 (LOW anon write grants) are now filed in BACKLOG.
+
+=== THE ONE THING TO ACTUALLY RUN BEFORE MERGE (my keystone) ===
+The §6 smoke test: clone a PRE-cutoff proposal AFTER the cutoff, then verify the sister bills CEIL end-to-end (preview → freeze → invoice → PDF → public page). This is the single test that validates round-3 A1 + E1, and it is the ONLY detector — the dev-warn cannot catch a missing/null pricing_anchor_at. If that one path bills CEIL correctly, the era logic is sound in the case that motivated the whole pricing_anchor_at column. Everything else (old=ceil, new=exact, line-sum==header) is the easy half.
+
+=== Open / adjacent I surfaced (status) ===
+- B54 — exact-penny code-review cleanups (deferred). FILED.
+- B55 / B56 — anon grant gaps on the public surfaces. FILED (security terminal's track).
+- ADJ-D3 (round 3) — multi-invoice cumulative drift: progressive billing (e.g. 50%+50% of an odd base) can drift 1¢ from proposals.total across invoices. D-sum only reconciles WITHIN one invoice. Pre-existing; exact makes it marginally more frequent. NOT filed as of my last check — worth a BACKLOG row if not captured elsewhere.
+- ADJ-D4 (round 3) — override-sister mispricing: clone_proposal_to_gcs stores total = source.total ignoring markup_override_pct, and invoice sites call calcWtcPrice(wtc) with no override, so an override sister bills at SOURCE markup. Pre-existing MultiGC defect; exact wiring widens the visible gap. NOT filed as of my last check — confirm or file.
+- E1 (cross-repo) — sch-command billingForecast.js fullyBilled/remaining have no penny tolerance; once we write exact-penny totals, a phantom sub-dollar "remaining" can stick in the worklist. Scoped OUT of this build by design; still UNVERIFIED in sch-command. Separate sch-command task if/when it bites.
+
+=== Git State (this terminal) ===
+- Did NOT modify source, migrations, or prod. The only plan edits I made were the three ## Audit manifest regenerations (committed as the "Add audit manifest (round N)" commits: 0613c3a, efbf702, 59c00c2).
+- Adding only this handoff file. Branch is ahead of origin by the sibling-terminal handoff commits; I have NOT pushed. Recommend committing all six v152 handoffs together and pushing as one closeout, then merge to main once the keystone smoke test above passes.
+- Plan + branch are CONVERGED and the build matches spec from every terminal's lens. From the audit lens: clear to ship after the clone-PRE-cutoff-bills-CEIL smoke test.

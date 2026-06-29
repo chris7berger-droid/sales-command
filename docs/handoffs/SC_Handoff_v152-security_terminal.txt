@@ -1,0 +1,82 @@
+SC Handoff v152 — T5 SECURITY REVIEW: exact-penny-pricing (diff clean; 2 pre-existing findings to file)
+Repo: sales-command
+Branch: feat/exact-penny-pricing @ 9092bdb (build commit; reviewed diff vs origin/main)
+Date: 2026-06-29
+Role: T5 — /security-review (one of the six terminals used to build this feature).
+Source of truth: docs/plans/exact_penny_pricing.md (CONVERGED).
+NOTE: All six terminals share number v152 with a per-terminal suffix so none collide on
+this branch. This one is the security terminal (SC_Handoff_v152-security_terminal.txt).
+Final/closing terminal: read all SC_Handoff_v152-*.txt together for the full six-terminal picture.
+
+=== Verdict ===
+NO new vulnerability introduced by this diff. The exact-penny change is security-sound:
+pricing era is driven by SERVER-set timestamps, the server bills from DB rows (not client
+input), and the clone RPC is injection-free with search_path pinned. SHIP from a security
+standpoint. The review surfaced TWO PRE-EXISTING findings (not caused by this work) worth
+filing as their own backlog items. Nothing auto-applied.
+
+=== Scope Reviewed ===
+- src/pages/PublicInvoicePage.jsx (anon embed — the public path)
+- supabase/migrations/20260626150000_pricing_anchor_at.sql (LIVE on shared prod
+  pbgvgjjuhnpsumnowuym: pricing_anchor_at column + clone_proposal_to_gcs RPC + backfill)
+- src/lib/calc.js (usesExactPricing / PROPOSAL_ERA / roundPrice)
+- src/pages/Invoices.jsx, src/components/ProposalDetail.jsx (exact-flag plumbing)
+- supabase/functions/send-invoice/index.ts, qb-sync-invoice/index.ts (money paths)
+Out of scope (per the review brief, already handled): functional correctness (/code-review),
+PDF cents (§5), B52/B53. The 2 uncommitted edits on the branch (Invoices.jsx, WTCCalculator.jsx)
+are display/calc-only — no data-path/anon/SQL surface; not security-relevant.
+
+=== Scoped Items — ALL CLEAR ===
+1. ANON TIMESTAMP EXPOSURE (PublicInvoicePage embed now selects created_at + pricing_anchor_at):
+   ACCEPTABLE. Two timestamps. The same embed already exposes proposals.total (a dollar
+   figure) to anon — timestamps are negligible incremental sensitivity. No PII, no cost/margin.
+2. RPC / MIGRATION: SAFE. clone_proposal_to_gcs is SECURITY DEFINER SET search_path = public
+   (still pinned). The new write is COALESCE(v_source.pricing_anchor_at, v_source.created_at) —
+   both typed timestamptz off a %ROWTYPE, no dynamic SQL anywhere, fully parameterized INSERT.
+   Tenant guard intact (TENANT_MISMATCH). EXECUTE authenticated-only, REVOKE..FROM public.
+   The additive nullable pricing_anchor_at column is referenced by NO RLS policy → no gap.
+3. MONEY INTEGRITY: SAFE. send-invoice (l.27/41-57) and qb-sync-invoice (l.100-132/243) take
+   only invoiceId/editReason from the body and read invoice.amount + invoice_lines.amount from
+   the DB. The client-side usesExactPricing only chooses rounding at invoice-CREATION time, when
+   the authenticated client writes its own tenant's rows under RLS. A tampered client can only
+   mis-bill its own tenant — pre-existing trust model, unchanged. Era derives from server-set
+   created_at/pricing_anchor_at, not user input.
+
+=== Pre-existing Findings Surfaced (FILE as backlog — NOT for this branch) ===
+HIGH — anon invoice-viewer can read proposals.signing_token (column-grant gap).
+  public.proposals has NO column-level REVOKE for anon (confirmed: only function grants touch
+  proposals; contrast invoices, which got REVOKE SELECT(...) in 20260625130000). The
+  proposals_public_view_token RLS policy grants anon SELECT at ROW granularity on any proposal
+  reachable from an invoice whose viewing_token the caller holds. With no column REVOKE, an anon
+  holding a valid invoice viewing-token can hand-craft:
+     GET /rest/v1/proposals?select=signing_token&id=eq.<pid>  (header x-viewing-token: <token>)
+  and read the proposal's signing_token — the live secret gating the anon proposal-sign/update
+  path (proposals_public_sign_token). Escalation: invoice-view -> proposal-sign capability, plus
+  exposure of markup_override_pct, total, billing_terms_override, intro, etc. Same leak class the
+  invoices column-REVOKE closed (stripe_checkout_url); proposals never got the equivalent.
+  Why HIGH not CRITICAL: signing tokens expire/consume on signature (20260510120000), bounding the
+  window to proposals that are both invoiceable and have a live signing token.
+  FIX: mirror invoices hardening — default-deny then GRANT safe columns (REVOKE-all + GRANT, NOT a
+  bare column REVOKE — see memory feedback_column_revoke_noop; a column REVOKE under a table grant
+  is a NO-OP). FROM anon only, never FROM public. Then re-trace PublicInvoicePage + PublicSigningPage
+  and smoke-verify AS ANON against prod. Separate shared-prod migration; own anon-surface trace.
+
+LOW (defense-in-depth) — anon holds table-level INSERT/UPDATE/DELETE/TRUNCATE on proposals.
+  These are Supabase's default GRANT ALL TO anon. INSERT/UPDATE/DELETE: RLS applies and there is
+  NO permissive anon policy for them (all anon UPDATE policies dropped in 20260502130000 STEP 3;
+  no anon INSERT/DELETE policy ever existed) -> default-deny, fully contained by RLS. TRUNCATE: NOT
+  governed by RLS, but NOT reachable via PostgREST's HTTP interface -> not exploitable in practice.
+  Net: not exploitable today, unnecessary grants. FIX: REVOKE INSERT,UPDATE,DELETE,TRUNCATE,
+  REFERENCES,TRIGGER ON public.proposals FROM anon. File as defense-in-depth, not a blocker.
+
+=== Recommendation to closing terminal ===
+- exact-penny-pricing is SECURITY-CLEAN to ship; no change required on this branch.
+- Open TWO backlog rows: (H) proposals column-level default-deny for signing_token + internal
+  pricing columns; (L) strip unused anon write grants on proposals. Both are separate shared-prod
+  migrations, each needing its own anon-surface trace + as-anon smoke — do NOT bundle into this
+  feature.
+
+=== Git State (this terminal) ===
+- Did NOT modify any source. Added only this handoff file and committed it to feat/exact-penny-pricing.
+- Left the build terminal's 2 uncommitted edits (Invoices.jsx, WTCCalculator.jsx) untouched.
+- No push performed by this terminal unless Chris confirmed it separately.

@@ -313,9 +313,10 @@ To make a database change (new table, column, policy, grant): author and push it
 in `command-suite-db` (`npm run db:push` there), not here. The push tooling,
 safety script, collision check, and pre-push hook all relocated to that repo.
 
-The `supabase/migrations/` files still present here are a **read-only historical
-snapshot** (kept pending the §9 local-`supabase start` decision); do not push
-from this repo — it is unlinked from the Supabase project.
+There are no `supabase/migrations/` or `supabase/rollbacks/` here anymore — they
+were removed 2026-06-29 (§9 decision) and live only in `command-suite-db`. This
+repo is unlinked from the Supabase project. `supabase/config.toml` + `functions/`
+remain because they're edge-function config (a separate concern from migrations).
 
 `repair --status reverted` on a live ledger entry remains forbidden (2026-05-18
 incident) — that rule now lives with the tooling in `command-suite-db`.

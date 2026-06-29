@@ -100,3 +100,66 @@ If we don't want to do the full move immediately, Option D (sibling-aware safety
 3. **Timestamp-collision handling** — is the cross-repo collision detection (Step 2) sufficient, given the safety script already flags collisions today?
 4. **Tooling-move completeness** — after Step 5, is there any push path left in an app repo that bypasses the new safety tooling (e.g. a stray `supabase db push` or pre-push hook still installed)?
 5. **Reversibility claim** — is the "abort is free before Step 4" claim actually true at every prior step?
+
+---
+
+# Amendments — Audit Round 1 (2026-06-29)
+
+**[VERIFIED]** All six findings were checked against the actual repos before integration (per "revise against code, not prose"), not adopted from audit prose alone. This block **supersedes** the cited original steps; the originals above are kept for history per the schema-amendment rule. Result: plan goal is sound, but it was **not safe to execute as written** — three load-bearing safety promises (read-only reconciliation, enforced freeze, single-pusher) were false or unenforced.
+
+**Verification evidence (concrete):**
+- Collision detection is a **separate** script `scripts/check-migration-collision.mjs`; `check-migration-safety.sh` only does branch-behind + ledger-divergence. `sch`/`field` `db:push` runs *only* the collision script (no safety.sh); `sales-command` runs both. The pre-push hook is a **symlink** (`.git/hooks/pre-push → scripts/git-hooks/pre-push`): source version-controlled, activation not.
+- `.temp/project-ref == pbgvgjjuhnpsumnowuym` in sales / sch / field. **AR-Command-Center has no `supabase/` and no link** — contributes zero migrations.
+- **False-orphan trap is real and live:** the `feat/inquiry-modal-redesign` worktree holds 72 migrations, missing two on `origin/main` — `20260626150000_pricing_anchor_at.sql` and `20260629104507_anon_invoices_grant_token_expiry.sql` (the B52 grant shipped today). An inventory built from that checkout brands both as true orphans → the revert trap.
+
+### A1 [LOCKED] — Cutover is file-reorg ONLY: zero applies, zero renames of applied versions — CRITICAL
+*(supersedes §6 Step 2 + Goal 5)*
+- Forbid **all** apply / `supabase db push` actions during cutover. Every "apply-or-drop per file" defers to *post-cutover* normal `db:push`.
+- Collision-rename is allowed **only** when the version is **NOT in the ledger**. Renaming an already-applied version manufactures a true orphan and makes the file look unapplied — the revert trap.
+- This is also the precondition that makes the §7 reversibility claim true (A7).
+
+### A2 [LOCKED] — Inventory is dynamic across ALL checkouts/worktrees, from full git history — HIGH
+*(supersedes §6 Step 1)*
+- Define the cutover set dynamically as *every checkout/worktree whose `supabase/.temp/project-ref == pbgvgjjuhnpsumnowuym`* — not a fixed list of four.
+- Build the file inventory from `git log --all` + `git worktree list` across each, **not** the currently-checked-out tree.
+- Before Step 1: `git fetch --all` in every repo and **assert no checkout is behind its remote**; abort otherwise.
+
+### A3 [LOCKED] — Freeze is mechanical; ledger re-locked at the gate — HIGH
+*(supersedes §6 Step 0 + Step 4)*
+- For the window, replace each linked checkout's `db:push` with an `exit 1 "CUTOVER FREEZE"` stub and/or a freeze-flag file the collision script honors.
+- Re-pull the ledger immediately before the Step 4 gate; abort on any delta vs the Step-1 snapshot.
+
+### A4 [LOCKED] — Step 6 actively unlinks siblings — HIGH
+*(supersedes §6 Step 6)*
+- Per app repo: `supabase unlink` (remove `supabase/.temp/`), remove `config.toml`, remove the `db:push` npm script, neutralize `check-migration-collision.mjs` + the hook.
+- This unlink **is** the enforcement of §5's "only command-suite-db pushes" — without it that guarantee is unenforced prose.
+
+### A5 [LOCKED] — Move the RIGHT tooling; fix the false wording — HIGH
+*(supersedes §6 Step 5 + §5)*
+- Add `check-migration-collision.mjs` AND `install-git-hooks.sh` (+ `scripts/git-hooks/`) to the inventory and move list. Run the hook installer in `command-suite-db` (otherwise the hook is a dormant symlink on a fresh clone).
+- Strike the §2/§6 claim that "the safety script already watches collisions" — it does not.
+
+### A6 [DERIVED] — Orphan recovery source order; no live-schema reconstruction — HIGH (Partial)
+*(supersedes §6 Step 2 orphan case + §7)*
+- True-orphan recovery order: (1) `schema_migrations.statements` (verbatim SQL that ran), else (2) `git log --all` across all repos, else (3) **STOP**. Never "reconstruct from live schema" (lossy — later migrations alter/replace earlier objects).
+- Add a canonical-winner rule for same-version-different-content collisions.
+- **Caveat (verified):** the `statements` column is **empty** for versions inserted via the `repair --status applied` workaround (e.g. B52's `20260629104507`), so the statements content-diff at the Step 4 gate is **best-effort, not a guaranteed gate**. Git history is the primary recovery source in practice.
+
+### A7 [LOCKED] — Reversibility claim, with its precondition stated
+*(supersedes §7)*
+- "Abort is free before Step 4" is **true only if** Step 2 does zero applies and no rename of an already-applied version (A1). Mechanics confirmed sound: `supabase link` writes a per-directory `.temp/project-ref`, so linking `command-suite-db` does not unlink siblings, and `migration list --linked` is read-only.
+
+### Design decision — sequence the move (Option 2), pending Chris's ratify
+- **Pass 1** (all reversible): mechanical freeze → dynamic complete inventory → unlink siblings → prove the ledger fully reconciles with **zero true orphans**.
+- **Pass 2** (irreversible): file assembly + tooling relocation, only after Pass 1 verifies clean.
+- Rationale: the irreversible move never runs against an unverified inventory. Audit-recommended; matches the "build it right" posture. **[DESIGN-OPEN] — Chris ratifies Option 1 (one pass) vs Option 2 (sequence).**
+
+### Adjacent findings → backlog (not this plan)
+- AR-Command-Center unwired — no `supabase/`, no link. Drop from cutover scope; discover linked checkouts dynamically (A2) rather than assume a fixed set.
+- Known push bypasses: raw `supabase db push`, `--skip-collision-check`, dashboard SQL. Unlink (A4) is the real enforcement.
+- Tooling parity never existed: only `sales-command` had the hook/`safety.sh`; `sch`/`field` had only the collision script. "Move sales-command's copy" doesn't retro-protect repos that were never protected.
+- No CI pushers / no pg_cron DDL found — freeze need not cover CI.
+- Hook is a symlink — activation not version-controlled; worth a one-line README note wherever relied on.
+
+### Round 2 audit focus
+- Does the dynamic inventory (A2) + mechanical freeze (A3) actually close the false-orphan path end-to-end?

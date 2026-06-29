@@ -2368,7 +2368,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         <PayAppDetailModal
           payAppId={linkedPayApp.id}
           schedule={{ id: linkedPayApp.billing_schedule_id }}
-          proposal={inv.proposals || { call_log_id: inv.proposals?.call_log_id }}
+          proposal={inv.proposals || {}}
           onClose={() => setShowPayAppReview(false)}
           onChanged={() => onUpdated?.()}
         />

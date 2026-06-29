@@ -1936,6 +1936,22 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     }
   };
 
+  // Resolve the pricing era at write-time. pricingEra loads async (the jobInfo
+  // fetch at :2047); if a money-write fires before it lands — or that fetch
+  // errored — fall back to a fresh fetch instead of silently defaulting to ceil
+  // and freezing a post-cutoff proposal at the wrong price (review #1: the
+  // freeze≠bill race the feature exists to kill). Caches into state when fetched.
+  async function resolveExact() {
+    if (pricingEra) return usesExactPricing(pricingEra);
+    if (!proposalId) return false;
+    const { data } = await supabase.from("proposals").select(PROPOSAL_ERA).eq("id", proposalId).maybeSingle();
+    if (data) {
+      setPricingEra({ created_at: data.created_at, pricing_anchor_at: data.pricing_anchor_at });
+      return usesExactPricing(data);
+    }
+    return false; // fetch failed — plan §2 safe default (ceil)
+  }
+
   // ── Save to Supabase ─────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!proposalId) return;
@@ -1985,6 +2001,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     }
     // Update proposals.total by summing ALL WTCs for this proposal
     if (proposalId) {
+      const exact = await resolveExact(); // write-time era (review #1), not the possibly-unloaded render value
       const { data: allWtcs } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", proposalId);
       const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcTotal(w, undefined, exact), 0);
       await supabase.from("proposals").update({ total: proposalTotal }).eq("id", proposalId);
@@ -2003,6 +2020,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     }
     // Flush any unsaved changes before toggling lock
     await handleSave();
+    const exact = await resolveExact(); // write-time era (review #1); cached by the handleSave call above
     const newLocked = !locked;
     setLocked(newLocked);
     // Sync proposals.total on lock/unlock — sum ALL WTCs. Done first

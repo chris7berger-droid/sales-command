@@ -254,6 +254,11 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     const lineLabel = isSov
       ? (sov.line_code ? `${sov.line_code} — ${sov.description || ""}` : (sov.description || "—"))
       : (wtc?.work_types?.name || l.description || "—");
+    // `proposal` carries the pricing era (created_at/pricing_anchor_at) so a WTC
+    // line honors exact-vs-ceil. NOTE: the only caller today (PayAppDetailModal)
+    // passes pay-app invoices whose lines are SOV (isSov), so this branch is
+    // currently unreached — it's wired for a future regular-invoice PDF caller
+    // per plan §3.6. SOV rowAmount comes straight from scheduled_value.
     const rowAmount = isSov
       ? (parseFloat(sov.scheduled_value) || 0)
       : (wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(proposal)) : 0);

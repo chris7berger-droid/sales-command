@@ -163,3 +163,49 @@ If we don't want to do the full move immediately, Option D (sibling-aware safety
 
 ### Round 2 audit focus
 - Does the dynamic inventory (A2) + mechanical freeze (A3) actually close the false-orphan path end-to-end?
+
+---
+
+# Amendments — Audit Round 2 (2026-06-29): Scope Cut to Manual Checklist
+
+**[LOCKED] RATIFIED 2026-06-29 (Chris).** Round 2 fired the plateau: the automated discover/freeze/verify machinery (A2 dynamic discovery, A3 mechanical freeze, automated Pass-1 gate) is over-built for a one-time, single-tenant move of 74 live files with zero collisions found, and it has **no post-cutover consumer** — it would be thrown away the moment the move completes. **This section supersedes §6 and the automation portions of A2/A3** with a one-time MANUAL reconciliation checklist. Surviving amendments folded in: A1 (re-keyed on file identity), A4 (unlink, made per-repo), A5 (tooling moves to `command-suite-db`), A6 (ledger-driven recovery), A7 (reversibility with stated precondition).
+
+## Keystone correction — the inventory is LEDGER-DRIVEN, not git-driven
+*(verified against prod 2026-06-29)*
+
+The source of truth for "which migrations belong" is the **prod ledger** (`supabase_migrations.schema_migrations`) — the record of what actually ran. Git is only where the file *bodies* are fetched. This dissolves both round-2 failure modes at once:
+
+- **Over-collect (verified):** git history holds **79** distinct migration files vs **74** live. Of the 5 history-only files, **3 never ran** (not in ledger) and must be **EXCLUDED** — copying them would re-run deliberately-killed DDL:
+  - `20260427120100_drop_anon_signing_policies.sql`
+  - `20260620130000_deposit_tag.sql`
+  - `20260620140000_billing_schedule_deposit_pending.sql`
+- **Under-collect (verified):** **2** history-only files **did run** (in ledger, file not on `main`) and must be **KEPT** — a ref-tips-only inventory would falsely orphan them:
+  - `20260427120000_tighten_anon_rls_signing_flow.sql` (ledger: applied, has-statements)
+  - `20260512120000_multi_gc_allocation.sql` (ledger: applied, has-statements)
+
+**Rule:** canonical set = every ledger version. For each, locate its file (ref tips → else `git log --all` recover → else `statements` column → else **STOP**). Any history file whose version is **not** in the ledger is abandoned → exclude. This supersedes A2's "inventory from git log --all" (which over-collected) and the audit's "ref tips only" counter (which would under-collect the 2 applied-history-only files).
+
+## §6 REWRITTEN — two-pass manual checklist
+
+### Pass 1 — Reconcile & freeze (all reversible)
+1. **All-machines-pushed assertion.** On every machine + checkout/worktree: `git fetch --all`, then confirm `git log --branches --not --remotes` is empty (nothing applied from an unpushed local branch); push first if not. The operator enumerates the machine/checkout set **by hand** — sales / sch / field + their worktrees; AR excluded (unwired). Stated cross-machine precondition, not automated discovery.
+2. **Freeze = unlink siblings.** `supabase unlink` in `sch-command` and `field-command` (the real freeze; a db:push stub is theater — round-2 D). Keep `sales-command` linked for the reconciliation reads. **Abort/restore:** re-`supabase link` siblings — `sch`/`field` `.temp/` is gitignored, so re-link needs the CLI token + DB password (not a git-trivial restore — round-2 E).
+3. **Build the reconciliation table by hand** (one-time, ~79 rows). Pull the full ledger; for each ledger version find its file and classify: (a) live & matched; (b) applied but file only in history → KEEP (recover from history); (c) true orphan = ledger version, no file anywhere → recover SQL from `statements`, else STOP; (d) same-version-different-content → canonical winner = file whose content matches the ledger `statements`. Separately list history files NOT in the ledger → EXCLUDE (the 3 abandoned above). *Caveat: `statements` is empty for versions inserted via the `repair --status applied` workaround — best-effort, lean on git history first.*
+4. **Pass-1 gate (procedural — operator tick).** Proceed only when: zero unresolved true orphans AND zero unresolved content collisions. Manual checklist tick, appropriate at 1 tenant — do not build mechanical enforcement for a one-time move (round-2 F). Nothing irreversible has happened — abort = re-link siblings.
+
+### Pass 2 — Assemble & cut over (irreversible)
+5. **Create `command-suite-db`.** Assemble the ledger-driven canonical set into its `supabase/migrations/` in timestamp order, recovering history-only bodies as classified. Move tooling: `check-migration-collision.mjs`, `check-migration-safety.sh`, `scripts/git-hooks/` + `install-git-hooks.sh`; run the hook installer there (round-2 A5).
+6. **Verify gate.** Link `command-suite-db`; `supabase migration list --linked` must show **full sync, zero strays** vs prod. Go/no-go.
+7. **Retire siblings (per-repo, non-uniform).** Remove the `db:push` npm script + neutralize collision/hook in each app repo. **Do NOT remove `config.toml` yet** — it kills local `supabase start` and is coupled to §9's open read-only-snapshot decision (round-2 F); sequence after §9. (`sch-command` has no `config.toml` anyway — A4 is per-repo, not uniform.)
+8. **Post-cutover smoke (the ONE permitted apply).** Author a trivial no-op migration in `command-suite-db`, push via the normal path, confirm clean apply + zero strays. Explicitly carved out of A1's apply-ban as post-cutover (round-2 over-cap).
+
+### Freeze-window note
+The freeze now spans both passes (longer than the original single-step freeze). Emergency-push path: if a production migration is genuinely needed mid-cutover, re-link the affected repo, push, then add the new version to the reconciliation table before continuing.
+
+### A1 re-key (folded in, round-2 D)
+A1's "rename only when version NOT in ledger" is re-keyed on **file identity**: a collision is resolved by matching the ledger entry's recorded name/`statements`, not by the bare 14-digit timestamp. (The collision script fires precisely when a version IS in the ledger under a different filename — the old wording forbade the exact case it must handle.)
+
+## Round 3 audit focus
+- Does the ledger-driven inventory correctly KEEP the 2 applied-history-only files and EXCLUDE the 3 abandoned ones?
+- Is the Pass-1 → Pass-2 order now correct (reconcile + gate before any assembly)?
+- Any remaining apply or rename-of-applied-version inside Pass 1?

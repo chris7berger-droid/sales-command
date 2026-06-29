@@ -1,0 +1,92 @@
+SC Handoff v152 — T4/code-review: exact-penny-pricing (10 findings, 0 auto-applied; 1 HIGH money bug)
+Repo: sales-command
+Branch: feat/exact-penny-pricing @ 9092bdb (build commit; reviewed working diff vs origin/main)
+Date: 2026-06-29
+Role: code-review terminal — /code-review high (one of the six terminals used to build this feature).
+Source of truth: docs/plans/exact_penny_pricing.md (CONVERGED, post-R3).
+NOTE: All six terminals share number v152 with a per-terminal suffix so none collide on
+this branch. This one is the code-review terminal (SC_Handoff_v152-codereview_terminal.txt).
+Final/closing terminal: read all SC_Handoff_v152-*.txt together for the full six-terminal picture.
+
+=== Method ===
+Ran /code-review at high effort, workflow-backed: 8 finder angles (3 correctness + reuse,
+simplification, efficiency, altitude, conventions), 17 independent verifiers (one per distinct
+file:line), then a ranked synthesis. 28 candidates → 26 verified → 10 reported, 2 refuted.
+NOTHING auto-applied — findings listed for Chris to triage. Did NOT modify source.
+
+=== Verdict ===
+The feature is sound in its core (calc.js usesExactPricing/roundPrice/PROPOSAL_ERA threading is
+correct; line-sum reconciliation in NewInvoiceModal is right). ONE genuine money bug worth fixing
+before ship (#1, WTCCalculator async-era race). Two are operational/deploy-timing calls for Chris
+(#2, #3). The rest are safe reuse/efficiency cleanups, none blocking.
+
+=== Findings (severity / file:line / why) — full detail in this terminal's review output ===
+CORRECTNESS — money path:
+  1. HIGH  src/pages/WTCCalculator.jsx:2069 (also :2025) — CONFIRMED.
+     `const exact = usesExactPricing(pricingEra)`; pricingEra inits null, set only inside `if (data)`
+     after the async .single() fetch at :2047 (NO else/error branch). handleSave/handleLock close over
+     `exact` — if Lock is clicked before the fetch resolves OR it errors, usesExactPricing(null) → false
+     → CEIL. Freezes locked_line_total + writes proposals.total at ceil for a post-cutoff proposal that
+     ProposalDetail's canonical lock would compute EXACT. Up to $0.99 over-bill — the exact freeze≠bill
+     divergence the feature exists to eliminate. (Also trips CLAUDE.md Data-Integrity rule #6 fail-safe.)
+     FIX: gate Lock/Save handlers on pricingEra !== null (disable until loaded); on fetch error abort,
+     don't silently default. Better: derive era from a proposal object already in hand, drop the 2nd fetch.
+
+  2. MED   src/pages/Invoices.jsx:2371 → PayAppDetailModal.jsx:347 — CONFIRMED.
+     Stub→real swap passes full inv.proposals; its embedded call_log (show_cents, display_job_number,
+     sales_name, qb_*) now spreads into generateInvoicePdf's callLog — fields the old {call_log_id} stub
+     never carried. For pay-app invoices rendered on the fly (no stored pdf_url), show_cents can flip cents
+     display ON and the job-number/deposit pointer can change what prints. PDF output shift is an untested
+     side effect of a change made only for era detection. FIX: confirm intended; else pass only era fields.
+
+  3. MED   src/lib/calc.js:11 — PLAUSIBLE (deploy-timing).
+     Cutoff (noon Central 2026-06-26) is already PAST while code is committed-but-not-deployed. A proposal
+     created in the cutoff→deploy gap bills ceil live and is sent; after deploy, editing billing % recomputes
+     via usesExactPricing=true and silently rewrites stored ceil lines DOWN to the penny — header diverges
+     from the figure already sent. FIX (operational): deploy ASAP to shrink window, or reset cutoff to a
+     near-future timestamp at deploy. Conscious call needed since the migration is already live on prod.
+
+  4. LOW/MED src/pages/PublicInvoicePage.jsx:214 — PLAUSIBLE.
+     Customer-facing Amount recomputes via usesExactPricing(invoice.proposals); on a null/absent embed
+     (proposal deleted post-send) it ceil-defaults while stored Line Total was billed exact → Amount×Billing%
+     no longer reconciles to displayed Line Total. Pre-change ceil'd both, always matched. FIX: on missing
+     embed fall back to a stored era flag, or show nothing rather than a mismatched ceil.
+
+REUSE / SIMPLIFICATION / EFFICIENCY (safe cleanups, non-blocking):
+  5. src/pages/WTCCalculator.jsx:1126 (+1180,1376,1562,2090) — CONFIRMED. 5 inline copies of the price
+     formula re-implement calc.js (which says "Do NOT duplicate"); exact flag hand-threaded into each.
+     Route through calcWtcPrice/calcWtcBreakdown.
+  6. src/pages/Invoices.jsx:204 vs :1572-1574 — CONFIRMED. §3.2.1 reconciliation in getLineAmount
+     (NewInvoiceModal) re-implemented inline in handleSaveEdit. Extract one shared helper so a future
+     B52-drift fix can't land in only one path (create-vs-edit divergence).
+  7. src/pages/Invoices.jsx:2371 — CONFIRMED. `inv.proposals || { call_log_id: inv.proposals?.call_log_id }`
+     is a misleading no-op (== `inv.proposals || {}`). Simplify.
+  8. src/lib/invoicePdf.js:259 — CONFIRMED. New `proposal` param / usesExactPricing branch is DEAD for the
+     only caller (pay-app lines are SOV, isSov true). Drop, or comment that it's wired for a future
+     regular-invoice PDF caller.
+  9. src/pages/Invoices.jsx:203 (+455,2082) & PublicInvoicePage.jsx:214 — CONFIRMED. Loop-invariant
+     usesExactPricing (Date.parse) recomputed per row every render. Hoist once (useMemo), pass in.
+  10. src/components/ProposalDetail.jsx:830 vs hoisted :304/:1208 — CONFIRMED (cleanup only, all read `p`,
+      no current effect). Hoist for consistency/auditability.
+
+REFUTED (2): InvoiceDetail proposal.id-undefined template match (PROPOSAL_ERA correctly omits id;
+job-scoped match already worked this way pre-change); InvoiceDetail per-row exact DRY (no current effect —
+folded into #9/#10).
+
+NOT re-flagged per the review brief's accept-list: PDF cents-display (§5), B52/B53 backlog,
+PROPOSAL_ERA on select("*") sites, overbroad anon privileges (routed to /security-review — see
+SC_Handoff_v152-security_terminal.txt).
+
+=== Recommendation to closing terminal ===
+- #1 is the only correctness blocker I'd fix on this branch before ship (real under/over-bill of a live
+  contract). #2 and #3 are conscious Chris calls (PDF output shift; deploy-window). #4 is low-likelihood.
+  #5–#10 are safe cleanups, batch them or defer to a follow-up — none blocks ship.
+- Suggest a BACKLOG row for #5/#6 (formula + reconciliation duplication) since they're the kind of drift
+  CLAUDE.md calc.js single-source rule is meant to prevent.
+- Overlap with security terminal at PublicInvoicePage.jsx — different lens (mine: reconciliation; theirs:
+  anon column exposure). No conflict.
+
+=== Git State (this terminal) ===
+- Did NOT modify any source. Added only this handoff file; committing it to feat/exact-penny-pricing.
+- Working tree was clean at review time (build terminal's edits already committed).
+- No push performed by this terminal unless Chris confirmed it separately.

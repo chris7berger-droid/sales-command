@@ -29,6 +29,10 @@ Today the summary is price/cost/margin/profit only — no way to read total proj
 labor hours or size without opening each WTC. Goal: make a project with multiple WTCs
 legible for hours + size the same way it already is for money.
 
+**Scope:** applies to **both single-WTC ("regular") and multi-WTC jobs** — same
+columns on every proposal; a single-WTC job is just the one-row case of the same
+Total rollup. No separate layout for single vs. multi.
+
 ## §2 Proposed change [TODO]
 <!-- Likely: add Reg Hrs / OT Hrs / Size columns (or a parallel mini-table) to the
      summary WTC table, with a Total row that sums hours and size across WTCs.

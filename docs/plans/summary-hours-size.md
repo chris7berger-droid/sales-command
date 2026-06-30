@@ -29,9 +29,15 @@ Today the summary is price/cost/margin/profit only — no way to read total proj
 labor hours or size without opening each WTC. Goal: make a project with multiple WTCs
 legible for hours + size the same way it already is for money.
 
-**Scope:** applies to **both single-WTC ("regular") and multi-WTC jobs** — same
-columns on every proposal; a single-WTC job is just the one-row case of the same
+**Scope:** applies to **single-WTC ("regular"), multi-WTC, AND multi-GC jobs** —
+same columns on every proposal; a single-WTC job is just the one-row case of the same
 Total rollup. No separate layout for single vs. multi.
+
+**[DESIGN-OPEN] Multi-GC rollup:** money is already allocated per-GC on multi-GC jobs
+(see docs/plans/multi_gc_allocation.md, feat/multi-gc-allocation). Decide whether the
+summary shows Reg/OT hours + size **per-GC** (mirroring the money allocation) in
+addition to the project total, or project total only. Leaning per-GC for parity with
+the money view — confirm at plan time.
 
 ## §2 Proposed change [TODO]
 <!-- Likely: add Reg Hrs / OT Hrs / Size columns (or a parallel mini-table) to the

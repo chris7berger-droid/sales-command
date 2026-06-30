@@ -1,0 +1,136 @@
+SC_Handoff_v155  —  2026-06-29
+================================================================
+PURPOSE: Bug-fix session closeout. One fix shipped to prod (invoice
+sent-state buttons), one bug diagnosed + deferred to BACKLOG (QB
+colon-in-name). Both on the invoice surface.
+
+----------------------------------------------------------------
+SESSION SUMMARY
+----------------------------------------------------------------
+Fixed the long-standing bug where, after sending an invoice, the
+"Edit" and "Sync to QuickBooks" buttons stayed visible as if the
+invoice were never sent — clearing only after navigating away and
+back. Root cause: local `inv` state was reconciled after send only
+from a hardcoded optimistic object that omitted server-written fields
+(esp. `qb_invoice_id`) and never refetched. Fixed in `Invoices.jsx`,
+merged to main (PR #34), and prod-verified by a real standard send.
+
+Separately, while testing, the QB "Connect to QuickBooks" flow on a
+job named "3:35 bug hunt work" failed with an opaque "Edge Function
+returned a non-2xx status code". Diagnosed to a colon in the job name
+(QB forbids `:` in DisplayName). Chris took the rename workaround;
+filed B57 with the full root cause + fix rather than fixing this
+session.
+
+----------------------------------------------------------------
+CHANGES SHIPPED
+----------------------------------------------------------------
+PR #34 (squash) — main @ 24c7ba1
+  "Fix invoice sent-state buttons not clearing until remount"
+  - New `reloadInv()` helper in `InvoiceDetail` — refetch + merge the
+    invoice row (mirrors the existing `handleQBSync` / QBLink
+    `onLinked` inline refetch).
+  - `onSent` now does optimistic `setInv` (instant feedback) THEN
+    `await reloadInv()` to reconcile server-written fields. Fixes the
+    pay-app approve path, where qb-sync is awaited before onSent so
+    `qb_invoice_id` is already present.
+  - New `onQbSynced` callback fired from the standard send path's
+    fire-and-forget qb-sync `.then()` → clears the Sync button the
+    moment QB actually has the invoice, no remount. qb-sync stays
+    non-blocking for the send confirmation itself.
+  - Frontend only, no migrations.
+
+(Parked branch `feat/invoice-sent-buttons-stale` + its worktree were
+created via /detach, used, merged, then removed; remote branch deleted;
+parked-work registry marked DONE.)
+
+----------------------------------------------------------------
+DECISIONS / CHOICES MADE
+----------------------------------------------------------------
+- Did NOT smoke the fix on a Vercel preview. The edge-function CORS
+  layer (`_shared/cors.ts`) is an exact-host allowlist — preview and
+  localhost origins are blocked by design (S7 / audit C1/C17), so a
+  real send can't be tested off-prod without pinning the origin in the
+  `PREVIEW_ORIGINS` secret. Chose to merge (code-reviewed, build+lint
+  green) and verify the real send on prod instead. (Banked to memory.)
+- Pay-app send half NOT live-verified — the approve flow is more
+  involved to exercise; the same `reloadInv()` reconciliation covers
+  it, so accepted as unverified for now (revisit if it misbehaves).
+- B57 (QB colon) deferred, not fixed — Chris had a working rename
+  workaround and chose to close the session.
+- Killed an over-scoped `/code-review ultra` (workflow) run — wrong
+  tool for a 30-line single-file diff; reviewed inline instead.
+
+----------------------------------------------------------------
+NEW BACKLOG ITEMS
+----------------------------------------------------------------
+- B57 (T3) — QB "Create"/"Link" fails for any job/customer name with a
+  colon (`:`); opaque "non-2xx" hides the cause. Fix = sanitize QB
+  DisplayName in `qb-create-job` + surface real error in
+  `QBActionModal` via `fnErr.context.json()`. ~1h.
+
+----------------------------------------------------------------
+CLOSED THIS SESSION
+----------------------------------------------------------------
+- Invoice sent-state buttons stale-until-remount — fixed + merged
+  (PR #34, 24c7ba1). Not previously a numbered BACKLOG row.
+
+----------------------------------------------------------------
+VERIFICATION
+----------------------------------------------------------------
+- Local: `npm run build` green; `eslint src/pages/Invoices.jsx` adds
+  no new problems (pre-existing URL-sync-effect lint untouched).
+- Inline code review of the diff: clean, no findings.
+- PROD: standard invoice send — Chris confirmed the Edit / Sync
+  buttons now clear in place, no navigate-away. WORKING.
+- NOT verified live: the pay-app approve send path (see DECISIONS).
+- B57: diagnosed by code read; root cause (colon) confirmed by the
+  rename workaround succeeding. No fix written.
+
+----------------------------------------------------------------
+NOT TOUCHED / DEFERRED
+----------------------------------------------------------------
+- B57 (QB colon) — filed, deferred.
+- Migration-consolidation post-merge follow-ups from v154 (laptop
+  unlink, command-suite-db clone, §9 decision) — unrelated, still open.
+- Three other sales-command feature worktrees remain open (see GIT
+  STATE) — not touched this session.
+
+----------------------------------------------------------------
+NEXT SESSION POINTERS
+----------------------------------------------------------------
+- If picking up B57: read `supabase/functions/qb-create-job/index.ts`
+  (DisplayName build at :246-248, qbApi throw at :72-74) and
+  `src/components/QBActionModal.jsx` (handleCreate :14-40). Two-part
+  fix per the B57 row. Edge-function change → deploy from this repo
+  (functions still live here; only migrations moved to command-suite-db).
+- Reminder: edge-function flows can't be smoke-tested on a preview
+  unless the preview origin is pinned in the `PREVIEW_ORIGINS` secret
+  (then cleared). Otherwise verify on prod.
+
+----------------------------------------------------------------
+FILES TO KNOW
+----------------------------------------------------------------
+- src/pages/Invoices.jsx — `reloadInv()`, `onSent`, `onQbSynced` (the
+  fix). InvoicePDFModal now takes an `onQbSynced` prop.
+- supabase/functions/qb-create-job/index.ts — B57 lives here.
+- src/components/QBActionModal.jsx — B57 error-surfacing half.
+- supabase/functions/_shared/cors.ts — the exact-host allowlist that
+  blocks preview origins.
+
+----------------------------------------------------------------
+GIT STATE ON CLOSE
+----------------------------------------------------------------
+- Branch: main. origin/main @ 24c7ba1 (PR #34 merged).
+- This handoff + B57 BACKLOG row committed locally on main, not yet
+  pushed (awaiting confirmation).
+- Other worktrees (untouched): feat/deposit-checkbox-fill,
+  feat/inquiry-modal-redesign, feat/inquiry-wizard-drop-step-one.
+- Working tree: only `supabase/.temp/*` noise (kept out of commits).
+
+----------------------------------------------------------------
+END STATE
+----------------------------------------------------------------
+Invoice fix merged + prod-verified (standard send). B57 filed +
+deferred. Handoff committed on main, awaiting push confirmation.
+================================================================

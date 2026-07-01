@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
+import { fetchAll } from "../lib/supabaseHelpers";
 import { fmt$ } from "../lib/utils";
 import { calcWtcPrice, calcProposalTotal, usesExactPricing } from "../lib/calc";
 
@@ -103,10 +104,9 @@ export default function MultiGCWizard({ sourceProposalId, onClose, onSaved }) {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase
-        .from("customers")
-        .select("id, name, customer_type, billing_terms")
-        .order("name");
+      const data = await fetchAll("customers", "id, name, customer_type, billing_terms", {
+        order: { column: "name", ascending: true },
+      });
       setCustomers(data || []);
     })();
   }, []);

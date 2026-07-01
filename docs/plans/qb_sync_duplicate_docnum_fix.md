@@ -1,24 +1,22 @@
 # Plan: `qb_duplicate_docnum` wedge on invoice #10051
 
-**Status:** AUDIT ROUND 1 COMPLETE · SCOPE RATIFIED · REVISED FOR RE-AUDIT · FIX NOT BUILT
+**Status:** R2 AUDIT COMPLETE · RULINGS RESOLVED · BUILDING now-batch (1)(2)(3)+persist · step (4) heal deferred to post-QB-reauth
 **Branch:** `fix/qb-sync-duplicate-docnum`
 **Author:** build/fix session, 2026-07-01
 **Confidence tags:** [LOCKED] verified · [DERIVED] inferred from code · [DESIGN-OPEN] needs a call · [BLOCKED] needs external input
 
 ---
 
-## Ratified decision (2026-07-01, round-1 audit)
+## Ratified decision (rounds 1–2 audit)
 
 **Ship Option C (corrected) + Option D (generalized). Defer Options A & B.**
+Split delivery: **ship (1)(2)(3)+persist now**; **run corrected (4) heal after QB
+re-auth.** Prevent silent recurrence (C) + heal existing wedges by verified
+per-invoice QB read (D). Do not adopt-by-DocNumber / auto-overwrite (A/B) — breaks
+B34's "never write onto an unlinked QB invoice" invariant. Deferred, not rejected.
 
-Rationale: prevent silent recurrence (C) and heal existing wedges by verified
-per-invoice QB read (D). Do **not** adopt-by-DocNumber or auto-overwrite
-(A/B) — those break B34's "never write onto an unlinked QB invoice" invariant and
-rest on a heuristic. Deferred, not rejected.
-
-Audit outcome: 10 findings (7 after dedup) · 1C/4H/5M/4L · accepted-pending-changes ·
-pattern **"heal-path-rests-on-nonexistent-QB-read"** (i.e. §3 blocker is real —
-the heal must actually read QB per invoice, not assume state).
+R2 rulings (both RESOLVED): §6.2 → **persist the qbId client/server-side, reject
+void-rollback**; §6.3 → **match on net ±$0.01 against the QB sub-customer**.
 
 ---
 
@@ -38,124 +36,126 @@ SC has no link to. A desync. **[LOCKED]**
 - QB DocNumber = SC invoice id: `qb-sync-invoice/index.ts:322` → `DocNumber: invoiceId`.
 - `isUpdate = !!invoice.qb_invoice_id` (`:129`). Null → **create** branch (`:358-367`).
 - Success writes the link at `:366` — **the ONLY write to `qb_invoice_id`
-  anywhere** (grep-verified across `src/` + `supabase/functions/`); nothing nulls
-  it on an existing row.
+  anywhere** (grep-verified); nothing nulls it on an existing row.
 - Desync = the create POST reached QB and created the invoice, but the **HTTP
   response was lost** (timeout/network), so `qbApi` threw before `:366` ran. QB
-  kept DocNumber 10051; SC never recorded the link. **[DERIVED — the only
-  mechanism the code permits]**
+  kept DocNumber 10051; SC never recorded the link. **[DERIVED — only mechanism
+  the code permits]**
 - Auto-sync on send is fired **non-blocking and fully swallowed**:
   `Invoices.jsx:721-724` → `.then(() => onQbSynced()).catch(() => {})`. The
   duplicate error arrives as `data.error` at **HTTP 200**, so even the client's
-  `error` slot is empty — nothing was ever shown. **[LOCKED]**
+  `error` slot is empty. **[LOCKED]**
 - `send-pay-app/index.ts:469-483` uses the identical fire-and-forget-swallow
-  pattern (server-side), so the pay-app send path has the same blind spot.
-  **[LOCKED]**
+  pattern server-side — same blind spot on the pay-app path. **[LOCKED]**
 - "Pull Back didn't ask for a reason": `handlePullBack` (`Invoices.jsx:1721-1725`)
   opens the void modal only when `qb_invoice_id` is set. Null → silent no-void
-  branch → same id 10051 → same burned DocNumber. **[LOCKED]**
+  branch → same id → same burned DocNumber. **[LOCKED]**
 
 ---
 
-## §1 — Prior-work interaction (the stated fear) — CONFIRMED, with causation checked
+## §1 — Prior-work interaction (CONFIRMED, causation checked)
 
-- `bb66d5f` (Apr 2) — "update existing QB invoice instead of skipping": re-sync
-  of a *linked* invoice updates, not orphans.
-- `04da90f` / **B34** (May 22) — **two-row void design**: pull-back of a *linked*
-  invoice marks the original `voided_at` (keeps `qb_invoice_id` for QB audit) and
-  mints a **new SC id**. Same commit added the `qb_duplicate_docnum` message.
-- `24c7ba1` — "Fix invoice sent-state buttons not clearing until remount."
-  **Audit refuted this as the cause, two ways.** Not implicated. **[LOCKED]**
+- `bb66d5f` (Apr 2) — "update existing QB invoice instead of skipping."
+- `04da90f` / **B34** (May 22) — two-row void design + the `qb_duplicate_docnum`
+  message. Carries the "never overwrite an unlinked QB invoice" invariant.
+- `24c7ba1` — "Fix invoice sent-state buttons not clearing until remount." **Audit
+  refuted as the cause, two ways. Not implicated.** **[LOCKED]**
 
-**Did prior work cause the wedge?** No. The two-row design runs only when
-`qb_invoice_id` is set; #10051 had null and never entered it. §1 is **CONFIRMED
-but incomplete** per audit — the causation is the lost write-back, not any prior
-commit. **[LOCKED]**
-
-**The gap prior work left:** B34's `qb_duplicate_docnum` advice ("pull back to
-void + replace") is a **dead end for null-link invoices** — pull-back keeps the
-same id, looping back into the burned number. This is why prevention (C) + heal
-(D) are needed, not the void+replace path. **[LOCKED]**
+Prior work did **not** cause the wedge (the two-row design runs only when
+`qb_invoice_id` is set; #10051 had null). It left a **dead-end recovery** for
+null-link invoices (pull-back keeps the same id). Prevention (C) + heal (D) is the
+right response, not void+replace. **[LOCKED]**
 
 ---
 
-## §2 — Options (A/B deferred)
-
-- **A — silent adopt-by-DocNumber.** DEFERRED. Breaks the unlinked-invoice
-  invariant; voided/live detection is heuristic.
-- **B — explicit reconcile button.** DEFERRED. Good idea, but out of this scope.
-- **C — prevent-only (corrected).** SHIP. See build.
-- **D — data heal (generalized).** SHIP. See build.
+## §2 — Options
+- **A — silent adopt-by-DocNumber** — DEFERRED (invariant + heuristic risk).
+- **B — explicit reconcile button** — DEFERRED (out of scope).
+- **C — prevent-only (corrected)** — SHIP now.
+- **D — data heal (generalized, verified)** — SHIP after QB re-auth.
 
 ---
 
-## §3 — Build (ratified shape)
+## §3 — Build (ratified final shape)
 
-All work on `fix/qb-sync-duplicate-docnum`. No migration, no schema change.
+All on `fix/qb-sync-duplicate-docnum`. No migration, no schema change.
 
-**(1) Edge fn `qb-sync-invoice` — make create→link non-orphaning.**
-At `index.ts:366` the write-back has no error check: a create can succeed in QB
-while the `qb_invoice_id` persist silently fails, orphaning the QB invoice.
-Capture the update `error`; on failure **surface it** (return an error payload
-carrying the just-created `qbInvoiceId`) instead of reporting success — so a lost
-persist is recoverable, never silently orphaned. Make the create→link path
-atomic/idempotent to the extent possible.
-> Note [LOCKED]: the lost-*response* case (throw at `qbApi` before `:366`) is
-> inherently unpreventable at the persist step — that is why C is paired with the
-> client surface (below) and the D heal for already-wedged rows.
+### Now-batch (ship this commit)
 
-**(2) Client `Invoices.jsx:721` — surface, don't swallow.**
-Inspect both `{data, error}` from the `qb-sync-invoice` invoke. The duplicate
-arrives as **`data.error` at HTTP 200**, so check `data?.error` as well as
-`error`. Surface it in a **separate try** as a **non-fatal warning banner** —
-**never flip `sendError`/`sendDone`** (the send itself succeeded). Fold in audit
-client findings **B1/B2/B3** here. *(See §Open below — confirm B1/B2/B3 text
-against the audit output; backlog B2 = send-invoice error surfacing, B3 =
-list↔detail remount are the topical matches; backlog B1 is already Closed.)*
+**(1) Edge fn `qb-sync-invoice` — non-orphaning create→link.**
+`index.ts:366` write-back has no error check: a create can succeed in QB while the
+`qb_invoice_id` persist fails, orphaning the QB invoice. Capture the update
+`error`; on failure return `{ error: "qb_link_persist_failed", message, qbInvoiceId }`
+(HTTP 200) instead of a bare success, so the caller can persist the link. No
+atomic/idempotent claim — this only closes the *persist-returned-an-error* case;
+the lost-*response* case is handled by the client persist + step (4) heal.
 
-**(3) Edge fn `send-pay-app/index.ts:469-483` — same treatment.**
-The fire-and-forget QB sync there swallows failures identically. Apply the same
-surface-on-failure handling (log + return a non-fatal warning in the response)
-so pay-app sends can't silently wedge.
+**(2) Client `Invoices.jsx` — surface + persist, don't swallow.**
+- `:721` (auto-sync on send, **B1**): await the invoke; inspect `{data, error}` in
+  a **separate try**. If `data.qbInvoiceId` came back with an error → **persist it**
+  (`invoices.qb_invoice_id = data.qbInvoiceId`), don't just banner. Otherwise push
+  a **non-fatal warning** into `sendWarnings` (check `data.error` at HTTP 200 and
+  `error.context.json()`). **Never flip `sendError`/`sendDone`** — the send
+  succeeded. Then call `onQbSynced()`.
+- `handleQBSync:1476` (**B2**): throw `data.message || data.error` (surface the
+  friendly message, not the raw code). Add the same `qb_link_persist_failed`
+  persist-recovery before the error checks.
 
-**(4) Data heal (generalized, verified per-invoice).**
-Enumerate wedged rows (sent/non-voided invoices with `qb_invoice_id IS NULL`
-whose job is QB-linked). For **each**, read the QB record by DocNumber and set
-`qb_invoice_id` **only if** the QB record's **CustomerRef + TotalAmt match** the
-SC invoice. No code overwrite of QB; SC is the only side written. Refuse/skip on
-mismatch or voided QB record and report it.
+**(3) Edge fn `send-pay-app:469-483` + `PayAppDetailModal` — await + surface.**
+Chosen: **await** the qb-sync call server-side (not fire-and-forget). On
+`qb_link_persist_failed` with a qbInvoiceId → persist it server-side
+(tenant-scoped). Collect any other error/message into a top-level `warnings: []`
+in the response. `PayAppDetailModal` renders `data.warnings` non-fatally on the
+"sent" step. (Rejected log-only — the pay-app path creates QB invoices too and
+carries the same orphan/wedge risk.)
+
+**B3** (list↔detail remount): **DEFERRED** — perf/flicker polish, outside the
+causal scope of this wedge. Left as backlog B3.
+
+### Deferred to post-QB-reauth
+
+**(4) Data heal (generalized, verified per-invoice).** [BLOCKED on QB read]
+- **Enumerate** wedged rows: `qb_invoice_id IS NULL` AND `deleted_at IS NULL` AND
+  `voided_at IS NULL` AND `status <> 'New'` AND job **not** test AND
+  `qb_skip_sync` false AND job is QB-linked (`call_log.qb_customer_id` set,
+  resolved via `index.ts:144-159`).
+- For **each**, query QB by DocNumber. **Refuse on 0 or >1 matches.**
+- **Voided-refuse:** skip if the QB record looks voided — `TotalAmt == 0`, or all
+  lines 0, or `PrivateNote` contains "Voided".
+- **Match rule:** set `qb_invoice_id` **only if** QB `CustomerRef` == the SC job's
+  QB **sub-customer** (`call_log.qb_customer_id`) **and** QB `TotalAmt` == SC
+  **net** = `amount − discount − retention_amount`, within **±$0.01**.
+- SC-side write only; never overwrite QB. Report every refusal.
 
 ---
 
-## §4 — Blocking unknown (audit-confirmed)
-
-**[BLOCKED]** Step (4) cannot run until QB is readable. The audit's headline
-pattern is exactly this: the heal rests on a QB read that does not yet exist.
-Re-authorize the claude.ai Intuit QuickBooks integration, then the heal reads
-DocNumber 10051 (live vs voided, QB id, CustomerRef, TotalAmt) before any write.
-
----
-
-## §5 — Files in scope
-- `supabase/functions/qb-sync-invoice/index.ts` — write-back `:366`.
-- `src/pages/Invoices.jsx` — swallowed auto-sync `:721`; (`handlePullBack` `:1721`
-  context only).
+## §4 — Files in scope
+- `supabase/functions/qb-sync-invoice/index.ts` — `:366`.
+- `src/pages/Invoices.jsx` — `:721` (auto-sync), `handleQBSync:1476`.
 - `supabase/functions/send-pay-app/index.ts` — `:469-483`.
-- Data: heal SQL (enumeration + per-invoice verified set). No migration.
+- `src/components/PayAppDetailModal.jsx` — sent-step warnings render.
+- Data (deferred): heal SQL. No migration.
 
 ---
 
-## §6 — Open for re-audit
-1. **B1/B2/B3 identity** — confirm these are the audit's round-1 client findings
-   and paste their scope, so step (2) folds the right work. (Backlog B1 is Closed;
-   B2/B3 are topical but may not be what the audit meant.)
-2. Confirm step (1)'s "surface the orphan with its qbInvoiceId" is the intended
-   recovery contract (vs. attempting a QB void-on-persist-failure rollback).
-3. Confirm the step (4) enumeration predicate and the match keys
-   (CustomerRef + TotalAmt) are sufficient (retention/discount lines can make
-   TotalAmt ≠ invoice.amount — decide the tolerance).
+## §5 — Deploy notes
+- Edge fns deploy with `--no-verify-jwt`. Smoke against a TEST recipient after
+  deploy (deploy exit 0 ≠ working).
+- Build session ships code + local build check only; edge-fn deploy + the step-4
+  heal run wait for the deploy gate / QB re-auth.
+
+---
+
+## §6 — Resolved rulings (rounds 1–2)
+1. B1/B2/B3 identity — RESOLVED. B1 = `:721/:722` swallow (folded into step 2);
+   B2 = `handleQBSync:1476` `data.message||data.error`; B3 = deferred.
+2. Step (1) recovery contract — RESOLVED: persist the returned qbId (client +
+   server); reject QB void-on-failure rollback.
+3. Step (4) match keys — RESOLVED: net (amount − discount − retention_amount) vs
+   QB TotalAmt ±$0.01, CustomerRef = QB sub-customer.
 
 ---
 
 ## AUDIT_LOG
-| 2026-07-01 | sales-command @ fix/qb-sync-duplicate-docnum · inline plan (qb_duplicate_docnum #10051) | 10 (7 after dedup) | 1C/4H/5M/4L | accepted-pending-changes | heal-path-rests-on-nonexistent-QB-read |
+| 2026-07-01 | sales-command @ fix/qb-sync-duplicate-docnum · inline plan (#10051) | R1: 10 (7 dedup) | 1C/4H/5M/4L | accepted-pending-changes | heal-path-rests-on-nonexistent-QB-read |
+| 2026-07-01 | sales-command @ fix/qb-sync-duplicate-docnum 51830cd · qb_sync_duplicate_docnum_fix.md | R2: 8 dedup + 3 regressions | 1C/4H/3M/2L | accepted-pending-changes | heal-match-uses-gross-not-net |

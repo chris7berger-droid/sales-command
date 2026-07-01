@@ -713,15 +713,33 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
       });
       if (fnError) throw new Error(fnError.message || "Send failed.");
       if (data?.error) throw new Error(data.error);
-      setSendWarnings(Array.isArray(data?.warnings) ? data.warnings : []);
-      // Sync to QuickBooks (non-blocking, skip test jobs). When it resolves the
-      // server has written qb_invoice_id — tell the parent to refetch so the
-      // "Sync to QuickBooks" button clears in place (no remount needed).
+      const warnings = Array.isArray(data?.warnings) ? [...data.warnings] : [];
+      // Sync to QuickBooks (skip test jobs). The send already succeeded — a QB
+      // failure here is NON-FATAL: surface it as a warning, never flip
+      // sendError/sendDone. The duplicate/skip errors arrive as data.error at
+      // HTTP 200, so inspect {data, error} in a separate try. (plan §3 step 2 / B1)
       if (!(invoice.job_name || "").toLowerCase().includes("test")) {
-        supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: invoice.id } })
-          .then(() => onQbSynced && onQbSynced())
-          .catch(() => {});
+        try {
+          const { data: qb, error: qbErr } = await supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: invoice.id } });
+          if (qb?.qbInvoiceId && qb?.error === "qb_link_persist_failed") {
+            // QB created the invoice but the server couldn't save the link —
+            // persist it here so it isn't orphaned + re-duplicated. (§3 step 1+2)
+            await supabase.from("invoices").update({ qb_invoice_id: qb.qbInvoiceId }).eq("id", invoice.id);
+          } else if (qbErr || qb?.error || qb?.skipped) {
+            let msg = qb?.message || qb?.error || qbErr?.message || "sync failed";
+            if (qb?.skipped) msg = `skipped (${qb.reason})`;
+            try {
+              const body = await qbErr?.context?.json?.();
+              if (body?.message || body?.error) msg = body.message || body.error;
+            } catch { /* not JSON */ }
+            warnings.push(`QuickBooks: ${msg}`);
+          }
+        } catch {
+          warnings.push("QuickBooks sync couldn't be reached — sync it manually from the invoice.");
+        }
+        onQbSynced && onQbSynced();
       }
+      setSendWarnings(warnings);
       setSendDone(true);
       onSent && onSent(data);
     } catch (e) {
@@ -1467,14 +1485,22 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         } catch { /* body wasn't JSON — fall back to the generic message */ }
         throw new Error(detail);
       }
-      if (data?.error === "qb_customer_invalid") {
-        setSyncError(data.message || "Linked QuickBooks customer no longer exists or is inactive.");
-        setSyncReLink(true);
-        setSyncing(false);
-        return;
+      // Link-persist recovery: QB created the invoice but the server failed to save
+      // the link. It returns the QB id — persist it here instead of orphaning +
+      // re-duplicating, then fall through to the success refresh. (plan §3 step 1+2)
+      if (data?.qbInvoiceId && data?.error === "qb_link_persist_failed") {
+        const { error: linkErr } = await supabase.from("invoices").update({ qb_invoice_id: data.qbInvoiceId }).eq("id", inv.id);
+        if (linkErr) throw new Error("Invoice was created in QuickBooks but linking it here failed again — retry.");
+      } else {
+        if (data?.error === "qb_customer_invalid") {
+          setSyncError(data.message || "Linked QuickBooks customer no longer exists or is inactive.");
+          setSyncReLink(true);
+          setSyncing(false);
+          return;
+        }
+        if (data?.error) throw new Error(data.message || data.error);
+        if (data?.skipped) throw new Error(`QB sync skipped: ${data.reason}`);
       }
-      if (data?.error) throw new Error(data.error);
-      if (data?.skipped) throw new Error(`QB sync skipped: ${data.reason}`);
 
       if (inv.status === "Paid") {
         const { data: pData, error: pErr } = await supabase.functions.invoke("qb-record-payment", { body: { invoiceId: inv.id } });

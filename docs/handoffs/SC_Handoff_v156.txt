@@ -2,7 +2,9 @@ SC_Handoff_v156  —  2026-06-30
 ================================================================
 PURPOSE: Bug-fix session closeout. One fix shipped to prod (Multi-GC
 customer list truncation). Single-file diff, code-reviewed + smoke-
-verified, merged to main.
+verified, merged to main. Plus a full branch-hygiene cleanup: 9 stale
+branches reviewed, 5 deleted clean, 4 audit reports rescued into main
+then their branches retired, 4 active feature branches kept.
 
 ----------------------------------------------------------------
 SESSION SUMMARY
@@ -37,6 +39,48 @@ main @ bca349e — Merge fix/multi-gc-customer-pagination (--no-ff)
 (Branch `fix/multi-gc-customer-pagination` created this session, merged
 --no-ff to main, then deleted local + remote.)
 
+main @ ecf4c2d — "docs: rescue 4 stranded audit reports into
+audit-reports/"
+  - Copied 4 audit reports that existed ONLY on their generating
+    branches (never merged) into main's curated `audit-reports/`:
+    2026-06-07, 2026-06-15, 2026-06-22, 2026-06-28 (2064 lines total).
+  - Docs only, no code. Precondition for retiring the audit branches
+    without losing the reports.
+
+----------------------------------------------------------------
+BRANCH CLEANUP (post-merge hygiene pass)
+----------------------------------------------------------------
+Walked the full stale-branch list with Chris, one at a time, verifying
+CONTENT-in-main (not just commit-identity) before any delete. Method
+note banked below in DECISIONS.
+
+DELETED — content already in main, nothing lost:
+  - feat/sow-vertical (local) — ahead:0, SOW vertical, long-merged.
+    (Cleared the memory pointer that flagged it for deletion.)
+  - feat/t1-security-remediation (local) — ahead:0, merged.
+  - plan/t1-security-remediation (local + remote) — showed ahead:6 but
+    tip-to-tip diff vs main = 0 lines; plan doc + BACKLOG identical to
+    main. Force-deleted local (-D, justified by the content proof),
+    remote deleted.
+  - feat/invoice-sent-buttons-stale (remote) — already deleted on
+    GitHub (v155); local view was stale, pruned.
+  - hotfix/invoice-fix (remote) — only unique content was an OLDER
+    BACKLOG snapshot (still showed O7/O9/O10 pre-consolidation) plus
+    the B52 migration, which lives in command-suite-db. Redundant.
+
+RESCUED then DELETED — real trapped work, preserved first:
+  - claude/audit-2026-06-07, claude/sweet-johnson-rvprrx (06-15),
+    claude/audit-2026-06-22, claude/audit-2026-06-28 — each carried one
+    audit-reports/<date>.md that existed ONLY on the branch. Main
+    curates audit-reports/ (had 05-25, 06-01); these 4 were stranded.
+    Collected into main (ecf4c2d), THEN deleted all 4 remotes.
+
+KEPT — active work-in-progress (remote):
+  - feat/deposit-checkbox-fill
+  - feat/inquiry-modal-redesign
+  - feat/inquiry-wizard-drop-step-one
+  - feat/summary-hours-size (touched 06-30, most recent)
+
 ----------------------------------------------------------------
 DECISIONS / CHOICES MADE
 ----------------------------------------------------------------
@@ -52,6 +96,14 @@ DECISIONS / CHOICES MADE
   `command-suite-db` repo — sales-command itself is unlinked from
   Supabase (migrations moved out 2026-06-29), so `db query --linked`
   fails here by design.
+- Branch-cleanup method (reusable): judge a branch by CONTENT-in-main,
+  not git's ahead:N commit count. Three branches showed ahead:N but
+  their tip-to-tip diff vs main was 0 (squash-merges + already-absorbed
+  content). Migration-aware lens: a `supabase/migrations/*.sql` file on
+  an old branch is NOT trapped work — it was relocated to
+  command-suite-db on 2026-06-29, so it's preserved regardless. Only
+  genuinely branch-only, non-migration content (the 4 audit reports)
+  was treated as must-rescue-before-delete.
 
 ----------------------------------------------------------------
 NEW BACKLOG ITEMS
@@ -63,6 +115,9 @@ CLOSED THIS SESSION
 ----------------------------------------------------------------
 - B54 (T2) — Multi-GC "add GC" customer list truncates short of the
   758 Commercial customers. Fixed + merged (503bc8a / merge bca349e).
+- Branch backlog: 9 stale branches cleared (5 deleted clean, 4
+  audit-report branches rescued-then-deleted). No BACKLOG row; tracked
+  in the BRANCH CLEANUP section above.
 
 ----------------------------------------------------------------
 VERIFICATION
@@ -108,18 +163,20 @@ FILES TO KNOW
 ----------------------------------------------------------------
 GIT STATE ON CLOSE
 ----------------------------------------------------------------
-- Branch: main. origin/main @ bca349e (merge pushed).
-- This handoff committed locally on main, not yet pushed (awaiting
-  confirmation).
+- Branch: main. origin/main @ ecf4c2d (fix merge + handoff v156 +
+  audit-report rescue all pushed).
+- Local branches: only `main` (all stale locals deleted this session).
+- Remote branches remaining (all intentional keeps — active WIP):
+  feat/deposit-checkbox-fill, feat/inquiry-modal-redesign,
+  feat/inquiry-wizard-drop-step-one, feat/summary-hours-size.
 - `fix/multi-gc-customer-pagination` deleted (local + remote) after
-  merge.
-- Other worktrees (untouched, carried from v155): feat/deposit-checkbox-
-  fill, feat/inquiry-modal-redesign, feat/inquiry-wizard-drop-step-one.
-- Working tree: only `supabase/.temp/*` noise (kept out of commits).
+  merge. See BRANCH CLEANUP for the other 9 handled.
+- Working tree: clean (this handoff edit is the only pending change).
 
 ----------------------------------------------------------------
 END STATE
 ----------------------------------------------------------------
-Multi-GC list fix merged to main + smoke-verified; deploy in flight at
-close. Handoff committed on main, awaiting push confirmation.
+Multi-GC list fix merged to main + smoke-verified + deployed. Branch
+backlog cleared (only main + 4 active feature branches remain). Handoff
+being re-committed with the cleanup record; main at ecf4c2d.
 ================================================================

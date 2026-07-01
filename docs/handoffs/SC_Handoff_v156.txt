@@ -1,0 +1,125 @@
+SC_Handoff_v156  —  2026-06-30
+================================================================
+PURPOSE: Bug-fix session closeout. One fix shipped to prod (Multi-GC
+customer list truncation). Single-file diff, code-reviewed + smoke-
+verified, merged to main.
+
+----------------------------------------------------------------
+SESSION SUMMARY
+----------------------------------------------------------------
+Fixed the Multi-GC wizard's "add GC" customer picker truncating well
+short of the full customer base. Screen 1 of MultiGCWizard fetched
+`customers` with a plain unpaginated `.select().order("name")`, so
+PostgREST returned only the first page and the client-side Commercial
+filter ran against a truncated set — the GC list stopped short (Chris
+saw it cap around 50). Prod has 2077 customers / 758 Commercial. Fix
+swaps the raw select for `fetchAll()` from `supabaseHelpers` (the same
+paginated helper the Customers page already uses). Merged to main,
+smoke-verified by Chris, and a `/code-review high` blast-radius pass
+came back clean. Branch deleted after merge.
+
+----------------------------------------------------------------
+CHANGES SHIPPED
+----------------------------------------------------------------
+main @ bca349e — Merge fix/multi-gc-customer-pagination (--no-ff)
+  503bc8a "Closes B54: paginate Multi-GC customer list via fetchAll"
+  - `MultiGCWizard.jsx`: screen-1 customers useEffect now calls
+    `fetchAll("customers", "id, name, customer_type, billing_terms",
+    { order: { column: "name", ascending: true } })` instead of the
+    raw `supabase.from("customers").select(...).order("name")`. Added
+    the `fetchAll` import from `../lib/supabaseHelpers`.
+  - Row shape + sort order identical to the old query, so downstream
+    `filteredCustomers` / `toggleCustomer` / `billing_terms` usage is
+    unaffected.
+  - `docs/BACKLOG.md`: B54 row filed as Closed in the same commit.
+  - Frontend only, no migrations, no edge functions.
+
+(Branch `fix/multi-gc-customer-pagination` created this session, merged
+--no-ff to main, then deleted local + remote.)
+
+----------------------------------------------------------------
+DECISIONS / CHOICES MADE
+----------------------------------------------------------------
+- Used `fetchAll` (default pageSize 1000) rather than bumping a limit —
+  matches the proven Customers-page pattern and the documented repo
+  fix for the 1000-row PostgREST cap. Server row cap is >=1000 (the
+  Customers page works with the same helper), so 2077 rows page cleanly
+  as 1000 + 1000 + 77.
+- Ran `/code-review high` (not `/runaudit`) for the blast-radius check —
+  this was a solo `/fix` with no plan doc, so there's no `## Audit
+  manifest` for `/runaudit` to consume. Correct tool for a 2-file diff.
+- Diagnosed the customer count by querying prod from the linked
+  `command-suite-db` repo — sales-command itself is unlinked from
+  Supabase (migrations moved out 2026-06-29), so `db query --linked`
+  fails here by design.
+
+----------------------------------------------------------------
+NEW BACKLOG ITEMS
+----------------------------------------------------------------
+(none)
+
+----------------------------------------------------------------
+CLOSED THIS SESSION
+----------------------------------------------------------------
+- B54 (T2) — Multi-GC "add GC" customer list truncates short of the
+  758 Commercial customers. Fixed + merged (503bc8a / merge bca349e).
+
+----------------------------------------------------------------
+VERIFICATION
+----------------------------------------------------------------
+- Local: `npx vite build` green.
+- `/code-review high` blast-radius pass: PASS on all five checks —
+  diff containment (only MultiGCWizard.jsx + BACKLOG.md), row shape /
+  sort parity, paging safety for ~2077 rows, no other at-risk
+  unpaginated selects in the file (the other four are all bounded
+  `.eq()`/`.maybeSingle()` queries), no external dependents. One
+  awareness-only note: `fetchAll` paginates on a non-unique sort key
+  (`name`) — a theoretical boundary skip/dupe on same-named rows, but
+  it's inherent to the repo-wide helper, not introduced here.
+- PROD-adjacent: Chris smoke-tested the fix — GC list now shows the
+  full Commercial set. WORKING.
+- Merged to main @ bca349e; Vercel auto-deploy triggered on push.
+  Post-deploy prod re-check not yet re-run (deploy was in flight at
+  close).
+
+----------------------------------------------------------------
+NOT TOUCHED / DEFERRED
+----------------------------------------------------------------
+- The `fetchAll` non-unique-sort-key note — out of scope, repo-wide
+  helper behavior, not filed (awareness only).
+- B57 (QB colon), v154 migration-consolidation follow-ups, and the
+  other open feature worktrees — carried forward untouched from v155.
+
+----------------------------------------------------------------
+NEXT SESSION POINTERS
+----------------------------------------------------------------
+- Confirm the Vercel deploy of bca349e finished and the Multi-GC list
+  is fixed on live scmybiz.com (deploy was in flight at session close).
+- No pre-flight blockers introduced this session.
+
+----------------------------------------------------------------
+FILES TO KNOW
+----------------------------------------------------------------
+- src/components/MultiGCWizard.jsx — screen-1 customers fetch now uses
+  `fetchAll` (the fix).
+- src/lib/supabaseHelpers.js — `fetchAll()` paginated helper; the
+  canonical answer to PostgREST row-cap truncation.
+
+----------------------------------------------------------------
+GIT STATE ON CLOSE
+----------------------------------------------------------------
+- Branch: main. origin/main @ bca349e (merge pushed).
+- This handoff committed locally on main, not yet pushed (awaiting
+  confirmation).
+- `fix/multi-gc-customer-pagination` deleted (local + remote) after
+  merge.
+- Other worktrees (untouched, carried from v155): feat/deposit-checkbox-
+  fill, feat/inquiry-modal-redesign, feat/inquiry-wizard-drop-step-one.
+- Working tree: only `supabase/.temp/*` noise (kept out of commits).
+
+----------------------------------------------------------------
+END STATE
+----------------------------------------------------------------
+Multi-GC list fix merged to main + smoke-verified; deploy in flight at
+close. Handoff committed on main, awaiting push confirmation.
+================================================================

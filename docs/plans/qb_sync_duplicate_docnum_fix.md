@@ -1,6 +1,6 @@
 # Plan: `qb_duplicate_docnum` wedge on invoice #10051
 
-**Status:** R2 AUDIT COMPLETE · RULINGS RESOLVED · BUILDING now-batch (1)(2)(3)+persist · step (4) heal deferred to post-QB-reauth
+**Status:** R2 AUDIT COMPLETE · now-batch (1)(2)(3)+persist BUILT (92d3583, awaiting gate chain) · QB reconciliation DONE (2026-07-01) · #10051 RESOLVED via 10051R · step (4) heal spec refined below
 **Branch:** `fix/qb-sync-duplicate-docnum`
 **Author:** build/fix session, 2026-07-01
 **Confidence tags:** [LOCKED] verified · [DERIVED] inferred from code · [DESIGN-OPEN] needs a call · [BLOCKED] needs external input
@@ -127,6 +127,20 @@ causal scope of this wedge. Left as backlog B3.
   **net** = `amount − discount − retention_amount`, within **±$0.01**.
 - SC-side write only; never overwrite QB. Report every refusal.
 
+**Refinements from the 2026-07-01 live reconciliation (§7):**
+- **"0 matches" ≠ safe to re-sync.** A DocNumber can be *burned* by a QB invoice
+  that was hard-**deleted** (not voided) — deleted records are invisible to the API
+  (query returns 0) yet QB still blocks re-creating that number (error 6140).
+  #10051 was exactly this. So the heal must NOT treat "not in QB" as "a clean sync
+  will succeed." It's safe only because the now-batch **surfaces** the duplicate
+  instead of swallowing it — a re-sync fails loudly, not silently.
+- **Never re-issue a *Sent* invoice under a new SC id.** The customer already holds
+  that invoice number (verified: `send-invoice` stamps `invoice_recipients.sent_at`
+  only on a Resend-accepted send). Changing the SC id orphans the number the
+  customer is paying against. Instead keep the SC / customer-facing number and book
+  QB under a **suffixed DocNumber** — QB's DocNumber is internal, the customer never
+  sees it. This is the **"10051R" pattern** (§7).
+
 ---
 
 ## §4 — Files in scope
@@ -153,6 +167,32 @@ causal scope of this wedge. Left as backlog B3.
    server); reject QB void-on-failure rollback.
 3. Step (4) match keys — RESOLVED: net (amount − discount − retention_amount) vs
    QB TotalAmt ±$0.01, CustomerRef = QB sub-customer.
+
+---
+
+## §7 — Live reconciliation (2026-07-01, QB re-authorized)
+
+Full blast radius: **9 wedged rows** (sync-eligible, `qb_invoice_id IS NULL`) — the
+complete, static set. All created **Apr–May 2026**; zero in June/July (recent
+invoices link 100%), so the condition already stopped occurring. One (#09122) is a
+**test** job (correctly skipped) → 8 real. Each read against QB by DocNumber:
+
+| SC # | $ | QB state | Disposition |
+|---|---|---|---|
+| **10051** | 5,754.16 | **not in QB** (number burned by a deleted test record from the 5/22 QB-code session; neighbors #10049 voided "working out a bug", #10050 "QB pull back process") | **RESOLVED 2026-07-01** — customer holds #10051 (send verified). Created QB invoice **DocNumber `10051R`, id 147840**, sub 11761, $5,754.16; set SC `qb_invoice_id=147840`. |
+| 10038 | 28,835.59 | live, unpaid, QB 147286, sub 11748 ✓ amount ✓ | ADOPT (clean) — pending go-ahead |
+| 90360 | 52,838.37 | live, ~$50.2K collected, QB 146641, sub 11672 ✓ amount ✓ | ADOPT — pending go-ahead; QB name differs from SC job (same job # 6507CO2) — eyeball |
+| 10004 | 31,232.81 | live under **parent DA Builders (6591)**, $29,671 collected + $1,561 retention | REFUSE (CustomerRef = parent, not sub 11735) → books reconciliation |
+| 10028 | 825.50 | **VOIDED** in QB ("broken Stripe pay link", 5/21); SC says **Paid** | REFUSE (voided) → books: confirm the $825 was collected |
+| 10021 | 4,800 | **VOIDED** in QB ("customer did not receive", 5/5) | REFUSE (voided); number burned → re-issue via 10051R pattern |
+| 10044 | 1,194 | not in QB | clean re-sync after prevention deploys |
+| 10052 | 5,754.16 | not in QB | clean re-sync (verify its number isn't also burned) |
+
+**Money bottom line:** no double-billing possible or observed. The two largest
+(#90360 $52.8K, #10038 $28.8K) and #10004 ($29.7K) **are booked in QB** — SC merely
+lost the link. Genuinely-unbooked revenue is small and unpaid. Two items are books
+reconciliations, not losses (#10028, #10021). Blast radius bounded and mostly
+benign.
 
 ---
 

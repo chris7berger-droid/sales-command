@@ -180,8 +180,8 @@ invoices link 100%), so the condition already stopped occurring. One (#09122) is
 | SC # | $ | QB state | Disposition |
 |---|---|---|---|
 | **10051** | 5,754.16 | **not in QB** (number burned by a deleted test record from the 5/22 QB-code session; neighbors #10049 voided "working out a bug", #10050 "QB pull back process") | **RESOLVED 2026-07-01** — customer holds #10051 (send verified). Created QB invoice **DocNumber `10051R`, id 147840**, sub 11761, $5,754.16; set SC `qb_invoice_id=147840`. |
-| 10038 | 28,835.59 | live, unpaid, QB 147286, sub 11748 ✓ amount ✓ | ADOPT (clean) — pending go-ahead |
-| 90360 | 52,838.37 | live, ~$50.2K collected, QB 146641, sub 11672 ✓ amount ✓ | ADOPT — pending go-ahead; QB name differs from SC job (same job # 6507CO2) — eyeball |
+| 10038 | 28,835.59 | live, unpaid, QB 147286, sub 11748 ✓ amount ✓ | **ADOPTED 2026-07-01** — SC `qb_invoice_id=147286` |
+| 90360 | 52,838.37 | live, ~$50.2K collected, QB 146641, sub 11672 ✓ amount ✓ | **ADOPTED 2026-07-01** — SC `qb_invoice_id=146641` (name differs from SC job but same job # 6507CO2 + exact $ — accepted) |
 | 10004 | 31,232.81 | live under **parent DA Builders (6591)**, $29,671 collected + $1,561 retention | REFUSE (CustomerRef = parent, not sub 11735) → books reconciliation |
 | 10028 | 825.50 | **VOIDED** in QB ("broken Stripe pay link", 5/21); SC says **Paid** | REFUSE (voided) → books: confirm the $825 was collected |
 | 10021 | 4,800 | **VOIDED** in QB ("customer did not receive", 5/5) | REFUSE (voided); number burned → re-issue via 10051R pattern |

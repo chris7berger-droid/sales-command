@@ -482,6 +482,12 @@ serve(async (req) => {
         await supabase.from("invoices").update({ qb_invoice_id: qb.qbInvoiceId }).eq("id", invoiceId).eq("tenant_id", caller.tenantId);
       } else if (qb?.error || qb?.skipped) {
         warnings.push(`QuickBooks: ${qb.message || qb.error || (qb.skipped ? `skipped (${qb.reason})` : "sync failed")}`);
+      } else if (!qbRes.ok) {
+        // Non-2xx whose body carried no recognizable error/skipped field
+        // (platform-level fault: worker boot, timeout, gateway 504). Don't let
+        // it fall through as a silent success — surface it so a retry doesn't
+        // blindly re-create + duplicate. (§3 step 3 — surface, don't swallow.)
+        warnings.push(`QuickBooks: sync failed (${qbRes.status})`);
       }
     } catch (e) {
       warnings.push("QuickBooks sync couldn't be reached — sync it manually from the invoice.");

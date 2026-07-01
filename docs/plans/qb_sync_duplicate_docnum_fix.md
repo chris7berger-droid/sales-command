@@ -1,6 +1,6 @@
 # Plan: `qb_duplicate_docnum` wedge on invoice #10051
 
-**Status:** now-batch (1)(2)(3)+persist BUILT (92d3583) · **BUILD-VS-PLAN CLEAR 2026-07-01 (0 blockers / 0 bugs / SMOKE: GO)** · next gates: code-review → security-review → deploy · QB reconciliation DONE · #10051 RESOLVED via 10051R · step (4) heal deferred (B55)
+**Status:** now-batch (1)(2)(3)+persist BUILT · **BUILD-VS-PLAN CLEAR** · **CODE-REVIEW CLEAR 2026-07-01 (no bugs; 1 server-side fix applied to send-pay-app)** · next gates: security-review → deploy · QB reconciliation DONE · #10051 RESOLVED via 10051R · step (4) heal deferred (B55)
 **Branch:** `fix/qb-sync-duplicate-docnum`
 **Author:** build/fix session, 2026-07-01
 **Confidence tags:** [LOCKED] verified · [DERIVED] inferred from code · [DESIGN-OPEN] needs a call · [BLOCKED] needs external input
@@ -200,3 +200,4 @@ benign.
 | 2026-07-01 | sales-command @ fix/qb-sync-duplicate-docnum · inline plan (#10051) | R1: 10 (7 dedup) | 1C/4H/5M/4L | accepted-pending-changes | heal-path-rests-on-nonexistent-QB-read |
 | 2026-07-01 | sales-command @ fix/qb-sync-duplicate-docnum 51830cd · qb_sync_duplicate_docnum_fix.md | R2: 8 dedup + 3 regressions | 1C/4H/3M/2L | accepted-pending-changes | heal-match-uses-gross-not-net |
 | 2026-07-01 | sales-command @ fix/qb-sync-duplicate-docnum 92d3583 · CODE build-vs-plan (steps 1-3+persist) | 0 blockers / 0 bugs · 2 deferred | — | CLEAR · SMOKE: GO | best-effort-recovery-update-is-intended-split (watch in smoke) |
+| 2026-07-01 | sales-command @ fix/qb-sync-duplicate-docnum · CODE-REVIEW (5 agents) | 0 bugs · 2 low (1 applied, 1 skipped-with-reason) | — | CLEAR | send-pay-app awaited-sync missed platform-level non-2xx (non-JSON body) → surfaced as warning; err.context dedup skipped (precedence change) |

@@ -1,6 +1,6 @@
 # Plan: `qb_duplicate_docnum` wedge on invoice #10051
 
-**Status:** now-batch (1)(2)(3)+persist BUILT · **BUILD-VS-PLAN ✅ · CODE-REVIEW ✅ · SECURITY-REVIEW ✅ (all clear 2026-07-01)** · **READY TO DEPLOY** (edge fns --no-verify-jwt + smoke, then merge to main for client) · QB reconciliation DONE · #10051 RESOLVED via 10051R · step (4) heal deferred (B55)
+**Status:** now-batch (1)(2)(3)+persist BUILT · **BUILD-VS-PLAN ✅ · CODE-REVIEW ✅ · SECURITY-REVIEW ✅** · **EDGE FNS DEPLOYED to prod 2026-07-01** (`qb-sync-invoice` + `send-pay-app`, `--no-verify-jwt`, ref pbgvgjjuhnpsumnowuym; health-checked 401 unauth) · **PENDING: (A) prod-safety smoke on old client, (B) preview smoke of new client behavior, then merge to main** · QB reconciliation DONE · #10051 RESOLVED via 10051R · step (4) heal deferred (B55)
 **Branch:** `fix/qb-sync-duplicate-docnum`
 **Author:** build/fix session, 2026-07-01
 **Confidence tags:** [LOCKED] verified · [DERIVED] inferred from code · [DESIGN-OPEN] needs a call · [BLOCKED] needs external input

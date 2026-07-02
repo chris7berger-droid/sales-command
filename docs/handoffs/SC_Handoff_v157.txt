@@ -74,12 +74,12 @@ sales-command @ 219d1c3 (branch `feat/invoice-email-attachments`)
 ----------------------------------------------------------------
 DECISIONS / CHOICES MADE
 ----------------------------------------------------------------
-- Label UX (plan §7 #A, DESIGN-OPEN): implemented label-at-upload —
-  preset chips (Release Waiver, Lien Release) + a freeform input that
-  sets the pending label for the next file; label defaults to the
-  filename. Did NOT build per-row re-labeling after upload (removed an
-  unused setAttachmentLabel handler to avoid dead code). Re-label can be
-  added later if wanted; not required by the plan.
+- Label UX (plan §7 #A, DESIGN-OPEN): implemented BOTH label-at-upload
+  (preset chips Release Waiver / Lien Release + freeform input, defaults
+  to filename) AND per-row re-labeling of an already-uploaded attachment
+  (a "Label" button on each send-view row opens an inline chip+input
+  editor → saveAttachmentLabel updates invoice_attachments.label). The
+  full "freeform edit allowed" behavior the plan describes.
 - Styling: the send-view Attachments panel matches the surrounding
   InvoicePDFModal white/preview aesthetic (#F9FAFB / #E5E7EB / #30cfac),
   not the linen theme — that modal is an established white "PDF preview"

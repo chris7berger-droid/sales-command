@@ -611,6 +611,8 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
   const [uploading, setUploading] = useState(false);
   const [attachError, setAttachError] = useState(null);
   const [attachLabel, setAttachLabel] = useState(""); // pending label applied to the next upload
+  const [editingAttachId, setEditingAttachId] = useState(null); // row being re-labeled
+  const [attachLabelDraft, setAttachLabelDraft] = useState("");
   useEffect(() => { if (parentAttachments) setAttachments(parentAttachments); }, [parentAttachments]);
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
   const [repContact, setRepContact] = useState({ phone: "", email: "" });
@@ -837,6 +839,18 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
       try { await supabase.storage.from("job-attachments").remove([att.storage_path]); }
       catch (e) { console.warn("Attachment file cleanup failed (non-fatal):", e.message); }
     }
+    await reloadAttachments();
+  }
+
+  async function saveAttachmentLabel(att, label) {
+    setAttachError(null);
+    const { error } = await supabase
+      .from("invoice_attachments")
+      .update({ label: (label && label.trim()) || att.file_name })
+      .eq("id", att.id);
+    if (error) { setAttachError(`Couldn't update label: ${error.message}`); return; }
+    setEditingAttachId(null);
+    setAttachLabelDraft("");
     await reloadAttachments();
   }
 
@@ -1121,16 +1135,35 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
                     <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>Attachments — up to {MAX_INVOICE_ATTACHMENTS} files, 10 MB each</div>
                     {attachments.map(att => {
                       const safeHref = isSafeAttachmentHref(att.file_url);
+                      const isEditing = editingAttachId === att.id;
                       return (
                         <div key={att.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "white", border: "1px solid #E5E7EB", borderRadius: 8, marginBottom: 6 }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12.5, fontWeight: 700, color: "#111827" }}>{att.label || att.file_name}</div>
-                            <div style={{ fontSize: 11, color: "#6B7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.file_name}</div>
-                          </div>
-                          {safeHref
-                            ? <a href={att.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: "#1976D2", textDecoration: "underline", whiteSpace: "nowrap" }}>View</a>
-                            : <span style={{ fontSize: 10, color: "#9CA3AF" }}>Unavailable</span>}
-                          <button onClick={() => handleRemoveAttachment(att)} title="Remove from this invoice" style={{ background: "none", border: "1px solid #E5E7EB", borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: "#e53935", cursor: "pointer", fontFamily: "inherit" }}>✕</button>
+                          {isEditing ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                                {ATTACHMENT_LABEL_PRESETS.map(preset => (
+                                  <button key={preset} type="button" onClick={() => setAttachLabelDraft(preset)} style={{ fontSize: 10, fontWeight: 700, color: attachLabelDraft === preset ? "#1c1814" : "#4B5563", background: attachLabelDraft === preset ? "#30cfac" : "white", border: "1px solid #E5E7EB", borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontFamily: "inherit" }}>{preset}</button>
+                                ))}
+                                <input value={attachLabelDraft} onChange={e => setAttachLabelDraft(e.target.value)} placeholder={att.file_name} style={{ flex: 1, minWidth: 120, padding: "5px 8px", fontSize: 11.5, border: "1px solid #E5E7EB", borderRadius: 6, fontFamily: "inherit" }} />
+                              </div>
+                              <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                                <button onClick={() => { setEditingAttachId(null); setAttachLabelDraft(""); }} style={{ background: "none", border: "1px solid #E5E7EB", borderRadius: 5, padding: "3px 10px", fontSize: 10, fontWeight: 700, color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+                                <button onClick={() => saveAttachmentLabel(att, attachLabelDraft)} style={{ background: "#30cfac", border: "none", borderRadius: 5, padding: "3px 12px", fontSize: 10, fontWeight: 700, color: "#1c1814", cursor: "pointer", fontFamily: "inherit" }}>Save</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#111827" }}>{att.label || att.file_name}</div>
+                                <div style={{ fontSize: 11, color: "#6B7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.file_name}</div>
+                              </div>
+                              {safeHref
+                                ? <a href={att.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: "#1976D2", textDecoration: "underline", whiteSpace: "nowrap" }}>View</a>
+                                : <span style={{ fontSize: 10, color: "#9CA3AF" }}>Unavailable</span>}
+                              <button onClick={() => { setEditingAttachId(att.id); setAttachLabelDraft(att.label || ""); }} title="Rename label" style={{ background: "none", border: "1px solid #E5E7EB", borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: "#4B5563", cursor: "pointer", fontFamily: "inherit" }}>Label</button>
+                              <button onClick={() => handleRemoveAttachment(att)} title="Remove from this invoice" style={{ background: "none", border: "1px solid #E5E7EB", borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: "#e53935", cursor: "pointer", fontFamily: "inherit" }}>✕</button>
+                            </>
+                          )}
                         </div>
                       );
                     })}

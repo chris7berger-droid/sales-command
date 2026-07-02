@@ -196,6 +196,34 @@ verification. Fixes:
 Re-verified: vite build green; no new lint. Commit: (see git state).
 
 ----------------------------------------------------------------
+GATE CHAIN — ALL GREEN (2026-07-02)
+----------------------------------------------------------------
+- /buildvsplan: CLEAR — 0 code Tier-1/2; build faithful to plan.
+- /code-review (high, 16 agents): 8 findings, all folded in (f67175f);
+  1 refuted. See REVIEW-FIX PASS above.
+- /security-review: CLEAR — no High/Critical. All 4 angles refuted
+  (SSRF/tenant triple-pin invoice_id+tenant_id+normalized-path-prefix;
+  fully pre-Stripe fail-open; injection/egress; RLS/privilege + created_by
+  trigger). Two informational notes:
+    * L1 → filed as S11: invoice docs (lien releases / waivers) sit in the
+      PUBLIC job-attachments bucket, URL-entropy-only. Accepted v1 design
+      (plan §4.1); private-bucket+signed-URL is the documented harder path.
+    * S10 unchanged — verify-after-delete (this build) covers the
+      dangling-row half, NOT the cross-tenant storage.remove half.
+
+REMAINING (deploy sequence — NOT the build terminal's job):
+  1. Migration push: command-suite-db, branch feat/invoice-attachments,
+     `npm run db:push` — ONLY after Schedule Command's in-flight migration
+     lands (single shared ledger; §8). Do NOT push from sales-command.
+  2. `supabase functions deploy send-invoice --no-verify-jwt` (ships the
+     new _shared/attachments.ts).
+  3. §8 smoke on a TEST-named job → attach a waiver → send to a TEST
+     recipient → verify email has the attachment, row exists, historical
+     list renders, remove deletes the file, an oversize/garbage row is
+     skipped-with-warning and the pay-link email still sends.
+  Feature is 100% inert until step 1 (table 404s in prod today).
+
+----------------------------------------------------------------
 GIT STATE ON CLOSE
 ----------------------------------------------------------------
 - sales-command: branch `feat/invoice-email-attachments` @ 219d1c3

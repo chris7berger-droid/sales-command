@@ -586,6 +586,19 @@ function isSafeAttachmentHref(url) {
   return typeof url === "string" && url.startsWith(ATTACHMENT_PUBLIC_PREFIX);
 }
 
+// Single loader for an invoice's attachments — used by the modal reload, the
+// InvoiceDetail reload, and the initial detail load so a future change (soft-
+// delete filter, explicit columns, paging) can't diverge across three copies
+// (review #7). Bounded at 3/invoice by the upload cap, so no .range() needed.
+async function loadInvoiceAttachments(invoiceId) {
+  const { data } = await supabase
+    .from("invoice_attachments")
+    .select("*")
+    .eq("invoice_id", invoiceId)
+    .order("created_at");
+  return data || [];
+}
+
 function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbSynced, hideSend = false, teamMember, recipients: parentRecipients, attachments: parentAttachments, onAttachmentsChanged }) {
   const money = invoice.show_cents ? fmt$c : fmt$;
   const fmtPct = (n) => {
@@ -772,27 +785,28 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
   }
 
   async function reloadAttachments() {
-    const { data } = await supabase
-      .from("invoice_attachments")
-      .select("*")
-      .eq("invoice_id", invoice.id)
-      .order("created_at");
-    setAttachments(data || []);
-    onAttachmentsChanged && onAttachmentsChanged();
+    // When InvoiceDetail owns the list, let it refetch and flow the result back
+    // through the parentAttachments prop (the resync effect updates local state) —
+    // one round-trip, no transient divergence (review #8). Self-fetch only when
+    // there's no parent (a call site without the historical list).
+    if (onAttachmentsChanged) { await onAttachmentsChanged(); return; }
+    setAttachments(await loadInvoiceAttachments(invoice.id));
   }
 
+  // Returns true only on a successful upload+insert, so the caller clears the
+  // typed label only when the file was actually accepted (review #4).
   async function handleUploadAttachment(file, label) {
-    if (!file) return;
+    if (!file) return false;
     setAttachError(null);
     // Client-side bounds BEFORE upload (plan §4.2): max 3 files, ≤10MB each.
     // These are authoritative; the edge fn's byte cap is a secondary guard.
     if (attachments.length >= MAX_INVOICE_ATTACHMENTS) {
       setAttachError(`Up to ${MAX_INVOICE_ATTACHMENTS} files per invoice.`);
-      return;
+      return false;
     }
     if (file.size > MAX_ATTACHMENT_BYTES) {
       setAttachError("Each file must be 10 MB or smaller.");
-      return;
+      return false;
     }
     setUploading(true);
     try {
@@ -817,8 +831,10 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
       });
       if (insErr) throw new Error(insErr.message);
       await reloadAttachments();
+      return true;
     } catch (e) {
       setAttachError(e.message);
+      return false;
     } finally {
       setUploading(false);
     }
@@ -830,8 +846,18 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
     // link the user sees) is worse than an orphaned file (invisible, bounded by
     // the 3-file cap + random path). If the row delete fails, the file is
     // untouched — consistent and retry-able.
-    const { error: delErr } = await supabase.from("invoice_attachments").delete().eq("id", att.id);
+    // VERIFY the row actually deleted before touching storage — a delete that
+    // silently matches zero rows (already gone, or RLS) returns no error, and
+    // removing the file then would destroy it while a live row/link survives
+    // (CLAUDE.md verify-after-delete; review #2).
+    const { data: deleted, error: delErr } = await supabase
+      .from("invoice_attachments").delete().eq("id", att.id).select("id");
     if (delErr) { setAttachError(`Couldn't remove attachment: ${delErr.message}`); return; }
+    if (!deleted || deleted.length === 0) {
+      setAttachError("Couldn't remove that attachment — it may already be gone. Refreshed the list.");
+      await reloadAttachments();
+      return;
+    }
     // Best-effort storage cleanup. job-attachments HAS a DELETE policy, but
     // storage.remove can still return [] silently (memory: storage-remove-silent-
     // noop) — don't trust its result. The row was the source of truth and is gone.
@@ -1177,7 +1203,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
                         </div>
                         <label style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: "#1976D2", border: "1.5px solid #1976D2", borderRadius: 7, padding: "6px 14px", cursor: uploading ? "wait" : "pointer", fontFamily: "inherit" }}>
                           {uploading ? "Uploading…" : "+ Add Attachment"}
-                          <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; handleUploadAttachment(f, attachLabel).then(() => setAttachLabel("")); }} style={{ display: "none" }} disabled={uploading} />
+                          <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; handleUploadAttachment(f, attachLabel).then(ok => { if (ok) setAttachLabel(""); }); }} style={{ display: "none" }} disabled={uploading} />
                         </label>
                       </div>
                     )}
@@ -1199,7 +1225,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
               <div style={{ fontSize: 14, color: "#6B7280", marginBottom: 24 }}>The main recipient will receive an email with a secure payment link; any viewers get a view-only copy.</div>
               {sendWarnings.length > 0 && (
                 <div style={{ textAlign: "left", maxWidth: 420, margin: "0 auto 24px", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 10, padding: "12px 16px", fontSize: 12.5, color: "#92400e" }}>
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Some viewer copies didn't send:</div>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Sent — but some items had issues:</div>
                   {sendWarnings.map((w, i) => <div key={i} style={{ marginTop: i === 0 ? 0 : 3 }}>· {String(w)}</div>)}
                 </div>
               )}
@@ -1294,12 +1320,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     setRecipients(data || []);
   }
   async function reloadAttachments() {
-    const { data } = await supabase
-      .from("invoice_attachments")
-      .select("*")
-      .eq("invoice_id", inv.id)
-      .order("created_at");
-    setAttachments(data || []);
+    setAttachments(await loadInvoiceAttachments(inv.id));
   }
   async function reloadCustomerContacts() {
     if (!custInfo.id) return;
@@ -1529,12 +1550,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         setRecipients(recs || []);
 
         // Attachments — persisted docs that went out with this invoice (plan §4.5).
-        const { data: atts } = await supabase
-          .from("invoice_attachments")
-          .select("*")
-          .eq("invoice_id", inv.id)
-          .order("created_at");
-        setAttachments(atts || []);
+        setAttachments(await loadInvoiceAttachments(inv.id));
       }
 
       // If this invoice's retention has been billed, find the release invoice

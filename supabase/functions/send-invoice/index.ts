@@ -85,8 +85,15 @@ serve(async (req) => {
       // reading bytes into memory. Bounds are authoritative at upload (§4.2);
       // this is a secondary guard. (plan §4.4 #3)
       let totalBytes = 0;
-      const CAP = 35 * 1024 * 1024;
+      // CAP is on RAW bytes but sized against the WIRE limit: Resend rejects a
+      // message whose base64-encoded body exceeds ~40 MB, and base64 inflates by
+      // ~4/3. 24 MB raw → ~33 MB encoded, safely under 40 with room for the HTML
+      // body + JSON. It also BINDS (< PER×3 = 30 MB) so oversize attachments are
+      // skipped with a warning here instead of blowing up the MAIN send after the
+      // Stripe link is already minted (review #1). Fail-open, per plan §4.4.
+      const CAP = 24 * 1024 * 1024;
       const PER = 10 * 1024 * 1024;
+      const usedNames = new Set<string>(); // de-dupe identical filenames (review #5)
       for (const row of (attachmentRows || [])) {
         try {
           if (!isAllowedStorageUrl(row.file_url, invoiceId)) {
@@ -115,7 +122,19 @@ serve(async (req) => {
             continue;
           }
           totalBytes += buf.byteLength;
-          attachmentsPayload.push({ filename: row.file_name, content: arrayBufferToBase64(buf) });
+          // Disambiguate identical filenames so two "scan.pdf" rows don't collapse
+          // to one attachment in the payer's mail client (review #5).
+          let fname = row.file_name || "attachment";
+          if (usedNames.has(fname)) {
+            const dot = fname.lastIndexOf(".");
+            const base = dot > 0 ? fname.slice(0, dot) : fname;
+            const ext = dot > 0 ? fname.slice(dot) : "";
+            let n = 2;
+            while (usedNames.has(`${base} (${n})${ext}`)) n++;
+            fname = `${base} (${n})${ext}`;
+          }
+          usedNames.add(fname);
+          attachmentsPayload.push({ filename: fname, content: arrayBufferToBase64(buf) });
         } catch (e) {
           warnings.push(`${row.file_name || "An attachment"} — ${e.message}`);
           continue;

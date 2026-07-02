@@ -157,6 +157,45 @@ FILES TO KNOW
   — the table (authored, unpushed).
 
 ----------------------------------------------------------------
+REVIEW-FIX PASS (high-effort review, 16 agents / 9 findings)
+----------------------------------------------------------------
+All 8 confirmed/plausible findings were caused-by this build and fixed
+on-branch (pre-merge) — cheaper than a separate build session. The 9th
+candidate (edge fn fetching file_url unauthenticated) was refuted in
+verification. Fixes:
+
+  #1+#6 orphaned pay link on oversize + dead 35MB cap (send-invoice):
+    CAP 35MB→24MB raw. Now BINDS (< PER×3=30MB) and is sized against the
+    base64 wire limit (raw ×4/3 ≈ 33MB encoded < Resend ~40MB). Oversize
+    attachments are skipped with a warning instead of failing the MAIN
+    send after the Stripe link is already minted. NOTE: three files each
+    near 10MB now attaches only ~2 (the rest skipped+warned) — fail-open
+    by design; realistic waivers are small PDFs. The broader
+    "main-send-fails-after-Stripe" ordering (Resend outage etc.) is
+    pre-existing and out of F39 scope.
+  #2 silent-no-op delete (Invoices.jsx handleRemoveAttachment): delete
+    now .select("id"); if zero rows come back, we do NOT touch storage
+    (would destroy the file while a live row/link survives) — refresh +
+    inline notice instead. Matches CLAUDE.md verify-after-delete.
+  #3 warning header (Invoices.jsx send-done): "Some viewer copies didn't
+    send:" → "Sent — but some items had issues:" (warnings[] now carries
+    attachment AND QuickBooks issues, not just viewer failures).
+  #4 typed label wiped on rejected pick: handleUploadAttachment returns a
+    success boolean; the onChange clears the pending label only when true.
+  #5 same-named attachments collide: edge fn de-dupes payload filenames
+    (appends " (2)" etc.) so two "scan.pdf" rows don't collapse to one in
+    the payer's client.
+  #7 attachments query written 3× → one module helper
+    loadInvoiceAttachments(invoiceId), used by modal reload, detail
+    reload, and initial load.
+  #8 double query per modal mutation: modal reloadAttachments now defers
+    to the parent (onAttachmentsChanged) and lets the result flow back via
+    the parentAttachments prop + resync effect — one round-trip, no
+    transient divergence. Self-fetch only when there's no parent.
+
+Re-verified: vite build green; no new lint. Commit: (see git state).
+
+----------------------------------------------------------------
 GIT STATE ON CLOSE
 ----------------------------------------------------------------
 - sales-command: branch `feat/invoice-email-attachments` @ 219d1c3

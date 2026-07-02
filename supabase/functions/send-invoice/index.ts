@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { authenticateCaller, unauthorizedResponse } from "../_shared/tenantAuth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { buildContactAllowlist, normEmail } from "../_shared/recipientAllowlist.ts";
+import { isAllowedStorageUrl, arrayBufferToBase64 } from "../_shared/attachments.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -52,6 +53,74 @@ serve(async (req) => {
 
     if (!caller.isServiceRole && invoice.tenant_id !== caller.tenantId) {
       return unauthorizedResponse(403, corsHeaders);
+    }
+
+    // ── Attachments (plan §4.4) ──────────────────────────────────────────────
+    // Persisted invoice_attachments are fetched from storage, base64-encoded, and
+    // attached to the MAIN + every VIEWER email. Handled FAIL-OPEN and BEFORE the
+    // Stripe link is created (plan §4.4 R1 Finding A): no attachment problem (bad
+    // URL, unfetchable file, oversize) may abort the invoice+pay-link send or run
+    // after a Stripe side effect — a failure becomes a warnings[] entry, never a
+    // throw that reaches sendEmail. `warnings` + `attachmentsPayload` are HOISTED
+    // here (were declared mid-function pre-plan); the viewer loop + sender
+    // notification below read this same `warnings`. (plan §4.4 hoist)
+    const warnings: string[] = [];
+    const attachmentsPayload: { filename: string; content: string }[] = [];
+    {
+      // Load rows tenant-scoped (service role bypasses RLS → explicit filter
+      // mandatory, mirrors recipients read), capped at 3 (matches the upload
+      // bound §4.2), non-throwing. (plan §4.4 #2)
+      const { data: attachmentRows, error: loadErr } = await supabase
+        .from("invoice_attachments")
+        .select("file_url, file_name, label")
+        .eq("invoice_id", invoiceId)
+        .eq("tenant_id", invoice.tenant_id)
+        .limit(3);
+      if (loadErr) {
+        console.error("Attachment load failed (non-fatal):", loadErr.message);
+        warnings.push("Attachments couldn't be loaded — the invoice was sent without them.");
+      }
+
+      // Validate + fetch + encode ONCE, each row isolated, size-guarded BEFORE
+      // reading bytes into memory. Bounds are authoritative at upload (§4.2);
+      // this is a secondary guard. (plan §4.4 #3)
+      let totalBytes = 0;
+      const CAP = 35 * 1024 * 1024;
+      const PER = 10 * 1024 * 1024;
+      for (const row of (attachmentRows || [])) {
+        try {
+          if (!isAllowedStorageUrl(row.file_url, invoiceId)) {
+            warnings.push(`${row.file_name || "An attachment"} — skipped, not a valid storage URL for this invoice.`);
+            continue;
+          }
+          if (totalBytes >= CAP) {
+            warnings.push(`${row.file_name} — skipped, total attachment size cap reached.`);
+            continue;
+          }
+          const res = await fetch(row.file_url);
+          if (!res.ok) {
+            warnings.push(`${row.file_name} — skipped, couldn't be fetched (${res.status}).`);
+            continue;
+          }
+          const len = Number(res.headers.get("content-length") || 0);
+          if (len > PER || totalBytes + len > CAP) {
+            warnings.push(`${row.file_name} — skipped, too large.`);
+            continue;
+          }
+          const buf = await res.arrayBuffer();
+          // Final guard: content-length can be absent or lie, so re-check the
+          // real byte length before committing it to the payload.
+          if (buf.byteLength > PER || totalBytes + buf.byteLength > CAP) {
+            warnings.push(`${row.file_name} — skipped, too large.`);
+            continue;
+          }
+          totalBytes += buf.byteLength;
+          attachmentsPayload.push({ filename: row.file_name, content: arrayBufferToBase64(buf) });
+        } catch (e) {
+          warnings.push(`${row.file_name || "An attachment"} — ${e.message}`);
+          continue;
+        }
+      }
     }
 
     const amount = Number(invoice.amount);
@@ -351,21 +420,29 @@ serve(async (req) => {
         `;
 
     const subject = `Invoice #${invoiceId} — ${jobName || "High Desert Surface Prep"}`;
-    const sendEmail = async (to: string, html: string) => {
+    const sendEmail = async (
+      to: string,
+      html: string,
+      attachments?: { filename: string; content: string }[],
+    ) => {
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { "Authorization": `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from: fromAddress, to, subject, html }),
+        body: JSON.stringify({
+          from: fromAddress,
+          to,
+          subject,
+          html,
+          ...(attachments && attachments.length ? { attachments } : {}),
+        }),
       });
       const txt = await res.text();
       return { ok: res.ok, txt };
     };
 
-    const warnings: string[] = [];
-
     // ── Send the MAIN first. A main-send failure aborts the whole operation —
     // the invoice isn't "sent" if the payer never got it. (plan §4.4 #5)
-    const mainRes = await sendEmail(mainRecipient.email, buildMainHtml(mainRecipient.name || customerName));
+    const mainRes = await sendEmail(mainRecipient.email, buildMainHtml(mainRecipient.name || customerName), attachmentsPayload);
     console.log("Main email response:", mainRes.ok, mainRes.txt.slice(0, 200));
     if (!mainRes.ok) {
       return new Response(JSON.stringify({ error: `Failed to send invoice to main recipient: ${mainRes.txt}` }), {
@@ -391,7 +468,7 @@ serve(async (req) => {
         continue;
       }
       try {
-        const vr = await sendEmail(v.email, buildViewerHtml(v.name || "there"));
+        const vr = await sendEmail(v.email, buildViewerHtml(v.name || "there"), attachmentsPayload);
         if (!vr.ok) { warnings.push(`${v.email} — send failed: ${vr.txt.slice(0, 140)}`); continue; }
         if (v.id) {
           await supabase.from("invoice_recipients").update({ sent_at: new Date().toISOString() }).eq("id", v.id);
@@ -410,7 +487,10 @@ serve(async (req) => {
         ...viewerRecipients.map((v) => `<div style="font-size: 12px; color: #4a4238; margin-bottom: 3px;"><strong>Viewer:</strong> ${esc(v.name || "")} &lt;${esc(v.email)}&gt;</div>`),
       ].join("");
       const warningsHtml = warnings.length
-        ? `<div style="background: #fff7ed; border: 1px solid #f59e0b; border-radius: 8px; padding: 10px 14px; margin: 12px 0; font-size: 12px; color: #92400e;"><strong>Some viewer copies didn't send:</strong>${warnings.map((w) => `<div style="margin-top: 3px;">· ${esc(w)}</div>`).join("")}</div>`
+        ? `<div style="background: #fff7ed; border: 1px solid #f59e0b; border-radius: 8px; padding: 10px 14px; margin: 12px 0; font-size: 12px; color: #92400e;"><strong>Some copies or attachments had issues:</strong>${warnings.map((w) => `<div style="margin-top: 3px;">· ${esc(w)}</div>`).join("")}</div>`
+        : "";
+      const attachmentsListHtml = attachmentsPayload.length
+        ? `<div style="font-size: 12px; color: #4a4238; margin-top: 8px;"><strong>Attachments sent:</strong>${attachmentsPayload.map((a) => `<div style="margin-top: 3px;">· ${esc(a.filename)}</div>`).join("")}</div>`
         : "";
       try {
         await fetch("https://api.resend.com/emails", {
@@ -427,6 +507,7 @@ serve(async (req) => {
                   ${jobId ? `<div style="font-size: 12px; color: #887c6e; margin-bottom: 4px;">Job #${jobId}${jobName ? ` — ${esc(jobName)}` : ""}</div>` : ""}
                   <div style="font-size: 22px; font-weight: 800; color: #1c1814; margin: 8px 0 12px;">$${fmtMoney(netAmount)}</div>
                   ${recipientListHtml}
+                  ${attachmentsListHtml}
                   ${hasBreakdown ? `<div style="font-size: 11px; color: #887c6e; margin-top: 8px;">Net of $${fmtMoney(amount - netAmount)} ${discount > 0 && retentionAmount > 0 ? "discount + retainage" : discount > 0 ? "discount" : "retainage"} (gross $${fmtMoney(amount)})</div>` : ""}
                   ${dueDate ? `<div style="font-size: 12px; color: #887c6e; margin-top: 4px;">Due ${new Date(dueDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>` : ""}
                 </div>

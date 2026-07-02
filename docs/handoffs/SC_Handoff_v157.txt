@@ -1,0 +1,168 @@
+SC_Handoff_v157  —  2026-07-02
+================================================================
+REPO: sales-command  (+ command-suite-db for the migration file only)
+PURPOSE: BUILD session (T3). Built the invoice-email-attachments
+feature (F39) to its build-ready plan. Code-complete on
+`feat/invoice-email-attachments`; migration authored-but-unpushed in
+command-suite-db. Local checks green. Stops here for /buildvsplan —
+this was a build-only terminal (no deploy / no push / no gates run).
+
+----------------------------------------------------------------
+SESSION SUMMARY
+----------------------------------------------------------------
+Implemented F39 — persisted, multi-file attachments (release waiver
+etc.) on the REGULAR invoice email, viewable in invoice history. Built
+exactly to docs/plans/invoice_email_attachments.md (2 audit rounds,
+build-ready). The mechanism is lifted from the proven send-pay-app
+attachment path (base64 + Resend `attachments` + SSRF allowlist) and
+generalized to an N-row per-invoice collection, bounded at upload.
+
+----------------------------------------------------------------
+CHANGES SHIPPED (committed, NOT pushed)
+----------------------------------------------------------------
+command-suite-db @ 0504889 (branch `feat/invoice-attachments`)
+  "Touches F39: author invoice_attachments migration (authored-not-pushed)"
+  - supabase/migrations/20260702120000_invoice_attachments.sql — NEW.
+    public.invoice_attachments table modeled on the invoice_recipients
+    migration: storage_path col, created_by forced by a BEFORE INSERT
+    trigger (not a client DEFAULT), NO UNIQUE (random-entropy file_url),
+    4-policy tenant RLS (no anon), 2 indexes (invoice_id, tenant_id).
+  - *** AUTHORED, NOT PUSHED. *** Push is gated + must sequence AFTER
+    Schedule Command's in-flight migration on the shared ledger (§8).
+
+sales-command @ 219d1c3 (branch `feat/invoice-email-attachments`)
+  "Touches F39: persisted multi-file invoice email attachments"
+  - supabase/functions/_shared/attachments.ts — NEW. isAllowedStorageUrl
+    (job-attachments bucket pinned to invoice-attachments/{invoiceId}/
+    prefix — rejects a valid-bucket URL from another invoice/tenant) +
+    arrayBufferToBase64. Lifted from send-pay-app; precedent
+    _shared/recipientAllowlist.ts.
+  - supabase/functions/send-invoice/index.ts:
+    * HOISTED `warnings` + `attachmentsPayload` to just after the tenant
+      gate; DELETED the old mid-function `const warnings` (was the
+      build-break the R2 regression flagged).
+    * Attachment block runs AFTER the tenant gate, BEFORE Stripe. Loads
+      invoice_attachments tenant-scoped, .limit(3), non-throwing (load
+      error → warning, empty set, proceed).
+    * Per-row try/catch → warnings + continue. Size guarded on the
+      running total BEFORE fetch, on content-length BEFORE arrayBuffer(),
+      and a final byte re-check before pushing. PER=10MB, CAP=35MB.
+    * Payload built ONCE, attached to MAIN + every VIEWER. sendEmail
+      signature extended (to, html, attachments?). Sender notification
+      lists attachment names (escaped via existing `esc`).
+    * Fail-open: no attachment error can reach sendEmail or run post-Stripe.
+  - src/pages/Invoices.jsx:
+    * Module consts: ATTACHMENT_LABEL_PRESETS, MAX_INVOICE_ATTACHMENTS(3),
+      MAX_ATTACHMENT_BYTES(10MB), isSafeAttachmentHref (public-prefix check
+      via import.meta.env.VITE_SUPABASE_URL).
+    * InvoicePDFModal: new props attachments/onAttachmentsChanged; own
+      attachments useState seeded from prop (+ effect to resync on prop
+      change); reloadAttachments(); handleUploadAttachment (client bounds
+      BEFORE storage.upload — max 3, <=10MB; sanitized filename;
+      crypto.randomUUID() path under invoice-attachments/{id}/; insert row);
+      handleRemoveAttachment (ROW-FIRST, then best-effort
+      storage.remove(storage_path), don't trust the []); Attachments panel
+      in the send view (preset chips + freeform label, View/remove list);
+      `uploading` added to the send-button disable.
+    * InvoiceDetail: attachments useState + reloadAttachments; load in the
+      loadDetail effect (keyed on inv.id, next to recipients); pass
+      attachments + onAttachmentsChanged to the showPDF modal; read-only
+      historical list rendered directly below the Recipients section with
+      safe-href validation.
+  - docs/BACKLOG.md: F39 → In Progress with the build note.
+
+----------------------------------------------------------------
+DECISIONS / CHOICES MADE
+----------------------------------------------------------------
+- Label UX (plan §7 #A, DESIGN-OPEN): implemented label-at-upload —
+  preset chips (Release Waiver, Lien Release) + a freeform input that
+  sets the pending label for the next file; label defaults to the
+  filename. Did NOT build per-row re-labeling after upload (removed an
+  unused setAttachmentLabel handler to avoid dead code). Re-label can be
+  added later if wanted; not required by the plan.
+- Styling: the send-view Attachments panel matches the surrounding
+  InvoicePDFModal white/preview aesthetic (#F9FAFB / #E5E7EB / #30cfac),
+  not the linen theme — that modal is an established white "PDF preview"
+  surface. The historical list in InvoiceDetail uses the linen C tokens
+  to match the Recipients card it sits under. (No new white surfaces in
+  the linen app; teal buttons keep black text.)
+- Left the send-pay-app copy of the helpers untouched (plan §6 scope);
+  migrating it onto _shared/attachments.ts is a filed follow-up.
+- The `showPaidPDF` InvoicePDFModal call site was NOT given the
+  attachments prop — it's a paid-invoice viewer with no send view;
+  history lives in InvoiceDetail, not that modal. State defaults handle
+  the absent prop.
+
+----------------------------------------------------------------
+VERIFICATION (local only — this is a build terminal)
+----------------------------------------------------------------
+- `npx vite build` — GREEN (544 modules).
+- `npx eslint` on the 3 touched files — 13 errors, ALL pre-existing and
+  outside my added lines (escaped-dash regexes, unused wtcMap/newInv, a
+  setState-in-effect URL sync). My sanitize regex uses the CLAUDE.md
+  unescaped form. The two .ts "File ignored" notes are expected (eslint
+  config doesn't cover edge functions). No NEW lint problems introduced.
+- NOT run (by design — separate terminals): edge-fn deno typecheck,
+  /buildvsplan, /code-review, /security-review, migration push, edge-fn
+  deploy, post-deploy smoke.
+
+----------------------------------------------------------------
+NEW / CHANGED BACKLOG ITEMS
+----------------------------------------------------------------
+- F39 (T3): Open → In Progress. Build note added (branches, files,
+  authored-not-pushed migration, pending gates).
+- S10 (T3, Open): already filed by the R2 audit — bucket-wide DELETE on
+  job-attachments + the storage_path deletion vector. The remove path
+  built here depends on that hardening for full cross-tenant safety;
+  not fixed this loop (authored in command-suite-db when it lands).
+
+----------------------------------------------------------------
+NOT TOUCHED / OUT OF SCOPE
+----------------------------------------------------------------
+- send-pay-app, PayAppDetailModal, PublicInvoicePage, QB sync, Stripe
+  path — all untouched (plan §6).
+- Public invoice page does NOT list attachments (no anon RLS policy) —
+  intentional (plan §6).
+
+----------------------------------------------------------------
+NEXT SESSION POINTERS  (gate chain — separate terminals, in order)
+----------------------------------------------------------------
+1. /buildvsplan on `feat/invoice-email-attachments` — spec-vs-code +
+   live-schema reality (the table isn't pushed yet, so schema checks are
+   against the migration file, not prod).
+2. /code-review, then /security-review (storage allowlist, tenant
+   scoping, email egress, RLS all touched — §8 requires it).
+3. Migration push: in command-suite-db, `npm run db:push` on branch
+   `feat/invoice-attachments` — but ONLY after Schedule Command's
+   in-flight migration lands (single shared ledger; second pusher rebases
+   on main first). Do NOT db:push from sales-command (it's unlinked).
+4. Deploy: `supabase functions deploy send-invoice --no-verify-jwt`
+   (ships the new _shared/attachments.ts with it).
+5. Post-deploy smoke (§8): TEST job → attach a waiver → send to a TEST
+   recipient → verify (a) email has the attachment, (b) invoice_attachments
+   row exists, (c) historical list renders it, (d) remove deletes the file,
+   (e) an oversize/garbage-URL row is skipped with a warning and the
+   pay-link email still sends.
+
+----------------------------------------------------------------
+FILES TO KNOW
+----------------------------------------------------------------
+- docs/plans/invoice_email_attachments.md — the spec (2 audit rounds).
+- supabase/functions/_shared/attachments.ts — NEW SSRF allowlist + b64.
+- supabase/functions/send-invoice/index.ts — attachment block after the
+  tenant gate, before Stripe (~:57+); hoisted warnings/attachmentsPayload.
+- src/pages/Invoices.jsx — InvoicePDFModal (panel + upload/remove) and
+  InvoiceDetail (load + historical list + prop wiring).
+- command-suite-db/supabase/migrations/20260702120000_invoice_attachments.sql
+  — the table (authored, unpushed).
+
+----------------------------------------------------------------
+GIT STATE ON CLOSE
+----------------------------------------------------------------
+- sales-command: branch `feat/invoice-email-attachments` @ 219d1c3
+  (this handoff will be a follow-up commit). NOT pushed. Working tree
+  otherwise clean.
+- command-suite-db: branch `feat/invoice-attachments` @ 0504889. NOT
+  pushed. One migration file staged+committed; nothing else touched.
+- No merges, no deploys, no migration pushes, no secrets. Build-only.
+================================================================

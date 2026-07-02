@@ -362,8 +362,23 @@ serve(async (req) => {
       qbInvoiceId = result.Invoice.Id;
       console.log("qb-sync-invoice: created QB invoice ID:", qbInvoiceId);
 
-      // Save QB invoice ID back to our invoices table
-      await sb.from("invoices").update({ qb_invoice_id: qbInvoiceId }).eq("id", invoiceId);
+      // Save QB invoice ID back to our invoices table. If this persist FAILS, the
+      // QB invoice already exists — reporting a bare success would orphan it, and
+      // every retry then hits qb_duplicate_docnum with no way out. Surface the
+      // failure WITH the qbInvoiceId so the caller can persist the link itself.
+      // (plan §3 step 1 — closes the persist-returned-error case, not the
+      // lost-response case; that is handled by the client persist + step 4 heal.)
+      const { error: linkErr } = await sb.from("invoices").update({ qb_invoice_id: qbInvoiceId }).eq("id", invoiceId);
+      if (linkErr) {
+        console.error("qb-sync-invoice: QB invoice created but link persist failed:", linkErr.message, { invoiceId, qbInvoiceId });
+        return new Response(JSON.stringify({
+          error: "qb_link_persist_failed",
+          message: "Invoice was created in QuickBooks but linking it in Sales Command failed. Retry to reconcile.",
+          qbInvoiceId,
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
+        });
+      }
     }
 
     return new Response(JSON.stringify({

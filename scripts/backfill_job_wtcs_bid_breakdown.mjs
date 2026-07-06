@@ -29,8 +29,16 @@
 //   node scripts/backfill_job_wtcs_bid_breakdown.mjs
 //
 //   Add --apply to write. Without it this is a DRY RUN: it prints every
-//   computed row so you can eyeball each against the signed-proposal display
-//   (ProposalDetail.jsx:1209) before committing to writes.
+//   computed row so you can sanity-check before writing.
+//
+//   Eyeball note: the printed numbers are recomputed from the CURRENT
+//   proposal_wtc. Compare them to the ARCHIVED signed proposal PDF (the true
+//   frozen bid) — NOT to the live ProposalDetail:1209 view, which recomputes
+//   from the same proposal_wtc and so can never reveal drift. Drift can only
+//   occur if a WTC was edited after its send; WTCs lock at approval and, once
+//   the pull-back/re-send lock-integrity gap is closed (sales-command backlog
+//   F40), cannot be edited while a Schedule job exists — so for stamped rows
+//   the recompute equals the signed bid.
 
 import { createClient } from "@supabase/supabase-js";
 import { calcBidStamp, usesExactPricing } from "../src/lib/calc.js";
@@ -123,7 +131,7 @@ if (skipped > 0) {
     `This run will exit non-zero because of them.`
   );
 }
-console.log("Eyeball each against the signed-proposal display (ProposalDetail.jsx:1209):");
+console.log("Eyeball each against the ARCHIVED signed proposal PDF (not the live recompute — see header):");
 for (const row of toUpdate) {
   const s = row.stamp;
   console.log(

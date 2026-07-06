@@ -100,6 +100,20 @@ NOT TOUCHED / DEFERRED
   attachments read-only, that's a small follow-up — not requested.
 
 ----------------------------------------------------------------
+ADDENDUM — S10 started then deferred (2026-07-06)
+----------------------------------------------------------------
+Began S10 this session; deferred to its own /decide→plan session — it's
+heavier than the T3 line implied. Key finding (banked in the S10 BACKLOG
+row, commit 1a9f0fa): the "tenant prefix" premise is WRONG — job-attachments
+object paths encode ENTITY ids, not tenant, so nothing to scope a prefix on.
+Likely clean fix = owner-based DELETE policy (bucket_id='job-attachments'
+AND owner = auth.uid()); confirmed no server-side uploads to the bucket, so
+owner reliably = uploader. Tradeoff: same-tenant cross-user delete no-ops →
+benign orphan. Bucket is SHARED across all 4 apps → cross-repo check + 6-gate
+RLS deploy (CLAUDE_RLS.md), authored in command-suite-db. No code/policy
+change made — investigation only, both repos clean.
+
+----------------------------------------------------------------
 NEXT SESSION POINTERS
 ----------------------------------------------------------------
 - If hardening: S10 first (tenant/path-scoped storage RLS on

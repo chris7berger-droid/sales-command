@@ -515,3 +515,28 @@ verify; XSS at label/filename sinks; re-send fidelity (§7 #D).
 
 ### Suggested agent count: 3
 DB/RLS · edge-fn security (SSRF/tenant/egress/ordering) · UI+correctness.
+
+---
+
+## Post-Build Design Change (2026-07-06) — attachment management moved to the detail page
+
+**Supersedes §4.2's placement (upload panel in the send view).** During smoke
+prep, the upload UI's home was reconsidered: the send flow is a
+**review/approve/launch** surface — you don't *create or edit* content there,
+you confirm it and let it fly. Attachments are content built onto the invoice,
+so they belong where everything else on the invoice is managed. Ratified by
+Chris 2026-07-02.
+
+- **Management (add / label / remove)** now lives in an **Attachments section on
+  `InvoiceDetail`, directly below Recipients** — same surface class, gated the
+  same way (`!inv.voided_at && !linkedPayApp`). All the handlers + bounds state
+  moved from `InvoicePDFModal` to `InvoiceDetail`.
+- **Send view (`InvoicePDFModal`)** now renders a **read-only summary card**
+  ("Attachments (N)" + labels) for review only — no upload/remove, no `uploading`
+  gate on the send button. `attachments` is passed in read-only; the modal no
+  longer owns attachment state or fires `onAttachmentsChanged`.
+- **Rationale:** mirrors Recipients exactly (managed on the detail page, shown
+  read-only in the send flow) — the consistency users expect. Everything else
+  (fail-open edge fn, SSRF triple-pin, size caps, RLS, verify-after-delete,
+  filename de-dupe) is unchanged; only the UI *location* of the management
+  controls moved. No edge-fn, migration, or security-surface change.

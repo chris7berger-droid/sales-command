@@ -658,7 +658,32 @@ async function deletePropAttachment(fullName) {
         const { error: wtcErr } = await supabase
           .from("job_wtcs")
           .upsert(jobWtcRows, { onConflict: "proposal_wtc_id", ignoreDuplicates: true });
-        if (wtcErr) alert("Schedule SOW sync warning: " + wtcErr.message);
+        if (wtcErr) {
+          // The frozen bid stamp IS the point of this write. A job with zero
+          // job_wtcs rows is unusable (empty Budget tab + SOW) and can never
+          // self-heal: re-send is blocked by the jobs 23505 guard above, and the
+          // backfill only fills rows that already exist. So a failed write here
+          // must NOT be swallowed as a "warning" that then marks the proposal
+          // sent. Roll back the just-inserted jobs row and bail so the user can
+          // retry cleanly. Verify the rollback (RLS delete can silently no-op).
+          const { data: rbData, error: rbErr } = await supabase
+            .from("jobs")
+            .delete()
+            .eq("job_id", newJobId)
+            .select("job_id");
+          const rolledBack = !rbErr && (rbData?.length || 0) > 0;
+          if (rolledBack) {
+            alert("Send to Schedule failed while writing work types: " + wtcErr.message +
+              "\n\nNothing was kept — please try again.");
+          } else {
+            alert("Send to Schedule failed while writing work types: " + wtcErr.message +
+              "\n\nAutomatic rollback did NOT complete" + (rbErr ? " (" + rbErr.message + ")" : "") +
+              ". A partial job may exist in Schedule for this proposal — do NOT retry; " +
+              "have an admin remove job " + newJobId + " first.");
+          }
+          setSendingToSchedule(false);
+          return;
+        }
 
         const matRows = [];
         let ordinal = 0;

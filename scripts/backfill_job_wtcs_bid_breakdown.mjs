@@ -16,8 +16,12 @@
 //   forking the logic into a permanent drift surface. This imports the
 //   canonical calc directly.
 //
-// Minimal by design: job_wtcs holds only a handful of test sends (one tenant),
-// so there is no paging / batching machinery — a plain fetch is enough.
+// Volume is expected to be small, but the read below PAGINATES anyway: this runs
+// with the service-role key, which bypasses RLS and therefore reads job_wtcs
+// across EVERY tenant on the shared Command Suite DB — the NULL-breakdown
+// population is not bounded by one tenant's send count. A plain fetch would hit
+// PostgREST's 1000-row cap and silently stamp only the first 1000 by id; because
+// re-sends never re-stamp, the remainder would be stranded NULL forever.
 //
 // Run:
 //   SUPABASE_URL=https://<ref>.supabase.co \
@@ -47,19 +51,28 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 console.log(`Mode: ${APPLY ? "APPLY (writes will happen)" : "DRY RUN (use --apply to write)"}`);
 
 // Only rows not yet stamped. bid_breakdown is nullable (legacy default).
-const { data: jobWtcs, error: jwErr } = await supabase
-  .from("job_wtcs")
-  .select("id, job_id, proposal_wtc_id, work_type_name")
-  .is("bid_breakdown", null)
-  .order("id", { ascending: true });
-
-if (jwErr) {
-  console.error("Query job_wtcs failed:", jwErr);
-  process.exit(1);
+// Page past the 1000-row cap (see header note) so a large population is never
+// silently truncated.
+const PAGE = 1000;
+const jobWtcs = [];
+for (let from = 0; ; from += PAGE) {
+  const { data: page, error: jwErr } = await supabase
+    .from("job_wtcs")
+    .select("id, job_id, proposal_wtc_id, work_type_name")
+    .is("bid_breakdown", null)
+    .order("id", { ascending: true })
+    .range(from, from + PAGE - 1);
+  if (jwErr) {
+    console.error("Query job_wtcs failed:", jwErr);
+    process.exit(1);
+  }
+  if (!page || page.length === 0) break;
+  jobWtcs.push(...page);
+  if (page.length < PAGE) break;
 }
 
-console.log(`Found ${jobWtcs?.length || 0} job_wtcs rows with NULL bid_breakdown.`);
-if (!jobWtcs || jobWtcs.length === 0) {
+console.log(`Found ${jobWtcs.length} job_wtcs rows with NULL bid_breakdown.`);
+if (jobWtcs.length === 0) {
   console.log("Nothing to backfill. Done.");
   process.exit(0);
 }
@@ -102,6 +115,14 @@ for (const jw of jobWtcs) {
 }
 
 console.log(`\nComputed breakdowns for ${toUpdate.length} rows; skipped ${skipped}.`);
+if (skipped > 0) {
+  console.warn(
+    `\n⚠️  ACTION REQUIRED: ${skipped} row(s) were SKIPPED (see SKIP lines above) and ` +
+    `remain NULL. They will NOT get a Budget breakdown from this run, and re-sends ` +
+    `never re-stamp — resolve each before treating this backfill as complete. ` +
+    `This run will exit non-zero because of them.`
+  );
+}
 console.log("Eyeball each against the signed-proposal display (ProposalDetail.jsx:1209):");
 for (const row of toUpdate) {
   const s = row.stamp;
@@ -115,7 +136,8 @@ for (const row of toUpdate) {
 
 if (toUpdate.length === 0) {
   console.log("\nNothing to write. Done.");
-  process.exit(0);
+  // Skips still mean unstamped rows were left behind — never exit clean on them.
+  process.exit(skipped > 0 ? 1 : 0);
 }
 
 if (!APPLY) {
@@ -139,5 +161,7 @@ for (const row of toUpdate) {
   }
 }
 
-console.log(`\nBackfill complete. Written: ${written}. Failed: ${failed}.`);
-process.exit(failed > 0 ? 1 : 0);
+console.log(`\nBackfill complete. Written: ${written}. Failed: ${failed}. Skipped: ${skipped}.`);
+// Non-zero on failures OR skips: a skipped row is an unstamped row, and it must
+// never be mistaken for a completed backfill.
+process.exit(failed > 0 || skipped > 0 ? 1 : 0);

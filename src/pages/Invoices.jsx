@@ -573,7 +573,36 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 }
 
 // ── Invoice PDF Modal ─────────────────────────────────────────────────────
-function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbSynced, hideSend = false, teamMember, recipients: parentRecipients }) {
+// Preset label chips for invoice attachments (plan §7 #A). Freeform edit allowed.
+// The common attachment is a release waiver (aka release of lien / lien release —
+// same document), so the label field pre-fills this. Other attachments can be
+// added with the label cleared (no title). No preset chips.
+const DEFAULT_ATTACHMENT_LABEL = "Release Waiver";
+const MAX_INVOICE_ATTACHMENTS = 3;
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10 MB per file (plan §4.2)
+
+// Only render an <a href> for a stored file_url that points at this project's
+// public job-attachments storage. Blocks a javascript:/data: scheme from a
+// tampered row reaching an anchor href — render plain text otherwise. (plan §4.5)
+const ATTACHMENT_PUBLIC_PREFIX = `${import.meta.env.VITE_SUPABASE_URL || ""}/storage/v1/object/public/job-attachments/`;
+function isSafeAttachmentHref(url) {
+  return typeof url === "string" && url.startsWith(ATTACHMENT_PUBLIC_PREFIX);
+}
+
+// Single loader for an invoice's attachments — used by the modal reload, the
+// InvoiceDetail reload, and the initial detail load so a future change (soft-
+// delete filter, explicit columns, paging) can't diverge across three copies
+// (review #7). Bounded at 3/invoice by the upload cap, so no .range() needed.
+async function loadInvoiceAttachments(invoiceId) {
+  const { data } = await supabase
+    .from("invoice_attachments")
+    .select("*")
+    .eq("invoice_id", invoiceId)
+    .order("created_at");
+  return data || [];
+}
+
+function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbSynced, hideSend = false, teamMember, recipients: parentRecipients, attachments = [] }) {
   const money = invoice.show_cents ? fmt$c : fmt$;
   const fmtPct = (n) => {
     const v = parseFloat(n) || 0;
@@ -591,6 +620,10 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
   const [jobsiteAddress, setJobsiteAddress] = useState("");
   const [loadingContact, setLoadingContact] = useState(true);
   const [recips, setRecips] = useState([]);
+  // Attachments are managed on the InvoiceDetail page (next to Recipients) and
+  // passed in read-only here — the send view only REVIEWS what will go out; it
+  // never creates/edits. Mirrors how recipients are managed on the detail page
+  // and shown read-only in the send flow.
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
   const [repContact, setRepContact] = useState({ phone: "", email: "" });
 
@@ -1024,6 +1057,19 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
                       </div>
                     </>
                   )}
+                  {/* Attachments — READ-ONLY review of what will be emailed. Managed on
+                      the InvoiceDetail page (next to Recipients); the send flow only reviews. */}
+                  {attachments.length > 0 && (
+                    <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Attachments ({attachments.length})</div>
+                      {attachments.map(att => (
+                        <div key={att.id} style={{ fontWeight: 600, color: "#111827", marginTop: 2 }}>
+                          {att.label || att.file_name}
+                          {att.label && att.file_name && att.label !== att.file_name && <span style={{ fontSize: 11, fontWeight: 400, color: "#6B7280" }}> · {att.file_name}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {sendError && <div style={{ fontSize: 12, color: "#e53935", marginBottom: 12, background: "rgba(229,57,53,0.06)", border: "1px solid rgba(229,57,53,0.2)", borderRadius: 8, padding: "10px 14px" }}>{sendError}</div>}
                   <button onClick={handleSend} disabled={sending || noMainBlock || mainMissingEmail} style={{ width: "100%", background: (sending || noMainBlock || mainMissingEmail) ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: (sending || noMainBlock || mainMissingEmail) ? "default" : "pointer", fontFamily: "inherit" }}>
                     {sending ? "Sending..." : "Send Invoice with Pay Link"}
@@ -1040,7 +1086,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
               <div style={{ fontSize: 14, color: "#6B7280", marginBottom: 24 }}>The main recipient will receive an email with a secure payment link; any viewers get a view-only copy.</div>
               {sendWarnings.length > 0 && (
                 <div style={{ textAlign: "left", maxWidth: 420, margin: "0 auto 24px", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 10, padding: "12px 16px", fontSize: 12.5, color: "#92400e" }}>
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Some viewer copies didn't send:</div>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Sent — but some items had issues:</div>
                   {sendWarnings.map((w, i) => <div key={i} style={{ marginTop: i === 0 ? 0 : 3 }}>· {String(w)}</div>)}
                 </div>
               )}
@@ -1115,6 +1161,16 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
   // Recipients (main + viewers) — ported from the proposal Recipients card.
   const [recipients, setRecipients] = useState([]);
+  // Attachments — managed HERE (add/label/remove) in a section next to Recipients,
+  // loaded keyed on inv.id, and passed read-only to InvoicePDFModal for send-time
+  // review. This is where documents are built onto the invoice; the send flow only
+  // reviews. (mirrors how Recipients are managed here, shown read-only in send.)
+  const [attachments, setAttachments] = useState([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [attachError, setAttachError] = useState(null);
+  const [attachLabel, setAttachLabel] = useState(DEFAULT_ATTACHMENT_LABEL); // pre-fills "Release Waiver"; cleared after each add so extra files can be untitled
+  const [editingAttachId, setEditingAttachId] = useState(null); // row being re-labeled
+  const [attachLabelDraft, setAttachLabelDraft] = useState("");
   const [customerContacts, setCustomerContacts] = useState([]);
   const [custInfo, setCustInfo] = useState({ id: null, name: "", billingEmail: "", billingName: "", billingContactId: null });
   const [editingRecipient, setEditingRecipient] = useState(null);
@@ -1131,6 +1187,95 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       .order("created_at");
     setRecipients(data || []);
   }
+  async function reloadAttachments() {
+    setAttachments(await loadInvoiceAttachments(inv.id));
+  }
+
+  // Returns true only on a successful upload+insert, so the caller clears the
+  // typed label only when the file was actually accepted.
+  async function handleUploadAttachment(file, label) {
+    if (!file) return false;
+    setAttachError(null);
+    // Client-side bounds BEFORE upload (plan §4.2): max 3 files, ≤10MB each.
+    // These are authoritative; the edge fn's byte cap is a secondary guard.
+    if (attachments.length >= MAX_INVOICE_ATTACHMENTS) {
+      setAttachError(`Up to ${MAX_INVOICE_ATTACHMENTS} files per invoice.`);
+      return false;
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      setAttachError("Each file must be 10 MB or smaller.");
+      return false;
+    }
+    setUploadingAttachment(true);
+    try {
+      // Sanitize filename (CLAUDE.md storage rule) + random-entropy path so the
+      // public URL isn't enumerable (plan §4.1). The {invoiceId}/ segment is
+      // required — the edge-fn allowlist pins to it.
+      const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `invoice-attachments/${inv.id}/${crypto.randomUUID()}-${cleanName}`;
+      const contentType = file.type || "application/octet-stream";
+      const { error: upErr } = await supabase.storage.from("job-attachments").upload(path, file, { contentType });
+      if (upErr) throw new Error(upErr.message);
+      const { data: pub } = supabase.storage.from("job-attachments").getPublicUrl(path);
+      // created_by is forced by a BEFORE INSERT trigger; tenant_id/created_at default.
+      const { error: insErr } = await supabase.from("invoice_attachments").insert({
+        invoice_id: inv.id,
+        file_url: pub?.publicUrl,
+        storage_path: path,
+        file_name: cleanName,
+        label: (label && label.trim()) || null, // blank = untitled attachment
+        content_type: contentType,
+        size_bytes: file.size,
+      });
+      if (insErr) throw new Error(insErr.message);
+      await reloadAttachments();
+      return true;
+    } catch (e) {
+      setAttachError(e.message);
+      return false;
+    } finally {
+      setUploadingAttachment(false);
+    }
+  }
+
+  async function handleRemoveAttachment(att) {
+    setAttachError(null);
+    // Row-first, then storage (plan §4.2 Finding F). A dangling row (a broken
+    // link the user sees) is worse than an orphaned file (invisible, bounded by
+    // the 3-file cap + random path). VERIFY the row actually deleted before
+    // touching storage — a delete that silently matches zero rows (already gone,
+    // or RLS) returns no error, and removing the file then would destroy it while
+    // a live row/link survives (CLAUDE.md verify-after-delete).
+    const { data: deleted, error: delErr } = await supabase
+      .from("invoice_attachments").delete().eq("id", att.id).select("id");
+    if (delErr) { setAttachError(`Couldn't remove attachment: ${delErr.message}`); return; }
+    if (!deleted || deleted.length === 0) {
+      setAttachError("Couldn't remove that attachment — it may already be gone. Refreshed the list.");
+      await reloadAttachments();
+      return;
+    }
+    // Best-effort storage cleanup. job-attachments HAS a DELETE policy, but
+    // storage.remove can still return [] silently (memory: storage-remove-silent-
+    // noop) — don't trust its result. The row was the source of truth and is gone.
+    if (att.storage_path) {
+      try { await supabase.storage.from("job-attachments").remove([att.storage_path]); }
+      catch (e) { console.warn("Attachment file cleanup failed (non-fatal):", e.message); }
+    }
+    await reloadAttachments();
+  }
+
+  async function saveAttachmentLabel(att, label) {
+    setAttachError(null);
+    const { error } = await supabase
+      .from("invoice_attachments")
+      .update({ label: (label && label.trim()) || null })
+      .eq("id", att.id);
+    if (error) { setAttachError(`Couldn't update label: ${error.message}`); return; }
+    setEditingAttachId(null);
+    setAttachLabelDraft("");
+    await reloadAttachments();
+  }
+
   async function reloadCustomerContacts() {
     if (!custInfo.id) return;
     const { data } = await supabase
@@ -1357,6 +1502,9 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           .eq("invoice_id", inv.id)
           .order("created_at");
         setRecipients(recs || []);
+
+        // Attachments — persisted docs that went out with this invoice (plan §4.5).
+        setAttachments(await loadInvoiceAttachments(inv.id));
       }
 
       // If this invoice's retention has been billed, find the release invoice
@@ -2277,6 +2425,58 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         </div>
       )}
 
+      {/* Attachments — manage documents emailed with this invoice (add/label/remove).
+          Same surface class as Recipients; the send flow only reviews these. (plan §4.2/§4.5) */}
+      {!inv.voided_at && !linkedPayApp && (
+        <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
+          <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Attachments</div>
+          <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui, marginBottom: 12 }}>Documents emailed with this invoice — up to {MAX_INVOICE_ATTACHMENTS} files, 10 MB each.</div>
+
+          {attachments.map(att => {
+            const safeHref = isSafeAttachmentHref(att.file_url);
+            const isEditing = editingAttachId === att.id;
+            return (
+              <div key={att.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6 }}>
+                {isEditing ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+                    <input value={attachLabelDraft} onChange={e => setAttachLabelDraft(e.target.value)} placeholder="Label (optional)" style={{ padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <Btn sz="sm" v="ghost" onClick={() => { setEditingAttachId(null); setAttachLabelDraft(""); }}>Cancel</Btn>
+                      <Btn sz="sm" onClick={() => saveAttachmentLabel(att, attachLabelDraft)}>Save</Btn>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>{att.label || att.file_name}</div>
+                      {att.label && att.label !== att.file_name && <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.file_name}</div>}
+                    </div>
+                    {safeHref
+                      ? <a href={att.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none", whiteSpace: "nowrap" }}>View</a>
+                      : <span style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>Unavailable</span>}
+                    <button onClick={() => { setEditingAttachId(att.id); setAttachLabelDraft(att.label || ""); }} title="Rename label" style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>Label</button>
+                    <button onClick={() => handleRemoveAttachment(att)} title="Remove from this invoice" style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.red || "#e53935", cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>Remove</button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+
+          {attachments.length < MAX_INVOICE_ATTACHMENTS && (
+            <div style={{ marginTop: attachments.length ? 8 : 0, padding: "10px 12px", background: C.linenDeep, border: `1px solid ${C.borderStrong}`, borderRadius: 8 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                <input value={attachLabel} onChange={e => setAttachLabel(e.target.value)} placeholder="Label (optional)" style={{ flex: 1, minWidth: 140, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linen, color: C.textBody, WebkitAppearance: "none" }} />
+              </div>
+              <label style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: C.dark, background: C.teal, borderRadius: 6, padding: "6px 14px", cursor: uploadingAttachment ? "wait" : "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                {uploadingAttachment ? "Uploading…" : "+ Add Attachment"}
+                <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; handleUploadAttachment(f, attachLabel).then(ok => { if (ok) setAttachLabel(""); }); }} style={{ display: "none" }} disabled={uploadingAttachment} />
+              </label>
+            </div>
+          )}
+          {attachError && <div style={{ fontSize: 11.5, color: C.red || "#e53935", fontFamily: F.ui, marginTop: 8 }}>{attachError}</div>}
+        </div>
+      )}
+
       {/* Action buttons */}
       <div style={{ display: "flex", gap: 10 }}>
         {editing ? (
@@ -2395,6 +2595,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           wtcIndex={wtcIndex}
           teamMember={teamMember}
           recipients={recipients}
+          attachments={attachments}
           hideSend={!!linkedPayApp}
           onClose={() => setShowPDF(false)}
           onSent={async (responseData) => {

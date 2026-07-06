@@ -540,3 +540,10 @@ Chris 2026-07-02.
   (fail-open edge fn, SSRF triple-pin, size caps, RLS, verify-after-delete,
   filename de-dupe) is unchanged; only the UI *location* of the management
   controls moved. No edge-fn, migration, or security-surface change.
+
+**Label UX simplified (2026-07-06, resolves §7 #A):** dropped the preset chips
+(Release Waiver / Lien Release — the same document). The label field **pre-fills
+"Release Waiver"** (`DEFAULT_ATTACHMENT_LABEL`) and clears after each add, so the
+common case is one-tap and extra attachments default to **untitled** (blank label
+stored as `null`, displayed as just the filename). Freeform label + per-row
+relabel retained.

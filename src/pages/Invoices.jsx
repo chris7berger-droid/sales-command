@@ -574,7 +574,10 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 
 // ── Invoice PDF Modal ─────────────────────────────────────────────────────
 // Preset label chips for invoice attachments (plan §7 #A). Freeform edit allowed.
-const ATTACHMENT_LABEL_PRESETS = ["Release Waiver", "Lien Release"];
+// The common attachment is a release waiver (aka release of lien / lien release —
+// same document), so the label field pre-fills this. Other attachments can be
+// added with the label cleared (no title). No preset chips.
+const DEFAULT_ATTACHMENT_LABEL = "Release Waiver";
 const MAX_INVOICE_ATTACHMENTS = 3;
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10 MB per file (plan §4.2)
 
@@ -1165,7 +1168,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [attachments, setAttachments] = useState([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [attachError, setAttachError] = useState(null);
-  const [attachLabel, setAttachLabel] = useState(""); // pending label for the next upload
+  const [attachLabel, setAttachLabel] = useState(DEFAULT_ATTACHMENT_LABEL); // pre-fills "Release Waiver"; cleared after each add so extra files can be untitled
   const [editingAttachId, setEditingAttachId] = useState(null); // row being re-labeled
   const [attachLabelDraft, setAttachLabelDraft] = useState("");
   const [customerContacts, setCustomerContacts] = useState([]);
@@ -1220,7 +1223,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         file_url: pub?.publicUrl,
         storage_path: path,
         file_name: cleanName,
-        label: (label && label.trim()) || cleanName,
+        label: (label && label.trim()) || null, // blank = untitled attachment
         content_type: contentType,
         size_bytes: file.size,
       });
@@ -1265,7 +1268,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     setAttachError(null);
     const { error } = await supabase
       .from("invoice_attachments")
-      .update({ label: (label && label.trim()) || att.file_name })
+      .update({ label: (label && label.trim()) || null })
       .eq("id", att.id);
     if (error) { setAttachError(`Couldn't update label: ${error.message}`); return; }
     setEditingAttachId(null);
@@ -2436,12 +2439,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
               <div key={att.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6 }}>
                 {isEditing ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                      {ATTACHMENT_LABEL_PRESETS.map(preset => (
-                        <button key={preset} type="button" onClick={() => setAttachLabelDraft(preset)} style={{ fontSize: 10, fontWeight: 700, color: attachLabelDraft === preset ? C.teal : C.textMuted, background: attachLabelDraft === preset ? C.dark : "none", border: `1px solid ${attachLabelDraft === preset ? C.dark : C.borderStrong}`, borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>{preset}</button>
-                      ))}
-                      <input value={attachLabelDraft} onChange={e => setAttachLabelDraft(e.target.value)} placeholder={att.file_name} style={{ flex: 1, minWidth: 120, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
-                    </div>
+                    <input value={attachLabelDraft} onChange={e => setAttachLabelDraft(e.target.value)} placeholder="Label (optional)" style={{ padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                       <Btn sz="sm" v="ghost" onClick={() => { setEditingAttachId(null); setAttachLabelDraft(""); }}>Cancel</Btn>
                       <Btn sz="sm" onClick={() => saveAttachmentLabel(att, attachLabelDraft)}>Save</Btn>
@@ -2451,7 +2449,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                   <>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>{att.label || att.file_name}</div>
-                      <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.file_name}</div>
+                      {att.label && att.label !== att.file_name && <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.file_name}</div>}
                     </div>
                     {safeHref
                       ? <a href={att.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none", whiteSpace: "nowrap" }}>View</a>
@@ -2466,11 +2464,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
           {attachments.length < MAX_INVOICE_ATTACHMENTS && (
             <div style={{ marginTop: attachments.length ? 8 : 0, padding: "10px 12px", background: C.linenDeep, border: `1px solid ${C.borderStrong}`, borderRadius: 8 }}>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, alignItems: "center" }}>
-                {ATTACHMENT_LABEL_PRESETS.map(preset => (
-                  <button key={preset} type="button" onClick={() => setAttachLabel(attachLabel === preset ? "" : preset)} style={{ fontSize: 10, fontWeight: 700, color: attachLabel === preset ? C.teal : C.textMuted, background: attachLabel === preset ? C.dark : "none", border: `1px solid ${attachLabel === preset ? C.dark : C.borderStrong}`, borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>{preset}</button>
-                ))}
-                <input value={attachLabel} onChange={e => setAttachLabel(e.target.value)} placeholder="Label (defaults to filename)" style={{ flex: 1, minWidth: 140, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linen, color: C.textBody, WebkitAppearance: "none" }} />
+              <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                <input value={attachLabel} onChange={e => setAttachLabel(e.target.value)} placeholder="Label (optional)" style={{ flex: 1, minWidth: 140, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linen, color: C.textBody, WebkitAppearance: "none" }} />
               </div>
               <label style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: C.dark, background: C.teal, borderRadius: 6, padding: "6px 14px", cursor: uploadingAttachment ? "wait" : "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>
                 {uploadingAttachment ? "Uploading…" : "+ Add Attachment"}

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
-import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcWtcBreakdown, usesExactPricing } from "../lib/calc";
+import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcWtcBreakdown, calcBidStamp, usesExactPricing } from "../lib/calc";
 import { PROP_C } from "../lib/mockData";
 import { getTenantConfig } from "../lib/config";
 import WTCCalculator from "../pages/WTCCalculator";
@@ -649,6 +649,9 @@ async function deletePropAttachment(fullName) {
           material_status: "not_ordered",
           start_date: wtc.dates_tbd ? null : (wtc.start_date || null),
           end_date:   wtc.dates_tbd ? null : (wtc.end_date || null),
+          // Freeze the bid cost breakdown for Schedule's Budget tab. usesExactPricing(p)
+          // picks the proposal's rounding era; calc.js stays the sole home for the math.
+          bid_breakdown: calcBidStamp(wtc, usesExactPricing(p)),
         }));
         // Idempotent on re-send: skip rows whose proposal_wtc_id already exists
         // (the UNIQUE index), mirroring the jobs 23505 guard above.

@@ -21,7 +21,7 @@ Three pieces of Sales work, all no-DDL (schema is live from plan0; additive json
 2. **Add a mobilizations editor** writing `proposals.mobilizations` jsonb (proposal-level). The day dropdown reads from it.
 3. **Surface it at send** — add a `[K1]` pre-send check (every day has a valid `mobilization_seq`) and a read-only review panel on the "Send to Schedule" flow showing mobilizations + per-day mob/metrics. Optionally seed `job_mobilizations` at send (see D4).
 
-Plus an **optional, sales-facing coverage badge** (OK/VERIFY/SHORT) in the WTC so the salesperson can eyeball whether enough material was ordered.
+A sales-facing coverage badge (OK/VERIFY/SHORT) was considered but **deferred** to a fast-follow (D5) — not in this build.
 
 **Explicitly out of scope (deferred to the Schedule/Field builds):** the warehouse BOM (`job_material_lines`), the material sign-off sheet, pull tickets, and the tenant settings lists. Going tight also removes the material-key identity blocker entirely — that fix existed only to merge materials for the warehouse BOM, which this plan no longer writes.
 
@@ -118,11 +118,9 @@ Sales SOW textarea, tasks-with-%, `crew_count`, `hours_planned`, sub_areas, Job 
 
 `proposals.mobilizations` is proposal-level (plan0 §2), so the editor is proposal-scoped.
 
-**[DESIGN-OPEN — D1 placement]:** Where does the editor live?
-- *(a, recommended)* A proposal-level editor on `ProposalDetail.jsx` (already owns proposal-scoped writes), writing `proposals.mobilizations`. The WTC SowTab reads it via prop for the day dropdown.
-- *(b)* Inside `BiddingTab`, but writing the **proposal** — riskier: BiddingTab only writes `proposal_wtc` today; adding a proposal write breaks its single responsibility and the sibling-sync at `WTCCalculator.jsx:1991-2001`.
+**[RESOLVED — D1 = (a), ratified 2026-07-09]:** A proposal-level editor on `ProposalDetail.jsx` (already owns proposal-scoped writes), writing `proposals.mobilizations`. The WTC SowTab reads it via prop for the day dropdown. (Rejected (b): inside `BiddingTab` — riskier, that tab only writes `proposal_wtc` and adding a proposal write breaks its single responsibility + the sibling-sync at `WTCCalculator.jsx:1991-2001`.)
 
-Recommendation: (a). Editor allows 1-3 rows, each `{seq, label, start_date, end_date}`; `seq` auto-assigned 1..N and **immutable once days reference it** (renumbering orphans day tags). Dates nullable (mirrors `dates_tbd` at `WTCCalculator.jsx:392`).
+Editor allows an **unlimited number of mobilizations (1…N) — no cap** [LOCKED, ratified 2026-07-09]. Verified against the live schema: `job_mobilizations` has only `CHECK (seq > 0)` (`20260708120100:44-48`) and `proposals.mobilizations` is uncapped jsonb — the plan0 "1-3" was example wording, not a constraint. Each row `{seq, label, start_date, end_date}`; `seq` auto-assigned 1..N and **immutable once days reference it** (renumbering orphans day tags). Dates nullable (mirrors `dates_tbd` at `WTCCalculator.jsx:392`).
 
 Write: `supabase.from("proposals").update({ mobilizations: [...] }).eq("id", p.id)` — existing `proposals` RLS.
 
@@ -144,19 +142,16 @@ Add a lightweight inline panel/modal in `ProposalDetail.jsx` (reuse existing `Bt
 ### 5.3 The enriched `field_sow` handoff — no new write [LOCKED]
 Steps 3-4 of `handleSendToSchedule` already copy `field_sow` into `jobs` and `job_wtcs`. The new day keys ride through automatically. **This is how the data "shows up right in Schedule" with zero warehouse-table writes.**
 
-**[DESIGN-OPEN — D4 mobilizations handoff]:** Should the send also seed `job_mobilizations` from `proposals.mobilizations`?
-- *(a)* Yes — add an idempotent upsert `{job_id, seq, label, start_date, end_date}` (`onConflict: "job_id,seq"`). Parallels the existing `job_wtcs` write; keeps the proposal→job translation (which sales already owns) complete, so Schedule reads `job_mobilizations` directly.
-- *(b)* No — sales writes only `proposals.mobilizations`; Schedule copies proposal→`job_mobilizations` when it builds. Keeps sales strictly off the `job_*` mob table, but the day tags reference a `seq` that only lives in `proposals` until Schedule translates it.
-- Recommendation: **(a)** — it's the same border the send button already sits on (it already writes `jobs`/`job_wtcs`), it's a tiny idempotent write, and it completes the handoff so Schedule has nothing to reconstruct. This is the one place "tight" still touches a `job_*` table, by the same logic that keeps the existing `job_wtcs` write in sales.
+**[RESOLVED — D4 = (a), ratified 2026-07-09]:** The send **also seeds `job_mobilizations`** from `proposals.mobilizations` — an idempotent upsert `{job_id, seq, label, start_date, end_date}` (`onConflict: "job_id,seq"`). Parallels the existing `job_wtcs` write; keeps the proposal→job translation (which sales already owns) complete, so Schedule reads `job_mobilizations` directly with nothing to reconstruct. This is the one place tight scope still touches a `job_*` table — by the same logic that keeps the existing `job_wtcs` write in sales (the send button *is* the proposal→job birth step). Chris confirmed: some sales-side actions legitimately bridge into the schedule side; this is that border, not warehouse bleed. (Rejected (b): sales writes only `proposals.mobilizations` and lets Schedule translate — hands Schedule a reconstruction chore and leaves day tags pointing at a `seq` that only lives on the proposal until then.)
 
 ### 5.4 Failure discipline [DERIVED]
 If D4=(a): the mob seed is an idempotent upsert placed alongside the `job_wtcs` write, under the same rollback rigor (661-686). Do not mark the proposal sent if a required write hard-fails ("fail safe, not fail silent"). Legacy `materials` write (688-704) stays as-is (unrelated to this plan).
 
 ---
 
-## §6 Optional plan-time coverage badge (sales-facing) [DESIGN-OPEN — D5 include/defer]
+## §6 Plan-time coverage badge (sales-facing) — [DEFERRED — D5 = defer, ratified 2026-07-09]
 
-Purely a sales convenience — lets the salesperson eyeball "did I order enough?" Blocks nothing, writes nothing.
+**Not in this build.** Deferred to a fast-follow: it's not part of the point-at proof and is the only item that hits the free-text `coverage_rate` snag. Spec retained below for the follow-up. Purely a sales convenience — lets the salesperson eyeball "did I order enough?" Blocks nothing, writes nothing.
 
 Extend `MaterialsTab` (or Summary) to compute per material row: `need = size ÷ coverage_per_unit` vs `qty` (ordered) → `OK` / `VERIFY` / `SHORT` badge. Uses existing fields (`sow.size`, tab-3 `qty`, `coverage_rate`).
 
@@ -178,7 +173,7 @@ No DDL. Each step independently verifiable; ends at the point-at proof.
 
 **Step 4 — Send-flow review panel (§5.2)** + optional `job_mobilizations` seed (§5.3, if D4=a). *Accept (point-at proof #2):* clicking "Send to Schedule" shows the mobilization + per-day fields before commit; after commit, `job_wtcs.field_sow` carries the new keys (and `job_mobilizations` has one row per mob if D4=a).
 
-**Step 5 (optional) — Coverage badge (§6, if D5=include).** *Accept:* a WTC where ordered qty < need shows SHORT; unparseable coverage shows VERIFY; nothing blocked.
+*(Coverage badge — DEFERRED per D5, not built in this pass. See §6 for the retained spec when it becomes a fast-follow.)*
 
 **Verification discipline:** run the app and drive the real flow (author mobs → author field SOW with mob tags + metrics → send → confirm `job_wtcs.field_sow` carries the keys), not just typecheck. "Fail safe, not fail silent" on every send branch.
 
@@ -194,13 +189,15 @@ No DDL. Each step independently verifiable; ends at the point-at proof.
 
 ---
 
-## §9 Open decisions for the user
+## §9 Decisions
 
-- **D1 (§4):** Mobilizations editor on `ProposalDetail` (recommended) vs inside `BiddingTab`.
-- **D2 (§3.2):** Day-card layout — confirm against mockup v6 at build time (not a blocking decision, a build-time confirm).
-- **D3 (§5.2):** Pre-send review panel depth — lightweight inline panel (recommended).
-- **D4 (§5.3):** Seed `job_mobilizations` at send (recommended) vs write only `proposals.mobilizations` and let Schedule translate.
-- **D5 (§6):** Include the sales-facing coverage badge now (recommended: defer) vs fast-follow.
+- **D1 (§4): RESOLVED = (a)** — mobilizations editor on `ProposalDetail`. Unlimited mob count (1…N, no cap).
+- **D4 (§5.3): RESOLVED = (a)** — send also seeds `job_mobilizations`.
+- **D2 (§3.2): OPEN (build-time)** — day-card layout confirmed against mockup v6 during the build, not a blocking decision.
+- **D3 (§5.2): OPEN (default)** — pre-send review panel = lightweight inline panel (recommended default; confirm at build).
+- **D5 (§6): RESOLVED = defer** — coverage badge is a fast-follow, not in this build.
+
+**All decisions resolved 2026-07-09. Plan is build-ready pending an audit pass.**
 
 ---
 

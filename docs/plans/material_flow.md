@@ -136,6 +136,23 @@ New Settings surface needed (per tenant): **Consumables master list, Vehicles, P
 
 ---
 
+## 6b. Cross-app data flow — VERIFIED, not theoretical **[LOCKED]**
+
+The core worry ("do the Schedule dropdowns sourced from Sales actually work?") is already answered
+in production:
+- Sales + Schedule point at the **same Supabase project** (`pbgvgjjuhnpsumnowuym`).
+- Schedule Command **already reads Sales-owned tables today**: `work_types`, `team_members`, and
+  **`proposal_wtc`** (the table holding `field_sow` + `materials`).
+- Both are web apps on the same Postgres via PostgREST — there is **no sync to build** for web↔web;
+  they read the same rows. The only sync boundary is **Field Command** (offline via PowerSync), where
+  the tables just need to be in the sync rules.
+
+Implication: the material dropdown-from-proposal and the Settings option-lists are **direct shared-table
+reads**, the same mechanism already live. The work is the **data contract** (declare source-of-truth +
+canonical location per list), not plumbing. Settings lists (consumables/vehicles/power/equipment) are
+**sibling tables to the existing `tenant_config` + Materials Catalog** in Sales' Settings — Schedule reads
+them exactly as it already reads `work_types`.
+
 ## 7. Coverage / shortage math
 
 Two distinct checks at two times **[LOCKED]**:

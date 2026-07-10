@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
@@ -625,6 +625,16 @@ async function deletePropAttachment(fullName) {
     const { wtcList, mobById } = review;
     setSendingToSchedule(true);
     try {
+      // Re-check invoiced at commit (audit #3): the review modal may have sat open
+      // while the proposal got invoiced. Already-sent is backstopped by the jobs 23505
+      // guard below, but invoiced has no DB constraint — so verify it here before the
+      // insert rather than scheduling work that's already been billed.
+      const { data: invAtSend } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null).limit(1);
+      if (invAtSend && invAtSend.length > 0) {
+        alert("This proposal has been invoiced since the review opened. Cannot send to Schedule Command.");
+        setShowSendReview(false); setSendingToSchedule(false); return;
+      }
+
       // Strip the Sales-only uuid; stamp the wire seq (§5.3 C1/C3). One shared transform
       // applied to every day of both copies so they never diverge on this key.
       const stampDay = d => {
@@ -1595,6 +1605,12 @@ function MobilizationsEditor({ proposalId }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState(null);
+  // Last array confirmed written to the DB — the revert target when a write fails, so
+  // an optimistic edit that errors can't leave the UI ahead of the DB (audit #1).
+  const savedRef = useRef([]);
+  // Serialize persists: chain each write behind the previous so issue order == apply
+  // order and two rapid onBlur commits never race to a stale last-writer (audit #2).
+  const writeChain = useRef(Promise.resolve());
 
   // Same UUID generator the day/task factory uses (WTCCalculator uid()), with the
   // non-secure-context fallback. crypto.randomUUID is already used elsewhere here.
@@ -1606,27 +1622,34 @@ function MobilizationsEditor({ proposalId }) {
     if (!proposalId) return;
     let alive = true;
     supabase.from("proposals").select("mobilizations").eq("id", proposalId).single()
-      .then(({ data }) => { if (alive) { setMobs(data?.mobilizations || []); setLoaded(true); } })
+      .then(({ data }) => { if (alive) { const m = data?.mobilizations || []; savedRef.current = m; setMobs(m); setLoaded(true); } })
       .catch(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };
   }, [proposalId]);
 
-  // Persist the given array to proposals.mobilizations. Duplicate guard (§4 B4):
-  // reject two entries sharing an id or a seq before the write (max+1 assignment
-  // already prevents seq collision — this asserts it). Fail safe: on DB error keep
-  // the prior in-memory set, surface the message, don't optimistically overwrite.
+  // Persist the given array to proposals.mobilizations. Optimistic: reflect `next`
+  // locally right away (add / delete / inline-edit all funnel through here on ONE
+  // path), then write. Duplicate guard (§4 B4): reject two entries sharing an id or a
+  // seq before the write (max+1 assignment already prevents seq collision — this
+  // asserts it). Writes are SERIALIZED through writeChain so two rapid onBlur commits
+  // can't land out of order and silently drop the later edit (audit #2). On DB error,
+  // revert local state to the last DB-confirmed snapshot (savedRef) so the UI never
+  // sits ahead of the DB, and surface the message (audit #1).
   async function persist(next) {
     const ids = new Set(), seqs = new Set();
     for (const m of next) {
       if (ids.has(m.id) || seqs.has(m.seq)) { setError("Duplicate mobilization id/seq — not saved."); return; }
       ids.add(m.id); seqs.add(m.seq);
     }
-    setSaving(true); setError(null);
-    const { error: e } = await supabase.from("proposals").update({ mobilizations: next }).eq("id", proposalId);
-    setSaving(false);
-    if (e) { setError(e.message); return; }
-    setMobs(next);
-    setSaved(true); setTimeout(() => setSaved(false), 1600);
+    setMobs(next); setSaving(true); setError(null);
+    writeChain.current = writeChain.current.then(async () => {
+      const { error: e } = await supabase.from("proposals").update({ mobilizations: next }).eq("id", proposalId);
+      if (e) { setMobs(savedRef.current); setError(e.message); setSaving(false); return; }
+      // Re-assert `next` on success: a prior queued write may have failed and reverted
+      // the UI to an older savedRef; this reconciles it back to what we just committed.
+      savedRef.current = next; setMobs(next); setSaving(false);
+      setSaved(true); setTimeout(() => setSaved(false), 1600);
+    });
   }
 
   function addMob() {

@@ -107,6 +107,10 @@ The mobilization data crosses the Sales→Schedule driver boundary, so it declar
 `{ id (uuid), day_label, date (ISO|null), mobilization_seq (int 1..N, resolved at send), sq_ft (numeric), linear_ft (numeric), crew_count, hours_planned, tasks[], materials[] }`.
 Schedule keys the day→mobilization link on **`mobilization_seq`** (which will match the `job_mobilizations.seq` Schedule seeds). The Sales-only `mobilization_id` (uuid) is **stripped at send [C1/C3 — definitive, not "may or may not"]** — it never reaches any `job_*` copy, so Schedule cannot accidentally depend on it.
 
+**Schedule's mobilization-metadata hydration — declared cross-driver read [B1, round-3 audit]:** the scope-cut (D4=b) leaves **only `mobilization_seq`** on the wire; the mobilization **`label` + `start_date`/`end_date` live only on `proposals.mobilizations`**. So when Schedule seeds `job_mobilizations`, it must **read `proposals.mobilizations` cross-driver** (Sales' table) and hydrate `label`/dates keyed by `seq`. This is a **sanctioned** dependency, not an accidental one: it is RLS-safe (same-tenant read; `proposals.tenant_id` is NOT NULL) and completable (seq is the join key). **Action:** register this row in the canonical contract doc `~/sch-command/docs/plans/command_suite_shared_data_contract.md` so Schedule's builder honors it — writer=Sales (`proposals.mobilizations`); wire carrier=`mobilization_seq` on `job_wtcs.field_sow`; Schedule reads `proposals.mobilizations` cross-driver at seed time to hydrate `label`/dates by `seq`; copy=snapshot; pipe=PostgREST. (That doc edit is a **sch-command** change — tracked separately from this Sales build; see the round-3 revision note in §9.)
+
+**Wire-key rename = coordinated breaking change [B2, round-3 audit — contract hygiene]:** `mobilization_seq` is now the **sole** day→mob link on the wire, with no version marker. Renaming it (or any wire day-key) later **silently breaks Schedule** with no runtime signal. Treat any rename of the `field_sow` wire keys as a **breaking change requiring a coordinated Schedule update**, noted in the same contract-doc row. No code; documentation discipline only.
+
 **Pull-back staleness [D2 — known limitation]:** `handlePullBack` (`ProposalDetail.jsx:526`) reverts the proposal to Draft but **does not touch `jobs`/`job_wtcs`**, and re-send stays blocked once a `jobs` row exists (`ProposalDetail.jsx:561`). So after pull-back + edit, the job-side snapshot (`job_wtcs.field_sow`) is **stale** relative to the edited proposal, with no re-seed path in this build. This is the **existing** send-once behavior (not introduced here); mobilizations inherit it. Re-sync-after-pullback is explicitly **out of scope** — flag to Schedule that a pulled-back-then-edited proposal's job snapshot will not reflect the edits.
 
 ---
@@ -144,19 +148,21 @@ const updateDay = (id, key, val) => onChange({ ...data, field_sow: (data.field_s
 
 **Wiring correction [B1]:** `WTCCalculator` is a **full-screen swap**, not a child of `ProposalDetail`'s live render tree — `ProposalDetail.jsx:755` does `if (showWTC) return <WTCCalculator proposalId={p.id} ... />`, replacing the detail view entirely. So mobilizations **cannot** be live-prop-drilled from the ProposalDetail editor's state.
 
-**The self-fetch is NEW code [R1] — spec it concretely (it does not exist today).** `WTCCalculator` has `proposalId` (line 1646) and fetches proposal rows elsewhere, but there is **no** mobilizations fetch/state yet. Add, in `WTCCalculator` (NOT `SowTab` — `SowTab` receives the value as a prop):
-- **New state:** `const [mobilizations, setMobilizations] = useState([]);`
-- **New effect — placed AFTER all `useState`/`useMemo` declarations it references [useEffect-TDZ rule].** A `useEffect` whose dependency array names a `const` declared *below* it TDZ-throws at register time even when the build passes. So this effect must sit **after** the `proposalId`-derived state block, not wherever it reads best:
+**The self-fetch is NEW code [R1] — spec it concretely (it does not exist today).** `WTCCalculator` has `proposalId` (line 1646) and fetches proposal rows elsewhere, but there is **no** mobilizations fetch/state yet. Add, in `WTCCalculator` (NOT `SowTab` — `SowTab` receives the values as props):
+- **New state — TWO pieces [A1]:** `const [mobilizations, setMobilizations] = useState([]);` **and** `const [mobsLoaded, setMobsLoaded] = useState(false);`. The second is mandatory, not optional prose: `mobilizations === []` is **ambiguous** between "still loading" and "loaded, none exist", so the gate (below) needs a distinct loaded flag to read.
+- **New effect — placed AFTER all `useState`/`useMemo` declarations it references [useEffect-TDZ rule].** A `useEffect` whose dependency array names a `const` declared *below* it TDZ-throws at register time even when the build passes. So this effect must sit **after** the `proposalId`-derived state block. **It MUST settle `mobsLoaded` on BOTH outcomes [A2] — a `.then`-only fetch leaves the flag stuck `false` forever if the fetch rejects (offline / RLS deny / missing row), which would disable "+ Add day" permanently for an unrelated failure:**
 ```js
 useEffect(() => {
   if (!proposalId) return;
   let alive = true;
   supabase.from("proposals").select("mobilizations").eq("id", proposalId).single()
-    .then(({ data }) => { if (alive) setMobilizations(data?.mobilizations || []); });
+    .then(({ data }) => { if (alive) { setMobilizations(data?.mobilizations || []); setMobsLoaded(true); } })
+    .catch(()   => { if (alive) setMobsLoaded(true); });   // A2: release the gate even on failure
   return () => { alive = false; };
 }, [proposalId]);
 ```
-- Pass `mobilizations` into `SowTab` as a prop; `SowTab`'s signature (`858`) gains `mobilizations`.
+(A `.finally(() => { if (alive) setMobsLoaded(true); })` is an acceptable equivalent — the point is the flag flips on every settle path. Matches the repo's existing `alive`-guard fetch pattern.)
+- Pass `mobilizations` **and `mobsLoaded`** into `SowTab` as props; `SowTab`'s signature (`858`) gains both.
 - Re-opening the WTC after editing mobilizations on ProposalDetail re-mounts `WTCCalculator`, so the effect re-runs and reads the latest (no manual refresh needed).
 
 Within each day block (1000-1102), add:
@@ -164,7 +170,10 @@ Within each day block (1000-1102), add:
 - **Sq Ft** and **Linear Ft** numeric inputs alongside `crew_count` / `hours_planned` (reuse existing day-metric input styling).
 - Keep the existing per-day `FieldSowMaterialPicker` (1095) unchanged.
 
-**"+ Add day" gating [D2 — avoid a wrong default while the fetch is in flight]:** `addDay` defaults a new day's `mobilization_id` to `mobilizations[0]?.id` (§3.1). If mobilizations haven't loaded yet, that would default to `null` (or, worse, a stale first entry). So either (a) **disable "+ Add day" until `mobilizations` has resolved** (the effect has run — track a `mobsLoaded` flag, since `[]` is ambiguous between "loading" and "none"), or (b) on resolve, **re-default** any day still holding the placeholder. Prefer (a): a brief disabled "+ Add day" with a "loading mobilizations…" hint is simpler than reconciling after the fact.
+**"+ Add day" gating [D2 — resolved, A1/A2-hardened]:** `addDay` defaults a new day's `mobilization_id` to `mobilizations[0]?.id` (§3.1). If mobilizations haven't loaded yet, that would default to `null` (or a stale first entry). **Gate "+ Add day" on `mobsLoaded` (NOT on `mobilizations.length`)** — disabled with a "loading mobilizations…" hint until the fetch settles, then enabled regardless of outcome:
+- `mobsLoaded === false` → disabled (still loading). Because the effect settles the flag on success **and** failure (A2), the button is never stuck disabled by a failed fetch — on failure it enables with an empty `mobilizations`, and the dropdown's "No mobilizations — add them on the proposal first" hint (above) then correctly reflects the state.
+- `mobsLoaded === true`, `mobilizations` non-empty → enabled; `addDay` defaults to `mobilizations[0].id`.
+- `mobsLoaded === true`, `mobilizations` empty → enabled, but each added day has `mobilization_id: null` and `[K1]` blocks send until the user authors mobilizations. (Gating on `.length` would wrongly conflate this with "still loading.")
 
 *(Exact visual layout — metric-row ordering, mob as header chip vs inline field — is a build-time design choice; the mockup v6 in `material_flow.md:5` is the north star. Confirm against it, don't invent.)*
 
@@ -317,6 +326,11 @@ No DDL. Each step independently verifiable; ends at the point-at proof.
 
 **Round-1 audit responded 2026-07-09** (12 findings: 1C/7H/4M): identity model ratified + §2/§2A/§3/§4/§5/§7/§8 hardened.
 **Round-2 audit responded 2026-07-09** (13 findings, 0C/2H/8M/3L; plateau → single-option scope-cut): D4 cut to (b), removing §5.3 Write-2 + ordered rollback + the B1 `jobs`-DELETE dependency; D4-independent items fixed — R1 (real self-fetch useState/useEffect + TDZ), R-E1 (separate `proposals.mobilizations` send fetch), C1/C3 (stamp both `field_sow` copies, strip `mobilization_id`), C2 (additive-`id` doc note, no migration edit), D1 (value-only `field_sow` edit), D2 (gate "+ Add day"), C4 (convention-not-DB-enforced tag). Adjacent findings (N4/N5/N6) → BACKLOG, not this loop. Plan re-submitted for round 3 (expected near-clean).
+**Round-3 audit responded 2026-07-09** (4 findings, 0C/0H/2M/2L — CONVERGED, 12→13→4, ~69% drop; plateau broken by the D4=b cut, no further scope-cut warranted): **build-ready after this pass.**
+- **A1+A2 (§3.2, both Med):** added the `mobsLoaded` `useState` the gate prose relied on but never declared, and made the self-fetch settle it on **both** `.then` and `.catch` (`.finally` equivalent) so a failed `proposals` fetch can't leave "+ Add day" disabled forever. Gate now reads `mobsLoaded`, not `mobilizations.length`.
+- **B1 (§2A, Low):** declared Schedule's `label`/date hydration as a **sanctioned cross-driver read** of `proposals.mobilizations` keyed by `seq` (the cut left only `seq` on the wire). Requires a **sch-command** canonical-contract-doc row — tracked as a separate cross-repo action (NOT part of the Sales build; see round-3 build note).
+- **B2 (§2A, Low, optional):** noted a `field_sow` wire-key rename is a coordinated breaking change (no version marker on the seq-only wire).
+- Adjacent (already-filed, not re-raised): round-2 R5 `max([])→-Infinity` seq guard; N4/N5/N6 → BACKLOG (MF1/MF2/MF3). **No round 4** — audit's own call; a single re-read of §3.2 suffices if a confirmation pass is wanted.
 
 ---
 

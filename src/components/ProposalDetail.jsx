@@ -13,6 +13,25 @@ import ProposalPDFModal from "./ProposalPDFModal";
 import MultiGCWizard from "./MultiGCWizard";
 import SyncConflictModal from "./SyncConflictModal";
 
+// [K1] mobilization validation (material_flow Screen 1 §5.1). Given the freshly-fetched
+// WTC list and proposals.mobilizations, returns the resolution map (mobilization_id →
+// seq, the wire identity Schedule reads) plus every field-SOW day that doesn't resolve
+// to a live mobilization. A day fails if its mobilization_id is null or points at a
+// mobilization that no longer exists (detectable orphan after a delete). Day label
+// falls back to `Day N` when day_label is blank (backlog MF2 — no "'undefined'").
+function buildMobValidation(wtcList, mobilizations) {
+  const mobById = new Map((mobilizations || []).map(m => [m.id, m.seq]));
+  const failures = [];
+  (wtcList || []).forEach((wtc, wi) => {
+    (wtc.field_sow || []).forEach((d, di) => {
+      if (d.mobilization_id == null || !mobById.has(d.mobilization_id)) {
+        failures.push({ wtcLabel: `WTC ${wi + 1}`, dayLabel: d.day_label || `Day ${di + 1}` });
+      }
+    });
+  });
+  return { mobById, failures };
+}
+
 // Keep a single decimal point as the user types — collapses multi-dot input so
 // "1.2.3" → "1.23" cleanly (the prior parse silently truncated at the 2nd dot).
 const sanitizeAmount = (s) => {
@@ -568,6 +587,21 @@ async function deletePropAttachment(fullName) {
       // Gather WTC data
       const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name, cost_code)").eq("proposal_id", p.id).order("created_at", { ascending: true });
       const wtcList = wtcData || [];
+
+      // [K1] pre-send validation (§5.1). Validate the PERSISTED state: every field_sow
+      // day across every WTC must carry a mobilization_id that resolves to a live
+      // mobilization. field_sow is already fresh from the wtcData fetch above; the
+      // mobilizations come from a SEPARATE fresh fetch (different table — proposals,
+      // not proposal_wtc) so we never trust possibly-stale ProposalDetail state.
+      const { data: freshProp } = await supabase.from("proposals").select("mobilizations").eq("id", p.id).single();
+      const freshMobilizations = freshProp?.mobilizations || [];
+      const { failures } = buildMobValidation(wtcList, freshMobilizations);
+      if (failures.length > 0) {
+        const list = failures.map(f => `${f.wtcLabel} '${f.dayLabel}'`).join(", ");
+        alert(`Can't send yet — these field-SOW days have no mobilization assigned (based on the last saved version): ${list}. Open the WTC → Scope of Work, assign a mobilization to each day, and save before sending.`);
+        setSendingToSchedule(false);
+        return;
+      }
 
       // Build work type string (e.g. "Epoxy,Caulking")
       const workTypeNames = wtcList.map(w => w.work_types?.name).filter(Boolean);

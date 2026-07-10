@@ -19,7 +19,7 @@ Three pieces of Sales work, all no-DDL (schema is live from plan0; additive json
 
 1. **Rebuild the field-SOW day form** in the WTC SowTab — add a `mobilization_id` (uuid) day tag plus `sq_ft`/`linear_ft` per-day metrics to the `field_sow` day jsonb. The existing send already copies `field_sow` into `job_wtcs`; **at send we additionally stamp the resolved `mobilization_seq`** into that copy (the uuid is Sales-internal; `seq` is the identity Schedule reads — §2).
 2. **Add a mobilizations editor** writing `proposals.mobilizations` jsonb (proposal-level), each entry `{id (uuid), seq, label, start_date, end_date}`. The WTC day dropdown self-fetches it by `proposalId`.
-3. **Surface it at send** — a `[K1]` pre-send check (every day resolves to a valid mobilization, validated against freshly-fetched DB state), a read-only review panel on "Send to Schedule", and an idempotent `job_mobilizations` seed (D4=a) under an ordered, cascade-backed rollback.
+3. **Surface it at send** — a `[K1]` pre-send check (every day resolves to a valid mobilization, validated against freshly-fetched DB state) and a read-only review panel on "Send to Schedule". The send stamps `mobilization_seq` into the existing `field_sow` copies and **adds no new write** (D4=b, round-2 scope-cut); Schedule seeds `job_mobilizations` from that stamp when it builds.
 
 A sales-facing coverage badge (OK/VERIFY/SHORT) was considered but **deferred** to a fast-follow (D5) — not in this build.
 
@@ -80,32 +80,34 @@ Both are pure Sales-side authoring. The enriched data reaches Schedule through t
 
 **Identity model [RESOLVED — round-1 audit ratification, 2026-07-09]:** the day→mobilization binding uses a **two-identity split** (dissolves audit B3/B4):
 - **Authoring identity (Sales-internal): `id` (uuid).** Each `proposals.mobilizations[]` entry carries a stable `id` from the same `uid()` UUID generator the day/task factory already uses (`WTCCalculator.jsx:869`). A field-SOW day binds to its mobilization by **`mobilization_id` (uuid)**. This id never changes on delete/reorder, so a broken link is a *detectable orphan*, never a silent mis-bind.
-- **Wire identity (handoff to Schedule): `seq` (int 1..N).** The LOCKED plan0 contract is explicit (`20260708120100_*.sql:20-21`): "seq (1..N) is the stable mobilization identity that survives the send snapshot and **keys the field_sow day tag** + pull-ticket numbering." `job_mobilizations.seq` is `int NOT NULL CHECK (seq > 0)`. We do **not** reopen that. Instead, **at send** we resolve each day's `mobilization_id → its current `seq`** (from `proposals.mobilizations`) and stamp `mobilization_seq` into the `job_wtcs.field_sow` snapshot + `job_mobilizations.seq`. Schedule keeps reading `seq`; the uuid is Sales-only and does not need to reach Schedule.
+- **Wire identity (handoff to Schedule): `seq` (int 1..N).** The LOCKED plan0 contract is explicit (`20260708120100_*.sql:20-21`): "seq (1..N) is the stable mobilization identity that survives the send snapshot and **keys the field_sow day tag** + pull-ticket numbering." `job_mobilizations.seq` is `int NOT NULL CHECK (seq > 0)`. We do **not** reopen that. Instead, **at send** we resolve each day's `mobilization_id → its current `seq`** (from `proposals.mobilizations`) and stamp `mobilization_seq` into the `field_sow` snapshot copies (`job_wtcs.field_sow` + the legacy flat `jobs.field_sow`). Schedule reads `seq` off `job_wtcs.field_sow` and **builds `job_mobilizations` itself** when it builds (D4=b, §2A). The uuid is Sales-only and is **stripped at send** (§5.3 C1/C3).
 
 | Target | Live shape | Sales action |
 |---|---|---|
-| `proposal_wtc.field_sow` (jsonb) | existing per-day objects | **Extend** each day with `mobilization_id text(uuid)\|null`, `sq_ft numeric`, `linear_ft numeric` (§3). Additive keys — no DDL. Rides existing `handleSave`. The send stamps a derived `mobilization_seq` into the `job_wtcs.field_sow` copy (§5.3). |
-| `proposals.mobilizations` (jsonb, nullable) | `20260708120100_*.sql:19` — documented `[{seq,label,start_date,end_date}]`; **jsonb, so additively carries `id` (uuid)** → each entry `{id, seq, label, start_date, end_date}` | **NEW author** via the mobilizations editor (§4). Adding `id` is an additive jsonb key — no DDL, does not touch the locked column. |
-| `jobs` + `job_wtcs` | existing writes in `handleSendToSchedule:600-660` | `job_wtcs.field_sow` carries the enriched days with the **resolved `mobilization_seq`** stamped in (§5.3). No new columns. |
-| `job_mobilizations` | `20260708120100_*.sql:26-48` — `{job_id int8 FK jobs ON DELETE CASCADE, seq int NOT NULL CHECK(seq>0), label, start_date, end_date}`, `UNIQUE(job_id, seq)` | **NEW seed at send** [D4=a, LOCKED] — idempotent upsert `{job_id, seq, label, start_date, end_date}`, `onConflict: "job_id,seq", ignoreDuplicates: true` (§5.3). |
+| `proposal_wtc.field_sow` (jsonb) | existing per-day objects | **Extend** each day with `mobilization_id text(uuid)\|null`, `sq_ft numeric`, `linear_ft numeric` (§3). Additive keys — no DDL. Rides existing `handleSave`. |
+| `proposals.mobilizations` (jsonb, nullable) | `20260708120100_*.sql:19` — documented `[{seq,label,start_date,end_date}]`; **jsonb, so additively carries `id` (uuid)** → each entry `{id, seq, label, start_date, end_date}` | **NEW author** via the mobilizations editor (§4). Adding `id` is an additive jsonb key — no DDL, does not touch the locked column. See C2 note below. |
+| `jobs` + `job_wtcs` | existing writes in `handleSendToSchedule:600-660` | Both `field_sow` copies (`job_wtcs.field_sow` **and** the legacy flat `jobs.field_sow`) carry the enriched days with the **resolved `mobilization_seq`** stamped in and `mobilization_id` **stripped** (§5.3). No new columns, no new rows. |
+| `job_mobilizations` | `20260708120100_*.sql:26-48` — `{job_id int8 FK jobs ON DELETE CASCADE, seq int NOT NULL CHECK(seq>0), label, start_date, end_date}`, `UNIQUE(job_id, seq)` | **NOT written by Sales [D4=b, RATIFIED 2026-07-09 round-2 scope-cut].** Schedule seeds it from the `mobilization_seq` on `job_wtcs.field_sow` when Schedule builds. Sales stops touching every `job_*` table except the pre-existing `job_wtcs` write. |
 | `job_material_lines`, `job_material_signoff`, `pull_tickets`, `pull_ticket_lines`, `tenant_*` | plan0 | **OUT OF SCOPE — not written by Sales.** Schedule/Field own these. |
 
-**RLS [DERIVED]:** `proposals.mobilizations` uses existing `proposals` RLS (unchanged — additive jsonb key). The `job_mobilizations` seed scopes through `jobs.call_log_id → call_log.tenant_id` — verified against the live 4-policy set (`20260708120100_*.sql:64-123`, INSERT `WITH CHECK` at :78-90). This is the **same identity chain** that already inserts `jobs`/`job_wtcs` in `handleSendToSchedule`, so it is satisfied by construction; a missing `call_log` or NULL `tenant_id` fails closed (no match → no insert). No edge function, no service-role path.
+**RLS [DERIVED]:** `proposals.mobilizations` uses existing `proposals` RLS (unchanged — additive jsonb key). **No new job-side write path** — Sales writes only `proposal_wtc` (via `handleSave`), `proposals`, and the pre-existing `jobs`/`job_wtcs` inserts. No `job_mobilizations` write, no new RLS surface, no edge function, no service-role path. (The `job_mobilizations` RLS chain is Schedule's concern when it seeds.)
+
+**C2 — additive `id` key documentation:** the applied plan0 migration comment (`20260708120100_*.sql:19`) documents the shape as `[{seq,label,...}]` and predates this decision. The migration is **applied/merged (forward-only ledger) — do NOT edit it.** The authoritative record that each `proposals.mobilizations` entry additively carries a Sales-only `id` (uuid) lives **here (§2) and in §2A's wire-schema block**; a future documentation-only forward migration in `command-suite-db` may echo it, but Schedule reads the contract from §2A, not the migration comment.
 
 ### §2A Cross-driver data contract [D1/D2/D4 — required per Command Suite Shared-Data Contract]
 
 The mobilization data crosses the Sales→Schedule driver boundary, so it declares the four contract fields (`~/sch-command/docs/plans/command_suite_shared_data_contract.md`):
 
-- **Writer (source of truth):** **Sales only.** Sales authors `proposals.mobilizations` (bid intent) and is the **sole** writer at send. Schedule never writes `proposals.mobilizations`; it owns `job_mobilizations` edits *after* the seed (date slippage), exactly as it owns `job_wtcs` after the send.
-- **Canonical location:** **pre-send** the canonical mobilization set is `proposals.mobilizations`; **post-send** the authoritative live copy is `job_mobilizations` (Schedule edits dates there). Mirrors the existing `field_sow`/`bid_breakdown` author-on-proposal → live-copy-on-job pattern (plan0 migration header, lines 5-6).
-- **Copy vs reference:** **snapshot copy** (not a reference). The send seeds `job_mobilizations` from `proposals.mobilizations` and stamps `mobilization_seq` into `job_wtcs.field_sow`. These copies **drift** intentionally once Schedule edits — that is the point (dates slip in the field). Sales must not treat `job_mobilizations` as a live mirror of the proposal.
+- **Writer (source of truth):** Sales authors `proposals.mobilizations` (bid intent) and is the sole writer of it **[convention, not DB-enforced — C4]**: no DB constraint stops another driver from writing that column; the boundary is an agreed convention Schedule must honor. At send, Sales stamps `mobilization_seq` into the `field_sow` copies but writes **no** `job_mobilizations` row (D4=b). Schedule seeds and then owns `job_mobilizations` when it builds.
+- **Canonical location:** **pre-send** the canonical mobilization set is `proposals.mobilizations`. The **handoff carrier** is `mobilization_seq` stamped onto `job_wtcs.field_sow` (each tagged day). **`job_mobilizations` is Schedule's post-send authoritative copy — built by Schedule, not Sales.** Mirrors the existing `field_sow`/`bid_breakdown` author-on-proposal → live-copy-on-job pattern (plan0 migration header, lines 5-6), except the live-copy write moves to the repo that owns the table.
+- **Copy vs reference:** **snapshot copy** (not a reference). Sales stamps `mobilization_seq` into `job_wtcs.field_sow` at send; Schedule derives `job_mobilizations` from that stamp. The copies **drift** intentionally once Schedule edits dates in the field — that is the point. Sales never reads `job_mobilizations` back.
 - **Sync pipe:** **PostgREST** (both apps are web; no PowerSync on this path — Field's offline boundary is out of scope here).
 
 **`field_sow` day-key schema handed to Schedule** (the wire contract Schedule reads off `job_wtcs.field_sow`): each day object carries at least
 `{ id (uuid), day_label, date (ISO|null), mobilization_seq (int 1..N, resolved at send), sq_ft (numeric), linear_ft (numeric), crew_count, hours_planned, tasks[], materials[] }`.
-Schedule keys the day→mobilization link on **`mobilization_seq`** (matching `job_mobilizations.seq`). The Sales-only `mobilization_id` (uuid) is **not** part of this wire contract — it may or may not be stripped at send; Schedule must not depend on it.
+Schedule keys the day→mobilization link on **`mobilization_seq`** (which will match the `job_mobilizations.seq` Schedule seeds). The Sales-only `mobilization_id` (uuid) is **stripped at send [C1/C3 — definitive, not "may or may not"]** — it never reaches any `job_*` copy, so Schedule cannot accidentally depend on it.
 
-**Pull-back staleness [D2 — known limitation]:** `handlePullBack` (`ProposalDetail.jsx:526`) reverts the proposal to Draft but **does not touch `jobs`/`job_wtcs`/`job_mobilizations`**, and re-send stays blocked once a `jobs` row exists (`ProposalDetail.jsx:561`). So after pull-back + edit, the job-side snapshot (`job_mobilizations`, `job_wtcs.field_sow`) is **stale** relative to the edited proposal, with no re-seed path in this build. This is the **existing** send-once behavior (not introduced here); mobilizations inherit it. Re-sync-after-pullback is explicitly **out of scope** — flag to Schedule that a pulled-back-then-edited proposal's job snapshot will not reflect the edits.
+**Pull-back staleness [D2 — known limitation]:** `handlePullBack` (`ProposalDetail.jsx:526`) reverts the proposal to Draft but **does not touch `jobs`/`job_wtcs`**, and re-send stays blocked once a `jobs` row exists (`ProposalDetail.jsx:561`). So after pull-back + edit, the job-side snapshot (`job_wtcs.field_sow`) is **stale** relative to the edited proposal, with no re-seed path in this build. This is the **existing** send-once behavior (not introduced here); mobilizations inherit it. Re-sync-after-pullback is explicitly **out of scope** — flag to Schedule that a pulled-back-then-edited proposal's job snapshot will not reflect the edits.
 
 ---
 
@@ -140,12 +142,29 @@ const updateDay = (id, key, val) => onChange({ ...data, field_sow: (data.field_s
 
 ### 3.2 UI additions to each day card (the "new look") [DESIGN-OPEN — D2 layout]
 
-**Wiring correction [B1]:** `WTCCalculator` is a **full-screen swap**, not a child of `ProposalDetail`'s live render tree — `ProposalDetail.jsx:755` does `if (showWTC) return <WTCCalculator proposalId={p.id} ... />`, replacing the detail view entirely. So mobilizations **cannot** be live-prop-drilled from the ProposalDetail editor's state. Instead: **the WTC page self-fetches `proposals.mobilizations` by `proposalId`** (it already has `proposalId` — line 1646 — and already fetches proposal rows by it at 1836), then passes the fetched array into `SowTab` as a `mobilizations` prop. The fetch happens on WTC mount / when the SowTab is shown, so re-opening the WTC after editing mobilizations on ProposalDetail always reads the latest.
+**Wiring correction [B1]:** `WTCCalculator` is a **full-screen swap**, not a child of `ProposalDetail`'s live render tree — `ProposalDetail.jsx:755` does `if (showWTC) return <WTCCalculator proposalId={p.id} ... />`, replacing the detail view entirely. So mobilizations **cannot** be live-prop-drilled from the ProposalDetail editor's state.
+
+**The self-fetch is NEW code [R1] — spec it concretely (it does not exist today).** `WTCCalculator` has `proposalId` (line 1646) and fetches proposal rows elsewhere, but there is **no** mobilizations fetch/state yet. Add, in `WTCCalculator` (NOT `SowTab` — `SowTab` receives the value as a prop):
+- **New state:** `const [mobilizations, setMobilizations] = useState([]);`
+- **New effect — placed AFTER all `useState`/`useMemo` declarations it references [useEffect-TDZ rule].** A `useEffect` whose dependency array names a `const` declared *below* it TDZ-throws at register time even when the build passes. So this effect must sit **after** the `proposalId`-derived state block, not wherever it reads best:
+```js
+useEffect(() => {
+  if (!proposalId) return;
+  let alive = true;
+  supabase.from("proposals").select("mobilizations").eq("id", proposalId).single()
+    .then(({ data }) => { if (alive) setMobilizations(data?.mobilizations || []); });
+  return () => { alive = false; };
+}, [proposalId]);
+```
+- Pass `mobilizations` into `SowTab` as a prop; `SowTab`'s signature (`858`) gains `mobilizations`.
+- Re-opening the WTC after editing mobilizations on ProposalDetail re-mounts `WTCCalculator`, so the effect re-runs and reads the latest (no manual refresh needed).
 
 Within each day block (1000-1102), add:
-- A **Mobilization selector** dropdown sourced from the fetched `mobilizations`. Option value = `mob.id` (uuid); label = `Mob {seq} — {label}`. Required styling mirrors the start/end-date required treatment (`BiddingTab` 373-388). If `mobilizations` is empty, the dropdown shows a disabled "No mobilizations — add them on the proposal first" hint (the day cannot be validly tagged, and `[K1]` will block send).
+- A **Mobilization selector** dropdown sourced from the `mobilizations` prop. Option value = `mob.id` (uuid); label = `Mob {seq} — {label}`. Required styling mirrors the start/end-date required treatment (`BiddingTab` 373-388). If `mobilizations` is empty, the dropdown shows a disabled "No mobilizations — add them on the proposal first" hint (the day cannot be validly tagged, and `[K1]` will block send).
 - **Sq Ft** and **Linear Ft** numeric inputs alongside `crew_count` / `hours_planned` (reuse existing day-metric input styling).
 - Keep the existing per-day `FieldSowMaterialPicker` (1095) unchanged.
+
+**"+ Add day" gating [D2 — avoid a wrong default while the fetch is in flight]:** `addDay` defaults a new day's `mobilization_id` to `mobilizations[0]?.id` (§3.1). If mobilizations haven't loaded yet, that would default to `null` (or, worse, a stale first entry). So either (a) **disable "+ Add day" until `mobilizations` has resolved** (the effect has run — track a `mobsLoaded` flag, since `[]` is ambiguous between "loading" and "none"), or (b) on resolve, **re-default** any day still holding the placeholder. Prefer (a): a brief disabled "+ Add day" with a "loading mobilizations…" hint is simpler than reconciling after the fact.
 
 *(Exact visual layout — metric-row ordering, mob as header chip vs inline field — is a build-time design choice; the mockup v6 in `material_flow.md:5` is the north star. Confirm against it, don't invent.)*
 
@@ -166,7 +185,7 @@ Editor allows an **unlimited number of mobilizations (1…N) — no cap** [LOCKE
 
 **Identity assignment [B2/B6 — monotonic, no reuse]:**
 - **`id` (uuid):** assigned once at row creation via `uid()` (`WTCCalculator.jsx:869`); **immutable and never reused.** This is what days bind to.
-- **`seq` (int):** assigned **monotonically** as `max(existing seq) + 1` (NOT `length + 1` — deleting then adding must not reuse a retired seq, which would silently re-point a `job_mobilizations` row). `seq` is display/wire ordering; it may show gaps after deletes, which is fine (Schedule keys on the value, not contiguity). Because days now bind by `id`, `seq` renumbering is **no longer required** and must not be attempted (audit B3 — the old "seq immutable, renumber orphans" hazard is dissolved: reorder/relabel freely; only `id` matters to the day binding).
+- **`seq` (int):** assigned **monotonically** as `max(existing seq) + 1` (NOT `length + 1` — deleting then adding must not reuse a retired seq, which would silently mislabel the day on the wire and, downstream, the `job_mobilizations` row Schedule seeds from it). `seq` is display/wire ordering; it may show gaps after deletes, which is fine (Schedule keys on the value, not contiguity). Because days now bind by `id`, `seq` renumbering is **no longer required** and must not be attempted (audit B3 — the old "seq immutable, renumber orphans" hazard is dissolved: reorder/relabel freely; only `id` matters to the day binding).
 - **Duplicate guard [B4]:** the editor must reject/prevent two entries with the same `id` or the same `seq` before write (defensive — `max+1` assignment already prevents seq collision; assert it).
 
 **Delete → detectable orphan + in-use scan [B3/B1]:** deleting a mobilization that days still reference does **not** silently corrupt anything (days hold a `mobilization_id` that simply no longer resolves = detectable orphan, caught by `[K1]` at send). But to avoid a surprise-at-send, the editor runs an **"in use" scan before delete**: query the proposal's `proposal_wtc.field_sow` (all WTCs for this `proposal_id`) and count days whose `mobilization_id === thisMob.id`. If > 0, warn: *"Mobilization {seq} — {label} is tagged on N field-SOW day(s). Deleting it will leave those days without a mobilization and block Send to Schedule until you re-tag them. Delete anyway?"* This is a UI guard (advisory), not a DB constraint; the authoritative gate is `[K1]`.
@@ -183,7 +202,9 @@ Extend `handleSendToSchedule` (557-718). Keep all existing writes as-is.
 Before the `jobs` insert (before line 624), validate: every `field_sow` day across every WTC has a `mobilization_id` that resolves to an entry in `proposals.mobilizations`. If any day is missing/unknown → **abort with a WTC/day-specific message, write nothing.**
 
 **Freshness discipline [E1] — `[K1]` must validate persisted DB state, not on-screen state:**
-1. **Flush any pending autosave first.** The SowTab autosaves debounced (`WTCCalculator.jsx:1697-1700`); an in-flight edit may not be in `proposal_wtc` yet. But note: **the send runs from `ProposalDetail`, a different screen from the WTC** — by the time the user is on the send flow the WTC is unmounted and its autosave has fired. The real requirement is therefore: `handleSendToSchedule` **re-fetches `proposal_wtc.field_sow` and `proposals.mobilizations` fresh from the DB at send time** (the WTC list is already re-fetched at `ProposalDetail.jsx:569` — extend that same fresh load to also pull `proposals.mobilizations`). Do **not** validate against any stale `p.mobilizations`/`field_sow` held in `ProposalDetail` state from an earlier render.
+1. **Flush any pending autosave first.** The SowTab autosaves debounced (`WTCCalculator.jsx:1697-1700`); an in-flight edit may not be in `proposal_wtc` yet. But note: **the send runs from `ProposalDetail`, a different screen from the WTC** — by the time the user is on the send flow the WTC is unmounted and its autosave has fired. The real requirement is therefore that `handleSendToSchedule` validates against **freshly-fetched DB state**, two fetches:
+   - `proposal_wtc.field_sow` — **already** re-fetched fresh at `ProposalDetail.jsx:569` (the existing `select("*, work_types(...)")`); the day tags come from there. **`field_sow` is on `proposal_wtc`, `mobilizations` is on `proposals` — different tables, so this is not a matter of "extending :569."**
+   - `proposals.mobilizations` — a **separate, NEW fetch** at send time: `const { data: freshProp } = await supabase.from("proposals").select("mobilizations").eq("id", p.id).single();` → `const freshMobilizations = freshProp?.mobilizations || [];`. Do **not** reuse any `p.mobilizations` held in `ProposalDetail` state from an earlier render (it may be stale relative to a just-saved edit).
 2. Build the resolution map from the **freshly-fetched** `proposals.mobilizations`: `mobilization_id → seq`.
 3. For every day in every freshly-fetched WTC `field_sow`: assert `day.mobilization_id != null` **and** the map has it. Collect all failures (don't stop at first).
 4. On any failure → abort, write nothing, show a **WTC/day-specific** message.
@@ -201,54 +222,41 @@ Add a lightweight inline panel/modal in `ProposalDetail.jsx` (reuse existing `Bt
 
 **NULL-date rendering [F1]:** mobilization `start_date`/`end_date` are nullable (dates TBD at bid time). The panel must render a null/empty date as **"TBD"** (or "—"), **never** raw (`null`, empty string) and **never** passed through a date formatter that would emit `"Invalid Date"`. Guard: `date ? fmtD(date) : "TBD"`. Same treatment for any per-day `date`. This mirrors the existing `dates_tbd` handling (`WTCCalculator.jsx:392`).
 
-### 5.3 The enriched handoff + `job_mobilizations` seed — concrete write order [D4=a LOCKED; C1-C4/D3-hardened]
+### 5.3 The enriched handoff — stamp `mobilization_seq`, no new write [D4=b RATIFIED 2026-07-09; C1/C3/D1]
 
-The send does three writes in a **strict order chosen so a single `jobs`-row rollback cleans up everything** (because `job_mobilizations.job_id` and `job_wtcs.job_id` both FK `jobs(job_id)` **`ON DELETE CASCADE`** — verified `20260708120100_*.sql:28`). Order: **`jobs` → `job_mobilizations` → `job_wtcs`.** Each hard-fail rolls back the `jobs` row and **returns before the `call_log` "Parked" write at :710** (a failed send must never mark the job parked — "fail safe, not fail silent").
+**Scope-cut ratified (round 2):** Sales writes **no** `job_mobilizations` row. The send's only change is to **stamp the resolved `mobilization_seq` into the two existing `field_sow` copies and strip the Sales-only `mobilization_id`.** This removes the ordered write, the cascade-backed rollback, and the `jobs`-DELETE-RLS-policy dependency entirely — the send keeps its **existing** write shape and its **existing** rollback (`661-686`), untouched.
 
-**Precondition:** `[K1]` (§5.1) has already run on the freshly-fetched data and built `mobById = Map(mobilization_id → seq)` from `proposals.mobilizations`. Every day is guaranteed to resolve.
+**Precondition:** `[K1]` (§5.1) has already run on the freshly-fetched data and built `mobById = Map(mobilization_id → seq)` from the send-time `proposals.mobilizations` fetch. Every tagged day is guaranteed to resolve.
 
-**Write 1 — `jobs` insert** — unchanged (`ProposalDetail.jsx:600-630`). `newJobId = inserted[0].job_id` (a number; passes the int8 FK — **C1**, don't stringify).
-
-**Write 2 — `job_mobilizations` seed (NEW), placed between the `jobs` insert and the `job_wtcs` upsert:**
+**One shared transform** — apply to every day of **both** copies so they never diverge on this key (**C1** — the flat `jobs.field_sow` at `:577`/`:604` is a legacy mirror but must carry the same stamp, or a future reader of it sees no mobilization; **C3** — `mobilization_id` is stripped, not left dangling):
 ```js
-const mobRows = (freshMobilizations || []).map(m => ({
-  job_id: newJobId,               // number → int8 FK (C1)
-  seq: m.seq,                      // int 1..N, the wire identity (§2)
-  label: m.label ?? null,
-  start_date: m.start_date || null,
-  end_date:   m.end_date   || null,
-}));
-if (mobRows.length > 0) {
-  const { error: mobErr } = await supabase
-    .from("job_mobilizations")
-    .upsert(mobRows, { onConflict: "job_id,seq", ignoreDuplicates: true }); // C2 idempotent
-  if (mobErr) {
-    // C3/D3: hard-fail. Roll back the jobs row (mirrors 669-683 incl. RLS no-op
-    // verify), then RETURN — before :710. Nothing else has been written yet.
-    <same rollback block as 669-683: delete jobs .eq(job_id,newJobId).select();
-     verify rbData?.length > 0; branch the alert on rolledBack vs not; setSendingToSchedule(false); return;>
-  }
-}
+// Strip the Sales-only uuid; stamp the wire seq. mobById from [K1].
+const stampDay = d => {
+  const { mobilization_id, ...rest } = d;                 // C3: strip uuid
+  return { ...rest, mobilization_seq:
+    mobilization_id != null ? (mobById.get(mobilization_id) ?? null) : null };
+};
 ```
 
-**Write 3 — `job_wtcs` upsert** — existing (`640-660`), with **one change: stamp the resolved `mobilization_seq` into each `field_sow` day** so Schedule reads `seq` off `job_wtcs.field_sow` (§2 wire contract):
+**Apply at two existing sites — value-only edits, no other fields touched (D1):**
+
+1. **Flat `jobs.field_sow`** — the merge at `ProposalDetail.jsx:577` becomes
+   `const fieldSow = wtcList.flatMap(w => (w.field_sow || []).map(stampDay));`
+   Everything else in the `jobs` insert row (`600-622`) is **unchanged**.
+
+2. **Per-WTC `job_wtcs.field_sow`** — inside the existing `jobWtcRows` map (`640-655`), change **only** the `field_sow:` value; the other 8 fields (`job_id, proposal_wtc_id, work_type_id, work_type_name, position, material_status, start_date, end_date, bid_breakdown`) stay exactly as they are (**D1** — edit the value, not the row shape):
 ```js
 field_sow: (wtc.dates_tbd
     ? (wtc.field_sow || []).map(d => ({ ...d, date: null }))
     : (wtc.field_sow || [])
-  ).map(d => ({
-    ...d,
-    mobilization_seq: d.mobilization_id != null ? (mobById.get(d.mobilization_id) ?? null) : null,
-  })),
+  ).map(stampDay),           // <-- only this line is new; rest of the row unchanged
 ```
-(`mobilization_id` may remain on the snapshot — harmless; Schedule ignores it per §2A. The authoritative wire key is `mobilization_seq`.) The existing `job_wtcs` failure rollback (`661-686`) is unchanged **but now also cascade-removes the Write-2 `job_mobilizations` rows** when it deletes the `jobs` row (`ON DELETE CASCADE`) — so no separate mob cleanup is needed. Note this in the rollback comment.
 
-**Write 4 — legacy `materials`** (`688-705`): stays **downstream** of the seed and unchanged — warning-only, non-blocking, unrelated to this plan (**C4** — do not move it above the seed, do not make it a hard-fail).
+**No change to any write count, order, or rollback.** `jobs` insert (`624`), `job_wtcs` upsert + its rollback (`658-686`), legacy `materials` (`688-705`), and `call_log` "Parked" (`710`) are all as they are today. `newJobId` still passes as a number (**C1** — don't stringify) but there is no new FK write relying on it.
 
 ### 5.4 Failure discipline [DERIVED]
-- Ordered `jobs → job_mobilizations → job_wtcs`; every required-write hard-fail deletes the `jobs` row (cascade cleans the rest) and returns **before** `call_log.stage = "Parked"` (:710).
-- Rollback verifies the delete succeeded (`rbData?.length > 0`) because **RLS DELETE can silently no-op** (CLAUDE.md storage/RLS rule); on a non-verified rollback, warn the user NOT to retry and to have an admin remove the job (mirrors the existing 678-683 branch).
-- Both new/edited failure branches call `setSendingToSchedule(false)` and `return` — no fall-through to the "Parked" write or `setSentToSchedule(true)`.
+- **Unchanged from today.** The only pre-existing hard-fail is the `job_wtcs` upsert failure, which already rolls back the `jobs` row with RLS-no-op verification (`661-686`) and returns before "Parked". This plan adds **no** new write and therefore **no** new failure branch.
+- Because Sales no longer writes `job_mobilizations`, the round-1 "does a `jobs` DELETE policy exist in prod" question (B1) is **moot** — this plan introduces no new reliance on the cascade rollback. (The existing `job_wtcs` rollback already depended on the `jobs` delete; that is pre-existing behavior, unchanged and out of scope.)
 - Legacy `materials` write stays as-is (warning-only).
 
 ---
@@ -275,9 +283,9 @@ No DDL. Each step independently verifiable; ends at the point-at proof.
 
 **Step 3 — `[K1]` send validation (§5.1).** Re-fetch `proposal_wtc.field_sow` + `proposals.mobilizations` fresh at send; resolve `mobilization_id → seq`. *Accept:* a proposal whose day has `mobilization_id = null` (or an id not in the freshly-fetched mobs) is blocked with a WTC/day-specific message referencing the **saved** state, and writes nothing.
 
-**Step 4 — Send-flow review panel (§5.2) + ordered writes (§5.3).** Panel renders mobs (NULL dates → "TBD") + per-day resolved seq/metrics; writes run `jobs → job_mobilizations → job_wtcs` with cascade-backed rollback. *Accept (point-at proof #2):* clicking "Send to Schedule" shows the mob + per-day fields (TBD dates render, not "Invalid Date"); after commit, `job_wtcs.field_sow` days carry a resolved `mobilization_seq` and `job_mobilizations` has one row per mob (`seq` matching); a forced Write-2 or Write-3 failure leaves **no** `jobs`/`job_mobilizations`/`job_wtcs` rows and the proposal un-parked.
+**Step 4 — Send-flow review panel (§5.2) + `mobilization_seq` stamp (§5.3).** Panel renders mobs (NULL dates → "TBD") + per-day resolved seq/metrics; the send applies the `stampDay` transform to **both** `field_sow` copies (flat `jobs.field_sow` + per-WTC `job_wtcs.field_sow`). **No new write, no ordered rollback — the existing send shape is unchanged (D4=b).** *Accept (point-at proof #2):* clicking "Send to Schedule" shows the mob + per-day fields (TBD dates render, not "Invalid Date"); after commit, every tagged day in `job_wtcs.field_sow` **and** `jobs.field_sow` carries a resolved `mobilization_seq` and **no** `mobilization_id`; `job_mobilizations` is **not** written by Sales (empty until Schedule builds).
 
-**Step 5 — Cross-driver contract check (§2A) [D1/D2/D4].** *Accept:* confirm the `field_sow` day-key schema handed to Schedule matches §2A (carries `mobilization_seq`, not relying on `mobilization_id`); confirm `job_mobilizations` is the post-send authoritative copy; document the pull-back staleness limitation is understood (no re-seed path this build).
+**Step 5 — Cross-driver contract check (§2A) [D1/D2/D4].** *Accept:* confirm the `field_sow` day-key schema handed to Schedule matches §2A (carries `mobilization_seq`, `mobilization_id` stripped); confirm the contract records that **Schedule** owns the `job_mobilizations` seed (Sales writes none); confirm the C4 "Sales sole writer" convention tag and the C2 additive-`id` documentation note are present; document the pull-back staleness limitation (no re-seed path this build).
 
 *(Coverage badge — DEFERRED per D5, not built in this pass. See §6 for the retained spec when it becomes a fast-follow.)*
 
@@ -289,11 +297,12 @@ No DDL. Each step independently verifiable; ends at the point-at proof.
 
 1. **~~Mobilization `seq` immutability~~ — DISSOLVED by the two-identity model (§2, round-1 audit).** Days bind by `mobilization_id` (uuid, immutable, never reused), so reorder/relabel/delete cannot silently mis-bind a day. A deleted mob leaves a **detectable orphan** (`mobilization_id` that no longer resolves), caught by `[K1]`, not a wrong-mob mismatch. Residual: `seq` must be assigned `max+1` (never `length+1`) so a delete-then-add cannot reuse a retired `seq` on the wire (§4 B6).
 2. **Resolution-map correctness (NEW)** — the send resolves `mobilization_id → seq` from the **freshly-fetched** `proposals.mobilizations`. If it validated against stale in-memory state, a day could resolve to the wrong/absent seq. Mitigation: `[K1]` and the map are both built from the send-time re-fetch (§5.1 E1), never from `ProposalDetail` render state.
-3. **Re-send blocked once a job exists** (`ProposalDetail.jsx:561`) — a partial send failure can't be fixed by re-clicking. Mitigation: `[K1]` runs before any write; the ordered writes (§5.3) roll the `jobs` row back (cascade-cleaning `job_mobilizations`/`job_wtcs`) on any hard-fail and return before "Parked", so nothing half-written survives a normal failure. Un-verifiable rollback (RLS no-op) warns the user not to retry.
-4. **`job_id` type** — live `jobs.job_id` is int4, plan0 FKs int8; the FK works, inserts pass a number through. Pass the returned `newJobId` **as a number** into the `job_mobilizations` seed — don't stringify (§5.3 C1).
-5. **Pull-back staleness** — after `handlePullBack` + edit, the job-side snapshot (`job_mobilizations`, `job_wtcs.field_sow`) does not reflect the edits and there is no re-seed path (re-send blocked). Inherited send-once behavior, documented in §2A (D2); out of scope to fix here.
-6. **Legacy `materials` write** stays untouched, downstream of the seed — don't accidentally remove or reorder it (§5.3 C4).
-7. **Scope creep back toward the warehouse** — resist re-adding `job_material_lines`/sign-off/settings; those are the Schedule build. This boundary is the whole point of the tight scope.
+3. **Re-send blocked once a job exists** (`ProposalDetail.jsx:561`) — a partial send failure can't be fixed by re-clicking. Mitigation: `[K1]` runs before any write; under D4=b the send adds **no** new write, so the only hard-fail is the **existing** `job_wtcs` rollback (`661-686`), unchanged. Nothing new to half-write.
+4. **~~Cascade rollback / `jobs` DELETE RLS policy (B1)~~ — MOOT under D4=b.** The scope-cut removed the `job_mobilizations` seed, so no new write relies on the cascade rollback. The round-1 "does a `jobs` DELETE policy exist in prod?" question does not gate this plan (the pre-existing `job_wtcs` rollback already depended on it — unchanged, out of scope).
+5. **Pull-back staleness** — after `handlePullBack` + edit, the job-side snapshot (`job_wtcs.field_sow`) does not reflect the edits and there is no re-sync path (re-send blocked). Inherited send-once behavior, documented in §2A (D2); out of scope to fix here.
+6. **Legacy `materials` write** stays untouched, unchanged in position — don't accidentally remove or reorder it (§5.3 C4).
+7. **Both `field_sow` copies must carry the stamp (C1)** — the flat `jobs.field_sow` is a legacy mirror but must get the same `stampDay` transform as `job_wtcs.field_sow`, or a reader of the flat copy sees days with no mobilization. Apply the shared transform at both sites (§5.3).
+8. **Scope creep back toward the warehouse** — resist re-adding `job_material_lines`/sign-off/settings/`job_mobilizations`; those are the Schedule build. This boundary is the whole point of the tight scope.
 
 ---
 
@@ -301,12 +310,13 @@ No DDL. Each step independently verifiable; ends at the point-at proof.
 
 - **D-IDENTITY (§2): RESOLVED = two-identity split** [round-1 audit ratification, Chris, 2026-07-09] — day→mob binds by stable `mobilization_id` (uuid) for authoring; `seq` (int 1..N) stays the wire identity, resolved at send. Dissolves audit B3/B4. Chose over pure-positional-seq (which keeps the fragile identity-by-position the audit flagged). Honors the LOCKED plan0 contract (`seq` keys the wire); no DDL (additive jsonb `id`).
 - **D1 (§4): RESOLVED = (a)** — mobilizations editor on `ProposalDetail`. Unlimited mob count (1…N, no cap).
-- **D4 (§5.3): RESOLVED = (a)** — send also seeds `job_mobilizations`, ordered `jobs → job_mobilizations → job_wtcs` with cascade-backed rollback.
-- **D2 (§3.2): OPEN (build-time)** — day-card layout confirmed against mockup v6 during the build, not a blocking decision.
+- **D4 (§5.3): RESOLVED = (b)** [round-2 scope-cut, Chris, 2026-07-09] — **Sales does NOT seed `job_mobilizations`.** Sales writes `proposals.mobilizations` + stamps `mobilization_seq` into both `field_sow` copies; **Schedule** seeds `job_mobilizations` from that stamp when it builds. Reverses the round-1 D4=(a). Rationale: the seed carried the entire round-2 finding-mass (ordered write, cascade rollback, unverified `jobs` DELETE RLS policy) for a row Schedule can trivially rebuild from the wire `seq`. Cutting it takes Sales out of every `job_*` table except the pre-existing `job_wtcs` write and dissolves that finding class.
+- **D2 (§3.2): OPEN (build-time)** — day-card layout confirmed against mockup v6 during the build, not a blocking decision. (Separately: the "+ Add day" fetch-gating in §3.2 is a spec item, not open.)
 - **D3 (§5.2): OPEN (default)** — pre-send review panel = lightweight inline panel (recommended default; confirm at build).
 - **D5 (§6): RESOLVED = defer** — coverage badge is a fast-follow, not in this build.
 
-**Round-1 audit responded 2026-07-09** (12 findings: 1C/7H/4M): identity model ratified + §2/§2A/§3/§4/§5/§7/§8 hardened (see revision-pass commit). Plan re-submitted for round 2.
+**Round-1 audit responded 2026-07-09** (12 findings: 1C/7H/4M): identity model ratified + §2/§2A/§3/§4/§5/§7/§8 hardened.
+**Round-2 audit responded 2026-07-09** (13 findings, 0C/2H/8M/3L; plateau → single-option scope-cut): D4 cut to (b), removing §5.3 Write-2 + ordered rollback + the B1 `jobs`-DELETE dependency; D4-independent items fixed — R1 (real self-fetch useState/useEffect + TDZ), R-E1 (separate `proposals.mobilizations` send fetch), C1/C3 (stamp both `field_sow` copies, strip `mobilization_id`), C2 (additive-`id` doc note, no migration edit), D1 (value-only `field_sow` edit), D2 (gate "+ Add day"), C4 (convention-not-DB-enforced tag). Adjacent findings (N4/N5/N6) → BACKLOG, not this loop. Plan re-submitted for round 3 (expected near-clean).
 
 ---
 

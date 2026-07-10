@@ -75,6 +75,10 @@ const [depositError, setDepositError] = useState(null);
 const [recipients, setRecipients] = useState([]);
 const [sendingToSchedule, setSendingToSchedule] = useState(false);
 const [sentToSchedule, setSentToSchedule] = useState(false);
+// Pre-send review modal (material_flow §5.2): holds the [K1]-validated snapshot
+// (wtcList, mobById map, mobilizations, failures) so the commit reuses the same fetch.
+const [showSendReview, setShowSendReview] = useState(false);
+const [sendReview, setSendReview] = useState(null);
 const [customerContacts, setCustomerContacts] = useState([]);
 const [editingRecipient, setEditingRecipient] = useState(null);
 const [contactDraft, setContactDraft] = useState({});
@@ -573,7 +577,12 @@ async function deletePropAttachment(fullName) {
     setSignedPdfUrl(null);
   }
 
-  async function handleSendToSchedule() {
+  // Open the read-only pre-send review (§5.2). Runs the send guards + the [K1]
+  // validation and snapshots the freshly-fetched WTC + mobilization state, then opens
+  // the review modal. Writes NOTHING — the send commits only on Confirm. [K1] and the
+  // send stamp share this ONE fetch so the validated set and the stamped set can't
+  // diverge (§5.1 E1).
+  async function openSendReview() {
     setSendingToSchedule(true);
     try {
       // Check if already sent
@@ -584,31 +593,52 @@ async function deletePropAttachment(fullName) {
       const { data: invoices } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null).limit(1);
       if (invoices && invoices.length > 0) { alert("This proposal has already been invoiced. Cannot send to Schedule Command."); setSendingToSchedule(false); return; }
 
-      // Gather WTC data
+      // Gather WTC data (field_sow comes fresh from here)
       const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name, cost_code)").eq("proposal_id", p.id).order("created_at", { ascending: true });
       const wtcList = wtcData || [];
 
-      // [K1] pre-send validation (§5.1). Validate the PERSISTED state: every field_sow
-      // day across every WTC must carry a mobilization_id that resolves to a live
-      // mobilization. field_sow is already fresh from the wtcData fetch above; the
-      // mobilizations come from a SEPARATE fresh fetch (different table — proposals,
-      // not proposal_wtc) so we never trust possibly-stale ProposalDetail state.
+      // [K1] (§5.1): mobilizations come from a SEPARATE fresh fetch (different table —
+      // proposals, not proposal_wtc) so we never trust possibly-stale ProposalDetail
+      // state. buildMobValidation returns both the resolution map (used by the send
+      // stamp) and the list of days that don't resolve to a live mobilization.
       const { data: freshProp } = await supabase.from("proposals").select("mobilizations").eq("id", p.id).single();
       const freshMobilizations = freshProp?.mobilizations || [];
-      const { failures } = buildMobValidation(wtcList, freshMobilizations);
-      if (failures.length > 0) {
-        const list = failures.map(f => `${f.wtcLabel} '${f.dayLabel}'`).join(", ");
-        alert(`Can't send yet — these field-SOW days have no mobilization assigned (based on the last saved version): ${list}. Open the WTC → Scope of Work, assign a mobilization to each day, and save before sending.`);
-        setSendingToSchedule(false);
-        return;
-      }
+      const { mobById, failures } = buildMobValidation(wtcList, freshMobilizations);
+
+      setSendReview({ wtcList, mobById, mobilizations: freshMobilizations, failures });
+      setShowSendReview(true);
+    } catch (e) {
+      alert("Error: " + e.message);
+    }
+    setSendingToSchedule(false);
+  }
+
+  // Commit the send from the reviewed snapshot (§5.3). Uses the SAME wtcList + mobById
+  // [K1] validated — never a re-fetch, so the validated set and the stamped set stay
+  // identical. Stamps the resolved mobilization_seq into BOTH field_sow copies and
+  // strips the Sales-only mobilization_id. No new write, no new rollback: the existing
+  // send shape (jobs insert → job_wtcs upsert + rollback → materials → Parked) is intact.
+  async function commitSendToSchedule() {
+    const review = sendReview;
+    // Belt-and-suspenders — the Confirm button is disabled when failures exist.
+    if (!review || review.failures.length > 0) return;
+    const { wtcList, mobById } = review;
+    setSendingToSchedule(true);
+    try {
+      // Strip the Sales-only uuid; stamp the wire seq (§5.3 C1/C3). One shared transform
+      // applied to every day of both copies so they never diverge on this key.
+      const stampDay = d => {
+        const { mobilization_id, ...rest } = d;
+        return { ...rest, mobilization_seq: mobilization_id != null ? (mobById.get(mobilization_id) ?? null) : null };
+      };
 
       // Build work type string (e.g. "Epoxy,Caulking")
       const workTypeNames = wtcList.map(w => w.work_types?.name).filter(Boolean);
       const workType = workTypeNames.join(",");
 
-      // Merge field_sow from all WTCs
-      const fieldSow = wtcList.flatMap(w => w.field_sow || []);
+      // Merge field_sow from all WTCs — flat jobs.field_sow legacy mirror; stamp each
+      // day (C1 — a reader of the flat copy must also see the mobilization_seq).
+      const fieldSow = wtcList.flatMap(w => (w.field_sow || []).map(stampDay));
 
       // Combine sales_sow text
       const salesSow = wtcList.map((w, i) => {
@@ -677,9 +707,12 @@ async function deletePropAttachment(fullName) {
           work_type_id: wtc.work_type_id,
           work_type_name: wtc.work_types?.name || null,
           position: index,
-          field_sow: wtc.dates_tbd
+          // Per-WTC canonical copy — apply the SAME stampDay (C1): only the field_sow
+          // value changes; every other field on this row is untouched (D1).
+          field_sow: (wtc.dates_tbd
             ? (wtc.field_sow || []).map(d => ({ ...d, date: null }))
-            : (wtc.field_sow || []),
+            : (wtc.field_sow || [])
+          ).map(stampDay),
           material_status: "not_ordered",
           start_date: wtc.dates_tbd ? null : (wtc.start_date || null),
           end_date:   wtc.dates_tbd ? null : (wtc.end_date || null),
@@ -744,6 +777,7 @@ async function deletePropAttachment(fullName) {
         await supabase.from("call_log").update({ stage: "Parked" }).eq("id", p.call_log_id);
       }
 
+      setShowSendReview(false);
       setSentToSchedule(true);
     } catch (e) {
       alert("Error: " + e.message);
@@ -853,7 +887,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             <Btn sz="sm" v="ghost" onClick={handlePullBack} style={{ color: C.amber, borderColor: C.amber }}>↩ Pull Back</Btn>
           )}
           {p.status === "Sold" && (
-            <Btn sz="sm" v="ghost" onClick={handleSendToSchedule} disabled={sendingToSchedule || sentToSchedule}
+            <Btn sz="sm" v="ghost" onClick={openSendReview} disabled={sendingToSchedule || sentToSchedule}
               style={{ color: sentToSchedule ? C.textFaint : C.teal, borderColor: sentToSchedule ? C.border : C.teal }}>
               {sentToSchedule ? "✓ Sent to Schedule" : sendingToSchedule ? "Sending..." : "Send to Schedule"}
             </Btn>
@@ -1438,6 +1472,88 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           </div>
         </div>
       )}
+      {showSendReview && sendReview && (() => {
+        // Read-only pre-send review (§5.2). NULL mob dates render as "TBD", never
+        // "Invalid Date" (F1). Per-day mobilization resolves via the [K1] map to seq +
+        // label. When [K1] has failures the Confirm button is disabled and the blocking
+        // days are listed with a pointer back to the WTC SowTab.
+        const mobLabel = new Map((sendReview.mobilizations || []).map(m => [m.id, m]));
+        const fmtDate = d => d ? fmtD(d) : "TBD";
+        const blocked = sendReview.failures.length > 0;
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,20,35,0.7)", backdropFilter: "blur(4px)" }}
+            onClick={e => { if (e.target === e.currentTarget && !sendingToSchedule) setShowSendReview(false); }}>
+            <div style={{ background: C.linenCard, borderRadius: 16, width: "min(680px,92vw)", maxHeight: "88vh", overflowY: "auto", padding: "26px 30px", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 4 }}>Send to Schedule — Review</div>
+              <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui, marginBottom: 18 }}>Confirm the mobilizations and field-SOW day plan before this job lands in Schedule Command.</div>
+
+              {/* Mobilizations */}
+              <div style={{ fontWeight: 800, fontSize: 11.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Mobilizations</div>
+              {(sendReview.mobilizations || []).length === 0 ? (
+                <div style={{ fontSize: 12.5, color: C.textFaint, fontFamily: F.ui, marginBottom: 16 }}>None authored.</div>
+              ) : (
+                <div style={{ marginBottom: 16 }}>
+                  {sendReview.mobilizations.map(m => (
+                    <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 5 }}>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, minWidth: 52 }}>Mob {m.seq}</span>
+                      <span style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui, flex: 1 }}>{m.label || <span style={{ color: C.textFaint }}>(no label)</span>}</span>
+                      <span style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{fmtDate(m.start_date)} → {fmtDate(m.end_date)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Per-WTC field-SOW day plan */}
+              <div style={{ fontWeight: 800, fontSize: 11.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Field-SOW Days</div>
+              {sendReview.wtcList.map((wtc, wi) => {
+                const days = wtc.field_sow || [];
+                return (
+                  <div key={wtc.id} style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginBottom: 5 }}>
+                      WTC {wi + 1}{wtc.work_types?.name ? ` — ${wtc.work_types.name}` : ""} · {days.length} day{days.length === 1 ? "" : "s"}
+                    </div>
+                    {days.length === 0 ? (
+                      <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, paddingLeft: 6 }}>No day entries.</div>
+                    ) : days.map((d, di) => {
+                      const seq = sendReview.mobById.get(d.mobilization_id);
+                      const mob = mobLabel.get(d.mobilization_id);
+                      const resolved = seq != null;
+                      return (
+                        <div key={d.id || di} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 12px", background: C.linen, border: `1px solid ${resolved ? C.border : C.red}`, borderRadius: 7, marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: C.textBody, fontFamily: F.ui, minWidth: 60 }}>{d.day_label || `Day ${di + 1}`}</span>
+                          <span style={{ fontSize: 11.5, color: resolved ? C.tealDark : C.red, fontFamily: F.ui, flex: 1 }}>
+                            {resolved ? `Mob ${seq}${mob?.label ? ` — ${mob.label}` : ""}` : "⚠ no mobilization"}
+                          </span>
+                          <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>{(d.sq_ft || 0)} sf · {(d.linear_ft || 0)} lf</span>
+                          <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, minWidth: 66, textAlign: "right" }}>{wtc.dates_tbd ? "TBD" : fmtDate(d.date)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+
+              {/* [K1] block state */}
+              {blocked && (
+                <div style={{ marginTop: 8, marginBottom: 4, padding: "12px 14px", background: "rgba(229,57,53,0.08)", border: `1px solid ${C.red}`, borderRadius: 10 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, color: C.red, fontFamily: F.ui, marginBottom: 4 }}>Can't send yet — {sendReview.failures.length} day{sendReview.failures.length === 1 ? "" : "s"} without a mobilization</div>
+                  <div style={{ fontSize: 12, color: C.textBody, fontFamily: F.ui }}>
+                    {sendReview.failures.map(f => `${f.wtcLabel} '${f.dayLabel}'`).join(", ")}. Open the WTC → Scope of Work, assign a mobilization to each day, and save before sending.
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+                <Btn sz="sm" v="ghost" onClick={() => setShowSendReview(false)} disabled={sendingToSchedule}>Cancel</Btn>
+                <Btn sz="sm" onClick={commitSendToSchedule} disabled={blocked || sendingToSchedule}
+                  title={blocked ? "Assign a mobilization to every field-SOW day first." : undefined}>
+                  {sendingToSchedule ? "Sending..." : "Confirm & Send"}
+                </Btn>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {showMultiGC && (
         <MultiGCWizard
           sourceProposalId={p.id}

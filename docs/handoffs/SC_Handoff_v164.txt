@@ -71,12 +71,25 @@ NOT run this session: /code-review, /security-review. This is a money/QB path �
 
 VERIFICATION
 ------------
-Build + buildvsplan = done (above). LIVE = Chris opened a real Sent/QB-synced invoice on prod,
-the Edit Sent Invoice button + edit form + required-reason guard all worked, and he accepted the
-result ("we're done"). NOT independently re-confirmed by Claude this session: the QB-side
-artifacts on his invoice (same DocNumber, PO in CustomerMemo, `[EDITED] <ts> — <reason>` appended
-to QB PrivateNote, amount unchanged). If you want a clean audit trail, spot-check that invoice in
-QBO by DocNumber (per the "query QB directly" rule — don't infer QB state from SC fields).
+Build + buildvsplan = done (above). LIVE = Chris edited TWO real Sent/QB-synced invoices on prod
+to add PO# 4500454815 (#10053 / QB 147379 and #10052 / QB 147854), both at ~11:16-11:17 AM.
+
+QB SPOT-CHECK = VERIFIED by querying QuickBooks directly (qbo_sales_get_invoices by DocNumber,
+per the "query QB directly" rule — did NOT infer from SC fields):
+  - Same number preserved: DocNumber 10053 and 10052 unchanged (no new invoice minted). ✅
+  - [EDITED] audit note appended to PrivateNote: both carry a fresh
+    "[EDITED] 7/13/2026, 11:1x AM — Customer wanted a P.O. number put on this invoice." line,
+    with the prior 7/7 location-backfill note preserved ABOVE it (append, not overwrite). ✅
+  - Amount integrity (the syncedLock write-path fix): QB amount + balance = $2,787.00 and
+    $5,754.16, matching SC to the penny. No drift. ✅
+  - Reason text carried to QB verbatim. ✅
+  - QB native "P.O. Number" custom field = null — by design (PO lives in CustomerMemo, not that
+    field, per plan §4).
+NOT directly observed: the CustomerMemo text itself ("PO# 4500454815"). The get-invoices tool
+  doesn't return CustomerMemo and the document-render tool is off-limits for direct calls. Safe
+  inference: the full-replace resync writes PrivateNote AND CustomerMemo in one call, so the
+  confirmed [EDITED] note proves that call succeeded and set CustomerMemo = description
+  (= "PO# 4500454815..."). To eyeball it, open the invoice in QBO (txnId 147379 / 147854).
 
 
 CLOSED / TOUCHED THIS SESSION

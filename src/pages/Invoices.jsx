@@ -1694,6 +1694,20 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const actions = statusActions[inv.status] || [];
   const canPullBack = inv.status !== "New" && inv.status !== "Paid";
   const isNew = inv.status === "New";
+  // In-place edit is exposed for New AND for the unpaid Sent-family so an operator can
+  // add a late PO (into description/intro) to an already-sent, QB-synced invoice WITHOUT
+  // a pull-back that would mint a new number. Paid / voided / QB-payment-linked are blocked:
+  // a full-replace QB resync under a recorded payment can shift the amount owed (plan §5.2).
+  // NOTE (buildvsplan T2-2): in current live data qb_payment_id is only populated once an
+  // invoice is Paid, so !inv.qb_payment_id is presently redundant with !== "Paid" — it is
+  // defense-in-depth for a future partial-payment case, NOT a proven partial-payment block.
+  // If partial QB payments ever get recorded on a still-Sent invoice, add a balance check.
+  const isSentFamily = ["Sent", "Waiting for Payment", "Past Due"].includes(inv.status);
+  const canEditInPlace = !inv.voided_at && inv.status !== "Paid" && !inv.qb_payment_id && (isNew || isSentFamily);
+  // For a QB-synced edit, lock the number + every dollar field so an in-place edit can
+  // only touch description / intro / due date — keeps the invoice number stable (the whole
+  // point) and prevents amount drift under the live QB record + Stripe pay link (plan §2.3).
+  const syncedLock = !!inv.qb_invoice_id;
 
   async function handleDelete() {
     if (inv.voided_at) {
@@ -1738,6 +1752,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
   async function handleSaveEdit() {
     if (inv.voided_at) { alert("This invoice is voided and cannot be edited."); return; }
+    // Load-bearing guard (plan §5.2): a full-replace QB resync on an invoice with a linked
+    // payment can shift line items under recorded money. Refuse Paid + any QB-payment link.
+    // The button gate already hides these, but guard the write too (CLAUDE.md #7).
+    if (inv.status === "Paid" || inv.qb_payment_id) {
+      alert("This invoice has a recorded payment and can't be edited in place — editing line items under a linked QuickBooks payment can shift the amount owed. Pull it back if you need to change it.");
+      return;
+    }
     // Require reason if invoice is synced to QB
     if (inv.qb_invoice_id && !editReason.trim()) {
       alert("A reason for this edit is required for QuickBooks audit compliance.");
@@ -1747,6 +1768,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     // Recalculate line amounts based on new billing pcts.
     // Archive invoices have no proposal_wtc; preserve the directly-entered amount on the single line.
     const newLines = lines.map(l => {
+      // QB-synced invoice: every dollar field is locked in the UI (syncedLock) — GUARD THE
+      // WRITE too (CLAUDE.md #6/#7). Preserve the stored line amount + %; never recompute.
+      // A recompute (calcWtcPrice × pct) would silently drift the amount if the underlying
+      // proposal_wtc was edited after the invoice was sent, then full-replace that new
+      // number into QB (sparse:false). Preserving is the only thing that makes §2.3's
+      // "amounts are locked" actually true. Covers WTC, archive, and SOV lines uniformly.
+      if (syncedLock) {
+        return { id: l.id, billing_pct: l.billing_pct, amount: parseFloat(l.amount) || 0 };
+      }
       if (isArchiveInvoice) {
         const amt = parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0;
         return { id: l.id, billing_pct: null, amount: Math.round(amt * 100) / 100 };
@@ -1769,9 +1799,11 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     // that flow; don't double-zero it). For a NON-pay-app invoice, recompute from the
     // edit inputs — EXCEPT a direct (non-pay-app) deposit, which carries no retention,
     // so force it to 0 (guard the write, not just the hidden UI — CLAUDE.md #6/#7).
-    const retPct   = linkedPayApp ? (parseFloat(inv.retention_pct) || 0)    : (isDepositInvoice ? 0 : (parseFloat(editRetentionPct) || 0));
-    const retAmt   = linkedPayApp ? (parseFloat(inv.retention_amount) || 0) : (isDepositInvoice ? 0 : Math.round(newAmount * (retPct / 100) * 100) / 100);
-    const discount = linkedPayApp ? (parseFloat(inv.discount) || 0)         : (parseFloat(editDiscount) || 0);
+    // syncedLock takes precedence: preserve stored retention + discount (locked inputs) so
+    // a QB-synced edit can't drift the money via these either (mirrors the newLines branch).
+    const retPct   = syncedLock ? (parseFloat(inv.retention_pct) || 0)    : (linkedPayApp ? (parseFloat(inv.retention_pct) || 0)    : (isDepositInvoice ? 0 : (parseFloat(editRetentionPct) || 0)));
+    const retAmt   = syncedLock ? (parseFloat(inv.retention_amount) || 0) : (linkedPayApp ? (parseFloat(inv.retention_amount) || 0) : (isDepositInvoice ? 0 : Math.round(newAmount * (retPct / 100) * 100) / 100));
+    const discount = syncedLock ? (parseFloat(inv.discount) || 0)         : (linkedPayApp ? (parseFloat(inv.discount) || 0)         : (parseFloat(editDiscount) || 0));
 
     // Update invoice
     const { error: invErr } = await supabase.from("invoices").update({
@@ -1798,17 +1830,48 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       }
     }
 
-    // Sync to QuickBooks with edit reason (non-blocking, skip test jobs)
+    // Re-sync to QuickBooks with the edit reason, AWAITING it and SURFACING failures.
+    // For the add-a-late-PO flow the whole point is the description reaching the QB memo,
+    // so the old fire-and-forget `.catch(()=>{})` would show success in SC while QB never
+    // updated (was B44). Skip test-named jobs — their sync is suppressed server-side.
+    let qbError = null;
     if (inv.qb_invoice_id && !(inv.job_name || "").toLowerCase().includes("test")) {
-      supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: editId, editReason: editReason.trim() } })
-        .catch(() => {});
+      const { data: qb, error: fnErr } = await supabase.functions.invoke(
+        "qb-sync-invoice",
+        { body: { invoiceId: editId, editReason: editReason.trim() } }
+      );
+      if (fnErr) {
+        // FunctionsHttpError.message is generic ("non-2xx status code"); the real QB
+        // fault is in the Response body on .context. Read it so the message is useful.
+        qbError = fnErr.message || "QuickBooks sync failed.";
+        try {
+          const body = await fnErr.context?.json?.();
+          if (body?.error || body?.message) qbError = body.message || body.error;
+        } catch { /* body wasn't JSON — keep the generic message */ }
+      } else if (qb?.error) {
+        qbError = qb.message || qb.error;
+      } else if (qb?.skipped) {
+        qbError = `QuickBooks sync skipped: ${qb.reason}`;
+      }
     }
 
+    // SC writes already committed above, so reflect them locally regardless of QB.
     setInv(prev => ({ ...prev, id: editId, due_date: editDueDate || null, discount, retention_pct: retPct, retention_amount: retAmt, description: editDesc || null, intro: editIntro || null, amount: Math.round(newAmount * 100) / 100 }));
     setLines(prev => prev.map(l => {
       const nl = newLines.find(n => n.id === l.id);
       return nl ? { ...l, billing_pct: nl.billing_pct, amount: nl.amount } : l;
     }));
+
+    if (qbError) {
+      // Saved in Sales Command, but QuickBooks did NOT update. Keep the edit form open
+      // so a retry (Save again) re-pushes to QB — number + amounts are locked, so the
+      // re-save is idempotent and safe.
+      setSaving(false);
+      onUpdated && onUpdated();
+      alert(`Your changes were saved in Sales Command, but the QuickBooks re-sync failed:\n\n${qbError}\n\nThe invoice is correct here — click Save again to retry the QuickBooks sync, or use "Sync to QuickBooks".`);
+      return;
+    }
+
     setEditing(false);
     setEditReason("");
     setSaving(false);
@@ -2117,7 +2180,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         {editing ? (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>Invoice #</span>
-            <input value={editId} onChange={e => setEditId(e.target.value)} style={{ ...inputStyle, width: 120, fontSize: 20, fontWeight: 800, fontFamily: F.display, padding: "6px 10px" }} />
+            <input value={editId} onChange={e => setEditId(e.target.value)} disabled={syncedLock} title={syncedLock ? "Locked — keeps the QuickBooks invoice number stable" : undefined} style={{ ...inputStyle, width: 120, fontSize: 20, fontWeight: 800, fontFamily: F.display, padding: "6px 10px", ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
+            {syncedLock && <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>Locked — synced to QuickBooks</span>}
           </div>
         ) : (
           <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em" }}>
@@ -2148,6 +2212,11 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       {/* Edit fields (only in edit mode) */}
       {editing && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+          {syncedLock && (
+            <div style={{ gridColumn: "1 / -1", background: C.linenDeep, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", fontSize: 12.5, lineHeight: 1.5, color: C.textBody, fontFamily: F.ui }}>
+              This invoice is already sent and synced to QuickBooks. You can edit the <strong>work description</strong> (e.g. add a PO number — prints on the invoice and updates the QuickBooks memo), the <strong>email introduction</strong>, and the <strong>due date</strong>. The invoice number and dollar amounts are locked so the QuickBooks record stays stable. Saving re-syncs to QuickBooks with your reason as an audit note.
+            </div>
+          )}
           <div>
             <div style={labelStyle}>Due Date</div>
             <input type="date" value={editDueDate} onChange={e => setEditDueDate(e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
@@ -2159,13 +2228,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             <>
               <div>
                 <div style={labelStyle}>Discount ($)</div>
-                <input type="number" min="0" step="1" value={editDiscount} onChange={e => setEditDiscount(e.target.value)} style={inputStyle} />
+                <input type="number" min="0" step="1" value={editDiscount} onChange={e => setEditDiscount(e.target.value)} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
               </div>
               {/* Deposits carry no retention — hide the input AND force 0 in the save. */}
               {!isDepositInvoice && (
               <div>
                 <div style={labelStyle}>Retention (%)</div>
-                <input type="number" min="0" max="100" step="0.5" value={editRetentionPct} onChange={e => setEditRetentionPct(e.target.value)} style={inputStyle} />
+                <input type="number" min="0" max="100" step="0.5" value={editRetentionPct} onChange={e => setEditRetentionPct(e.target.value)} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
                 {parseFloat(editRetentionPct) > 0 && (() => {
                   const gross = isArchiveInvoice ? (parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : (parseFloat(inv.amount) || 0);
                   return (
@@ -2181,8 +2250,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           {isArchiveInvoice && (
             <div style={{ gridColumn: "1 / -1" }}>
               <div style={labelStyle}>Invoice Amount ($)</div>
-              <input type="text" inputMode="decimal" value={editArchiveAmount} onChange={e => setEditArchiveAmount(e.target.value)} style={inputStyle} />
-              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Archive proposal — edit the invoice amount directly.</div>
+              <input type="text" inputMode="decimal" value={editArchiveAmount} onChange={e => setEditArchiveAmount(e.target.value)} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
+              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>{syncedLock ? "Locked — synced to QuickBooks. Edit the description/intro only." : "Archive proposal — edit the invoice amount directly."}</div>
             </div>
           )}
           <div style={{ gridColumn: "1 / -1" }}>
@@ -2281,7 +2350,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                         {isArchiveLine ? (
                           <span style={{ color: C.textFaint, fontSize: 12, fontFamily: F.ui }}>—</span>
                         ) : editing ? (
-                          <input type="number" min="0" max="100" step="1" value={editPcts[l.id] || ""} onChange={e => setEditPcts(prev => ({ ...prev, [l.id]: e.target.value }))} style={{ ...inputStyle, width: 70, padding: "4px 8px", fontSize: 12, textAlign: "right" }} />
+                          <input type="number" min="0" max="100" step="1" value={editPcts[l.id] || ""} onChange={e => setEditPcts(prev => ({ ...prev, [l.id]: e.target.value }))} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, width: 70, padding: "4px 8px", fontSize: 12, textAlign: "right", ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
                         ) : (
                           <span style={{ background: C.dark, color: C.teal, padding: "2px 8px", borderRadius: 6, fontWeight: 800, fontSize: 12 }}>{l.billing_pct}%</span>
                         )}
@@ -2492,7 +2561,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           <>
             <Btn sz="sm" onClick={() => setShowPDF(true)}>{linkedPayApp ? "Preview" : "Send / Resend"}</Btn>
             {linkedPayApp && <Btn sz="sm" v="secondary" onClick={() => setShowPayAppReview(true)}>Review Package</Btn>}
-            {isNew && <Btn sz="sm" v="secondary" onClick={startEditing}>Edit Invoice</Btn>}
+            {canEditInPlace && <Btn sz="sm" v="secondary" onClick={startEditing}>{isNew ? "Edit Invoice" : "Edit Sent Invoice"}</Btn>}
             {inv.retention_amount > 0 && !inv.retention_released && !inv.retention_release_of && (
               <Btn sz="sm" onClick={() => handleBillRetention(inv)} disabled={billing}>
                 {billing ? "Billing…" : `Bill Retention ${money(inv.retention_amount)}`}

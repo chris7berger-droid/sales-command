@@ -2269,17 +2269,17 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Prints on the invoice above the Amount Due.</div>
           </div>
           {inv.qb_invoice_id && (
-            <div style={{ gridColumn: "1 / -1", background: "rgba(249,168,37,0.10)", border: `1.5px solid ${C.amber}`, borderRadius: 8, padding: "12px 14px" }}>
-              <div style={{ ...labelStyle, color: C.amber, fontWeight: 800 }}>Reason for Edit — required for QuickBooks</div>
+            <div style={{ gridColumn: "1 / -1", background: C.dark, border: `1.5px solid ${C.amber}`, borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ ...labelStyle, color: C.amber, fontWeight: 800, marginBottom: 6 }}>Reason for Edit — required for QuickBooks</div>
               <input
                 ref={reasonRef}
                 value={editReason}
                 onChange={e => setEditReason(e.target.value)}
                 placeholder="e.g. Added PO #12345 per GC"
                 className={editReason.trim() ? undefined : "reason-pulse"}
-                style={{ ...inputStyle, border: `1.5px solid ${C.amber}`, marginTop: 2 }}
+                style={{ ...inputStyle, border: `1.5px solid ${C.amber}` }}
               />
-              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 6 }}>This note is written to the QuickBooks invoice for audit compliance. Saving is blocked until it's filled in.</div>
+              <div style={{ fontSize: 11, color: C.linenLight, fontFamily: F.ui, marginTop: 6 }}>This note is written to the QuickBooks invoice for audit compliance. Saving is blocked until it's filled in.</div>
             </div>
           )}
         </div>

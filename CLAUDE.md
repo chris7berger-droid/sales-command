@@ -1,5 +1,10 @@
 # Sales Command — Session Rules
 
+> **SOW / Material-Flow pipeline work?** The cross-repo master schedule is the spine:
+> `command-suite-db/docs/MASTER_SCHEDULE.md`. Read it before picking up any Sales→Schedule→Field
+> SOW / material / mobilization work — it says which phase is done and what's next, so terminals on
+> different machines stop surfacing different slices as if they were different projects. (Set 2026-07-13.)
+
 These rules MUST be followed every session. They exist because past sessions
 broke things by guessing column names, using wrong calculation methods, or
 drifting on styling. Read them before writing any code.

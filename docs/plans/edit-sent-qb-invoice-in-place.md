@@ -4,7 +4,7 @@ Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from c
 
 **Type:** feature
 
-**Status:** BUILT + buildvsplan-cleared (2026-07-13) — §2 landed in `src/pages/Invoices.jsx`; build passes; not yet smoke-tested. Awaiting QB smoke (see §6).
+**Status:** SHIPPED (2026-07-13) — merged to main @ `1260c24`, deployed to prod, used live + accepted. buildvsplan cleared (2 T2 fixed). QB-side artifacts (CustomerMemo PO, `[EDITED]` PrivateNote) worth a QBO spot-check for a clean audit trail. See handoff v164.
 
 **buildvsplan (2026-07-13):** 0 Tier-1, 2 Tier-2 — both fixed same session.
 - **T2-1 (real, fixed):** `syncedLock` locked the UI but `handleSaveEdit` never referenced it — the CLAUDE.md #6/#7 trap. WTC lines recomputed `calcWtcPrice × pct` (would drift + full-replace into QB if the underlying `proposal_wtc` changed after send) and the archive-amount input wasn't disabled. **Fix:** added a `syncedLock` preserve branch as the first case in `newLines` (preserve stored amount + %, never recompute), preserved retention/discount under `syncedLock`, and disabled the archive input. Now §2.3's "amounts are locked" is enforced at the write path, not just the UI.

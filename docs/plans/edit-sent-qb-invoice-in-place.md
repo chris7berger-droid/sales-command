@@ -4,7 +4,11 @@ Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from c
 
 **Type:** feature
 
-**Status:** BUILT (2026-07-13) — §2 steps 1–5 landed in `src/pages/Invoices.jsx`; build passes; not yet smoke-tested. Awaiting /buildvsplan + QB smoke (see §6).
+**Status:** BUILT + buildvsplan-cleared (2026-07-13) — §2 landed in `src/pages/Invoices.jsx`; build passes; not yet smoke-tested. Awaiting QB smoke (see §6).
+
+**buildvsplan (2026-07-13):** 0 Tier-1, 2 Tier-2 — both fixed same session.
+- **T2-1 (real, fixed):** `syncedLock` locked the UI but `handleSaveEdit` never referenced it — the CLAUDE.md #6/#7 trap. WTC lines recomputed `calcWtcPrice × pct` (would drift + full-replace into QB if the underlying `proposal_wtc` changed after send) and the archive-amount input wasn't disabled. **Fix:** added a `syncedLock` preserve branch as the first case in `newLines` (preserve stored amount + %, never recompute), preserved retention/discount under `syncedLock`, and disabled the archive input. Now §2.3's "amounts are locked" is enforced at the write path, not just the UI.
+- **T2-2 (note, not fixed):** `!inv.qb_payment_id` in the gate is currently redundant with `!== "Paid"` (live data: qb_payment_id only set once Paid), so it doesn't independently block a partial-payment-while-Sent case. Low likelihood; documented inline as defense-in-depth with a "add a balance check if partial QB payments ever land on a Sent invoice" pointer.
 
 **Build note:** §2 delivered as — (1) button gate widened via new `canEditInPlace` (New + Sent/Waiting/Past Due; excludes Paid, voided, and any `qb_payment_id`-linked invoice); (2) Paid + QB-payment guard added to `handleSaveEdit`; (3) `syncedLock = !!inv.qb_invoice_id` disables invoice number + discount + retention + per-line % inputs; (4) edit-reason field already conditioned on `qb_invoice_id` — verified renders in widened path; (5) explainer banner + "Edit Sent Invoice" label + "Locked — synced to QuickBooks" hint. **(6) QB resync now awaits + surfaces errors** (Chris's call, 2026-07-13) — replaced the fire-and-forget `.catch(()=>{})` with an awaited invoke that reads `fnErr.context.json()` for the real QB fault (mirrors `handleQBSync`), and on failure keeps the SC edit saved but leaves the edit form open with an alert so a retry re-pushes to QB (number+amounts locked → idempotent). Closes the B44 silent-failure gap on this path.
 

@@ -1815,17 +1815,48 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       }
     }
 
-    // Sync to QuickBooks with edit reason (non-blocking, skip test jobs)
+    // Re-sync to QuickBooks with the edit reason, AWAITING it and SURFACING failures.
+    // For the add-a-late-PO flow the whole point is the description reaching the QB memo,
+    // so the old fire-and-forget `.catch(()=>{})` would show success in SC while QB never
+    // updated (was B44). Skip test-named jobs — their sync is suppressed server-side.
+    let qbError = null;
     if (inv.qb_invoice_id && !(inv.job_name || "").toLowerCase().includes("test")) {
-      supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: editId, editReason: editReason.trim() } })
-        .catch(() => {});
+      const { data: qb, error: fnErr } = await supabase.functions.invoke(
+        "qb-sync-invoice",
+        { body: { invoiceId: editId, editReason: editReason.trim() } }
+      );
+      if (fnErr) {
+        // FunctionsHttpError.message is generic ("non-2xx status code"); the real QB
+        // fault is in the Response body on .context. Read it so the message is useful.
+        qbError = fnErr.message || "QuickBooks sync failed.";
+        try {
+          const body = await fnErr.context?.json?.();
+          if (body?.error || body?.message) qbError = body.message || body.error;
+        } catch { /* body wasn't JSON — keep the generic message */ }
+      } else if (qb?.error) {
+        qbError = qb.message || qb.error;
+      } else if (qb?.skipped) {
+        qbError = `QuickBooks sync skipped: ${qb.reason}`;
+      }
     }
 
+    // SC writes already committed above, so reflect them locally regardless of QB.
     setInv(prev => ({ ...prev, id: editId, due_date: editDueDate || null, discount, retention_pct: retPct, retention_amount: retAmt, description: editDesc || null, intro: editIntro || null, amount: Math.round(newAmount * 100) / 100 }));
     setLines(prev => prev.map(l => {
       const nl = newLines.find(n => n.id === l.id);
       return nl ? { ...l, billing_pct: nl.billing_pct, amount: nl.amount } : l;
     }));
+
+    if (qbError) {
+      // Saved in Sales Command, but QuickBooks did NOT update. Keep the edit form open
+      // so a retry (Save again) re-pushes to QB — number + amounts are locked, so the
+      // re-save is idempotent and safe.
+      setSaving(false);
+      onUpdated && onUpdated();
+      alert(`Your changes were saved in Sales Command, but the QuickBooks re-sync failed:\n\n${qbError}\n\nThe invoice is correct here — click Save again to retry the QuickBooks sync, or use "Sync to QuickBooks".`);
+      return;
+    }
+
     setEditing(false);
     setEditReason("");
     setSaving(false);

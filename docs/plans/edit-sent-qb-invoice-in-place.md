@@ -4,7 +4,9 @@ Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from c
 
 **Type:** feature
 
-**Status:** PARKED (scaffolded 2026-07-13) — planned, not yet built.
+**Status:** BUILT (2026-07-13) — §2 steps 1–5 landed in `src/pages/Invoices.jsx`; build passes; not yet smoke-tested. Awaiting /buildvsplan + QB smoke (see §6).
+
+**Build note:** §2 delivered as — (1) button gate widened via new `canEditInPlace` (New + Sent/Waiting/Past Due; excludes Paid, voided, and any `qb_payment_id`-linked invoice); (2) Paid + QB-payment guard added to `handleSaveEdit`; (3) `syncedLock = !!inv.qb_invoice_id` disables invoice number + discount + retention + per-line % inputs; (4) edit-reason field already conditioned on `qb_invoice_id` — verified renders in widened path; (5) explainer banner + "Edit Sent Invoice" label + "Locked — synced to QuickBooks" hint. **Deliberately NOT changed:** QB resync at `handleSaveEdit` stays fire-and-forget (`.catch(()=>{})`) — a silent resync failure means the PO never reaches the QB memo while SC shows success. That is B44's scope (await+surface, or the re-sync button); flagged to Chris, deferred pending his call.
 
 ---
 

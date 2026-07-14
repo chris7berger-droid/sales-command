@@ -3,6 +3,26 @@ import { buildCorsHeaders } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { authenticateCaller, unauthorizedResponse } from "../_shared/tenantAuth.ts";
 
+// ┌──────────────────────────────────────────────────────────────────────────┐
+// │ SPIKE — DO NOT DEPLOY. Retained as a reference dead end. See B62.        │
+// │                                                                          │
+// │ The premise below is WRONG: this marks an invoice Paid off QB's          │
+// │ `Balance == 0`, but a QB balance reaches zero for at least four          │
+// │ different reasons — the customer paid; a credit memo/write-off zeroed    │
+// │ it with no money collected; the invoice was voided; or the net cleared   │
+// │ while retention is still legitimately owed. This conflates all four      │
+// │ into "Paid". Code review 2026-07-14 found 10 defects on this path.       │
+// │                                                                          │
+// │ Two are unrecoverable by patching: credit-memo write-offs book as        │
+// │ collected revenue, and retention invoices (whose QB TotalAmt is already  │
+// │ net of the retainage line) flip to Paid the moment the net clears,       │
+// │ dropping them out of the retention tracker at Invoices.jsx:2831 while    │
+// │ the retention is still outstanding.                                      │
+// │                                                                          │
+// │ The honest signal is summed linked Payment transactions vs. what SC      │
+// │ expects to collect — not Balance. That needs a design pass, not a fix.   │
+// └──────────────────────────────────────────────────────────────────────────┘
+//
 // QuickBooks -> Sales Command payment reconcile.
 //
 // The inverse of `qb-record-payment` (which pushes an SC-side payment INTO QB).

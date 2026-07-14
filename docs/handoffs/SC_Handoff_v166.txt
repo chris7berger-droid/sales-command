@@ -1,0 +1,188 @@
+SC_Handoff_v166 — B62 ideate: QuickBooks → Sales Command payment sync (solution space + sequence)
+=================================================================================================
+Date: 2026-07-14
+Repo/branch: sales-command @ fix/retention-list-filter (1 code commit, NOT pushed, NOT merged)
+Prior: v165 (Job 7442 invoice rounding — data fix, no code). Mode: ideate (opus 4.8, xhigh).
+Parallel session active: command-suite-db DMS-1 build (different repo — no collision, verified).
+
+
+SESSION SUMMARY
+---------------
+Ideate pass on B62 (QB → SC payment sync does not exist). Goal was shared understanding + a
+recommended direction, NOT an implementation plan. Outcome: a 7-block sequence Chris ratified,
+one small fix committed to a branch, and several corrections to B62's own framing.
+
+DELIVERY NOTE (read this before trusting anything below): early in the session I asserted
+several conclusions from DB/QB query results BEFORE reading the code, and had to walk each one
+back when Chris pushed. The findings below are the post-verification versions — each was
+confirmed against the actual code and/or QuickBooks. Where an earlier claim was wrong, it is
+marked WITHDRAWN so it doesn't get re-litigated.
+
+
+THE 7-BLOCK SEQUENCE (ratified by Chris 2026-07-14)
+----------------------------------------------------
+1. Stop making it worse — pause manual "Mark as Paid" in SC.        [DONE — Chris, 2026-07-14]
+2. Apply the unapplied payments in QuickBooks (~5 min, no code).    [NEXT]
+3. Read-only SC-vs-QB report over all 67 exposed invoices.          [not started]
+4. Retention roll-up filter fix.                                    [DONE on branch, unmerged]
+5. Write-safety before automating: ADJ-1 + retention on payment push.
+6. Agree paid / written-off / partial rules with the CPA.
+7. Build the sync (the actual B62 multi-day job).
+
+Rationale for the order: QuickBooks can't be used as the answer until QuickBooks itself is
+clean (2) and we know the true size (3); nothing should run automatically until SC's write
+path into QB is safe (5) and the business rules are agreed (6).
+
+
+FINDINGS (each verified — code read + QB queried directly per [[qb-reconcile-query-qb-directly]])
+--------------------------------------------------------------------------------------------------
+(i) POPULATION IS 67, NOT 40. `status='Sent' AND qb_invoice_id IS NOT NULL` = 67. B62's row says
+    40. The 15-invoice sample is 15-of-67 (~22%) — the unmeasured tail is bigger than filed.
+
+(ii) GROUND TRUTH IS NOT "QB KNOWS, SC DOESN'T." This is the single most important finding and it
+    inverts B62's premise for some invoices. DA Builders #10004: SC says **Paid** (correct — the
+    customer did pay), but QB invoice 146928 reads **balance $29,671.17 OPEN**, with a matching
+    $29,671.16 payment (ref 3108, 2026-06-02) sitting **UNAPPLIED**. A sync reading QB naively
+    would flip a correct Paid back to unpaid.
+    => DESIGN RULE: QB is only truth once payments are APPLIED to invoices. An unapplied payment
+       makes a paid invoice look unpaid. Any sync must detect this case, not act on it.
+
+(iii) $66,529 SITS UNAPPLIED IN QB (A/R Aging Detail, 2026-07-14):
+       - Complete Contracting / Boot Barn  $35,296.39  (ref 012032, 2026-06-23)  -> see B-NEW-1
+       - DA Builders                       $29,671.16  (ref 3108,   2026-06-02)
+       - DA Builders                       $1,561.65   (ref 3162,   2026-07-02)
+     NOT SC-caused. A QB-side application gap. Chris confirmed DA Builders' two ~$29,671 payments
+     are legitimate (~$60k job paid in two halves) — NOT duplicates. WITHDRAWN: my earlier claim
+     that these were SC-created duplicates.
+
+(iv) EVERY SC "Paid" IS MANUAL (Chris, 2026-07-14). No automatic path exists. SC has pushed a QB
+     payment only 7 times EVER (of 91 invoices). So QB is where cash actually lands, ~always, and
+     SC's payment model is effectively write-only. The corruption loop is human-triggered and
+     stops the moment Mark-as-Paid is paused. WITHDRAWN: my earlier "this is getting worse on its
+     own every week" — it only moves when someone clicks the button.
+
+(v) `qb-record-payment` NEVER SUBTRACTS RETENTION. `netAmount = amount - discount`
+    (qb-record-payment/index.ts:154), but qb-sync-invoice:290 puts retention on the QB invoice as
+    a NEGATIVE line, so QB TotalAmt is already net. Retention shipped 2026-04-20 (e925181) to the
+    invoice push; the payment push has NEVER had a retention commit (checked every commit on that
+    file). Real instance: #10031 pushed $31,232.80 against a $29,671.16 QB invoice. Only ever
+    exercised twice (#10031, #10104) — small blast radius. Sequence with ADJ-1 in block 5.
+
+(vi) RETENTION WAS NEVER BROKEN ON THE DETAIL PAGE. WITHDRAWN: my claim that "retention money is
+     hidden." The Bill Retention button (Invoices.jsx:2581) already gates on `retention_released`
+     and is status-independent — retention was never unbillable. ONLY the roll-up list/StatCards
+     were wrong. See CHANGES SHIPPED.
+
+(vii) ON "WHAT COUNTS AS PAID" (B62 design question (a)). B62's hypothesis was "summed linked QB
+     Payments vs. what SC expects to collect." Recommendation: drop the SC side of that
+     comparison — SC's expectation goes stale the moment a bookkeeper edits the QB invoice. Ask
+     QuickBooks both questions instead:
+       - TotalAmt minus applied payments == 0  -> cash actually arrived  -> genuinely paid
+       - Balance == 0 but cash-owed > 0        -> credit memo / write-off / JE -> NOT paid, report
+       - Balance > 0 with payments > 0         -> partial (SC has no state for this)
+     Two further traps: sum the PER-INVOICE LinkedTxn allocation, never Payment.TotalAmt (one
+     check paying three invoices would triple-count); and payments are MUTABLE (a bookkeeper can
+     unapply a check), so "paid" is a comparison that can run backwards, not an event to latch.
+     Blocks (b)-(e) of B62 were NOT worked — session ended first.
+
+
+CHANGES SHIPPED (this session)
+------------------------------
+1 code commit, on branch fix/retention-list-filter (off origin/main). NOT pushed, NOT merged,
+NOT deployed.
+
+  162bbcd  Touches B62: gate retention roll-up on retention_released, not Paid status
+           src/pages/Invoices.jsx:2831
+           - was: parseFloat(i.retention_amount) > 0 && i.status !== "Paid"
+           - now: parseFloat(i.retention_amount) > 0 && !i.retention_released
+           Verified safe against prod data: the 2 retention-release invoices (#10116, #10101)
+           carry retention_amount = 0, so the existing `> 0` clause already excludes them — no
+           new guard needed.
+           Effect: #10004 ($1,561.64) + #10104 ($87.50) reappear (roll-up was short $1,649.14);
+           #10077 ($62.15, already billed) drops out.
+           LATENT, not live: only 3 retention invoices are Paid today. The B62 sync flipping the
+           9 `Sent` retention invoices ($17,514) to Paid in one batch is what detonates it — which
+           is why this lands BEFORE any sync, not as an emergency.
+           `npm run build` passes. NOT smoke-tested on preview — do that before merging.
+
+  NOTE: the StatCard label "Open Pay Apps with Retention" now includes Paid-but-unbilled rows.
+  Left alone deliberately ([[stay-scoped]]) — flag if the wording bothers you.
+
+
+DEPLOYED
+--------
+NOTHING. No push, no merge, no edge-function deploy, no migration, no DB write.
+All SQL run this session was read-only SELECT against pbgvgjjuhnpsumnowuym.
+The command-suite-db DMS-1 build in flight is UNAFFECTED (different repo — verified: this repo's
+origin is github.com/chris7berger-droid/sales-command; no migrations live here since 2026-06-29).
+
+
+BACKLOG — BLOCKED, NEEDS A DECISION FIRST
+------------------------------------------
+Could not file anything. **B62 does not exist on main.** It lives only on the unmerged spike
+branch fix/qb-payment-sync-back. On main the next free ID IS B62 — so filing here would collide
+with that branch's B62. Stopped rather than improvise ([[stop-on-ambiguous-conflict]]).
+
+DECIDE FIRST: land the spike branch's BACKLOG.md (its B62 row + the DO-NOT-DEPLOY header) onto
+main, THEN file the below. Everything in this handoff is otherwise uncaptured.
+
+  B-NEW-1 (needs ID) — "Sync to QuickBooks" changes the SC sent date.
+    Reported by Chris 2026-07-14, NOT diagnosed — needs a code read before planning.
+    Chris voided the original Boot Barn invoice, created a replacement, and used Sync-to-QB;
+    #10115 came out with sent_at = 2026-07-13 / status 'Sent' though it was never (re)sent to the
+    customer. Chris: "when I sync to QuickBooks, I don't really want it changing the sent date."
+    Consequence seen live: the QB payment of $35,296.39 (ref 012032) landed 2026-06-23 — three
+    weeks BEFORE the replacement QB invoice existed (147929, txn_date 2026-07-13) — so it sits
+    unapplied and #10115 reads balance $35,296.39 open.
+    Open question: should Sync-to-QB touch status/sent_at at all, or is "synced to QB" its own
+    state, separate from "sent to customer"? Ties to B62 — the sync must not conflate these
+    either. Also distorts SalesDash, which buckets on sent_at || paid_at (B62 finding 8).
+
+  B62 amendments (apply once B62 is on main): findings (i)-(vii) above; note that defect (2)'s
+    precondition is fixed on fix/retention-list-filter; correct the population 40 -> 67.
+
+  ADJ-1 — unchanged, still open, still a block-5 prerequisite.
+
+
+NOT TOUCHED
+-----------
+- The spike branch fix/qb-payment-sync-back / qb-sync-payments edge fn. Still a documented dead
+  end. Not deployed, not patched. Leave it that way.
+- B62 design questions (b) retention states, (c) credit memos, (d) trigger, (e) sequencing —
+  never reached. (a) is answered above.
+- The 2 uncaptured code-review findings (of 10) still live only in a review terminal's output.
+  Pull them before planning block 7. Nothing in this handoff depends on them.
+- Everything in command-suite-db.
+
+
+NEXT SESSION POINTERS
+---------------------
+1. Block 2 (~5 min, no code): open QuickBooks, apply the Boot Barn $35,296.39 payment to invoice
+   #10115 (QB 147929) and the DA Builders $29,671.16 payment to #10004 (QB 146928).
+2. Decide the B62-on-main question above, then file B-NEW-1 + the amendments.
+3. Merge decision on fix/retention-list-filter — preview-test it first per [[preview-deploys]].
+4. Block 3: the read-only SC-vs-QB report over all 67. Read-only, no writes, no auto-trigger —
+   this is the interim option B62 already floated, and it's what B60 did by hand.
+
+
+FILES TO KNOW
+-------------
+  src/pages/Invoices.jsx:2831           retention roll-up filter (CHANGED this session)
+  src/pages/Invoices.jsx:2581           Bill Retention button gate — already correct, don't touch
+  supabase/functions/qb-record-payment/index.ts:154   netAmount — missing retention subtraction
+  supabase/functions/qb-sync-invoice/index.ts:290     retention as negative QB line (correct)
+  supabase/functions/qb-sync-payments/index.ts        the SPIKE — do not deploy
+  docs/BACKLOG.md                       B62 is NOT here — it's on fix/qb-payment-sync-back
+
+
+GIT STATE
+---------
+  branch:        fix/retention-list-filter (local only, tracks origin/main)
+  commits:       162bbcd (code) + this handoff
+  pushed:        NO
+  merged:        NO
+  working tree:  clean
+  other branches untouched: fix/qb-payment-sync-back (spike, clean), main (unchanged)
+
+  WARNING: this branch now carries BOTH the retention fix AND this handoff. If it isn't merged,
+  it strands exactly the way B62 stranded on the spike branch. That is the main risk to close.

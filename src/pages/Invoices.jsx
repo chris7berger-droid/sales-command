@@ -18,6 +18,10 @@ import PayAppDetailModal from "../components/PayAppDetailModal";
 import BillingScheduleSection from "../components/BillingScheduleSection";
 import NewPayAppModal from "../components/NewPayAppModal";
 
+// Module-scoped so remounts (tab switches, detail↔list nav) don't re-hit the QB API.
+let lastQbPaymentSync = 0;
+const QB_PAYMENT_SYNC_COOLDOWN_MS = 60_000;
+
 // ── Shared styles ─────────────────────────────────────────────────────────
 const inputStyle = {
   padding: "10px 14px", borderRadius: 8,
@@ -2773,13 +2777,31 @@ export default function Invoices({ setSubPage, teamMember }) {
 
   const checkQb = async () => {
     const { data } = await supabase.functions.invoke("qb-auth", { body: { action: "status" } });
-    setQbConnected(data?.connected || false);
+    const connected = data?.connected || false;
+    setQbConnected(connected);
+    return connected;
+  };
+
+  // A payment entered straight into QuickBooks (a mailed check, an ACH the
+  // bookkeeper applies) never reaches SC on its own — qb-record-payment only
+  // pushes the other way — so those invoices sat on "Sent" after they were paid.
+  // Reconcile against QB on load, and refresh the list only if something moved.
+  const syncQbPayments = async () => {
+    if (Date.now() - lastQbPaymentSync < QB_PAYMENT_SYNC_COOLDOWN_MS) return;
+    lastQbPaymentSync = Date.now();
+    try {
+      const { data } = await supabase.functions.invoke("qb-sync-payments", { body: {} });
+      if (data?.updated?.length) await load();
+    } catch {
+      // QB unreachable or token expired — the page still renders SC's own state.
+    }
   };
 
   useEffect(() => {
     (async () => {
       await load();
-      checkQb();
+      const connected = await checkQb();
+      if (connected) syncQbPayments();
     })();
   }, []);
 

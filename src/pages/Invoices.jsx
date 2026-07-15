@@ -2828,7 +2828,10 @@ export default function Invoices({ setSubPage, teamMember }) {
   const pending = activeInvoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);
   const paid    = activeInvoices.filter(i => i.status === "Paid").reduce((a, i) => a + (i.amount || 0), 0);
 
-  const retentionInvoices = activeInvoices.filter(i => parseFloat(i.retention_amount) > 0 && i.status !== "Paid");
+  // Retention outstanding is a billing question, not a payment question: an invoice can be
+  // fully Paid on its net while its retention has never been billed. Gate on retention_released
+  // (same flag the Bill Retention button uses) so the two can't diverge.
+  const retentionInvoices = activeInvoices.filter(i => parseFloat(i.retention_amount) > 0 && !i.retention_released);
   const totalRetentionHeld = retentionInvoices.reduce((a, i) => a + (parseFloat(i.retention_amount) || 0), 0);
 
   const aging = (inv) => {

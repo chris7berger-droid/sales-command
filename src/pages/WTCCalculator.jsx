@@ -398,8 +398,8 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         labelStyle={{ fontSize: 12.5, color: T.gray700, fontWeight: 400 }}
         style={{ marginTop: -4, marginBottom: 14 }}
       />
-      <div onClick={() => onPwToggle(!data.prevailing_wage)} style={{ display: "flex", alignItems: "center", gap: 10, marginTop: -4, marginBottom: 20, padding: "12px 16px", background: T.gray50, borderRadius: 8, border: `1px solid ${T.gray200}`, cursor: "pointer" }}>
-        <Checkbox checked={data.prevailing_wage || false} size={16} />
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: -4, marginBottom: 20, padding: "12px 16px", background: T.gray50, borderRadius: 8, border: `1px solid ${T.gray200}` }}>
+        <Checkbox checked={data.prevailing_wage || false} size={16} onChange={v => onPwToggle(v)} />
         <span style={{ fontSize: 13, color: T.gray700, fontWeight: 500 }}>
           Prevailing Wage Job — affects labor rate calculation
         </span>

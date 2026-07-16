@@ -630,8 +630,8 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
             )}
           </div>
 
-          <div onClick={() => set("requiresPayApp", !data.requiresPayApp)} style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, cursor: "pointer", padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${data.requiresPayApp ? C.teal : C.borderStrong}`, background: data.requiresPayApp ? C.dark : C.linen, transition: "all 0.12s" }}>
-            <Checkbox checked={data.requiresPayApp} />
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${data.requiresPayApp ? C.teal : C.borderStrong}`, background: data.requiresPayApp ? C.dark : C.linen, transition: "all 0.12s" }}>
+            <Checkbox checked={data.requiresPayApp} onChange={v => set("requiresPayApp", v)} />
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: data.requiresPayApp ? C.teal : C.textHead, fontFamily: F.display, letterSpacing: "0.04em" }}>Customer Requires Payment Application</div>
               <div style={{ fontSize: 11, color: data.requiresPayApp ? "rgba(255,255,255,0.4)" : C.textFaint, fontFamily: F.ui, marginTop: 2 }}>Invoices will use G702/G703 pay app format with schedule of values</div>

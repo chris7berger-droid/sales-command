@@ -143,14 +143,13 @@ function MemberModal({ member, onClose, onSaved, onDeactivated, senderEmail, sen
               <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: F.ui, marginBottom: 8 }}>App Access</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {tenantApps.map(app => (
-                  <div key={app} onClick={() => {
+                  <div key={app} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.textBody, fontFamily: F.ui, fontWeight: 600, padding: "6px 10px", background: form.apps?.includes(app) ? "rgba(48,207,172,0.07)" : "transparent", borderRadius: 6, border: `1px solid ${form.apps?.includes(app) ? "rgba(48,207,172,0.2)" : C.borderStrong}` }}>
+                    <Checkbox checked={form.apps?.includes(app) || false} size={16} onChange={() => {
                         const next = form.apps?.includes(app)
                           ? (form.apps || []).filter(a => a !== app)
                           : [...(form.apps || []), app];
                         set("apps")(next);
-                      }}
-                      style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: C.textBody, fontFamily: F.ui, fontWeight: 600, padding: "6px 10px", background: form.apps?.includes(app) ? "rgba(48,207,172,0.07)" : "transparent", borderRadius: 6, border: `1px solid ${form.apps?.includes(app) ? "rgba(48,207,172,0.2)" : C.borderStrong}` }}>
-                    <Checkbox checked={form.apps?.includes(app) || false} size={16} />
+                      }} />
                     {APP_LABELS[app] || app}
                   </div>
                 ))}

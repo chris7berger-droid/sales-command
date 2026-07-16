@@ -123,8 +123,8 @@ function CustomerModal({ customer, onClose, onSaved }) {
             )}
           </Field>
           <Field label="" wide>
-            <div onClick={() => set("requires_pay_app", !form.requires_pay_app)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${form.requires_pay_app ? C.teal : C.borderStrong}`, background: form.requires_pay_app ? C.dark : C.linen, transition: "all 0.12s" }}>
-              <Checkbox checked={form.requires_pay_app} />
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${form.requires_pay_app ? C.teal : C.borderStrong}`, background: form.requires_pay_app ? C.dark : C.linen, transition: "all 0.12s" }}>
+              <Checkbox checked={form.requires_pay_app} onChange={v => set("requires_pay_app", v)} />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: form.requires_pay_app ? C.teal : C.textHead, fontFamily: F.display, letterSpacing: "0.04em" }}>Customer Requires Payment Application</div>
                 <div style={{ fontSize: 11, color: form.requires_pay_app ? "rgba(255,255,255,0.4)" : C.textFaint, fontFamily: F.ui, marginTop: 2 }}>Invoices will use G702/G703 pay app format</div>

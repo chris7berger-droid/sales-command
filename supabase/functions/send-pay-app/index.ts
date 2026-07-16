@@ -464,25 +464,37 @@ serve(async (req) => {
       console.error("Invoice status update failed (non-fatal):", invUpdErr.message);
     }
 
-    // ── Fire-and-forget QB sync (non-blocking, log only) ──────────────
-    // Match send-invoice's pattern: do NOT await, ignore errors beyond logging.
-    fetch(`${SUPABASE_URL}/functions/v1/qb-sync-invoice`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": authHeader,
-      },
-      body: JSON.stringify({ invoiceId }),
-    })
-      .then(async (r) => {
-        const txt = await r.text();
-        console.log("qb-sync-invoice response:", r.status, txt.slice(0, 300));
-      })
-      .catch((e) => {
-        console.warn("qb-sync-invoice invoke failed (non-fatal):", e.message);
+    // ── QB sync (awaited; surface failures, don't swallow) ────────────
+    // The send already succeeded — a QB failure is NON-FATAL and returned as a
+    // warning. On a link-persist failure QB created the invoice but couldn't be
+    // linked; persist the returned id here so it isn't orphaned + re-duplicated.
+    // (plan §3 step 3 — await + surface, not fire-and-forget.)
+    const warnings: string[] = [];
+    try {
+      const qbRes = await fetch(`${SUPABASE_URL}/functions/v1/qb-sync-invoice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": authHeader },
+        body: JSON.stringify({ invoiceId }),
       });
+      const qb = await qbRes.json().catch(() => ({}));
+      console.log("qb-sync-invoice response:", qbRes.status, JSON.stringify(qb).slice(0, 300));
+      if (qb?.qbInvoiceId && qb?.error === "qb_link_persist_failed") {
+        await supabase.from("invoices").update({ qb_invoice_id: qb.qbInvoiceId }).eq("id", invoiceId).eq("tenant_id", caller.tenantId);
+      } else if (qb?.error || qb?.skipped) {
+        warnings.push(`QuickBooks: ${qb.message || qb.error || (qb.skipped ? `skipped (${qb.reason})` : "sync failed")}`);
+      } else if (!qbRes.ok) {
+        // Non-2xx whose body carried no recognizable error/skipped field
+        // (platform-level fault: worker boot, timeout, gateway 504). Don't let
+        // it fall through as a silent success — surface it so a retry doesn't
+        // blindly re-create + duplicate. (§3 step 3 — surface, don't swallow.)
+        warnings.push(`QuickBooks: sync failed (${qbRes.status})`);
+      }
+    } catch (e) {
+      warnings.push("QuickBooks sync couldn't be reached — sync it manually from the invoice.");
+      console.warn("send-pay-app: qb-sync invoke failed (non-fatal):", e.message);
+    }
 
-    return new Response(JSON.stringify({ success: true, email_id: emailId }), {
+    return new Response(JSON.stringify({ success: true, email_id: emailId, warnings }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });

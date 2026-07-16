@@ -107,7 +107,39 @@ export function calcWtcBreakdown(wtc, exact = false) {
   const totalCost = labor.subtotal + matsCost + trav;
   const profit = totalPrice - totalCost;
   const margin = totalPrice > 0 ? (profit / totalPrice) * 100 : 0;
-  return { price: totalPrice, cost: totalCost, profit, margin, discount: wtc.discount || 0 };
+  // laborCost/materialCost/travelCost are the same locals that build totalCost
+  // above — surfaced (not re-derived) so labor+materials+travel === cost by
+  // construction. Additive: existing callers ignore the extra keys.
+  return {
+    price: totalPrice, cost: totalCost, profit, margin, discount: wtc.discount || 0,
+    laborCost: labor.subtotal, materialCost: matsCost, travelCost: trav,
+  };
+}
+
+// calcBidStamp — the frozen bid breakdown stamped onto job_wtcs.bid_breakdown at
+// Send-to-Schedule. A THIN shaper over ONE calcWtcBreakdown call plus raw WTC
+// inputs; the PW rate swap and material-cost formula live in calcWtcBreakdown,
+// once. Payload drops `discount` (never rendered by the cost layout) and keeps
+// `price` (the roll-up margin needs Σprofit/Σprice). Versioned via `v`.
+export function calcBidStamp(wtc, exact = false) {
+  const bd = calcWtcBreakdown(wtc, exact);
+  const rate   = wtc.prevailing_wage ? (wtc.pw_rate || 0)    : (wtc.burden_rate || 0);
+  const otRate = wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0);
+  return {
+    v: 1,
+    regular_hours: wtc.regular_hours || 0,
+    ot_hours: wtc.ot_hours || 0,
+    burden_rate: rate,          // effective (PW-swapped) rate — for the panel header
+    ot_burden_rate: otRate,     // effective (PW-swapped) OT rate — for the panel header
+    labor_cost: bd.laborCost,
+    material_cost: bd.materialCost,
+    travel_cost: bd.travelCost,
+    total_cost: bd.cost,
+    price: bd.price,
+    profit: bd.profit,
+    margin_pct: bd.margin,
+    exact,
+  };
 }
 
 export function calcWtcPrice(wtc, markup_override_pct, exact = false) {

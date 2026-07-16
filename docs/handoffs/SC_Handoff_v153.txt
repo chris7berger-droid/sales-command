@@ -1,0 +1,131 @@
+SC_Handoff_v153  —  2026-06-29
+================================================================
+PURPOSE OF THIS HANDOFF: launch the BUILD session for Pass 2 of the
+Command Suite migration-consolidation plan. The plan is fully audited
+(4 rounds) and build-ready; Pass 1 was certified clean. The build
+prompt is at the BOTTOM — copy it into a fresh build terminal.
+
+----------------------------------------------------------------
+SESSION SUMMARY
+----------------------------------------------------------------
+Two things happened this session:
+
+1. B52 (customer-facing bug) — FIXED + LIVE + MERGED.
+   Public invoice page (salescommand.app/invoice/:token) showed
+   "Oops — Invoice not found" for every invoice with a proposal,
+   starting 2026-06-26. Root cause: migration 20260625140000 revoked
+   anon's table-level SELECT on `invoices` and re-granted only 15
+   columns, omitting `viewing_token_expires_at` and `call_log_id` —
+   both referenced by the public-page anon RLS policies on the related
+   tables. Fix: GRANT SELECT (viewing_token_expires_at, call_log_id)
+   ON invoices TO anon (migration 20260629104507). Applied to prod via
+   db query -f + repair --status applied; verified as logged-out anon
+   (HTTP 200). stripe_*/qb_* stay hidden (#SEC1 preserved). Merged to
+   main via PR #31 (squash 7372730).
+
+2. Migration-consolidation plan — WRITTEN, AUDITED (4 rounds),
+   BUILD-READY, Pass-1 CERTIFIED. See plan + this handoff below.
+
+----------------------------------------------------------------
+DECISIONS (all ratified by Chris 2026-06-29)
+----------------------------------------------------------------
+- Root problem: one shared Supabase DB (pbgvgjjuhnpsumnowuym), but
+  migration FILES are split across 4 repos while the ledger is shared,
+  so every repo flags siblings' entries as "strays." Leftover plumbing
+  from the abandoned "sell each app separately" design.
+- Fix = Option A: one dedicated `command-suite-db` repo owns ALL
+  migrations; app repos stop owning/pushing migrations.
+- Two-pass cutover: Pass 1 (reversible) reconcile + freeze + prove;
+  Pass 2 (irreversible) assemble + relocate tooling. Hard gate between.
+- Manual checklist over bespoke automation (one-time move), THEN
+  hardened to a MECHANICAL gate after audit found hand-derivation
+  unreliable.
+- GATE = (version,name) set-equality bijection vs the 82 ledger rows
+  (primary); check-migration-collision.mjs secondary (needs a 1-line
+  dir-arg). No hand-typed keep/exclude list.
+
+----------------------------------------------------------------
+PASS-1 CERTIFICATION (executed read-only 2026-06-29)
+----------------------------------------------------------------
+82/82 ledger (version,name) rows matched to exactly one file across
+sales+sch+field (all git history + working trees). 0 orphans, 0 dup
+versions. 6 abandoned files correctly excluded:
+  20260427120000_create_token_rpcs, 20260427120000_tighten_anon_rls_
+  signing_flow, 20260427120100_drop_anon_signing_policies,
+  20260512120000_multi_gc_allocation, 20260620130000_deposit_tag,
+  20260620140000_billing_schedule_deposit_pending.
+=> Design proven. Only Pass 2 remains.
+
+----------------------------------------------------------------
+NEW / CLOSED BACKLOG
+----------------------------------------------------------------
+- B52: CLOSED (commit 757a83c / PR #31). Recorded in docs/BACKLOG.md.
+- Adjacent (audit round 1, file later): AR-Command-Center unwired
+  (no supabase/, no link — exclude from cutover); stale CLAUDE.md
+  db:push docs in app repos; hook is a non-version-controlled symlink.
+
+----------------------------------------------------------------
+NOT TOUCHED / OUT OF SCOPE
+----------------------------------------------------------------
+- Edge-function consolidation (same split, different mechanism) —
+  separate follow-up plan, NOT this one.
+- §9 open: whether app repos keep read-only migration copies for local
+  `supabase start` — config.toml removal is sequenced AFTER §9.
+
+----------------------------------------------------------------
+GIT STATE
+----------------------------------------------------------------
+- main: has B52 (squash 7372730, PR #31). LIVE.
+- plan/shared-migrations-consolidation: the plan + all 4 audit-round
+  amendments + this handoff. Pushed. (build session reads from here.)
+- sales-command checkout parked on feat/exact-penny-pricing (unrelated
+  WIP, clean). inquiry-modal-redesign worktree behind main by 2
+  migrations (already on main — no action).
+
+----------------------------------------------------------------
+FILES TO KNOW
+----------------------------------------------------------------
+- docs/plans/shared_migrations_consolidation.md  (THE plan — read all
+  4 "Amendments" sections; §6 as amended is the procedure)
+- scripts/check-migration-collision.mjs  (gate; hardcodes MIGRATION_DIR
+  — needs the 1-line dir-arg in Pass 2)
+- scripts/check-migration-safety.sh, scripts/git-hooks/, install-git-
+  hooks.sh  (tooling to relocate to command-suite-db)
+
+================================================================
+>>> BUILD-SESSION PROMPT (paste into a fresh build terminal) <<<
+================================================================
+Execute Pass 2 of docs/plans/shared_migrations_consolidation.md
+(branch plan/shared-migrations-consolidation, sales-command). The plan
+is build-ready and Pass-1 was certified clean (82/82). Steps:
+
+0. RE-CONFIRM FIRST (read-only): re-run the Pass-1 bijection check —
+   pull all 82 ledger (version,name) rows; enumerate every migration
+   file across sales+sch+field (all git history + working trees);
+   assert 82/82 matched, 0 orphans, 0 duplicate versions. Do NOT
+   mutate anything until this passes.
+1. FREEZE: confirm every machine/worktree has pushed all branches
+   (git log --branches --not --remotes empty everywhere); then
+   `supabase unlink` in sch-command and field-command. (Re-link needs
+   CLI token + DB password — note before unlinking.)
+2. ASSEMBLE: create the command-suite-db repo; copy the 82 ledger-
+   matched files into supabase/migrations/ in timestamp order
+   (exclude the 6 abandoned files listed in the plan). Relocate
+   tooling: check-migration-collision.mjs (+ add the dir-arg:
+   const MIGRATION_DIR = process.argv[2] && !process.argv[2]
+   .startsWith("--") ? process.argv[2] : "supabase/migrations";),
+   check-migration-safety.sh, scripts/git-hooks/, install-git-hooks.sh;
+   run the hook installer there.
+3. VERIFY GATE: link command-suite-db; `supabase migration list
+   --linked` must show full sync, ZERO strays. Go/no-go.
+4. RETIRE (per-repo): remove the db:push npm script + neutralize
+   collision/hook in each app repo; `supabase unlink` ALL app repos
+   INCLUDING sales-command. Do NOT remove config.toml yet (coupled to
+   §9). sch-command has no config.toml.
+5. SMOKE (the only permitted apply): author one trivial no-op migration
+   in command-suite-db, push via the normal path, confirm clean apply +
+   zero strays.
+
+Follow the round-3 + round-4 amendments exactly. Apply migration-safety
+rules (no repair --status reverted; this is file reorg, not schema
+re-runs). Do not begin step 1+ until step 0 reconfirms 82/82.

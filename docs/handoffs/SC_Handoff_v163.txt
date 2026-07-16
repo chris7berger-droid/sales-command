@@ -1,0 +1,143 @@
+SC_Handoff_v163 — Material Flow Screen 1 (Sales): SHIPPED to prod + ERD #41 closed
+===================================================================================
+Date: 2026-07-12
+Repo/branch: sales-command @ main (feat/material-flow merged + deleted)
+Prior: v162 (paused mid-smoke). This handoff = the completion.
+
+
+SESSION SUMMARY
+---------------
+Resumed the paused material_flow Screen-1 build via /resume and drove it to done.
+Finished the live send-stamp smoke: the first attempt hit an already-sent test proposal
+(job 93, sent 2026-07-06 pre-feature, so re-send was a no-op — not a bug), so after
+deleting that stale job we sent a never-before-sent proposal and verified in the DB that
+each field-SOW day lands in job_wtcs.field_sow with its mobilization_seq (1,2), the Sales
+uuid stripped, and job_mobilizations empty. Merged feat/material-flow to main, confirmed
+the Vercel prod deploy built green, and deleted the branch (local + remote). Logged two
+follow-ups (MF4, MF5). Closed ERD Loop #41 — it came out DRIFTED (Chris expected a full
+field-SOW UI rebuild; the plan shipped the mobilizations + data plumbing). Banked his
+do-different and wired his "Expectation-Execution Gap" framework into /erd-start + /decide.
+Material Flow Screen-1 is now LIVE in prod.
+
+
+CHANGES SHIPPED (this session)
+------------------------------
+Merged to main (the build commits 6c70515..783f303 were authored in the prior session; they
+landed on main this session via the merge):
+  43d438a  Merge feat/material-flow: Material Flow Screen-1 (Sales side) — --no-ff merge of
+           the 6-commit feature branch into main.
+  678d528  backlog: log MF4 (sent-before-mobs staleness) + MF5 (redundant mob label).
+Cross-repo (not this repo):
+  ~/.claude-commands  — added the Expectation-Execution Gap to erd-start.md + decide.md
+                        (pushed; live both machines next session).
+  ~/erd-loop/LOG.md   — Loop #41 closeout (pushed).
+
+
+DEPLOYED
+--------
+Vercel prod (project sales-command → www.scmybiz.com), auto-deploy on push to main.
+  main @ 43d438a  -> Vercel build state: success
+  main @ 678d528  -> Vercel build state: success (current live)
+No edge functions, no DB migrations — the whole feature is additive jsonb keys, no DDL.
+(Live schema was pre-confirmed read-only: proposals.mobilizations / proposal_wtc.field_sow /
+jobs.field_sow / job_wtcs.field_sow all jsonb; job_mobilizations.seq int NOT NULL.)
+
+
+DECISIONS / CHOICES MADE
+------------------------
+- Deleted stale test job 93 to unblock a clean send. The smoke's first proposal (651b8246)
+  was sent to Schedule on 7/6, before the feature — re-send is blocked (send-once model), so
+  its job kept the old untagged snapshot. Rather than debug a non-bug, we cleared job 93 and
+  verified on a fresh never-sent proposal (job 94). Chris ran the DELETE in Supabase (Claude's
+  MCP DB access is read-only by design — can't write).
+- Kept "send-once / re-send-blocked" as a known limitation (MF4), not a fix this loop. A
+  proposal sent before mobs were authored can't back-fill its existing job. Documented, low
+  priority at 1 tenant.
+- Merged on the strength of: 3 gates green + authoring verified + send-stamp verified on a
+  fresh send. Did NOT block on Field-Command downstream consumption (future, out of scope).
+- Wired the Expectation-Execution Gap (Chris's career framework) into /erd-start (full check
+  before lock) and /decide (captures his expectation, hands forward). Reason: ERD #41 drifted
+  because "build the field SOW on the sales side" meant two different-sized things to each of
+  us; the gap check surfaces that in terse bullets before lock.
+
+
+NEW BACKLOG ITEMS
+-----------------
+  MF4  T4  [Sev 3 · Like 4 · Eff half-day]  A proposal sent to Schedule before mobilizations
+           were authored has no path to carry them to its existing job (send-once). Fix path:
+           a "re-sync to Schedule" / guarded re-send. Filed from Screen-1 smoke.
+  MF5  T4  [Sev 1 · Like 5 · Eff 1h]  Mob dropdown label reads "Mob 1 — Mob 1" when the user
+           names a mob "Mob N". Cosmetic. Fix: drop the seq prefix when label starts with "Mob".
+
+
+CLOSED THIS SESSION
+-------------------
+  MF2  — closed in the build (fe35d06, prior session), confirmed shipped via this merge.
+  ERD Loop #41 — closed in ~/erd-loop/LOG.md (came out: drifted; weight: stayed light).
+
+
+VERIFICATION
+------------
+LIVE SMOKE = VERIFIED end-to-end (job 94, proposal afe388d9, mobs "TAP"/"Sing"):
+  - job_wtcs.field_sow Day 1 -> mobilization_seq 1; Day 2 -> mobilization_seq 2
+  - mobilization_id (uuid) stripped from both days (has_uuid=false)
+  - BOTH copies stamped: flat jobs.field_sow AND per-WTC job_wtcs.field_sow
+  - job_mobilizations for the job = 0 rows (Sales writes none, D4=b holds)
+  - Authoring also verified earlier on proposal 651b8246 (day tags persist, sq_ft=200 saved)
+GATES (all read-only, separate terminals): /buildvsplan GO (0/0), /code-review clean (3 low
+  findings fixed in 783f303), /security-review CLEAR (no High/Med).
+PROD DEPLOY = verified (Vercel build success on both main commits).
+NOT verified: Field Command downstream consumption of the mob seq (future build, out of
+  scope). On job 94, sq_ft/linear_ft came through as 0 because Chris didn't type numbers on
+  that proposal — the stamp mechanism is proven; real numbers (200) carried on 651b8246's
+  source. The negative [K1] block path was NOT exercised live this session (code-review +
+  buildvsplan confirmed it; worth a click next time a proposal is handy).
+
+
+NOT TOUCHED THIS SESSION (deliberately deferred)
+------------------------------------------------
+- sch-command §2A cross-driver contract-doc row — MUST be registered before Schedule builds
+  its side (writer=Sales proposals.mobilizations; wire=mobilization_seq on job_wtcs.field_sow;
+  Schedule reads proposals.mobilizations cross-driver to hydrate label/dates by seq).
+- v6 visual reskin of the field-SOW cards — the "new look" Chris pictured; deferred to a
+  separate design session (fields were added to the existing card layout, not redrawn).
+- Coverage badge (§6, D5 defer), warehouse BOM / pull tickets / sign-off — Schedule/Field builds.
+- Test job 94 cleanup — one-line SQL pending Chris in Supabase: `delete from jobs where job_id=94;`
+  (harmless where it is; cascades job_wtcs/job_mobilizations).
+
+
+NEXT SESSION POINTERS
+---------------------
+- Material Flow Screen-1 (Sales) is DONE + live. No action needed on it.
+- If continuing the Material Flow vertical: next is the SCHEDULE side — but FIRST register the
+  §2A contract row in ~/sch-command/docs/plans/command_suite_shared_data_contract.md so the
+  Schedule builder knows to hydrate mob label/dates from proposals.mobilizations by seq.
+- New protocol behavior live next session: the Expectation-Execution Gap fires in /erd-start
+  and /decide — Chris says what he expects to SEE, Claude fills what the code produces, compare
+  in terse bullets before lock.
+- Optional cleanup: run the job-94 delete SQL above in Supabase.
+
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+  src/components/ProposalDetail.jsx  — MobilizationsEditor, buildMobValidation, openSendReview/
+      commitSendToSchedule + stampDay, send review modal (all shipped)
+  src/pages/WTCCalculator.jsx        — SowTab day-card mob selector + Sq Ft/Linear Ft, self-fetch
+      mobilizations/mobsLoaded, DAY_COERCE (all shipped)
+  docs/plans/material_flow_screen1_sales.md  — the GO'd build plan (the contract for what shipped)
+  docs/plans/material_flow.md                — ideate/vision (mockup v6) — the bigger scope
+  docs/BACKLOG.md  — MF2 closed; MF4/MF5 added
+  ~/.claude-commands/erd-start.md, decide.md — Expectation-Execution Gap added (cross-repo)
+
+
+GIT STATE ON CLOSE
+------------------
+  Branch: main. Up to date with origin/main after the v163 handoff push.
+  feat/material-flow: MERGED + DELETED (local + remote).
+  Working tree: clean (only this handoff added).
+  Open PRs: none. Scratch: none.
+
+
+END STATE
+---------
+Merged, deployed, smoke-verified, live in prod. ERD #41 closed. Ready for a fresh session.

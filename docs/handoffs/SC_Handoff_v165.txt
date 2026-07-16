@@ -1,0 +1,131 @@
+SC_Handoff_v165 — Job 7442 invoice rounding: root-caused + fixed (prod data, no code change)
+============================================================================================
+Date: 2026-07-13
+Repo/branch: sales-command @ main (no code commits this session)
+Prior: v164 (Edit Sent/QB-synced invoice in place — a DIFFERENT parallel session, already
+merged + pushed to main). This handoff = a standalone bug fix run concurrently.
+
+
+SESSION SUMMARY
+---------------
+Chris hit a rounding problem on Job 7442: the WTC's exact total of $37,154.09 was coming
+through invoicing as $37,155.00, and the invoice "Exact" button didn't stop it. Traced the
+invoice path in src/pages/Invoices.jsx + src/lib/calc.js and found it is NOT a code bug. The
+proposal (7442 P1, 9058ada8) was created 2026-04-29 — before the exact-penny cutoff of noon
+Central 2026-06-26 — with pricing_anchor_at null, so usesExactPricing() returns false and the
+whole app rounds this proposal UP via Math.ceil (37154.09 -> 37155). Pulling back and
+re-approving today did NOT change it, because the pricing era is pinned to created_at, not to
+approved_at. Confirmed the raw WTC price was exactly 37154.09 (a single line: drive_rate 1 x
+drive_miles 37154.09). Chris ratified opting this one proposal into exact-penny (option A). Set
+pricing_anchor_at = now() and total = 37154.09 on that proposal; uses_exact flipped to true.
+Chris re-created the invoice and confirmed it carried $37,154.09 — "worked perfect." No branch
+was needed (this was the /detach question that opened the session — answered: data fix, not code).
+
+
+CHANGES SHIPPED (this session)
+------------------------------
+No code commits. One prod DATA change only (see DEPLOYED). This handoff (v165) is the only
+git commit landed by THIS session. (Note: v164 on main was authored by a separate parallel
+terminal — the edit-sent-QB-invoice feature — not this session.)
+
+
+DEPLOYED
+--------
+Prod DATA change (shared Supabase project pbgvgjjuhnpsumnowuym — "Command Suite DB"):
+  UPDATE proposals SET pricing_anchor_at = now(), total = 37154.09
+  WHERE id = '9058ada8-20b9-46de-9d46-23b05f83ec9c';   -- Job 7442 P1
+  Result (RETURNING): created_at 2026-04-29 (unchanged), pricing_anchor_at 2026-07-13 17:59Z,
+  total 37154.09, uses_exact = true.
+Executed via `supabase db query --linked -f` run from ~/command-suite-db (the repo linked to the
+shared project). The Supabase MCP is read-only by design and rejected the UPDATE
+("cannot execute UPDATE in a read-only transaction"), same constraint noted in v163 — the CLI
+path from command-suite-db is the working write route.
+No code deploy, no edge functions, no DDL/migrations.
+
+
+DECISIONS / CHOICES MADE
+------------------------
+- Root-caused before touching anything: the symptom (invoice ceils, "Exact" button doesn't help)
+  is two different "exact" concepts colliding. usesExactPricing() = the pricing ERA (Math.round vs
+  Math.ceil on the WTC base); the invoice modal's "Exact" toggle = roundInvoice/show_cents, which
+  only controls whether CENTS DISPLAY. The display toggle can't un-ceil a total that was already
+  rounded up upstream. So the fix had to be at the proposal's era, not the invoice.
+- Picked A (opt this proposal into exact-penny) over B (accept the $0.91 legacy round-up). A is a
+  one-row UPDATE, scoped to job 7442 only, and reversible (set pricing_anchor_at back to null).
+- Set proposals.total = 37154.09 in the same UPDATE so the stored total matches the exact figure
+  immediately, rather than requiring a re-lock in the UI to refresh it.
+- Did NOT change any code. The "created before 2026-06-26 rounds up" behavior is intentional per
+  the exact_penny_pricing plan; this was one legacy proposal Chris revived, not a systemic defect.
+- No detached branch: the opening question was whether to /detach. Answer was no — a diagnostic +
+  a data fix has no code to isolate and no migration, so nothing to collide with live work.
+
+
+NEW BACKLOG ITEMS
+-----------------
+None filed. One candidate surfaced and was offered but not yet confirmed (see NEXT SESSION):
+the design gap that re-approving a pulled-back pre-cutoff proposal does not re-anchor its pricing
+era to today — which is exactly what required this manual fix.
+
+
+CLOSED THIS SESSION
+-------------------
+None (no open backlog IDs touched). Job 7442 invoice rounding: resolved via data fix, verified.
+
+
+VERIFICATION
+------------
+VERIFIED end-to-end (live): after the UPDATE, uses_exact = true confirmed via the query's
+RETURNING clause; Chris re-created the invoice in the app and confirmed it carried $37,154.09
+exactly ("worked perfect"). Raw WTC price independently confirmed = 37154.09 (drive_rate 1 x
+drive_miles 37154.09, all other WTC inputs 0).
+NOT tested: any OTHER pre-2026-06-26 proposal (each behaves the same by design; none were
+changed). No code path was modified, so nothing else to smoke.
+Note: if an invoice for 7442 was created BEFORE the fix, its invoice_lines.amount was written
+from the ceiled base and would not retroactively change — Chris re-created fresh, so this is moot
+here, but it's the general gotcha for this class of fix.
+
+
+NOT TOUCHED THIS SESSION (deliberately deferred)
+------------------------------------------------
+- The pricing-era re-anchor design gap (below) — surfaced, not built.
+- The 7442 CO1 proposal (dc0a64bf, call_log 3651, created 2026-06-03, total 1243) is ALSO
+  legacy-era (uses_exact false). Left as-is — Chris only flagged the main proposal. If its invoice
+  ever needs exact pennies, same one-row fix applies.
+- All Material Flow / Schedule / Field work from v163 — untouched, still the next vertical.
+- Everything the parallel v164 session touched (edit-sent-QB-invoice) — not this session's work.
+
+
+NEXT SESSION POINTERS
+---------------------
+- Job 7442 is resolved. No action needed on it.
+- OPEN QUESTION for Chris: file a backlog row for the design gap — "re-approving a pulled-back
+  pre-cutoff proposal should re-anchor pricing_anchor_at to today so it prices to the exact penny
+  automatically." Right now reviving any pre-2026-06-26 proposal silently rounds up and needs a
+  manual pricing_anchor_at UPDATE. Chris was asked and went to close-out before answering, so it
+  is NOT filed yet.
+- Reminder for future prod data fixes: MCP DB is read-only; write via `supabase db query --linked
+  -f <file>` from ~/command-suite-db.
+
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+  src/lib/calc.js        — usesExactPricing() (era decision), roundPrice() (exact=Math.round /
+      legacy=Math.ceil), EXACT_PRICING_CUTOFF = 2026-06-26T12:00-05:00, PROPOSAL_ERA fragment.
+  src/pages/Invoices.jsx — getLineAmount()/handleCreate() (invoice line + amount math), the
+      "Exact" display toggle (roundInvoice/show_cents, ~line 390) — display only, NOT the era.
+  (No files changed this session — listed for the next person who touches invoice rounding.)
+
+
+GIT STATE ON CLOSE
+------------------
+  Branch: main. origin/main @ f72f21f (v164 from the parallel session) before this handoff.
+  Working tree: clean apart from this handoff (v165) added + committed.
+  No code commits by this session. Open PRs: none. Scratch: none.
+  Prod data: one proposals row updated (9058ada8) — lives in the shared DB, not in git.
+  Other local branches present (several checked out in worktrees) — see branch hygiene below.
+
+
+END STATE
+---------
+Bug root-caused, fixed via a scoped one-row prod data change, and live-verified by Chris. No code
+change, no branch. Ready for a fresh session.

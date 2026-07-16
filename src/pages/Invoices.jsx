@@ -573,7 +573,36 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 }
 
 // ── Invoice PDF Modal ─────────────────────────────────────────────────────
-function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideSend = false, teamMember, recipients: parentRecipients }) {
+// Preset label chips for invoice attachments (plan §7 #A). Freeform edit allowed.
+// The common attachment is a release waiver (aka release of lien / lien release —
+// same document), so the label field pre-fills this. Other attachments can be
+// added with the label cleared (no title). No preset chips.
+const DEFAULT_ATTACHMENT_LABEL = "Release Waiver";
+const MAX_INVOICE_ATTACHMENTS = 3;
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10 MB per file (plan §4.2)
+
+// Only render an <a href> for a stored file_url that points at this project's
+// public job-attachments storage. Blocks a javascript:/data: scheme from a
+// tampered row reaching an anchor href — render plain text otherwise. (plan §4.5)
+const ATTACHMENT_PUBLIC_PREFIX = `${import.meta.env.VITE_SUPABASE_URL || ""}/storage/v1/object/public/job-attachments/`;
+function isSafeAttachmentHref(url) {
+  return typeof url === "string" && url.startsWith(ATTACHMENT_PUBLIC_PREFIX);
+}
+
+// Single loader for an invoice's attachments — used by the modal reload, the
+// InvoiceDetail reload, and the initial detail load so a future change (soft-
+// delete filter, explicit columns, paging) can't diverge across three copies
+// (review #7). Bounded at 3/invoice by the upload cap, so no .range() needed.
+async function loadInvoiceAttachments(invoiceId) {
+  const { data } = await supabase
+    .from("invoice_attachments")
+    .select("*")
+    .eq("invoice_id", invoiceId)
+    .order("created_at");
+  return data || [];
+}
+
+function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbSynced, hideSend = false, teamMember, recipients: parentRecipients, attachments = [] }) {
   const money = invoice.show_cents ? fmt$c : fmt$;
   const fmtPct = (n) => {
     const v = parseFloat(n) || 0;
@@ -591,6 +620,10 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
   const [jobsiteAddress, setJobsiteAddress] = useState("");
   const [loadingContact, setLoadingContact] = useState(true);
   const [recips, setRecips] = useState([]);
+  // Attachments are managed on the InvoiceDetail page (next to Recipients) and
+  // passed in read-only here — the send view only REVIEWS what will go out; it
+  // never creates/edits. Mirrors how recipients are managed on the detail page
+  // and shown read-only in the send flow.
   const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
   const [repContact, setRepContact] = useState({ phone: "", email: "" });
 
@@ -713,12 +746,33 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
       });
       if (fnError) throw new Error(fnError.message || "Send failed.");
       if (data?.error) throw new Error(data.error);
-      setSendWarnings(Array.isArray(data?.warnings) ? data.warnings : []);
-      // Sync to QuickBooks (non-blocking, skip test jobs)
+      const warnings = Array.isArray(data?.warnings) ? [...data.warnings] : [];
+      // Sync to QuickBooks (skip test jobs). The send already succeeded — a QB
+      // failure here is NON-FATAL: surface it as a warning, never flip
+      // sendError/sendDone. The duplicate/skip errors arrive as data.error at
+      // HTTP 200, so inspect {data, error} in a separate try. (plan §3 step 2 / B1)
       if (!(invoice.job_name || "").toLowerCase().includes("test")) {
-        supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: invoice.id } })
-          .catch(() => {});
+        try {
+          const { data: qb, error: qbErr } = await supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: invoice.id } });
+          if (qb?.qbInvoiceId && qb?.error === "qb_link_persist_failed") {
+            // QB created the invoice but the server couldn't save the link —
+            // persist it here so it isn't orphaned + re-duplicated. (§3 step 1+2)
+            await supabase.from("invoices").update({ qb_invoice_id: qb.qbInvoiceId }).eq("id", invoice.id);
+          } else if (qbErr || qb?.error || qb?.skipped) {
+            let msg = qb?.message || qb?.error || qbErr?.message || "sync failed";
+            if (qb?.skipped) msg = `skipped (${qb.reason})`;
+            try {
+              const body = await qbErr?.context?.json?.();
+              if (body?.message || body?.error) msg = body.message || body.error;
+            } catch { /* not JSON */ }
+            warnings.push(`QuickBooks: ${msg}`);
+          }
+        } catch {
+          warnings.push("QuickBooks sync couldn't be reached — sync it manually from the invoice.");
+        }
+        onQbSynced && onQbSynced();
       }
+      setSendWarnings(warnings);
       setSendDone(true);
       onSent && onSent(data);
     } catch (e) {
@@ -1003,6 +1057,19 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
                       </div>
                     </>
                   )}
+                  {/* Attachments — READ-ONLY review of what will be emailed. Managed on
+                      the InvoiceDetail page (next to Recipients); the send flow only reviews. */}
+                  {attachments.length > 0 && (
+                    <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12, color: "#6B7280" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Attachments ({attachments.length})</div>
+                      {attachments.map(att => (
+                        <div key={att.id} style={{ fontWeight: 600, color: "#111827", marginTop: 2 }}>
+                          {att.label || att.file_name}
+                          {att.label && att.file_name && att.label !== att.file_name && <span style={{ fontSize: 11, fontWeight: 400, color: "#6B7280" }}> · {att.file_name}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {sendError && <div style={{ fontSize: 12, color: "#e53935", marginBottom: 12, background: "rgba(229,57,53,0.06)", border: "1px solid rgba(229,57,53,0.2)", borderRadius: 8, padding: "10px 14px" }}>{sendError}</div>}
                   <button onClick={handleSend} disabled={sending || noMainBlock || mainMissingEmail} style={{ width: "100%", background: (sending || noMainBlock || mainMissingEmail) ? "#ccc" : "#30cfac", color: "#1c1814", border: "none", borderRadius: 8, padding: 13, fontSize: 14, fontWeight: 700, cursor: (sending || noMainBlock || mainMissingEmail) ? "default" : "pointer", fontFamily: "inherit" }}>
                     {sending ? "Sending..." : "Send Invoice with Pay Link"}
@@ -1019,7 +1086,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, hideS
               <div style={{ fontSize: 14, color: "#6B7280", marginBottom: 24 }}>The main recipient will receive an email with a secure payment link; any viewers get a view-only copy.</div>
               {sendWarnings.length > 0 && (
                 <div style={{ textAlign: "left", maxWidth: 420, margin: "0 auto 24px", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 10, padding: "12px 16px", fontSize: 12.5, color: "#92400e" }}>
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Some viewer copies didn't send:</div>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Sent — but some items had issues:</div>
                   {sendWarnings.map((w, i) => <div key={i} style={{ marginTop: i === 0 ? 0 : 3 }}>· {String(w)}</div>)}
                 </div>
               )}
@@ -1083,6 +1150,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [showVoidModal, setShowVoidModal] = useState(null); // "delete" | "pullback" | null
   const [voidReason, setVoidReason] = useState("");
   const [editReason, setEditReason] = useState("");
+  const reasonRef = useRef(null);
   const [showQBLinkModal, setShowQBLinkModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(null);
@@ -1094,6 +1162,16 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
   // Recipients (main + viewers) — ported from the proposal Recipients card.
   const [recipients, setRecipients] = useState([]);
+  // Attachments — managed HERE (add/label/remove) in a section next to Recipients,
+  // loaded keyed on inv.id, and passed read-only to InvoicePDFModal for send-time
+  // review. This is where documents are built onto the invoice; the send flow only
+  // reviews. (mirrors how Recipients are managed here, shown read-only in send.)
+  const [attachments, setAttachments] = useState([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [attachError, setAttachError] = useState(null);
+  const [attachLabel, setAttachLabel] = useState(DEFAULT_ATTACHMENT_LABEL); // pre-fills "Release Waiver"; cleared after each add so extra files can be untitled
+  const [editingAttachId, setEditingAttachId] = useState(null); // row being re-labeled
+  const [attachLabelDraft, setAttachLabelDraft] = useState("");
   const [customerContacts, setCustomerContacts] = useState([]);
   const [custInfo, setCustInfo] = useState({ id: null, name: "", billingEmail: "", billingName: "", billingContactId: null });
   const [editingRecipient, setEditingRecipient] = useState(null);
@@ -1110,6 +1188,95 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       .order("created_at");
     setRecipients(data || []);
   }
+  async function reloadAttachments() {
+    setAttachments(await loadInvoiceAttachments(inv.id));
+  }
+
+  // Returns true only on a successful upload+insert, so the caller clears the
+  // typed label only when the file was actually accepted.
+  async function handleUploadAttachment(file, label) {
+    if (!file) return false;
+    setAttachError(null);
+    // Client-side bounds BEFORE upload (plan §4.2): max 3 files, ≤10MB each.
+    // These are authoritative; the edge fn's byte cap is a secondary guard.
+    if (attachments.length >= MAX_INVOICE_ATTACHMENTS) {
+      setAttachError(`Up to ${MAX_INVOICE_ATTACHMENTS} files per invoice.`);
+      return false;
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      setAttachError("Each file must be 10 MB or smaller.");
+      return false;
+    }
+    setUploadingAttachment(true);
+    try {
+      // Sanitize filename (CLAUDE.md storage rule) + random-entropy path so the
+      // public URL isn't enumerable (plan §4.1). The {invoiceId}/ segment is
+      // required — the edge-fn allowlist pins to it.
+      const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `invoice-attachments/${inv.id}/${crypto.randomUUID()}-${cleanName}`;
+      const contentType = file.type || "application/octet-stream";
+      const { error: upErr } = await supabase.storage.from("job-attachments").upload(path, file, { contentType });
+      if (upErr) throw new Error(upErr.message);
+      const { data: pub } = supabase.storage.from("job-attachments").getPublicUrl(path);
+      // created_by is forced by a BEFORE INSERT trigger; tenant_id/created_at default.
+      const { error: insErr } = await supabase.from("invoice_attachments").insert({
+        invoice_id: inv.id,
+        file_url: pub?.publicUrl,
+        storage_path: path,
+        file_name: cleanName,
+        label: (label && label.trim()) || null, // blank = untitled attachment
+        content_type: contentType,
+        size_bytes: file.size,
+      });
+      if (insErr) throw new Error(insErr.message);
+      await reloadAttachments();
+      return true;
+    } catch (e) {
+      setAttachError(e.message);
+      return false;
+    } finally {
+      setUploadingAttachment(false);
+    }
+  }
+
+  async function handleRemoveAttachment(att) {
+    setAttachError(null);
+    // Row-first, then storage (plan §4.2 Finding F). A dangling row (a broken
+    // link the user sees) is worse than an orphaned file (invisible, bounded by
+    // the 3-file cap + random path). VERIFY the row actually deleted before
+    // touching storage — a delete that silently matches zero rows (already gone,
+    // or RLS) returns no error, and removing the file then would destroy it while
+    // a live row/link survives (CLAUDE.md verify-after-delete).
+    const { data: deleted, error: delErr } = await supabase
+      .from("invoice_attachments").delete().eq("id", att.id).select("id");
+    if (delErr) { setAttachError(`Couldn't remove attachment: ${delErr.message}`); return; }
+    if (!deleted || deleted.length === 0) {
+      setAttachError("Couldn't remove that attachment — it may already be gone. Refreshed the list.");
+      await reloadAttachments();
+      return;
+    }
+    // Best-effort storage cleanup. job-attachments HAS a DELETE policy, but
+    // storage.remove can still return [] silently (memory: storage-remove-silent-
+    // noop) — don't trust its result. The row was the source of truth and is gone.
+    if (att.storage_path) {
+      try { await supabase.storage.from("job-attachments").remove([att.storage_path]); }
+      catch (e) { console.warn("Attachment file cleanup failed (non-fatal):", e.message); }
+    }
+    await reloadAttachments();
+  }
+
+  async function saveAttachmentLabel(att, label) {
+    setAttachError(null);
+    const { error } = await supabase
+      .from("invoice_attachments")
+      .update({ label: (label && label.trim()) || null })
+      .eq("id", att.id);
+    if (error) { setAttachError(`Couldn't update label: ${error.message}`); return; }
+    setEditingAttachId(null);
+    setAttachLabelDraft("");
+    await reloadAttachments();
+  }
+
   async function reloadCustomerContacts() {
     if (!custInfo.id) return;
     const { data } = await supabase
@@ -1118,6 +1285,19 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       .eq("customer_id", custInfo.id)
       .order("created_at");
     setCustomerContacts(data || []);
+  }
+  // Re-read this invoice row and merge into local state. Used after send and
+  // after the (async, fire-and-forget) QB sync resolves, so action buttons
+  // reconcile with server-written fields (status, qb_invoice_id) in place —
+  // without needing a navigate-away/return to remount. Mirrors the inline
+  // refetch in handleQBSync / QBLink onLinked.
+  async function reloadInv() {
+    const { data: refreshed } = await supabase
+      .from("invoices")
+      .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))`)
+      .eq("id", inv.id)
+      .maybeSingle();
+    if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
   }
 
   // Add a recipient with the right role, seeding the billing main when needed.
@@ -1323,6 +1503,9 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           .eq("invoice_id", inv.id)
           .order("created_at");
         setRecipients(recs || []);
+
+        // Attachments — persisted docs that went out with this invoice (plan §4.5).
+        setAttachments(await loadInvoiceAttachments(inv.id));
       }
 
       // If this invoice's retention has been billed, find the release invoice
@@ -1451,14 +1634,22 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         } catch { /* body wasn't JSON — fall back to the generic message */ }
         throw new Error(detail);
       }
-      if (data?.error === "qb_customer_invalid") {
-        setSyncError(data.message || "Linked QuickBooks customer no longer exists or is inactive.");
-        setSyncReLink(true);
-        setSyncing(false);
-        return;
+      // Link-persist recovery: QB created the invoice but the server failed to save
+      // the link. It returns the QB id — persist it here instead of orphaning +
+      // re-duplicating, then fall through to the success refresh. (plan §3 step 1+2)
+      if (data?.qbInvoiceId && data?.error === "qb_link_persist_failed") {
+        const { error: linkErr } = await supabase.from("invoices").update({ qb_invoice_id: data.qbInvoiceId }).eq("id", inv.id);
+        if (linkErr) throw new Error("Invoice was created in QuickBooks but linking it here failed again — retry.");
+      } else {
+        if (data?.error === "qb_customer_invalid") {
+          setSyncError(data.message || "Linked QuickBooks customer no longer exists or is inactive.");
+          setSyncReLink(true);
+          setSyncing(false);
+          return;
+        }
+        if (data?.error) throw new Error(data.message || data.error);
+        if (data?.skipped) throw new Error(`QB sync skipped: ${data.reason}`);
       }
-      if (data?.error) throw new Error(data.error);
-      if (data?.skipped) throw new Error(`QB sync skipped: ${data.reason}`);
 
       if (inv.status === "Paid") {
         const { data: pData, error: pErr } = await supabase.functions.invoke("qb-record-payment", { body: { invoiceId: inv.id } });
@@ -1504,6 +1695,20 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const actions = statusActions[inv.status] || [];
   const canPullBack = inv.status !== "New" && inv.status !== "Paid";
   const isNew = inv.status === "New";
+  // In-place edit is exposed for New AND for the unpaid Sent-family so an operator can
+  // add a late PO (into description/intro) to an already-sent, QB-synced invoice WITHOUT
+  // a pull-back that would mint a new number. Paid / voided / QB-payment-linked are blocked:
+  // a full-replace QB resync under a recorded payment can shift the amount owed (plan §5.2).
+  // NOTE (buildvsplan T2-2): in current live data qb_payment_id is only populated once an
+  // invoice is Paid, so !inv.qb_payment_id is presently redundant with !== "Paid" — it is
+  // defense-in-depth for a future partial-payment case, NOT a proven partial-payment block.
+  // If partial QB payments ever get recorded on a still-Sent invoice, add a balance check.
+  const isSentFamily = ["Sent", "Waiting for Payment", "Past Due"].includes(inv.status);
+  const canEditInPlace = !inv.voided_at && inv.status !== "Paid" && !inv.qb_payment_id && (isNew || isSentFamily);
+  // For a QB-synced edit, lock the number + every dollar field so an in-place edit can
+  // only touch description / intro / due date — keeps the invoice number stable (the whole
+  // point) and prevents amount drift under the live QB record + Stripe pay link (plan §2.3).
+  const syncedLock = !!inv.qb_invoice_id;
 
   async function handleDelete() {
     if (inv.voided_at) {
@@ -1548,8 +1753,18 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
   async function handleSaveEdit() {
     if (inv.voided_at) { alert("This invoice is voided and cannot be edited."); return; }
-    // Require reason if invoice is synced to QB
+    // Load-bearing guard (plan §5.2): a full-replace QB resync on an invoice with a linked
+    // payment can shift line items under recorded money. Refuse Paid + any QB-payment link.
+    // The button gate already hides these, but guard the write too (CLAUDE.md #7).
+    if (inv.status === "Paid" || inv.qb_payment_id) {
+      alert("This invoice has a recorded payment and can't be edited in place — editing line items under a linked QuickBooks payment can shift the amount owed. Pull it back if you need to change it.");
+      return;
+    }
+    // Require reason if invoice is synced to QB. Focus + scroll the field so the
+    // requirement is impossible to miss (it was easy to overlook when dim).
     if (inv.qb_invoice_id && !editReason.trim()) {
+      reasonRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      reasonRef.current?.focus();
       alert("A reason for this edit is required for QuickBooks audit compliance.");
       return;
     }
@@ -1557,6 +1772,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     // Recalculate line amounts based on new billing pcts.
     // Archive invoices have no proposal_wtc; preserve the directly-entered amount on the single line.
     const newLines = lines.map(l => {
+      // QB-synced invoice: every dollar field is locked in the UI (syncedLock) — GUARD THE
+      // WRITE too (CLAUDE.md #6/#7). Preserve the stored line amount + %; never recompute.
+      // A recompute (calcWtcPrice × pct) would silently drift the amount if the underlying
+      // proposal_wtc was edited after the invoice was sent, then full-replace that new
+      // number into QB (sparse:false). Preserving is the only thing that makes §2.3's
+      // "amounts are locked" actually true. Covers WTC, archive, and SOV lines uniformly.
+      if (syncedLock) {
+        return { id: l.id, billing_pct: l.billing_pct, amount: parseFloat(l.amount) || 0 };
+      }
       if (isArchiveInvoice) {
         const amt = parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0;
         return { id: l.id, billing_pct: null, amount: Math.round(amt * 100) / 100 };
@@ -1579,9 +1803,11 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     // that flow; don't double-zero it). For a NON-pay-app invoice, recompute from the
     // edit inputs — EXCEPT a direct (non-pay-app) deposit, which carries no retention,
     // so force it to 0 (guard the write, not just the hidden UI — CLAUDE.md #6/#7).
-    const retPct   = linkedPayApp ? (parseFloat(inv.retention_pct) || 0)    : (isDepositInvoice ? 0 : (parseFloat(editRetentionPct) || 0));
-    const retAmt   = linkedPayApp ? (parseFloat(inv.retention_amount) || 0) : (isDepositInvoice ? 0 : Math.round(newAmount * (retPct / 100) * 100) / 100);
-    const discount = linkedPayApp ? (parseFloat(inv.discount) || 0)         : (parseFloat(editDiscount) || 0);
+    // syncedLock takes precedence: preserve stored retention + discount (locked inputs) so
+    // a QB-synced edit can't drift the money via these either (mirrors the newLines branch).
+    const retPct   = syncedLock ? (parseFloat(inv.retention_pct) || 0)    : (linkedPayApp ? (parseFloat(inv.retention_pct) || 0)    : (isDepositInvoice ? 0 : (parseFloat(editRetentionPct) || 0)));
+    const retAmt   = syncedLock ? (parseFloat(inv.retention_amount) || 0) : (linkedPayApp ? (parseFloat(inv.retention_amount) || 0) : (isDepositInvoice ? 0 : Math.round(newAmount * (retPct / 100) * 100) / 100));
+    const discount = syncedLock ? (parseFloat(inv.discount) || 0)         : (linkedPayApp ? (parseFloat(inv.discount) || 0)         : (parseFloat(editDiscount) || 0));
 
     // Update invoice
     const { error: invErr } = await supabase.from("invoices").update({
@@ -1608,17 +1834,48 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       }
     }
 
-    // Sync to QuickBooks with edit reason (non-blocking, skip test jobs)
+    // Re-sync to QuickBooks with the edit reason, AWAITING it and SURFACING failures.
+    // For the add-a-late-PO flow the whole point is the description reaching the QB memo,
+    // so the old fire-and-forget `.catch(()=>{})` would show success in SC while QB never
+    // updated (was B44). Skip test-named jobs — their sync is suppressed server-side.
+    let qbError = null;
     if (inv.qb_invoice_id && !(inv.job_name || "").toLowerCase().includes("test")) {
-      supabase.functions.invoke("qb-sync-invoice", { body: { invoiceId: editId, editReason: editReason.trim() } })
-        .catch(() => {});
+      const { data: qb, error: fnErr } = await supabase.functions.invoke(
+        "qb-sync-invoice",
+        { body: { invoiceId: editId, editReason: editReason.trim() } }
+      );
+      if (fnErr) {
+        // FunctionsHttpError.message is generic ("non-2xx status code"); the real QB
+        // fault is in the Response body on .context. Read it so the message is useful.
+        qbError = fnErr.message || "QuickBooks sync failed.";
+        try {
+          const body = await fnErr.context?.json?.();
+          if (body?.error || body?.message) qbError = body.message || body.error;
+        } catch { /* body wasn't JSON — keep the generic message */ }
+      } else if (qb?.error) {
+        qbError = qb.message || qb.error;
+      } else if (qb?.skipped) {
+        qbError = `QuickBooks sync skipped: ${qb.reason}`;
+      }
     }
 
+    // SC writes already committed above, so reflect them locally regardless of QB.
     setInv(prev => ({ ...prev, id: editId, due_date: editDueDate || null, discount, retention_pct: retPct, retention_amount: retAmt, description: editDesc || null, intro: editIntro || null, amount: Math.round(newAmount * 100) / 100 }));
     setLines(prev => prev.map(l => {
       const nl = newLines.find(n => n.id === l.id);
       return nl ? { ...l, billing_pct: nl.billing_pct, amount: nl.amount } : l;
     }));
+
+    if (qbError) {
+      // Saved in Sales Command, but QuickBooks did NOT update. Keep the edit form open
+      // so a retry (Save again) re-pushes to QB — number + amounts are locked, so the
+      // re-save is idempotent and safe.
+      setSaving(false);
+      onUpdated && onUpdated();
+      alert(`Your changes were saved in Sales Command, but the QuickBooks re-sync failed:\n\n${qbError}\n\nThe invoice is correct here — click Save again to retry the QuickBooks sync, or use "Sync to QuickBooks".`);
+      return;
+    }
+
     setEditing(false);
     setEditReason("");
     setSaving(false);
@@ -1927,7 +2184,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         {editing ? (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>Invoice #</span>
-            <input value={editId} onChange={e => setEditId(e.target.value)} style={{ ...inputStyle, width: 120, fontSize: 20, fontWeight: 800, fontFamily: F.display, padding: "6px 10px" }} />
+            <input value={editId} onChange={e => setEditId(e.target.value)} disabled={syncedLock} title={syncedLock ? "Locked — keeps the QuickBooks invoice number stable" : undefined} style={{ ...inputStyle, width: 120, fontSize: 20, fontWeight: 800, fontFamily: F.display, padding: "6px 10px", ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
+            {syncedLock && <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>Locked — synced to QuickBooks</span>}
           </div>
         ) : (
           <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em" }}>
@@ -1958,6 +2216,11 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       {/* Edit fields (only in edit mode) */}
       {editing && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+          {syncedLock && (
+            <div style={{ gridColumn: "1 / -1", background: C.linenDeep, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", fontSize: 12.5, lineHeight: 1.5, color: C.textBody, fontFamily: F.ui }}>
+              This invoice is already sent and synced to QuickBooks. You can edit the <strong>work description</strong> (e.g. add a PO number — prints on the invoice and updates the QuickBooks memo), the <strong>email introduction</strong>, and the <strong>due date</strong>. The invoice number and dollar amounts are locked so the QuickBooks record stays stable. Saving re-syncs to QuickBooks with your reason as an audit note.
+            </div>
+          )}
           <div>
             <div style={labelStyle}>Due Date</div>
             <input type="date" value={editDueDate} onChange={e => setEditDueDate(e.target.value)} onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
@@ -1969,13 +2232,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             <>
               <div>
                 <div style={labelStyle}>Discount ($)</div>
-                <input type="number" min="0" step="1" value={editDiscount} onChange={e => setEditDiscount(e.target.value)} style={inputStyle} />
+                <input type="number" min="0" step="1" value={editDiscount} onChange={e => setEditDiscount(e.target.value)} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
               </div>
               {/* Deposits carry no retention — hide the input AND force 0 in the save. */}
               {!isDepositInvoice && (
               <div>
                 <div style={labelStyle}>Retention (%)</div>
-                <input type="number" min="0" max="100" step="0.5" value={editRetentionPct} onChange={e => setEditRetentionPct(e.target.value)} style={inputStyle} />
+                <input type="number" min="0" max="100" step="0.5" value={editRetentionPct} onChange={e => setEditRetentionPct(e.target.value)} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
                 {parseFloat(editRetentionPct) > 0 && (() => {
                   const gross = isArchiveInvoice ? (parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : (parseFloat(inv.amount) || 0);
                   return (
@@ -1991,8 +2254,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           {isArchiveInvoice && (
             <div style={{ gridColumn: "1 / -1" }}>
               <div style={labelStyle}>Invoice Amount ($)</div>
-              <input type="text" inputMode="decimal" value={editArchiveAmount} onChange={e => setEditArchiveAmount(e.target.value)} style={inputStyle} />
-              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Archive proposal — edit the invoice amount directly.</div>
+              <input type="text" inputMode="decimal" value={editArchiveAmount} onChange={e => setEditArchiveAmount(e.target.value)} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
+              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>{syncedLock ? "Locked — synced to QuickBooks. Edit the description/intro only." : "Archive proposal — edit the invoice amount directly."}</div>
             </div>
           )}
           <div style={{ gridColumn: "1 / -1" }}>
@@ -2006,10 +2269,17 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Prints on the invoice above the Amount Due.</div>
           </div>
           {inv.qb_invoice_id && (
-            <div style={{ gridColumn: "1 / -1" }}>
-              <div style={labelStyle}>Reason for Edit *</div>
-              <input value={editReason} onChange={e => setEditReason(e.target.value)} placeholder="e.g. Changed billing from 100% to 50% per PM request" style={inputStyle} />
-              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>Required — this note will be recorded on the QuickBooks invoice for audit compliance.</div>
+            <div style={{ gridColumn: "1 / -1", background: C.dark, border: `1.5px solid ${C.amber}`, borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ ...labelStyle, color: C.amber, fontWeight: 800, marginBottom: 6 }}>Reason for Edit — required for QuickBooks</div>
+              <input
+                ref={reasonRef}
+                value={editReason}
+                onChange={e => setEditReason(e.target.value)}
+                placeholder="e.g. Added PO #12345 per GC"
+                className={editReason.trim() ? undefined : "reason-pulse"}
+                style={{ ...inputStyle, border: `1.5px solid ${C.amber}` }}
+              />
+              <div style={{ fontSize: 11, color: C.linenLight, fontFamily: F.ui, marginTop: 6 }}>This note is written to the QuickBooks invoice for audit compliance. Saving is blocked until it's filled in.</div>
             </div>
           )}
         </div>
@@ -2091,7 +2361,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                         {isArchiveLine ? (
                           <span style={{ color: C.textFaint, fontSize: 12, fontFamily: F.ui }}>—</span>
                         ) : editing ? (
-                          <input type="number" min="0" max="100" step="1" value={editPcts[l.id] || ""} onChange={e => setEditPcts(prev => ({ ...prev, [l.id]: e.target.value }))} style={{ ...inputStyle, width: 70, padding: "4px 8px", fontSize: 12, textAlign: "right" }} />
+                          <input type="number" min="0" max="100" step="1" value={editPcts[l.id] || ""} onChange={e => setEditPcts(prev => ({ ...prev, [l.id]: e.target.value }))} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, width: 70, padding: "4px 8px", fontSize: 12, textAlign: "right", ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
                         ) : (
                           <span style={{ background: C.dark, color: C.teal, padding: "2px 8px", borderRadius: 6, fontWeight: 800, fontSize: 12 }}>{l.billing_pct}%</span>
                         )}
@@ -2235,6 +2505,58 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         </div>
       )}
 
+      {/* Attachments — manage documents emailed with this invoice (add/label/remove).
+          Same surface class as Recipients; the send flow only reviews these. (plan §4.2/§4.5) */}
+      {!inv.voided_at && !linkedPayApp && (
+        <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
+          <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Attachments</div>
+          <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui, marginBottom: 12 }}>Documents emailed with this invoice — up to {MAX_INVOICE_ATTACHMENTS} files, 10 MB each.</div>
+
+          {attachments.map(att => {
+            const safeHref = isSafeAttachmentHref(att.file_url);
+            const isEditing = editingAttachId === att.id;
+            return (
+              <div key={att.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6 }}>
+                {isEditing ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+                    <input value={attachLabelDraft} onChange={e => setAttachLabelDraft(e.target.value)} placeholder="Label (optional)" style={{ padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linenDeep, color: C.textBody, WebkitAppearance: "none" }} />
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <Btn sz="sm" v="ghost" onClick={() => { setEditingAttachId(null); setAttachLabelDraft(""); }}>Cancel</Btn>
+                      <Btn sz="sm" onClick={() => saveAttachmentLabel(att, attachLabelDraft)}>Save</Btn>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>{att.label || att.file_name}</div>
+                      {att.label && att.label !== att.file_name && <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.file_name}</div>}
+                    </div>
+                    {safeHref
+                      ? <a href={att.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none", whiteSpace: "nowrap" }}>View</a>
+                      : <span style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>Unavailable</span>}
+                    <button onClick={() => { setEditingAttachId(att.id); setAttachLabelDraft(att.label || ""); }} title="Rename label" style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.textMuted, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>Label</button>
+                    <button onClick={() => handleRemoveAttachment(att)} title="Remove from this invoice" style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: C.red || "#e53935", cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>Remove</button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+
+          {attachments.length < MAX_INVOICE_ATTACHMENTS && (
+            <div style={{ marginTop: attachments.length ? 8 : 0, padding: "10px 12px", background: C.linenDeep, border: `1px solid ${C.borderStrong}`, borderRadius: 8 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                <input value={attachLabel} onChange={e => setAttachLabel(e.target.value)} placeholder="Label (optional)" style={{ flex: 1, minWidth: 140, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linen, color: C.textBody, WebkitAppearance: "none" }} />
+              </div>
+              <label style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: C.dark, background: C.teal, borderRadius: 6, padding: "6px 14px", cursor: uploadingAttachment ? "wait" : "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                {uploadingAttachment ? "Uploading…" : "+ Add Attachment"}
+                <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; handleUploadAttachment(f, attachLabel).then(ok => { if (ok) setAttachLabel(""); }); }} style={{ display: "none" }} disabled={uploadingAttachment} />
+              </label>
+            </div>
+          )}
+          {attachError && <div style={{ fontSize: 11.5, color: C.red || "#e53935", fontFamily: F.ui, marginTop: 8 }}>{attachError}</div>}
+        </div>
+      )}
+
       {/* Action buttons */}
       <div style={{ display: "flex", gap: 10 }}>
         {editing ? (
@@ -2250,7 +2572,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           <>
             <Btn sz="sm" onClick={() => setShowPDF(true)}>{linkedPayApp ? "Preview" : "Send / Resend"}</Btn>
             {linkedPayApp && <Btn sz="sm" v="secondary" onClick={() => setShowPayAppReview(true)}>Review Package</Btn>}
-            {isNew && <Btn sz="sm" v="secondary" onClick={startEditing}>Edit Invoice</Btn>}
+            {canEditInPlace && <Btn sz="sm" v="secondary" onClick={startEditing}>{isNew ? "Edit Invoice" : "Edit Sent Invoice"}</Btn>}
             {inv.retention_amount > 0 && !inv.retention_released && !inv.retention_release_of && (
               <Btn sz="sm" onClick={() => handleBillRetention(inv)} disabled={billing}>
                 {billing ? "Billing…" : `Bill Retention ${money(inv.retention_amount)}`}
@@ -2353,14 +2675,17 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           wtcIndex={wtcIndex}
           teamMember={teamMember}
           recipients={recipients}
+          attachments={attachments}
           hideSend={!!linkedPayApp}
           onClose={() => setShowPDF(false)}
           onSent={async (responseData) => {
             const updates = { status: "Sent", sent_at: new Date().toISOString(), viewing_token_expires_at: new Date(Date.now() + 90 * 86400000).toISOString(), stripe_checkout_id: null, stripe_checkout_url: responseData?.checkoutUrl || null, stripe_payment_link_id: responseData?.paymentLinkId || null };
             await supabase.from("invoices").update(updates).eq("id", inv.id);
-            setInv(prev => ({ ...prev, ...updates }));
+            setInv(prev => ({ ...prev, ...updates }));   // instant feedback
+            await reloadInv();                            // reconcile server-written fields (e.g. qb_invoice_id from the pay-app approve path, which syncs before onSent)
             onUpdated && onUpdated();
           }}
+          onQbSynced={async () => { await reloadInv(); onUpdated && onUpdated(); }}
         />
       )}
 
@@ -2503,7 +2828,10 @@ export default function Invoices({ setSubPage, teamMember }) {
   const pending = activeInvoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);
   const paid    = activeInvoices.filter(i => i.status === "Paid").reduce((a, i) => a + (i.amount || 0), 0);
 
-  const retentionInvoices = activeInvoices.filter(i => parseFloat(i.retention_amount) > 0 && i.status !== "Paid");
+  // Retention outstanding is a billing question, not a payment question: an invoice can be
+  // fully Paid on its net while its retention has never been billed. Gate on retention_released
+  // (same flag the Bill Retention button uses) so the two can't diverge.
+  const retentionInvoices = activeInvoices.filter(i => parseFloat(i.retention_amount) > 0 && !i.retention_released);
   const totalRetentionHeld = retentionInvoices.reduce((a, i) => a + (parseFloat(i.retention_amount) || 0), 0);
 
   const aging = (inv) => {

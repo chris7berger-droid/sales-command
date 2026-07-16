@@ -1,0 +1,142 @@
+SC_Handoff_v158  —  2026-07-06
+================================================================
+REPO: sales-command (+ command-suite-db for the migration)
+PURPOSE: Ship + close F39 (persisted invoice email attachments).
+Built over the weekend across gate terminals; today: one UX redesign,
+a label simplification, then full deploy to prod and a passing
+end-to-end smoke. F39 CLOSED. Feature branches merged + deleted.
+
+----------------------------------------------------------------
+SESSION SUMMARY
+----------------------------------------------------------------
+F39 — attach persisted documents (release waiver etc.) to the regular
+invoice email, viewable in invoice history — is LIVE ON PROD and
+smoke-verified. Two design refinements landed this session before the
+deploy:
+  1. Attachment MANAGEMENT moved out of the send-flow modal onto the
+     InvoiceDetail page (next to Recipients). Rationale (Chris): the send
+     flow is for review/approve, not for creating content — put it where
+     everything else on the invoice is managed. Send view is now a
+     read-only "Attachments (N)" review card. Mirrors Recipients exactly.
+  2. Label UX simplified: dropped the preset chips (release waiver / lien
+     release are the same document). The label field pre-fills
+     "Release Waiver" and clears after each add, so the common case is
+     one-tap and extra attachments default to untitled (blank = null).
+
+Then deployed all three layers to prod and Chris ran the end-to-end
+smoke (attach → send → email carries attachment → history → remove) —
+PASSED.
+
+----------------------------------------------------------------
+SHIPPED TO PROD (2026-07-06)
+----------------------------------------------------------------
+command-suite-db main @ 512c053 — Merge feat/invoice-attachments
+  - 20260702120000_invoice_attachments.sql applied to the shared DB via
+    `npm run db:push`. Safety pre-flight PASS (HEAD has all origin/main
+    commits; remote ledger aligned), collision check PASS (84 local / 83
+    in ledger, no collisions). Table + created_by trigger + 4-policy RLS
+    + 2 indexes created. First-run DROP...IF EXISTS NOTICEs are expected/
+    harmless. REST probe → HTTP 200 (schema cache reloaded; anon sees
+    empty set = no anon policy, correct).
+
+send-invoice edge fn — redeployed to project pbgvgjjuhnpsumnowuym with
+  `--no-verify-jwt`. Bundled index.ts + _shared/attachments.ts +
+  recipientAllowlist.ts + cors.ts + tenantAuth.ts.
+
+sales-command main @ e7a77e4 — Merge feat/invoice-email-attachments
+  - Invoices.jsx (management on InvoiceDetail + read-only send summary),
+    _shared/attachments.ts, send-invoice/index.ts, plan, BACKLOG, handoffs.
+  - Vercel prod auto-deploy triggered on push to main.
+
+----------------------------------------------------------------
+VERIFICATION
+----------------------------------------------------------------
+- db:push safety + collision checks PASS; migration applied clean.
+- invoice_attachments REST endpoint → HTTP 200 (table live, in schema
+  cache; the earlier PGRST205 "not found" is gone).
+- `npx vite build` green on merged main.
+- END-TO-END SMOKE ON PROD (Chris): attach a waiver on a TEST invoice →
+  send → email carried the attachment → history showed it → remove
+  deleted it. PASSED.
+
+----------------------------------------------------------------
+GATE CHAIN (all green, over the multi-day build)
+----------------------------------------------------------------
+/buildvsplan CLEAR · /code-review (8 findings folded) · /security-review
+CLEAR (no High/Critical; all 4 angles refuted). Full detail in the F39
+BACKLOG row + docs/plans/invoice_email_attachments.md.
+
+----------------------------------------------------------------
+CLOSED THIS SESSION
+----------------------------------------------------------------
+- F39 (T3) — SHIPPED + smoke-verified. Marked Closed 2026-07-06.
+- Branch hygiene: feat/invoice-email-attachments (sales-command, local +
+  remote) and feat/invoice-attachments (command-suite-db, local only —
+  never pushed) deleted after merge. Both repos: only `main` remains.
+
+----------------------------------------------------------------
+OPEN / REQUIRES ATTENTION (follow-ups — none blocking)
+----------------------------------------------------------------
+- S10 (T3, Open) — job-attachments bucket-wide DELETE policy + client-set
+  storage_path deletion vector. Now that F39 is LIVE, this is a real (if
+  low-likelihood at one tenant) cross-tenant storage.remove exposure: the
+  remove path deletes by a client-set storage_path against a bucket-wide
+  DELETE policy. F39's verify-after-delete covers the dangling-row half,
+  NOT this half. Fix = tenant/path-scoped storage RLS on job-attachments,
+  authored in command-suite-db. This is the top hardening follow-up.
+- S11 (T3, Open) — invoice docs (waivers/lien releases) live in the PUBLIC
+  job-attachments bucket, URL-entropy-only. Accepted v1 design; private
+  bucket + signed URLs is the harder path if deemed sensitive. Low.
+- Neither blocks anything; single-tenant (HDSP) today.
+
+----------------------------------------------------------------
+NOT TOUCHED / DEFERRED
+----------------------------------------------------------------
+- send-pay-app still has its own copy of the attachment helpers (plan §6
+  scope). Migrating it onto _shared/attachments.ts is a filed follow-up.
+- Public invoice page shows no attachments (no anon policy) — intentional.
+- Voided / pay-app invoices hide the Attachments section (mirrors how
+  Recipients is gated). If a voided invoice should still show its
+  attachments read-only, that's a small follow-up — not requested.
+
+----------------------------------------------------------------
+ADDENDUM — S10 started then deferred (2026-07-06)
+----------------------------------------------------------------
+Began S10 this session; deferred to its own /decide→plan session — it's
+heavier than the T3 line implied. Key finding (banked in the S10 BACKLOG
+row, commit 1a9f0fa): the "tenant prefix" premise is WRONG — job-attachments
+object paths encode ENTITY ids, not tenant, so nothing to scope a prefix on.
+Likely clean fix = owner-based DELETE policy (bucket_id='job-attachments'
+AND owner = auth.uid()); confirmed no server-side uploads to the bucket, so
+owner reliably = uploader. Tradeoff: same-tenant cross-user delete no-ops →
+benign orphan. Bucket is SHARED across all 4 apps → cross-repo check + 6-gate
+RLS deploy (CLAUDE_RLS.md), authored in command-suite-db. No code/policy
+change made — investigation only, both repos clean.
+
+----------------------------------------------------------------
+NEXT SESSION POINTERS
+----------------------------------------------------------------
+- If hardening: S10 first (tenant/path-scoped storage RLS on
+  job-attachments in command-suite-db) — closes the cross-tenant delete
+  vector before multi-tenant (F7) onboarding.
+- No pre-flight blockers introduced. Both repos on clean main.
+
+----------------------------------------------------------------
+FILES TO KNOW
+----------------------------------------------------------------
+- src/pages/Invoices.jsx — InvoiceDetail Attachments section (manage) +
+  InvoicePDFModal read-only send summary.
+- supabase/functions/_shared/attachments.ts — SSRF allowlist + base64.
+- supabase/functions/send-invoice/index.ts — fail-open attachment block.
+- command-suite-db/.../20260702120000_invoice_attachments.sql — the table.
+- docs/plans/invoice_email_attachments.md — plan + all amendments.
+
+----------------------------------------------------------------
+GIT STATE ON CLOSE
+----------------------------------------------------------------
+- sales-command: main @ e7a77e4 (+ this handoff/BACKLOG commit). Clean.
+  Only `main` locally + remote.
+- command-suite-db: main @ 512c053. Clean. Only `main`.
+- Prod: sales-command Vercel deploy of e7a77e4 live; send-invoice edge fn
+  deployed; invoice_attachments table live on the shared DB.
+================================================================

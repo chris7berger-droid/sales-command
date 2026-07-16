@@ -1,0 +1,125 @@
+SC_Handoff_v162 — Material Flow Screen 1 (Sales) build + gates PASSED, smoke half-done
+=======================================================================================
+Date: 2026-07-09 (paused, exhausted — resume tomorrow, SAME computer)
+Repo/branch: sales-command @ feat/material-flow  (pushed; local == origin; working tree clean)
+
+RESUME TOMORROW — one line
+--------------------------
+Run /resume (goes to this repo+branch, pulls latest, shows this handoff).
+Then jump to "NEXT SESSION — start here" below. The ONE thing left is to verify the
+SEND stamp on a never-before-sent proposal, then push is already done → merge.
+
+Preview deploy (branch tip 783f303, build OK):
+  https://sales-command-9116d5l8m-chris7berger-droids-projects.vercel.app
+  (Vercel-auth; same shared prod DB pbgvgjjuhnpsumnowuym — use TEST proposals, clean up after.)
+
+
+SESSION SUMMARY
+---------------
+Built material_flow Screen-1 (Sales side) per docs/plans/material_flow_screen1_sales.md
+(GO'd plan, converged after 3 audit rounds). TIGHT SCOPE — additive, no DDL. Then ran all
+three gates (build-vs-plan, code-review, security-review) — ALL PASSED. Started the live
+smoke test; authoring half VERIFIED in DB; send-stamp half NOT yet verified (picked an
+already-sent test proposal — see below). Not merged.
+
+
+CHANGES SHIPPED (6 commits, all on feat/material-flow, pushed)
+-------------------------------------------------------------
+  6c70515  §4 mobilizations editor on ProposalDetail (proposals.mobilizations jsonb;
+           two-identity {id uuid, seq int, label, start_date, end_date}; monotonic
+           seq=max+1 floored 0; duplicate guard; delete in-use scan)
+  c6da1d8  §3 field-SOW day rebuild (WTCCalculator): self-fetch mobilizations+mobsLoaded
+           (effect after useState, settles on both .then/.catch); DAY_COERCE map replaces
+           the include-list; addDay defaults mobilization_id=mobs[0]?.id + sq_ft/linear_ft;
+           per-day Mobilization dropdown + Sq Ft/Linear Ft; both "+ Add Day" gated on mobsLoaded
+  04a7c77  §5.1 [K1] pre-send validation (separate fresh proposals.mobilizations fetch;
+           blocks send if any day unresolved; buildMobValidation helper)
+  b7ac541  §5.2/§5.3 pre-send review modal + stampDay (strip mobilization_id, stamp
+           mobilization_seq into BOTH field_sow copies: flat jobs.field_sow + per-WTC
+           job_wtcs.field_sow); send split into openSendReview → commitSendToSchedule
+  fe35d06  Closes MF2 (K1 day-label "Day N" fallback)
+  783f303  code-review hardening: MobilizationsEditor serialized+revert-safe write path
+           (writeChain + savedRef), invoiced re-check at commit
+
+
+VERIFICATION
+------------
+GATES (all separate terminals, all read-only):
+  /buildvsplan   -> GO / 0 Tier-1, 0 Tier-2. All 18 spec points built as spec.
+  /code-review   -> 3 low findings, ALL FIXED in 783f303 (#1 revert-on-error, #2 serialize
+                    writes, #3 invoiced re-check). No blockers.
+  /security-review -> CLEAR. No High/Med. D4=b verified in code (0 job_mobilizations writes,
+                    no new RLS/edge-fn/service-role); new proposals.mobilizations write rides
+                    existing tenant-scoped RLS; denies close not open. 2 Low/informational.
+
+LIVE SCHEMA (read-only MCP probe, project pbgvgjjuhnpsumnowuym):
+  proposals.mobilizations, proposal_wtc.field_sow, jobs.field_sow, job_wtcs.field_sow
+  all exist as jsonb (additive keys, no DDL). job_mobilizations.seq = int NOT NULL (wire target).
+
+SMOKE (partial):
+  AUTHORING = VERIFIED. Test proposal 651b8246 ("TEST Exact Penny Pricing"):
+    proposals.mobilizations = Mob1(seq1)/Mob2(seq2) with dates; Day1->Mob1 id, Day2->Mob2 id,
+    both sq_ft=200; day tag ids match the mobilization ids exactly. Save round-trips. GOOD.
+  SEND STAMP = NOT YET VERIFIED. This proposal was ALREADY SENT on 2026-07-06 (job_id 93,
+    job_wtcs created 2026-07-06), before the feature existed. Re-send is a no-op (already-sent
+    guard / ignoreDuplicates), so job 93's job_wtcs.field_sow still has NO mobilization_seq.
+    NOT A BUG — it's the documented send-once / re-send-blocked behavior (plan Risk #3/#5).
+
+
+NEXT SESSION — start here (finish the send-stamp verify, then merge)
+--------------------------------------------------------------------
+Need a fresh send on a NEVER-sent proposal so stampDay actually runs. Two options (Chris to pick):
+  OPTION A (recommended): delete stale test job 93 so proposal 651b8246 (already tagged) re-sends
+    clean. Job 93 = "10176 - TEST Exact Penny Pricing", Parked, job_wtcs_count=1, job_mobs=0.
+    Delete children first then parent (verify each; RLS delete can silently no-op):
+      job_wtcs where job_id=93  ->  materials where job_id=93  ->  jobs where job_id=93
+    Then Chris clicks Send to Schedule again -> Claude verifies via MCP:
+      every job_wtcs.field_sow day carries mobilization_seq (1,2), NO mobilization_id, sq_ft=200;
+      jobs.field_sow (flat) same; job_mobilizations stays 0.
+    (Chris had NOT yet ratified the delete — ask before deleting.)
+  OPTION B: use a different never-sent test proposal; author 2 mobs + tag days there; send.
+  Also run the negative check: untag one day (-- select --), Save, Send -> review modal blocks
+  it in red naming "WTC N 'Day X'", Confirm greyed, nothing written.
+
+After smoke passes -> MERGE (branch already pushed):
+  git checkout main && git merge --no-ff feat/material-flow && git push
+  (Vercel auto-deploys main to prod www.scmybiz.com.)
+
+
+OPEN DECISIONS / FOLLOW-UPS (raised, not yet actioned)
+------------------------------------------------------
+1. BACKLOG row to log (Chris asked, not yet done): "A proposal sent BEFORE mobilizations were
+   authored has no path to carry them to its existing Schedule job (re-send blocked)." Real
+   limitation surfaced by smoke; documented staleness (§2A D2), not a blocker. Sev low.
+2. V6 VISUAL RESKIN — this build delivered the FUNCTIONAL rebuild (fields + mobs + send wiring);
+   the full "new look" from material_flow.md mockup v6 was NOT done (day-card layout was
+   design-open; fields were added to existing cards). Chris flagged the SOW "looks the same."
+   Per his discipline this is a SEPARATE "claude design" polish session, not the build terminal.
+   Queue it if wanted.
+3. CROSS-REPO (sch-command) §2A B1: register the contract-doc row in
+   ~/sch-command/docs/plans/command_suite_shared_data_contract.md — writer=Sales
+   (proposals.mobilizations); wire carrier=mobilization_seq on job_wtcs.field_sow; Schedule reads
+   proposals.mobilizations cross-driver at seed time to hydrate label/dates by seq. Do BEFORE
+   Schedule builds its side. Separate repo, tracked, not part of this Sales build.
+
+
+BACKLOG CHANGES THIS SESSION
+----------------------------
+  MF2 -> Closed (commit fe35d06 / in-branch). MF1, MF3 remain Open (pre-existing / optional).
+  (Three code-review findings were fixed in-branch, never shipped broken — no backlog rows added.)
+
+
+FILES TO KNOW
+-------------
+  src/components/ProposalDetail.jsx  -- MobilizationsEditor (~1595), buildMobValidation (~22),
+      openSendReview/commitSendToSchedule + stampDay (~585-790), send review modal (~1475)
+  src/pages/WTCCalculator.jsx        -- SowTab addDay/updateDay/DAY_COERCE (~876), day-card mob
+      selector + Sq Ft/Linear Ft (~1057), self-fetch mobilizations/mobsLoaded (~1737/1784)
+  docs/plans/material_flow_screen1_sales.md  -- the GO'd build plan (contract)
+  docs/plans/material_flow.md                -- ideate/vision (mockup v6 link) — bigger scope
+
+
+GIT STATE
+---------
+  Branch feat/material-flow @ 783f303, pushed, local == origin, working tree CLEAN.
+  Dev server stopped. Nothing uncommitted, nothing at risk. Safe to close the terminal.

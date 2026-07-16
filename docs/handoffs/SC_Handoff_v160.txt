@@ -1,0 +1,36 @@
+SC_Handoff_v160 — Material Flow ideate (pointer only)
+Date: 2026-07-08
+Branch: feat/material-flow (pushed)
+
+SESSION SUMMARY
+Ideate session for the Material Flow initiative (proposal -> warehouse -> crew,
+one job's material data, no re-entry). No app code changed — output is a design
+doc + a mockup. This handoff is a pointer; the doc is the source of truth.
+
+WHERE THE WORK LIVES
+- Design doc: docs/plans/material_flow.md   <-- read this first
+- Mockup (all 3 screens, brand skin): https://claude.ai/code/artifact/0ba3275e-774d-406d-baf0-82a9bc4093b7
+- Memory pointer: project_material_flow.md (local machine only; may not be at home)
+
+DECISIONS (detail in the doc)
+- Hierarchy: Job -> Mobilization (1-3, dates in bidding info) -> Pull Ticket
+  (auto-cut by material change) -> Day (can span 2+ WTCs). PT numbered per mob.
+- 3 screens: Sales coverage-check + whole-project sign-off / Schedule warehouse
+  receive-pick-stage (pull tickets print to pallet, Team# not gate, Vehicles-
+  Power-Equipment edited in-place) / Field crew phone work-order -> writes to
+  daily_production_reports.
+- Data entry: materials dropdown from PROPOSAL only; consumables/vehicles/power/
+  equipment from per-tenant SETTINGS lists (new siblings to tenant_config +
+  Materials Catalog). Cross-app read VERIFIED live (Schedule already reads
+  proposal_wtc/work_types on shared DB) — not a plumbing risk.
+
+NEXT SESSION
+- This was ideate. Next per protocol: /decide -> plan against material_flow.md.
+- Plan must resolve doc section 9 open Qs: where mobilization data lives, pull
+  tickets derived-vs-stored, per-day multi-WTC aggregation, new Settings tables
+  (DB changes go in command-suite-db, not here).
+- Build sequence: Screens 1+2 first, Screen 3 next.
+
+GIT STATE
+- feat/material-flow pushed; 2 commits (doc + verified-cross-app note). Clean tree.
+- No migrations, no deploys, nothing to smoke-test (design only).

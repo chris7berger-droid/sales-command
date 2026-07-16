@@ -45,6 +45,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState(null);
+  const [sendWarnings, setSendWarnings] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadingWaiver, setUploadingWaiver] = useState(false);
   const [editPcts, setEditPcts] = useState({});
@@ -372,6 +373,7 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
       if (fnError) throw new Error(fnError.message || "Send failed");
       if (data?.error) throw new Error(data.error);
 
+      setSendWarnings(Array.isArray(data?.warnings) ? data.warnings : []);
       setSending(false);
       onChanged?.();
       setPayApp(prev => ({ ...prev, status: "submitted", submitted_at: new Date().toISOString() }));
@@ -693,6 +695,14 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
               <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginBottom: 24 }}>
                 {new Date(payApp.submitted_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
               </div>
+
+              {sendWarnings.length > 0 && (
+                <div style={{ textAlign: "left", margin: "0 auto 24px", maxWidth: 460, background: "rgba(245,166,35,0.12)", border: `1px solid ${C.amber}`, borderRadius: 8, padding: "10px 14px" }}>
+                  {sendWarnings.map((w, i) => (
+                    <div key={i} style={{ fontSize: 12, color: C.amber, fontFamily: F.ui, lineHeight: 1.5 }}>⚠ {w}</div>
+                  ))}
+                </div>
+              )}
 
               <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.display, marginBottom: 10 }}>
                 Package Contents

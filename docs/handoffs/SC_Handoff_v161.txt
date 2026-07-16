@@ -1,0 +1,74 @@
+SC_Handoff_v161  —  2026-07-09
+================================================================
+REPO: sales-command          BRANCH: feat/material-flow
+STATE: clean, pushed, in sync with origin @ 2636dd4
+ERD:   Loop #41 "Sales Command SOW Rebuild" — OPEN (plan done, build pending)
+
+----------------------------------------------------------------
+PURPOSE: Plan-session closeout. The Sales-side field-SOW rebuild
+("Material Flow Screen 1") is now a verified, decision-complete
+BUILD PLAN on the branch. No app code written yet. Next protocol
+step is the audit pass, then build.
+----------------------------------------------------------------
+
+WHAT HAPPENED THIS SESSION
+- Confirmed the DB foundation is DONE: command-suite-db plan0
+  (docs/plans/plan0_material_flow_foundation.md) — 9 tables +
+  proposals.mobilizations, applied live to pbgvgjjuhnpsumnowuym,
+  merged 2026-07-08. This is the LOCKED cross-repo contract.
+- Established ideate was already done (sales-command
+  docs/plans/material_flow.md, "pre-plan" design doc).
+- Ran a Plan agent → produced the Sales Screen 1 build plan,
+  grounded in real file:line refs (WTCCalculator.jsx +
+  ProposalDetail.jsx).
+- CHRIS'S SCOPE CALL: three repo builds stack on the shared DB —
+  Sales, Schedule, Field — each plan/build stays in its OWN repo.
+  Sales does NOT write warehouse/crew tables. Trimmed the plan to
+  tight sales-only scope. This removed the material-key identity
+  blocker entirely (it existed only for the warehouse BOM merge).
+- Walked all 5 open decisions with Chris; all resolved (below).
+
+THE PLAN (build-ready)
+  docs/plans/material_flow_screen1_sales.md — TIGHT SCOPE
+  Build (no DDL — schema is live; additive jsonb keys only):
+    1. Mobilizations editor on ProposalDetail (proposal-level),
+       writing proposals.mobilizations. UNLIMITED count (1..N).
+    2. Field-SOW day rebuild in WTCCalculator SowTab: add
+       mobilization_seq tag + sq_ft + linear_ft per day to
+       field_sow jsonb.
+    3. [K1] pre-send validation: every day has a valid
+       mobilization_seq, else abort send (write nothing).
+    4. Send-flow read-only review panel + idempotent seed of
+       job_mobilizations at send.
+  Handoff to Schedule rides the EXISTING job_wtcs.field_sow write
+  — no new job-table write beyond the tiny job_mobilizations seed.
+
+DECISIONS (all ratified 2026-07-09)
+  D1 = (a)  mobilizations editor on ProposalDetail (not BiddingTab)
+  D4 = (a)  send ALSO seeds job_mobilizations (same border the
+            send button already sits on; not warehouse bleed)
+  D5 = defer  coverage badge → fast-follow, not this build
+  D2 = build-time confirm day-card layout vs mockup v6
+  D3 = default lightweight inline review panel
+  Mob count UNCAPPED — verified live schema only has CHECK(seq>0).
+
+OUT OF SCOPE (deferred to Schedule/Field builds)
+  job_material_lines, job_material_signoff, pull_tickets,
+  pull_ticket_lines, the four tenant_* Settings lists,
+  the coverage badge. Do NOT re-add these to the Sales build.
+
+NEXT STEP (protocol)
+  1. /auditcriteria (plan terminal) → generate audit manifest
+     at the end of the plan doc.
+  2. /runaudit → adversarial pressure-test to GO.
+  3. Fresh BUILD terminal (opus 4.8, medium) against the GO'd plan.
+  Build-vs-plan + code-review gates before smoke/merge as usual.
+
+COMMITS THIS SESSION (feat/material-flow, all pushed)
+  2636dd4 Resolve all 5 plan decisions — build-ready pending audit
+  58a7a00 Trim Screen 1 plan to tight sales-only scope
+  45ac92c Add Screen 1 (Sales) field-SOW rebuild build plan
+
+PICKUP ON LAPTOP
+  git fetch && git checkout feat/material-flow && git pull
+  (+ this handoff, once committed/pushed)

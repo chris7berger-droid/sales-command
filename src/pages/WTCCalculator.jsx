@@ -855,7 +855,7 @@ function DiscountTab({ data, onChange }) {
   );
 }
 
-function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDefaultSow, defaultSowAvailable, datesTbd }) {
+function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDefaultSow, defaultSowAvailable, datesTbd, mobilizations = [], mobsLoaded = false }) {
   const set  = k => v => onChange({ ...data, [k]: v });
   const setN = k => v => onChange({ ...data, [k]: parseFloat(v) || 0 });
 
@@ -870,11 +870,26 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
     ? crypto.randomUUID()
     : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const newTask = () => ({ id: uid(), description: "", pct_complete: 0 });
-  const addDay    = () => onChange({ ...data, field_sow: [...(data.field_sow || []), { id: uid(), day_label: `Day ${(data.field_sow || []).length + 1}`, date: null, tasks: [newTask()], crew_count: 0, hours_planned: 0, materials: [] }] });
+  // New day (§3.1): mobilization_id defaults to the first mobilization (audit B5 —
+  // not seq:1), null when none exist yet; sq_ft/linear_ft default 0 (0-means-blank,
+  // matching the crew_count/hours_planned metric siblings).
+  const addDay    = () => onChange({ ...data, field_sow: [...(data.field_sow || []), { id: uid(), day_label: `Day ${(data.field_sow || []).length + 1}`, date: null, mobilization_id: mobilizations[0]?.id ?? null, sq_ft: 0, linear_ft: 0, tasks: [newTask()], crew_count: 0, hours_planned: 0, materials: [] }] });
   const removeDay = id => onChange({ ...data, field_sow: (data.field_sow || []).filter(e => e.id !== id) });
-  // 'date' is exempt from parseFloat coercion (ISO string, not a number) — the
-  // Sales half of the paired guard with §SCH2's FieldSowBuilder (S1).
-  const updateDay = (id, key, val) => onChange({ ...data, field_sow: (data.field_sow || []).map(e => e.id === id ? { ...e, [key]: ["day_label", "date"].includes(key) ? val : parseFloat(val) || 0 } : e) });
+  // Explicit per-key coercion map (§3.1 A1/A2) — replaces the old
+  // ["day_label","date"].includes(key) include-list, which silently ran every
+  // *other* key through parseFloat and would corrupt a mobilization_id uuid string
+  // to 0. Unknown keys pass raw. mobilization_id → null when blank (never 0/""), so
+  // [K1] can test presence cleanly; sq_ft/linear_ft use 0-means-blank.
+  const DAY_COERCE = {
+    day_label:       v => v,
+    date:            v => v,                 // ISO string or null (existing S1 guard)
+    mobilization_id: v => v || null,
+    sq_ft:           v => parseFloat(v) || 0,
+    linear_ft:       v => parseFloat(v) || 0,
+    crew_count:      v => parseFloat(v) || 0,
+    hours_planned:   v => parseFloat(v) || 0,
+  };
+  const updateDay = (id, key, val) => onChange({ ...data, field_sow: (data.field_sow || []).map(e => e.id === id ? { ...e, [key]: (DAY_COERCE[key] || (v => v))(val) } : e) });
   const addTask    = dayId => onChange({ ...data, field_sow: (data.field_sow || []).map(e => e.id === dayId ? { ...e, tasks: [...(e.tasks || []), newTask()] } : e) });
   const removeTask = (dayId, taskId) => onChange({ ...data, field_sow: (data.field_sow || []).map(e => e.id === dayId ? { ...e, tasks: (e.tasks || []).filter(t => t.id !== taskId) } : e) });
   const updateTask = (dayId, taskId, key, val) => onChange({ ...data, field_sow: (data.field_sow || []).map(e => e.id === dayId ? { ...e, tasks: (e.tasks || []).map(t => t.id === taskId ? { ...t, [key]: key === "description" ? val : parseFloat(val) || 0 } : t) } : e) });
@@ -989,7 +1004,13 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
             <div style={{ background: T.green, color: T.dark, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em" }}>🔵 FIELD SCOPE</div>
             <span style={{ fontSize: 11, color: T.gray500, fontWeight: 600, letterSpacing: "0.04em" }}>CREW FACING · GOES TO FIELD COMMAND · NEVER SEEN BY CUSTOMER</span>
           </div>
-          <Btn onClick={addDay} variant="blue" small icon="＋">Add Day Entry</Btn>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {!mobsLoaded && <span style={{ fontSize: 10.5, color: T.gray500, fontWeight: 600 }}>loading mobilizations…</span>}
+            {/* Gate on mobsLoaded (§3.2), NOT mobilizations.length — the flag settles on
+                both fetch outcomes, so a failed fetch enables the button with an empty
+                list rather than stranding it disabled forever. */}
+            <Btn onClick={addDay} variant="blue" small icon="＋" disabled={!mobsLoaded}>Add Day Entry</Btn>
+          </div>
         </div>
 
         {(data.field_sow || []).length === 0 ? (
@@ -1002,7 +1023,7 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
           return (
             <div key={entry.id} style={{ background: "rgba(28,24,20,0.06)", borderRadius: 10, marginBottom: 12, border: `1px solid rgba(28,24,20,0.15)` }}>
               {/* Day header */}
-              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid rgba(28,24,20,0.12)`, background: "rgba(28,24,20,0.08)" }}>
+              <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, padding: "12px 16px", borderBottom: `1px solid rgba(28,24,20,0.12)`, background: "rgba(28,24,20,0.08)" }}>
                 <div style={{ width: 90, flexShrink: 0 }}>
                   <Label>Day Label</Label>
                   <input value={entry.day_label} onChange={e => updateDay(entry.id, "day_label", e.target.value)}
@@ -1031,6 +1052,36 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
                     onClick={e => { if (!datesTbd) e.target.showPicker?.(); }}
                     title={datesTbd ? "Dates TBD is on — Schedule will assign the calendar" : undefined}
                     style={{ width: "100%", border: `1.5px solid ${T.gray200}`, borderRadius: 6, padding: "5px 8px", fontSize: 13, outline: "none", fontFamily: "inherit", background: datesTbd ? T.gray200 : "#bfb3a1", color: datesTbd ? T.gray400 : T.gray900, cursor: datesTbd ? "not-allowed" : "pointer" }} />
+                </div>
+                <div style={{ width: 180, flexShrink: 0 }}>
+                  <Label>Mobilization</Label>
+                  {mobilizations.length === 0 ? (
+                    <div style={{ fontSize: 10.5, color: T.gray500, padding: "6px 8px", border: `1.5px dashed ${T.gray300}`, borderRadius: 6, background: "rgba(28,24,20,0.04)", lineHeight: 1.2 }}>
+                      No mobilizations — add them on the proposal first
+                    </div>
+                  ) : (
+                    <select value={entry.mobilization_id || ""} onChange={e => updateDay(entry.id, "mobilization_id", e.target.value)}
+                      style={{ width: "100%", border: `1.5px solid ${entry.mobilization_id ? T.gray200 : T.red}`, borderRadius: 6, padding: "5px 8px", fontSize: 13, outline: "none", fontFamily: "inherit", background: "#bfb3a1", color: T.gray900 }}
+                      onFocus={e => e.target.style.borderColor = T.green}
+                      onBlur={e => e.target.style.borderColor = entry.mobilization_id ? T.gray200 : T.red}>
+                      <option value="">— select —</option>
+                      {mobilizations.map(m => <option key={m.id} value={m.id}>Mob {m.seq}{m.label ? ` — ${m.label}` : ""}</option>)}
+                    </select>
+                  )}
+                </div>
+                <div style={{ width: 90, flexShrink: 0 }}>
+                  <Label>Sq Ft</Label>
+                  <input type="number" value={entry.sq_ft || ""} onChange={e => updateDay(entry.id, "sq_ft", e.target.value)}
+                    style={{ width: "100%", border: `1.5px solid ${T.gray200}`, borderRadius: 6, padding: "5px 8px", fontSize: 13, outline: "none", fontFamily: "inherit", background: "#bfb3a1" }}
+                    onFocus={e => e.target.style.borderColor = T.green}
+                    onBlur={e => e.target.style.borderColor = T.gray200} />
+                </div>
+                <div style={{ width: 90, flexShrink: 0 }}>
+                  <Label>Linear Ft</Label>
+                  <input type="number" value={entry.linear_ft || ""} onChange={e => updateDay(entry.id, "linear_ft", e.target.value)}
+                    style={{ width: "100%", border: `1.5px solid ${T.gray200}`, borderRadius: 6, padding: "5px 8px", fontSize: 13, outline: "none", fontFamily: "inherit", background: "#bfb3a1" }}
+                    onFocus={e => e.target.style.borderColor = T.green}
+                    onBlur={e => e.target.style.borderColor = T.gray200} />
                 </div>
                 <div style={{ flex: 1 }} />
                 <button onClick={() => removeDay(entry.id)}
@@ -1102,8 +1153,9 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
         })}
         {(data.field_sow || []).length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
-            <Btn onClick={addDay} variant="blue" small icon="＋">Add Day Entry</Btn>
+            <Btn onClick={addDay} variant="blue" small icon="＋" disabled={!mobsLoaded}>Add Day Entry</Btn>
             <Btn onClick={onSave} variant="primary" small>{saved ? "✓ Saved" : "Save Field SOW"}</Btn>
+            {!mobsLoaded && <span style={{ fontSize: 10.5, color: T.gray500, fontWeight: 600 }}>loading mobilizations…</span>}
           </div>
         )}
       </div>
@@ -1677,6 +1729,13 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   // Archive parents don't capture burden_rate — surface that to the user so empty
   // rate fields don't look like a load bug.
   const [parentIsArchive, setParentIsArchive] = useState(false);
+  // Mobilizations (material_flow Screen 1 §3.2) — self-fetched by proposalId for the
+  // field-SOW day dropdown. WTCCalculator is a full-screen swap (not a child of
+  // ProposalDetail's live tree), so mobs can't be prop-drilled; we fetch them here.
+  // mobsLoaded is mandatory (not cosmetic): mobilizations === [] is ambiguous between
+  // "still loading" and "loaded, none exist", and the "+ Add Day" gate reads the flag.
+  const [mobilizations, setMobilizations] = useState([]);
+  const [mobsLoaded, setMobsLoaded] = useState(false);
 
   const effRate = bidding.prevailing_wage ? (bidding.pw_rate || 0) : (bidding.burden_rate || 0);
   const effOtRate = bidding.prevailing_wage ? (bidding.pw_ot_rate || 0) : (bidding.ot_burden_rate || 0);
@@ -1716,6 +1775,20 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       setBidding(b => ({ ...b, burden_rate: cfg.default_burden_rate, ot_burden_rate: cfg.default_ot_burden_rate, tax_rate: cfg.default_tax_rate }));
     });
   }, []);
+
+  // ── Load proposal mobilizations for the field-SOW day dropdown (§3.2) ────
+  // Placed after the useState block above (useEffect-TDZ rule). MUST settle
+  // mobsLoaded on BOTH success and failure — a .then-only fetch would leave the
+  // flag stuck false forever if the fetch rejects (offline / RLS deny / missing
+  // row), permanently disabling "+ Add Day" for an unrelated failure.
+  useEffect(() => {
+    if (!proposalId) return;
+    let alive = true;
+    supabase.from("proposals").select("mobilizations").eq("id", proposalId).single()
+      .then(({ data }) => { if (alive) { setMobilizations(data?.mobilizations || []); setMobsLoaded(true); } })
+      .catch(()   => { if (alive) setMobsLoaded(true); });
+    return () => { alive = false; };
+  }, [proposalId]);
 
   // ── Load from Supabase on mount ──────────────────────────────────────────
   useEffect(() => {
@@ -2205,7 +2278,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
           {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} showArchiveRateHint={parentIsArchive} />}
           {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={proposalSold ? undefined : v => { setLabor(v); setSaved(false); }} />}
           {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={proposalSold ? undefined : v => { setMaterials(v); setSaved(false); }} />}
-          {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} onSave={handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} datesTbd={bidding.dates_tbd} />}
+          {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} onSave={handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} datesTbd={bidding.dates_tbd} mobilizations={mobilizations} mobsLoaded={mobsLoaded} />}
           {tab === "travel"  && <TravelTab data={travel} onChange={proposalSold ? undefined : v => { setTravel(v); setSaved(false); }} />}
           {tab === "discount" && <DiscountTab data={discount} onChange={proposalSold ? undefined : v => { setDiscount(v); setSaved(false); }} />}
           {tab === "summary" && <SummaryTab labor={laborComputed} materials={materials} travel={travel} discount={discount} sow={sow} bidding={bidding} onSave={handleSave} saved={saved} locked={locked} onLock={handleLock} onGeneratePDF={() => { if (onClose) onClose(true); }} exact={exact} />}

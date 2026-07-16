@@ -1,0 +1,141 @@
+SC_Handoff_v164 — Edit a Sent / QB-synced invoice in place (add late PO, keep number): SHIPPED to prod
+=====================================================================================================
+Date: 2026-07-13
+Repo/branch: sales-command @ main (feat/edit-sent-qb-invoice-in-place merged, NOT yet deleted)
+Prior: v163 (Material Flow Screen-1 shipped).
+
+
+SESSION SUMMARY
+---------------
+Took the parked plan `docs/plans/edit-sent-qb-invoice-in-place.md` from PARKED to LIVE.
+The realization up front: the QB-synced-edit machinery already existed in handleSaveEdit +
+qb-sync-invoice — it was just unreachable because the "Edit Invoice" button only rendered
+for status New. So this was mostly "reveal a button," plus the safety guards the plan called
+for. Built it, cleared /buildvsplan (2 Tier-2, both fixed), merged to main, deployed. Chris
+used it live and iterated the Reason-for-Edit field UX twice from screenshots (dim → pulsing →
+dark-background for contrast). Feature is live and accepted.
+
+
+CHANGES SHIPPED (this session) — all in src/pages/Invoices.jsx (+ 2 lines tokens.js)
+------------------------------------------------------------------------------------
+Feature commits (branch): 434f31a, 7ee1d01, da1a2d9, 1ec6587, 7a5b80c
+On main (merge commits, each auto-deployed):
+  4a87fe7  Merge: in-place edit for Sent/QB-synced invoices
+  0a305db  Merge: highlight + pulse the required Reason-for-Edit field
+  1260c24  Merge: dark background behind amber Reason callout (contrast fix) — CURRENT LIVE
+
+What it does:
+  1. Edit-button gate widened New-only -> New + unpaid Sent-family (Sent / Waiting for Payment /
+     Past Due) via new `canEditInPlace`; excludes Paid, voided, and any qb_payment_id-linked row.
+     Label reads "Edit Sent Invoice" for the sent case.
+  2. handleSaveEdit Paid/QB-payment write-guard (belt-and-suspenders behind the gate).
+  3. `syncedLock = !!inv.qb_invoice_id` — for a synced invoice, number + discount + retention +
+     per-line % are locked BOTH in the UI (disabled inputs) AND at the write path (preserve
+     stored amounts, never recompute). Only description / intro / due date are editable.
+  4. QB resync now AWAITS + SURFACES errors (was fire-and-forget `.catch(()=>{})`): reads
+     fnErr.context.json() for the real QB fault; on failure the SC edit stays saved, the form
+     stays open, and an alert tells the user to Save again to retry (idempotent — number+amount
+     locked). This is the whole reason the PO->QB-memo flow is trustworthy.
+  5. Reason-for-Edit field: required for synced edits, now a C.dark callout with amber label +
+     border that PULSES (reasonPulse keyframe in tokens.js) while empty; the save-guard scrolls
+     to + focuses it. (Iterated live: first version was too dim, then amber-on-linen muted — the
+     fix is amber-on-dark per the teal-on-dark rule, helper text C.linenLight, no white.)
+
+
+DEPLOYED
+--------
+Vercel prod (project sales-command -> www.scmybiz.com), auto-deploy on push to main.
+  main @ 4a87fe7 -> READY
+  main @ 0a305db -> READY
+  main @ 1260c24 -> READY (current live, verified via Vercel get_deployment)
+No edge-function, DB, or migration changes. qb-sync-invoice update path was already built +
+correct; this only made it reachable and made the client call await/surface its result.
+
+
+GATES
+-----
+Build: `npm run build` passes at every step.
+/buildvsplan: 0 Tier-1, 2 Tier-2 — BOTH fixed same session:
+  T2-1 (real): syncedLock locked the UI but handleSaveEdit didn't reference it — the CLAUDE.md
+    #6/#7 trap. WTC lines recomputed calcWtcPrice×pct (would drift + full-replace into QB if the
+    proposal_wtc changed after send) and the archive-amount input wasn't disabled. Fixed:
+    syncedLock preserve branch (first case in newLines), retention/discount preserved, archive
+    input disabled. "Amounts are locked" is now enforced at the write layer.
+  T2-2 (note): `!qb_payment_id` in the gate is currently redundant with `!== "Paid"` (live data:
+    qb_payment_id only set once Paid), so it's defense-in-depth, not a proven partial-payment
+    block. Documented inline with a "add a balance check if partial QB payments ever land on a
+    Sent invoice" pointer. Not fixed (low likelihood).
+NOT run this session: /code-review, /security-review. This is a money/QB path — buildvsplan
+  covered correctness + drift, but a T5 pass was skipped by choice to move on Chris's live job.
+
+
+VERIFICATION
+------------
+Build + buildvsplan = done (above). LIVE = Chris edited TWO real Sent/QB-synced invoices on prod
+to add PO# 4500454815 (#10053 / QB 147379 and #10052 / QB 147854), both at ~11:16-11:17 AM.
+
+QB SPOT-CHECK = VERIFIED by querying QuickBooks directly (qbo_sales_get_invoices by DocNumber,
+per the "query QB directly" rule — did NOT infer from SC fields):
+  - Same number preserved: DocNumber 10053 and 10052 unchanged (no new invoice minted). ✅
+  - [EDITED] audit note appended to PrivateNote: both carry a fresh
+    "[EDITED] 7/13/2026, 11:1x AM — Customer wanted a P.O. number put on this invoice." line,
+    with the prior 7/7 location-backfill note preserved ABOVE it (append, not overwrite). ✅
+  - Amount integrity (the syncedLock write-path fix): QB amount + balance = $2,787.00 and
+    $5,754.16, matching SC to the penny. No drift. ✅
+  - Reason text carried to QB verbatim. ✅
+  - QB native "P.O. Number" custom field = null — by design (PO lives in CustomerMemo, not that
+    field, per plan §4).
+NOT directly observed: the CustomerMemo text itself ("PO# 4500454815"). The get-invoices tool
+  doesn't return CustomerMemo and the document-render tool is off-limits for direct calls. Safe
+  inference: the full-replace resync writes PrivateNote AND CustomerMemo in one call, so the
+  confirmed [EDITED] note proves that call succeeded and set CustomerMemo = description
+  (= "PO# 4500454815..."). To eyeball it, open the invoice in QBO (txnId 147379 / 147854).
+
+
+CLOSED / TOUCHED THIS SESSION
+-----------------------------
+  Feature "edit sent QB invoice in place" — SHIPPED (see Completed Log).
+  B44 (Open, T2) — TOUCHED not closed. The Edit->Save resync is now await + surface-errors
+    (candidate (b) from B44). B44's primary ask — a standalone "Re-sync to QuickBooks" button for
+    an already-synced invoice whose data changed OUTSIDE the edit form (candidate (a)) — is still
+    open. Left B44 Open, note updated.
+
+
+NOT TOUCHED (deliberately deferred)
+-----------------------------------
+- /code-review + /security-review on this diff (money/QB path). Optional but skipped.
+- B45 (stale pdf_url after correction) — related family, untouched.
+- Full §6 sandbox QB smoke (non-test invoice) — folded into Chris's live use instead.
+
+
+NEXT SESSION POINTERS
+---------------------
+- Feature is DONE + live. No action needed unless the QBO spot-check (above) turns up a
+  discrepancy.
+- Branch cleanup PENDING: feat/edit-sent-qb-invoice-in-place is merged to main but NOT deleted
+  (local + remote), and its worktree at ~/sales-command-edit-sent-qb-invoice-in-place still
+  exists. Delete both when ready.
+- If B44 gets picked up: add the standalone "Re-sync to QuickBooks" button (calls the
+  error-surfacing handleQBSync) that renders when inv.qb_invoice_id IS set.
+
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+  src/pages/Invoices.jsx  — canEditInPlace + syncedLock (near isNew), handleSaveEdit (Paid guard,
+      newLines syncedLock preserve branch, await+surface QB resync), the edit-form Reason callout
+  src/lib/tokens.js       — reasonPulse keyframe + .reason-pulse class
+  docs/plans/edit-sent-qb-invoice-in-place.md  — the plan (status SHIPPED), buildvsplan record
+
+
+GIT STATE ON CLOSE
+------------------
+  Branch: main. origin/main @ 1260c24 (before this handoff commit).
+  feat/edit-sent-qb-invoice-in-place: MERGED to main, NOT deleted; worktree still present.
+  Working tree (main): clean apart from this handoff + BACKLOG/plan doc updates.
+  Open PRs: none.
+
+
+END STATE
+---------
+Shipped, deployed, used live and accepted. QB-side artifacts worth a QBO spot-check for a clean
+audit trail. Branch/worktree cleanup pending.

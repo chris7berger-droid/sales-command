@@ -15,6 +15,24 @@ const QB_API_BASE = QB_ENVIRONMENT === "production"
 
 const TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 
+// jobsite_state is stored as a 2-letter code (CallLogDetail input is maxLength=2),
+// in inconsistent casing (NV / Nv / nv). QB Location tracking uses Departments,
+// which the operator names with the full state name ("Nevada"). Map the
+// abbreviation to a full name so we can match/create either spelling.
+const STATE_NAMES: Record<string, string> = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
+  CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
+  HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
+  KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
+  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi",
+  MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire",
+  NJ: "New Jersey", NM: "New Mexico", NY: "New York", NC: "North Carolina",
+  ND: "North Dakota", OH: "Ohio", OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania",
+  RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota", TN: "Tennessee",
+  TX: "Texas", UT: "Utah", VT: "Vermont", VA: "Virginia", WA: "Washington",
+  WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming", DC: "District of Columbia",
+};
+
 // ── Helper: get fresh QB access token ──────────────────────────────────
 async function getQBToken(sb: any, tenantId: string) {
   const { data: conn } = await sb.from("qb_connection").select("*").eq("tenant_id", tenantId).maybeSingle();
@@ -303,16 +321,40 @@ serve(async (req) => {
     } // end normal-invoice assembly (the gate on invoice.retention_release_of)
 
     // ── Determine location from jobsite state ──────────────────────────
-    // QB uses "Department" for Location tracking
+    // QB uses "Department" for Location tracking. jobsite_state is a 2-letter
+    // code in inconsistent casing (NV/Nv/nv); QB Departments are named with the
+    // full state name ("Nevada"). The old code did `WHERE Name = 'NV'` — a
+    // case-sensitive exact match — which never hit the "Nevada" Department, so
+    // NV invoices synced with no location ("Not specified"). Normalize the code
+    // to the full name, match any existing Department case-insensitively (against
+    // either the abbreviation or the full name), and create the location if it
+    // doesn't exist yet so every state lands under a real Location.
     let departmentRef = null;
-    if (jobState) {
-      const stateData = await qbApi("GET", `/query?query=${encodeURIComponent(`SELECT * FROM Department WHERE Name = '${jobState}'`)}`, accessToken, realmId);
-      const dept = stateData?.QueryResponse?.Department?.[0];
+    if (jobState && jobState.trim()) {
+      const abbr = jobState.trim().toUpperCase();
+      const fullName = STATE_NAMES[abbr] || jobState.trim();
+      const candidates = [fullName.toLowerCase(), abbr.toLowerCase()];
+      // Fetch all departments and match locally — QB's name filter is
+      // case-sensitive exact, which is exactly what broke NV.
+      const deptData = await qbApi("GET", `/query?query=${encodeURIComponent("SELECT * FROM Department MAXRESULTS 1000")}`, accessToken, realmId);
+      const departments = deptData?.QueryResponse?.Department || [];
+      let dept = departments.find((d: any) => candidates.includes((d.Name || "").trim().toLowerCase()));
+      if (!dept) {
+        // No Location for this state yet — create it under the full state name
+        // (mirrors how existing states like California show up in QB).
+        try {
+          const created = await qbApi("POST", "/department", accessToken, realmId, { Name: fullName });
+          dept = created?.Department;
+          console.log("qb-sync-invoice: created QB location/department:", fullName);
+        } catch (e) {
+          console.warn("qb-sync-invoice: could not create department for state", fullName, "-", (e as Error).message);
+        }
+      }
       if (dept) {
         departmentRef = { value: dept.Id, name: dept.Name };
-        console.log("qb-sync-invoice: location/department found:", dept.Name);
+        console.log("qb-sync-invoice: location/department resolved:", dept.Name);
       } else {
-        console.log("qb-sync-invoice: no department found for state:", jobState);
+        console.log("qb-sync-invoice: no department resolved for state:", jobState);
       }
     }
 
@@ -362,8 +404,23 @@ serve(async (req) => {
       qbInvoiceId = result.Invoice.Id;
       console.log("qb-sync-invoice: created QB invoice ID:", qbInvoiceId);
 
-      // Save QB invoice ID back to our invoices table
-      await sb.from("invoices").update({ qb_invoice_id: qbInvoiceId }).eq("id", invoiceId);
+      // Save QB invoice ID back to our invoices table. If this persist FAILS, the
+      // QB invoice already exists — reporting a bare success would orphan it, and
+      // every retry then hits qb_duplicate_docnum with no way out. Surface the
+      // failure WITH the qbInvoiceId so the caller can persist the link itself.
+      // (plan §3 step 1 — closes the persist-returned-error case, not the
+      // lost-response case; that is handled by the client persist + step 4 heal.)
+      const { error: linkErr } = await sb.from("invoices").update({ qb_invoice_id: qbInvoiceId }).eq("id", invoiceId);
+      if (linkErr) {
+        console.error("qb-sync-invoice: QB invoice created but link persist failed:", linkErr.message, { invoiceId, qbInvoiceId });
+        return new Response(JSON.stringify({
+          error: "qb_link_persist_failed",
+          message: "Invoice was created in QuickBooks but linking it in Sales Command failed. Retry to reconcile.",
+          qbInvoiceId,
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
+        });
+      }
     }
 
     return new Response(JSON.stringify({

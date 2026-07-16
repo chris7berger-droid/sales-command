@@ -1,0 +1,160 @@
+SC_Handoff_v167 — White-free checkbox sweep + checkbox-only-click fix (UI, shipped to prod)
+============================================================================================
+Date: 2026-07-16
+Repo/branch: sales-command @ main (all work merged + pushed + live on prod)
+Prior: v166 (B62 ideate). Mode: build (opus 4.8). Work origin: /detach parked stream.
+Parallel session active: security build on the OTHER machine (Chris's desktop, unpushed,
+  local-only). Verified non-colliding — this was frontend-only, touched no migrations / RLS /
+  edge fns; the security work lives in command-suite-db or unpushed desktop code. Different files.
+
+
+SESSION SUMMARY
+---------------
+Pure UI session. Started from a parked /detach stream to recolor one stark-white checkbox (the
+"Mark as the job's deposit invoice" box on the invoice detail). Root cause: a native
+`<input type="checkbox">` always renders a browser-WHITE fill when unchecked, regardless of
+`accentColor` — that only colors the checked state. Rather than patch inline, built one shared
+white-free `Checkbox` component and swept ALL 15 native checkboxes in the app onto it, plus
+folded the app's only other checkbox pattern (`ContactFlagToggle`) into it so there's a single
+checkbox component. Then Chris flagged that four "rich cards" (pay-app, Team apps,
+prevailing-wage) had become whole-box-clickable; reverted those so only the checkbox toggles.
+Everything merged to main and verified byte-identical live on salescommand.app. Nothing deferred
+on the checkbox work — it's fully shipped.
+
+
+CHANGES SHIPPED (this session)
+------------------------------
+3 substantive commits, all on main, pushed, auto-deployed to prod. (Also merged: the parked plan
+stub b85400a `docs/plans/deposit-checkbox-fill.md` and re-sync merge 29e2eb2 — mechanical.)
+
+  0e6d483  Touches: recolor deposit-invoice checkbox off browser-white to app palette
+           src/pages/Invoices.jsx:~2310 — the initial single-surface fix. Replaced the native
+           deposit checkbox with a styled box (linenCard unchecked, green + dark check when set).
+           Later superseded/absorbed by the shared component in 69a582e.
+
+  69a582e  Sweep: one white-free Checkbox component, replace all 15 native checkboxes
+           NEW src/components/Checkbox.jsx — linenCard fill + borderStrong outline unchecked;
+           `accent` fill + dark ✓ when set (Style Rule #1: no white). Two shapes: interactive
+           (owns click via onChange→next-bool) and visual-only (parent owns click).
+           Routed every checkbox through it: Invoices deposit, CallLogDetail + ProposalDetail
+           "Deposit required", NewInquiryWizard + Customers pay-app cards, Team (apps / select-all
+           on dark header / row-select), Settings (app-subscription / terms), Login remember-me,
+           BillingScheduleSection (2), WTCCalculator (dates-TBD / prevailing-wage), ArchiveProposalModal.
+           Collapsed the old `ContactFlagToggle` (Customers) onto the same component — one checkbox
+           app-wide, no drift. 11 files touched. `vite build` passes (545 modules).
+
+  8de27c1  Fix: pay-app/apps/prevailing-wage cards toggle via checkbox, not whole box
+           Follow-up after Chris disliked whole-box-clickable. The four rich cards had a
+           visual-only checkbox with the container onClick toggling. Made the checkbox the real
+           control (interactive onChange) and dropped the container onClick + pointer cursor.
+           Files: NewInquiryWizard.jsx, Customers.jsx, Team.jsx (apps row), WTCCalculator.jsx.
+           `vite build` passes.
+
+
+DEPLOYED
+--------
+Frontend only, via Vercel auto-deploy on push to main (project: sales-command). No edge functions,
+no DB migrations, no infra, no DB writes. Prod URL: https://salescommand.app
+(www.scmybiz.com 308-redirects there).
+Both deploys VERIFIED live by byte-identical bundle comparison (see VERIFICATION):
+  - after 69a582e: prod served index-C1tnG1xI.js (identical to local build of main)
+  - after 8de27c1: prod served index-BQYNthdO.js (identical to local build of main), ~15s to land
+
+
+DECISIONS / CHOICES MADE
+------------------------
+- Reused the already-parked branch feat/deposit-checkbox-fill instead of the new duplicate the
+  /detach created — the registry already had a near-identical parked stream (deposit-checkbox-fill,
+  2026-06-29). Tore down the dup, materialized the existing branch. Avoided branch proliferation.
+- One shared component, not N inline patches. The white fill is a native-input property shared by
+  every checkbox; a single `Checkbox.jsx` fixes the class of bug and stops future drift. Also
+  unified `ContactFlagToggle` (the app's only other white-free box) onto it — two patterns → one.
+- Scope discipline: shipped only the deposit checkbox first (Chris's explicit surface); expanded to
+  the full sweep only when Chris asked. The 4-card whole-box-click was then reverted on Chris's
+  preference (checkbox is the control, card body inert).
+- Verified prod by content-hash, not a browser. Vite hashes are content-based, so prod serving the
+  same hash as a local build of merged main = provably the same code. `cmp` byte-check both times.
+- WTCCalculator uses a LOCAL `T` palette with gray-ish names that are actually linen values
+  (T.gray50 = #b5a896 = C.linen, T.green = #30cfac = teal). Left that pre-existing style-rule
+  debt alone beyond the checkboxes; the new component (imports real C tokens) renders consistently.
+
+
+NEW BACKLOG ITEMS
+-----------------
+None filed. This was a parked /detach stream, not a docs/BACKLOG.md item.
+
+
+CLOSED THIS SESSION
+-------------------
+- Parked-work registry entry `deposit-checkbox-fill` (2026-06-29) → marked DONE in
+  ~/.claude-commands/parked-work.txt (committed + pushed there). Not a docs/BACKLOG.md row.
+- Branches feat/deposit-checkbox-fill and fix/checkbox-only-click deleted (local + remote) after
+  merge. Worktree sales-command-deposit-checkbox-fill removed.
+
+
+VERIFICATION
+------------
+- `vite build` passed for both the sweep (545 modules) and the fix (332ms), no errors.
+- Prod verified LIVE + byte-identical to local build of merged main after each merge (index-C1tnG1xI,
+  then index-BQYNthdO). Bundle signature confirmed: 35 `✓` glyphs, aria-checked present, ZERO
+  native `type:"checkbox"` remaining.
+- Chris eyeballed on preview/prod: the deposit checkbox, and flagged the whole-box-click on cards
+  (which drove commit 8de27c1).
+- NOT click-tested surface-by-surface on prod: the 15 individual checkboxes were not each manually
+  toggled in the browser. In particular the Team job-reassignment table checkboxes only render
+  after a team member is deactivated ("Unassigned Work") — NOT live-exercised this session. Login
+  "Remember me", Settings terms/app-subscription, and BillingScheduleSection CO toggles were not
+  individually clicked on prod. Logic was preserved 1:1 from the originals and the build is green,
+  but treat those as code-verified, not click-verified.
+
+
+NOT TOUCHED
+-----------
+- All B62 / retention / QB-payment-sync work from v166 — untouched. (v166's stranding risk is
+  already resolved: fix/retention-list-filter merged (180ae43) and B62/B63 landed on main (57e27ba)
+  before this session.)
+- The broader "no white anywhere" audit — only checkboxes were swept. WTCCalculator's StatCard
+  still uses `T.white` (its own local palette); left as pre-existing debt.
+- Everything in command-suite-db and the other machine's security work.
+
+
+NEXT SESSION POINTERS
+---------------------
+1. The checkbox work is DONE and live — nothing to resume on it. If a checkbox looks off in a
+   surface not click-tested above, it's a 1-line prop tweak on the shared `src/components/Checkbox.jsx`
+   call site (no component change needed).
+2. If resuming the main thread of work, it's the B62 sequence from v166: block 2 (apply the Boot
+   Barn + DA Builders payments in QuickBooks, ~5 min no code), then block 3 (read-only SC-vs-QB
+   report over all 67). B62/B63 are now on main's BACKLOG — read it fresh.
+3. New checkboxes anywhere: use `import Checkbox from ".../components/Checkbox"`, never a native
+   `<input type="checkbox">` (it reintroduces the white fill).
+
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+  src/components/Checkbox.jsx            NEW — the single white-free checkbox. All checkboxes use it.
+  src/pages/Invoices.jsx                 deposit checkbox now uses <Checkbox>
+  src/pages/Customers.jsx                pay-app card + ContactFlagToggle (now delegates to <Checkbox>)
+  src/components/NewInquiryWizard.jsx    pay-app card (checkbox-only-click)
+  src/pages/Team.jsx                     apps card + reassignment table checkboxes
+  src/pages/WTCCalculator.jsx            dates-TBD + prevailing-wage; note local `T` palette
+  src/pages/Settings.jsx                 app-subscription + terms checkboxes
+  src/pages/Login.jsx                    remember-me (note local C override: linenCard→linenLight)
+  src/components/BillingScheduleSection.jsx, ProposalDetail.jsx, CallLogDetail.jsx, ArchiveProposalModal.jsx
+
+
+GIT STATE ON CLOSE
+------------------
+  branch:        main
+  origin/main:   8de27c1  (this handoff will be one commit ahead, pending push)
+  working tree:  clean (aside from this handoff)
+  pushed:        all session code IS on origin/main; handoff commit NOT yet pushed
+  merged:        yes — both feature branches merged + deleted (local + remote)
+  worktrees:     only /Users/chrisberger/sales-command (main); the detach worktree was removed
+  open PRs:      none
+
+
+END STATE
+---------
+Merged, deployed to prod, and verified byte-identical live. Checkbox work fully shipped — ready
+for a fresh session.

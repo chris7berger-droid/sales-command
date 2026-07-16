@@ -2307,10 +2307,12 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
               required state doesn't read as contradictory. (plan v2 #1/#3) */}
           {!inv.voided_at && !inv.deleted_at && (
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 24, padding: "12px 16px", background: C.linenDeep, border: `1px solid ${isDepositInvoice ? C.green : C.border}`, borderLeft: `4px solid ${isDepositInvoice ? C.green : C.border}`, borderRadius: 10 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: markingDeposit ? "wait" : "pointer" }}>
-                <input type="checkbox" checked={isDepositInvoice} disabled={markingDeposit} onChange={handleToggleDeposit} style={{ width: 18, height: 18, accentColor: C.green, cursor: markingDeposit ? "wait" : "pointer", flexShrink: 0 }} />
+              <button type="button" onClick={handleToggleDeposit} disabled={markingDeposit} style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", padding: 0, cursor: markingDeposit ? "wait" : "pointer" }}>
+                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${isDepositInvoice ? C.green : C.borderStrong}`, background: isDepositInvoice ? C.green : C.linenCard, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {isDepositInvoice && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                </div>
                 <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Mark as the job's deposit invoice</span>
-              </label>
+              </button>
               {isDepositInvoice && (inv.sent_at
                 ? <span style={{ fontSize: 11, fontWeight: 700, color: C.green, fontFamily: F.ui, background: "rgba(67,160,71,0.14)", padding: "3px 10px", borderRadius: 6 }}>Recorded{inv.paid_at ? " · paid" : ""}</span>
                 : <span style={{ fontSize: 11, fontWeight: 700, color: C.amber, fontFamily: F.ui, background: "rgba(249,168,37,0.14)", padding: "3px 10px", borderRadius: 6 }}>Not sent — deposit not recorded yet</span>

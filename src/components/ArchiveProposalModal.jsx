@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import Btn from "./Btn";
+import Checkbox from "./Checkbox";
 
 function parseMoney(v) {
   if (v == null) return 0;
@@ -254,7 +255,7 @@ export default function ArchiveProposalModal({ onClose, onCreated, preselectedJo
                   <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: C.linenCard, border: `1.5px solid ${C.borderStrong}`, borderRadius: 8, maxHeight: 220, overflowY: "auto", zIndex: 10 }}>
                     {allWorkTypes.map(wt => (
                       <div key={wt.id} onClick={() => toggleWt(wt.id)} style={{ padding: "8px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontFamily: F.ui, borderBottom: `1px solid ${C.border}`, background: selectedWtIds.includes(wt.id) ? C.linenDeep : "transparent" }}>
-                        <input type="checkbox" checked={selectedWtIds.includes(wt.id)} readOnly />
+                        <Checkbox checked={selectedWtIds.includes(wt.id)} size={16} />
                         {wt.name}
                       </div>
                     ))}

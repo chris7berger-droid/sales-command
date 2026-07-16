@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice as calcWtcTotal, roundPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
+import Checkbox from "../components/Checkbox";
 
 // ── Design tokens ──────────────────────────────────────────────────────────
 const T = {
@@ -388,18 +389,20 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
           {!data.end_date && !data.dates_tbd && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required — use tentative date if unknown</div>}
         </div>
       </div>
-      <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: -4, marginBottom: 14, fontSize: 12.5, color: T.gray700, cursor: onChange ? "pointer" : "default" }}>
-        <input type="checkbox" checked={!!data.dates_tbd} disabled={!onChange}
-          onChange={e => { if (onChange) onChange({ ...data, dates_tbd: e.target.checked }); }} />
-        <span><strong>Dates TBD</strong> — schedule unknown at sale. Schedule Command assigns calendar dates after the job is sent (per-WTC).</span>
-      </label>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: -4, marginBottom: 20, padding: "12px 16px", background: T.gray50, borderRadius: 8, border: `1px solid ${T.gray200}` }}>
-        <input type="checkbox" id="pw" checked={data.prevailing_wage || false}
-          onChange={e => onPwToggle(e.target.checked)}
-          style={{ accentColor: T.green, width: 16, height: 16, cursor: "pointer", WebkitAppearance: "checkbox", appearance: "checkbox" }} />
-        <label htmlFor="pw" style={{ fontSize: 13, color: T.gray700, fontWeight: 500, cursor: "pointer" }}>
+      <Checkbox
+        checked={!!data.dates_tbd}
+        disabled={!onChange}
+        onChange={v => onChange({ ...data, dates_tbd: v })}
+        size={16}
+        label={<span><strong>Dates TBD</strong> — schedule unknown at sale. Schedule Command assigns calendar dates after the job is sent (per-WTC).</span>}
+        labelStyle={{ fontSize: 12.5, color: T.gray700, fontWeight: 400 }}
+        style={{ marginTop: -4, marginBottom: 14 }}
+      />
+      <div onClick={() => onPwToggle(!data.prevailing_wage)} style={{ display: "flex", alignItems: "center", gap: 10, marginTop: -4, marginBottom: 20, padding: "12px 16px", background: T.gray50, borderRadius: 8, border: `1px solid ${T.gray200}`, cursor: "pointer" }}>
+        <Checkbox checked={data.prevailing_wage || false} size={16} />
+        <span style={{ fontSize: 13, color: T.gray700, fontWeight: 500 }}>
           Prevailing Wage Job — affects labor rate calculation
-        </label>
+        </span>
       </div>
     </div>
   );

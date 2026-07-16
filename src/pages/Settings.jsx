@@ -5,6 +5,7 @@ import { getTenantConfig, updateTenantConfig } from "../lib/config";
 import { fmt$ } from "../lib/utils";
 import SectionHeader from "../components/SectionHeader";
 import Btn from "../components/Btn";
+import Checkbox from "../components/Checkbox";
 
 const inputStyle = { width: "100%", padding: "9px 12px", borderRadius: 7, border: `1px solid ${C.borderStrong}`, background: C.linenDeep, color: C.textBody, fontSize: 13, fontFamily: F.ui, WebkitAppearance: "none" };
 const labelStyle = { fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, marginBottom: 4 };
@@ -528,12 +529,7 @@ function BillingSection() {
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 {!hasSubscription && (
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggleApp(app)}
-                    style={{ width: 16, height: 16, accentColor: C.teal }}
-                  />
+                  <Checkbox checked={isSelected} onChange={() => toggleApp(app)} size={16} />
                 )}
                 <div>
                   <div style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: C.textHead }}>
@@ -584,16 +580,11 @@ function BillingSection() {
 
       {/* Terms agreement (only shown before subscribing) */}
       {!hasSubscription && (
-        <label style={{
-          display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 16, cursor: "pointer",
+        <div style={{
+          display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 16,
           fontFamily: F.ui, fontSize: 12, color: C.textMuted, lineHeight: 1.5,
         }}>
-          <input
-            type="checkbox"
-            checked={agreedToTerms}
-            onChange={e => setAgreedToTerms(e.target.checked)}
-            style={{ width: 16, height: 16, accentColor: C.teal, marginTop: 2, flexShrink: 0 }}
-          />
+          <Checkbox checked={agreedToTerms} onChange={setAgreedToTerms} size={16} style={{ marginTop: 2 }} />
           <span>
             I have read and agree to the{" "}
             <a href="https://www.sccmybiz.com/terms" target="_blank" rel="noopener noreferrer" style={{ color: C.teal, fontWeight: 600, textDecoration: "none" }}>
@@ -601,7 +592,7 @@ function BillingSection() {
             </a>
             , including the binding arbitration clause, class action waiver, limitation of liability, and construction-specific disclaimers. Billing begins immediately and recurs monthly until canceled.
           </span>
-        </label>
+        </div>
       )}
 
       {/* Actions */}

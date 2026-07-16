@@ -4,6 +4,7 @@ import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
 import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcWtcBreakdown, calcBidStamp, usesExactPricing } from "../lib/calc";
+import Checkbox from "./Checkbox";
 import { PROP_C } from "../lib/mockData";
 import { getTenantConfig } from "../lib/config";
 import WTCCalculator from "../pages/WTCCalculator";
@@ -1255,15 +1256,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               {depositError && <span style={{ fontSize: 11, color: C.red, fontWeight: 700, fontFamily: F.ui }}>Not saved</span>}
             </div>
             {depositError && <div style={{ fontSize: 11, color: C.red, fontFamily: F.ui, marginBottom: 8 }}>{depositError}</div>}
-            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked={depositRequired}
-                onChange={e => { const v = e.target.checked; setDepositRequired(v); saveDeposit(v, depositAmount); }}
-                style={{ width: 18, height: 18, accentColor: C.green, cursor: "pointer", flexShrink: 0 }}
-              />
-              <span style={{ fontSize: 14, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Deposit required</span>
-            </label>
+            <Checkbox checked={depositRequired} accent={C.green} onChange={v => { setDepositRequired(v); saveDeposit(v, depositAmount); }} label="Deposit required" labelStyle={{ fontSize: 14, fontWeight: 700, color: C.textHead }} />
             {depositRequired && (() => {
               const depositBasis = (sovContractSum != null && sovContractSum > 0) ? sovContractSum : (parseFloat(p.total) || 0);
               const amt = parseFloat(depositAmount);

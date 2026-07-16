@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { C, F } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
 import Btn from "./Btn";
+import Checkbox from "./Checkbox";
 import NewPayAppModal from "./NewPayAppModal";
 import PayAppDetailModal from "./PayAppDetailModal";
 
@@ -772,7 +773,7 @@ function ExtractReviewModal({ review, setReview, onSave, hasExistingLines, fileN
                     <input type="number" step="0.01" value={l.scheduled_value} onChange={e => setLine(i, { scheduled_value: e.target.value })} style={{ ...cellInput, textAlign: "right" }} />
                   </td>
                   <td style={tdBase}>
-                    <input type="checkbox" checked={!!l.is_change_order} onChange={e => setLine(i, { is_change_order: e.target.checked, co_number: e.target.checked ? (l.co_number ?? 1) : null })} />
+                    <Checkbox checked={!!l.is_change_order} size={16} onChange={v => setLine(i, { is_change_order: v, co_number: v ? (l.co_number ?? 1) : null })} />
                   </td>
                   <td style={tdBase}>
                     {l.is_change_order ? (
@@ -828,10 +829,7 @@ function LineEditRow({ ordinal, draft, setDraft, onSave, onCancel, isAdd }) {
       <input value={draft.description} onChange={e => setDraft(d => ({ ...d, description: e.target.value }))} placeholder={isAdd ? "Add SOV line description…" : "Description"} style={inputStyle} autoFocus={isAdd} />
       <input type="number" step="0.01" value={draft.scheduled_value} onChange={e => setDraft(d => ({ ...d, scheduled_value: e.target.value }))} placeholder="0.00" style={{ ...inputStyle, textAlign: "right" }} />
       <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontFamily: F.ui, color: C.textMuted, cursor: "pointer" }}>
-          <input type="checkbox" checked={draft.is_change_order} onChange={e => setDraft(d => ({ ...d, is_change_order: e.target.checked }))} />
-          CO
-        </label>
+        <Checkbox checked={draft.is_change_order} size={16} onChange={v => setDraft(d => ({ ...d, is_change_order: v }))} label="CO" labelStyle={{ fontSize: 11, color: C.textMuted, fontWeight: 400 }} style={{ gap: 4 }} />
         {draft.is_change_order && (
           <input type="number" min="1" value={draft.co_number} onChange={e => setDraft(d => ({ ...d, co_number: e.target.value }))} placeholder="#" style={{ ...inputStyle, padding: "5px 7px", width: 40, fontSize: 11 }} />
         )}

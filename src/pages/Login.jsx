@@ -3,6 +3,7 @@ import { signIn } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { C as _C } from '../lib/tokens'
 import { getTenantConfig, DEFAULTS } from '../lib/config'
+import Checkbox from '../components/Checkbox'
 
 const C = { ..._C, linenCard: _C.linenLight, danger: _C.red }
 
@@ -150,10 +151,7 @@ export default function Login() {
               <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Password</div>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="sc-login-input" style={inputStyle} required />
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: C.textMuted, marginTop: 2 }}>
-              <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} style={{ accentColor: C.teal, width: 16, height: 16, cursor: "pointer" }} />
-              Remember me
-            </label>
+            <Checkbox checked={remember} onChange={setRemember} label="Remember me" size={16} labelStyle={{ fontSize: 13, color: C.textMuted, fontWeight: 400 }} style={{ marginTop: 2 }} />
             <button type="submit" disabled={loading} style={btnStyle}>{loading ? "Signing in..." : "Sign In"}</button>
             <div style={{ textAlign: "center", marginTop: 4 }}>
               <button type="button" onClick={() => { setMode("forgot"); setError(null); setMessage(null); }} style={{ background: "none", border: "none", color: C.tealDark, fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>

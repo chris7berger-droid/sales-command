@@ -8,6 +8,7 @@ import { getCurrentTeamMember } from "../lib/auth";
 import SectionHeader from "../components/SectionHeader";
 import DataTable from "../components/DataTable";
 import Btn from "../components/Btn";
+import Checkbox from "../components/Checkbox";
 import CustomerMergeModal from "../components/CustomerMergeModal";
 
 const STD_TERMS = [5, 15, 30, 45, 60, 90, 120];
@@ -25,14 +26,7 @@ function Field({ label, children, wide }) {
 }
 
 function ContactFlagToggle({ checked, onToggle, label }) {
-  return (
-    <button onClick={onToggle} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}>
-      <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${checked ? C.teal : C.borderStrong}`, background: checked ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {checked && <span style={{ color: C.dark, fontSize: 11, fontWeight: 900 }}>✓</span>}
-      </div>
-      <span style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui }}>{label}</span>
-    </button>
-  );
+  return <Checkbox checked={checked} onChange={() => onToggle()} label={label} style={{ padding: "4px 0" }} labelStyle={{ fontWeight: 400 }} />;
 }
 
 /* ─── Edit Modal ─── */
@@ -129,13 +123,13 @@ function CustomerModal({ customer, onClose, onSaved }) {
             )}
           </Field>
           <Field label="" wide>
-            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${form.requires_pay_app ? C.teal : C.borderStrong}`, background: form.requires_pay_app ? C.dark : C.linen, transition: "all 0.12s" }}>
-              <input type="checkbox" checked={form.requires_pay_app} onChange={e => set("requires_pay_app", e.target.checked)} style={{ accentColor: C.teal, width: 18, height: 18, cursor: "pointer" }} />
+            <div onClick={() => set("requires_pay_app", !form.requires_pay_app)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${form.requires_pay_app ? C.teal : C.borderStrong}`, background: form.requires_pay_app ? C.dark : C.linen, transition: "all 0.12s" }}>
+              <Checkbox checked={form.requires_pay_app} />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: form.requires_pay_app ? C.teal : C.textHead, fontFamily: F.display, letterSpacing: "0.04em" }}>Customer Requires Payment Application</div>
                 <div style={{ fontSize: 11, color: form.requires_pay_app ? "rgba(255,255,255,0.4)" : C.textFaint, fontFamily: F.ui, marginTop: 2 }}>Invoices will use G702/G703 pay app format</div>
               </div>
-            </label>
+            </div>
           </Field>
           <Field label="Business Address" wide>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

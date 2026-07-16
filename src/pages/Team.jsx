@@ -6,6 +6,7 @@ import { ROLE_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
 import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
+import Checkbox from "../components/Checkbox";
 import Btn from "../components/Btn";
 
 const ROLES = ["Admin", "Manager", "Sales Rep", "Office Staff", "Estimator", "Field"];
@@ -142,17 +143,16 @@ function MemberModal({ member, onClose, onSaved, onDeactivated, senderEmail, sen
               <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: F.ui, marginBottom: 8 }}>App Access</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {tenantApps.map(app => (
-                  <label key={app} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: C.textBody, fontFamily: F.ui, fontWeight: 600, padding: "6px 10px", background: form.apps?.includes(app) ? "rgba(48,207,172,0.07)" : "transparent", borderRadius: 6, border: `1px solid ${form.apps?.includes(app) ? "rgba(48,207,172,0.2)" : C.borderStrong}` }}>
-                    <input type="checkbox" checked={form.apps?.includes(app) || false}
-                      onChange={e => {
-                        const next = e.target.checked
-                          ? [...(form.apps || []), app]
-                          : (form.apps || []).filter(a => a !== app);
+                  <div key={app} onClick={() => {
+                        const next = form.apps?.includes(app)
+                          ? (form.apps || []).filter(a => a !== app)
+                          : [...(form.apps || []), app];
                         set("apps")(next);
                       }}
-                      style={{ accentColor: C.teal, width: 16, height: 16, cursor: "pointer" }} />
+                      style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: C.textBody, fontFamily: F.ui, fontWeight: 600, padding: "6px 10px", background: form.apps?.includes(app) ? "rgba(48,207,172,0.07)" : "transparent", borderRadius: 6, border: `1px solid ${form.apps?.includes(app) ? "rgba(48,207,172,0.2)" : C.borderStrong}` }}>
+                    <Checkbox checked={form.apps?.includes(app) || false} size={16} />
                     {APP_LABELS[app] || app}
-                  </label>
+                  </div>
                 ))}
               </div>
             </div>
@@ -317,8 +317,7 @@ function UnassignedWork({ inactiveNames, activeMembers, onReassigned }) {
           <thead>
             <tr style={{ background: C.dark }}>
               <th style={{ padding: "11px 15px", textAlign: "left", width: 36 }}>
-                <input type="checkbox" checked={selected.size === jobs.length && jobs.length > 0} onChange={toggleAll}
-                  style={{ accentColor: C.teal, width: 15, height: 15, cursor: "pointer" }} />
+                <Checkbox checked={selected.size === jobs.length && jobs.length > 0} onChange={toggleAll} size={15} />
               </th>
               {["Job #", "Job Name", "Customer", "Former Rep", "Stage", "Created"].map(h => (
                 <th key={h} style={{ padding: "11px 15px", textAlign: "left", fontWeight: 700, fontSize: 10.5, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: `1px solid ${C.darkBorder}`, whiteSpace: "nowrap" }}>{h}</th>
@@ -330,9 +329,7 @@ function UnassignedWork({ inactiveNames, activeMembers, onReassigned }) {
               <tr key={j.id} style={{ borderBottom: `1px solid ${C.border}`, background: selected.has(j.id) ? "rgba(48,207,172,0.06)" : i % 2 === 0 ? C.linenLight : C.linen, cursor: "pointer" }}
                 onClick={() => toggle(j.id)}>
                 <td style={{ padding: "12px 15px" }}>
-                  <input type="checkbox" checked={selected.has(j.id)} onChange={() => toggle(j.id)}
-                    onClick={e => e.stopPropagation()}
-                    style={{ accentColor: C.teal, width: 15, height: 15, cursor: "pointer" }} />
+                  <Checkbox checked={selected.has(j.id)} size={15} />
                 </td>
                 <td style={{ padding: "12px 15px", color: C.textBody, fontWeight: 700, fontFamily: F.display }}>{j.display_job_number || "—"}</td>
                 <td style={{ padding: "12px 15px", color: C.textBody }}>{j.job_name || "—"}</td>

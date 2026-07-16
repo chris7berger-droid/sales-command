@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { C, F } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
 import Btn from "./Btn";
+import Checkbox from "./Checkbox";
 import { supabase } from "../lib/supabase";
 import ArchiveProposalModal from "./ArchiveProposalModal";
 import QBActionModal from "./QBActionModal";
@@ -533,15 +534,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           {depositError && <span style={{ fontSize: 11, color: C.red, fontWeight: 700, fontFamily: F.ui }}>Not saved</span>}
         </div>
         {depositError && <div style={{ fontSize: 11, color: C.red, fontFamily: F.ui, marginBottom: 8 }}>{depositError}</div>}
-        <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={depositRequired}
-            onChange={e => { const v = e.target.checked; setDepositRequired(v); saveDeposit(v, depositAmount); }}
-            style={{ width: 18, height: 18, accentColor: C.green, cursor: "pointer", flexShrink: 0 }}
-          />
-          <span style={{ fontSize: 14, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>Deposit required</span>
-        </label>
+        <Checkbox checked={depositRequired} accent={C.green} onChange={v => { setDepositRequired(v); saveDeposit(v, depositAmount); }} label="Deposit required" labelStyle={{ fontSize: 14, fontWeight: 700, color: C.textHead }} />
         {depositRequired && (
           <div style={{ marginTop: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6, fontFamily: F.display }}>Deposit Amount</div>

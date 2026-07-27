@@ -286,7 +286,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
 
               {/* Prepared For + Proposal # */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid rgba(28,24,20,0.12)" }}>
-                <div>
+                <div style={{ flex: 1, minWidth: 0, paddingRight: 24 }}>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Prepared For</div>
                   <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{proposal.customer || "—"}</div>
                   {proposal.call_log?.customers?.business_address && (
@@ -309,7 +309,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
                     </div>
                   )}
                 </div>
-                <div style={{ textAlign: "left" }}>
+                <div style={{ textAlign: "left", width: 200, flexShrink: 0, overflowWrap: "break-word" }}>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Proposal #</div>
                   <div style={{ fontSize: 12, color: "#887c6e" }}><span style={{ fontWeight: 800, color: "#1c1814" }}>{(proposal.call_log?.display_job_number || "—").split(" - ")[0]}</span>{(() => { const djn = proposal.call_log?.display_job_number || ""; const idx = djn.indexOf(" - "); return idx > -1 ? " - " + djn.slice(idx + 3) : ""; })()}-P{proposal.proposal_number || 1}</div>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Date</div>

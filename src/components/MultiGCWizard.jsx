@@ -164,8 +164,9 @@ export default function MultiGCWizard({ sourceProposalId, onClose, onSaved }) {
 
   const canNext = () => {
     if (step === 0) return targets.length >= 1;
+    // RFP # is optional — plenty of GCs never issue one.
     if (step === 1) return targets.every(t =>
-      t.primary_contact_id && t.rfp_number?.trim() && t.bid_due_date
+      t.primary_contact_id && t.bid_due_date
     );
     return true;
   };
@@ -207,7 +208,7 @@ export default function MultiGCWizard({ sourceProposalId, onClose, onSaved }) {
     }
   };
 
-  const tabHasMissing = (t) => !t.primary_contact_id || !t.rfp_number?.trim() || !t.bid_due_date;
+  const tabHasMissing = (t) => !t.primary_contact_id || !t.bid_due_date;
 
   if (!sp) {
     return (
@@ -436,7 +437,7 @@ function Screen2({ targets, activeTab, setActiveTab, setTarget, contactsByCustom
         {/* RFP # */}
         <div>
           <label style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, marginBottom: 4, display: "block" }}>
-            RFP #
+            RFP # <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
           </label>
           <input
             value={t.rfp_number}

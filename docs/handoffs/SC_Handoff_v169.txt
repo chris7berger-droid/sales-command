@@ -133,16 +133,22 @@ VERIFICATION
   `proposals.customer_id` in `src/` or `supabase/functions/`.
 - Deployed edge function source read back from the live project and confirmed to contain the fix.
 
-  *** NOT SMOKE-TESTED IN A BROWSER BY THIS SESSION. No proposal was opened, no send performed. ***
+- CLIENT HALF SMOKED BY CHRIS ON PROD, at session close. He worked sister proposals and queued them
+  up to send, and reported the correct email addresses populating "all the way through the process."
+  That exercises all four display sites — Recipients card, add-from-contacts list, send-screen
+  default signer, PDF header — which resolve the customer independently of each other, so seeing
+  the right addresses on every screen is direct evidence all four took. Not done by this session;
+  recorded from Chris's report.
 
-  Chris replied "Looks perfect" after the merge was reported. He did not state that he had opened
-  the app, and this session did not ask — do not read that as a browser smoke.
+  *** THE SEND BUTTON WAS NEVER PRESSED. The server-side allowlist in send-proposal remains the
+      one unexercised path shipped this session, and it is the half that was hard-broken. ***
 
-  THE UNEXERCISED PATH IS THE IMPORTANT ONE: the allowlist fix has never been run. A real send to a
-  sister proposal is the only thing that proves it. Suggested smoke steps were given to Chris at
-  merge time (primary row shows the GC / contacts list is the GC's / default signer is Vince Mack /
-  send goes through / PDF address is Peerless's), with the caution that step 4 emails a real GC and
-  a TEST recipient on a throwaway sister is the safer way to exercise it.
+  Chris's call, made knowingly: "I didn't test with sending the button… but I'm gonna trust that
+  works." Reasonable — the failure mode is loud and non-destructive. A wrong resolution returns
+  400 "Recipient email not associated with this customer", no email leaves, nothing is written.
+  You would know on the first real send and nothing would be in a bad state.
+
+  If it does fire: check `send-proposal` is still on v45 before assuming the logic is wrong.
 
 
 NOT TOUCHED
@@ -163,10 +169,12 @@ NOT TOUCHED
 
 NEXT SESSION POINTERS
 ---------------------
-1. Send one sister proposal end to end. That is the only unverified thing shipped this session, and
-   it is the half that was hard-broken. Use a TEST recipient on a throwaway sister unless you are
-   ready to email Peerless. If it 400s with "Recipient email not associated with this customer,"
-   the edge fn fix did not take — check `send-proposal` is still on v45.
+1. Press Send on one sister proposal. The display half is already confirmed on prod by Chris (see
+   VERIFICATION) — the allowlist in `send-proposal` is the only unexercised thing shipped this
+   session, and it is the half that was hard-broken. Use a TEST recipient on a throwaway sister
+   unless you are ready to email Peerless. If it 400s with "Recipient email not associated with
+   this customer," the edge fn fix did not take — check `send-proposal` is still on v45.
+   Not urgent: Chris knowingly deferred this, and the failure mode writes nothing.
    Rollback if needed: `git revert -m 1 8393606` for the client; redeploy the prior fn from
    `git show 8393606^:supabase/functions/send-proposal/index.ts` if the server half needs backing out.
 2. Correct B64's status line in BACKLOG from "gates pending" to shipped + deployed.
@@ -190,6 +198,7 @@ GIT STATE
 ---------
   main @ dd419bd, pushed, live on prod.
   Commits this session: 0dc6f00 → 8393606 (merge) → 8de8344 → dd419bd (merge), plus this handoff.
-  Branches fix/multi-gc-sister-recipients and fix/multi-gc-rfp-optional are merged; local copies
-  still present at close (never pushed to origin).
+  Branches fix/multi-gc-sister-recipients and fix/multi-gc-rfp-optional were merged and deleted at
+  close (never pushed to origin). The seven parked worktree branches were left intact by design —
+  including fix/qb-payment-sync-back, the B62 spike marked DO NOT DEPLOY.
   Working tree otherwise clean. No worktrees opened this session. No PRs (direct merges).

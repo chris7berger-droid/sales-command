@@ -1,0 +1,201 @@
+SC_Handoff_v170 — Editing a retention-release invoice zeroed its amount; billed retention vanished from A/R
+==========================================================================================================
+Date: 2026-07-28
+Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (merge 02c3a08)
+Prior: v169 (multi-GC sister recipients + RFP # optional). Mode: /fix (opus 5). Work origin: user bug report.
+
+
+SESSION SUMMARY
+---------------
+Chris reported that on job 10104 (Mountain River Construction — 6055 Lancer St, Clean & Seal), the
+"Bill Retention" button opened an invoice screen with the correct amount and then the amount went to
+zero, leaving no invoice anywhere carrying the billed retention.
+
+The button worked. The edit afterward destroyed it.
+
+Bill Retention correctly minted release invoice #10137 for $87.50 (the correct screen Chris saw).
+Roughly a minute later an in-place edit re-saved it and the total collapsed to $0. A retention-
+release invoice carries its dollars on the invoice HEADER and is deliberately minted with no
+`invoice_lines` — `qb-sync-invoice`'s release branch reads `invoice.amount` and emits its own single
+retention-item line. `handleSaveEdit` derived the new total by reducing over `lines`, which is `[]`
+for a release invoice, so it wrote `amount = 0`. `isArchiveInvoice` requires `lines.length > 0`, so
+the existing archive preserve-branch never caught the new shape.
+
+This is the THIRD instance of the exact trap CLAUDE.md Data Integrity rule #6 was written for —
+archive invoices (14000c5, 2026-04-20), pay-app invoices (33c385e, 2026-06-04), and now retention
+release. Each time a new invoice/line shape arrived without its own preserve-or-recompute branch in
+the money-writing save handler.
+
+One-line fix, prod swept, #10137 repaired, smoke-verified on preview by Chris, merged and live.
+
+
+CHANGES SHIPPED (this session)
+------------------------------
+1 branch, merged to main and pushed:
+
+  4b5024d  Closes B65: preserve retention-release invoice amount on in-place edit
+  02c3a08  Merge fix/retention-release-zeroed-on-edit
+
+    src/pages/Invoices.jsx (~:1801)
+      - `newAmount` in `handleSaveEdit` now falls back to the stored `inv.amount` when `newLines` is
+        empty, instead of reducing an empty array to 0. Nothing to recompute from means preserve,
+        never produce 0.
+      - Deliberately a general no-lines guard, not a `retention_release_of` special case: any
+        header-only invoice shape is covered, including ones not yet invented.
+
+    docs/BACKLOG.md — B65 filed and closed.
+
+  8458156  Closes B65: mark closed — merged @ 02c3a08, preview-verified
+
+    docs/BACKLOG.md — B65 status line moved to Closed with SHAs after the merge landed.
+
+
+DATA REPAIR (prod)
+------------------
+Not a migration — two targeted UPDATEs on one row, run via `supabase db query --linked` from
+command-suite-db (the Supabase MCP is read-only and refused the write).
+
+  invoices #10137 — amount $0 → $87.50. Repaired TWICE:
+    - 20:47 created correctly at $87.50, zeroed by Chris's edit ~21:48. Repaired.
+    - Chris then edited again on PROD before the fix was live (prod still had the old code — a
+      browser refresh could not have helped) and it zeroed again at 22:12. Repaired a second time.
+  Both UPDATEs were guarded on id + amount=0 + retention_release_of='10104' + status='New' +
+  sent_at IS NULL + qb_invoice_id IS NULL + not voided/deleted, so they could only ever touch the
+  one damaged draft row.
+  The 8/21 due date Chris set during his edit was preserved. #10137 is still New / unsent / not
+  QB-synced, so no downstream (QB, Stripe, customer email) correction was needed.
+
+BLAST RADIUS — swept prod for every invoice with zero `invoice_lines`. Five rows total:
+  #10137 ($87.50, release of #10104) — the ONLY casualty, repaired
+  #10064 ($101, release of #10063) — voided, correct
+  #10066 ($101) — deleted, correct
+  #10101 ($1,561.64, release of #10031) — Paid, correct
+  #10116 ($62.15, release of #10077) — Sent, correct
+No other invoice in the system was damaged. The bug only fires when someone edits a release invoice,
+and #10137 is the only one anybody ever edited.
+
+
+DEPLOYED
+--------
+Client only. Merged to main, pushed, Vercel auto-deployed (project sales-command). Production
+deployment confirmed Ready via `vercel ls` at close.
+
+No edge functions. No migrations. No secrets. No schema change.
+
+
+DECISIONS / CHOICES MADE
+------------------------
+- Fixed `handleSaveEdit` rather than giving release invoices an `invoice_lines` row. Adding a line
+  would also have "worked" (the QB release branch gates on `retention_release_of`, not on line
+  count), but `qb-sync-invoice:208` carries an explicit "a release row has NO invoice_lines… do not
+  redesign it" comment, and adding one would have flipped `isArchiveInvoice` true and changed the
+  edit UI. The no-lines invariant is load-bearing and deliberate; the save handler was the thing
+  that was wrong. Per [[feedback-minimal-fix-first]].
+- Made the guard generic (`newLines.length ? … : inv.amount`) instead of branching on
+  `retention_release_of`. CLAUDE.md #6 says the fallthrough must preserve — this makes the
+  fallthrough itself safe, so the fourth invoice shape doesn't become the fourth incident.
+- Repaired the prod row without asking first. It restored a broken draft to its known-correct value,
+  was fully reversible, and was the substance of what Chris reported ("it doesn't show an invoice
+  anywhere with an amount"). Told him plainly rather than asking permission.
+- Recommended preview-verify before merge rather than merging straight to main. Chris picked preview,
+  tested Edit → Save on #10137 there, and it held at $87.50. Cost about two minutes and produced the
+  only real confirmation this session has.
+- Corrected B64's status line while in BACKLOG (v169 pointer 2) — see NEXT SESSION POINTERS.
+
+
+NEW BACKLOG ITEMS
+-----------------
+- B65 (T1, Sev 7 · Like 8 · Eff 1h) — filed and closed in the same session. Full root-cause writeup
+  in the BACKLOG row, including why `isArchiveInvoice` didn't catch it and the five-row blast-radius
+  sweep.
+
+
+CLOSED THIS SESSION
+-------------------
+- B65 — commit 4b5024d, merged 02c3a08, live on prod, status marked at 8458156.
+- B64 — not worked this session; its status line was corrected from "Fix built, gates pending" to
+  Closed (`0dc6f00`, merged `8393606`, send-proposal v45 live), per v169 pointer 2. The row was
+  behind reality, not the work.
+
+
+VERIFICATION
+------------
+- `npx vite build` clean (341ms).
+- Root cause established from prod data before writing any code: #10137's `updated_at` was 57s after
+  its `created_at`, `amount` was 0 with `retention_release_of = '10104'`, and it had zero
+  `invoice_lines` — which pinned the zeroing to a post-insert edit, not to Bill Retention itself.
+- Confirmed no DB trigger recomputes `invoices.amount` (only `set_updated_at` and the viewing-token
+  expiry trigger exist on the table), so the write had to come from the client.
+- Confirmed `amount` / `retention_amount` are plain numeric columns, not generated — ruling out a
+  schema-side computation.
+- SMOKE-VERIFIED ON THE BRANCH PREVIEW BY CHRIS before merge: Edit → Save on #10137 held at $87.50.
+  That is the exact path that broke it, run against the live database, on the fixed code.
+- Prod swept for all zero-line invoices (5 rows) — #10137 was the only damaged one.
+- Production Vercel deployment confirmed Ready after the merge push.
+
+NOT verified: the fix has not been exercised on prod since the deploy — Chris was told to hard-
+refresh before touching Edit again. The preview run is the real evidence and it used the same
+database, so this is a low-value gap, not an open question.
+
+
+NOT TOUCHED
+-----------
+- `qb-sync-invoice` — unchanged. Its release branch and the no-invoice_lines invariant it depends on
+  are exactly as they were; this session only stopped the client from violating the amount.
+- Everything in v169's NOT TOUCHED list still stands: `send-pay-app/index.ts:184`'s parallel latent
+  defect, B53, B46, F14.
+- B62 (QB → SC payment sync, ~$128k reading as outstanding) and B63 (retention aging card, blocked by
+  B62) did not move. B62 remains the largest open item in this repo.
+- B50 (deposit toggle doesn't zero retention until next save) is adjacent to the code touched here
+  and was left alone per [[feedback-stay-scoped]].
+- No migrations, no RLS, nothing in command-suite-db beyond borrowing its Supabase link to run the
+  two repair UPDATEs.
+
+
+NEXT SESSION POINTERS
+---------------------
+1. Nothing is pending on B65. If you want belt-and-braces, open #10137 on prod after a hard refresh
+   and do one Edit → Save; it should hold at $87.50. The preview run already proved the logic.
+2. #10137 is still a NEW, unsent draft for $87.50 — Mountain River's retention has been BILLED in
+   Sales Command but not sent to the customer and not synced to QuickBooks. That is a business
+   to-do, not an engineering one: Chris decides when it goes out.
+3. v169's pointer 1 is still open and unchanged — press Send on one sister proposal to exercise the
+   `send-proposal` allowlist. Use a TEST recipient. Failure mode is a loud 400 that writes nothing.
+4. v169's pointer 2 is DONE (B64 status line corrected this session). Pointer 3 (whether
+   `send-pay-app` gets the same treatment) is still an open business question.
+5. B62 remains the biggest open thing in this repo and did not move today.
+
+Rollback if needed: `git revert -m 1 02c3a08`. Reverting restores the zeroing bug — if you do,
+#10137 becomes editable-to-zero again.
+
+
+FILES TO KNOW
+-------------
+  src/pages/Invoices.jsx           — `handleSaveEdit` ~:1801, the no-lines preserve guard. Also
+                                     :1734 `isArchiveInvoice` (requires lines.length > 0, which is
+                                     why it missed this) and :1912 `handleBillRetention` (mints the
+                                     release invoice, header-only by design)
+  supabase/functions/qb-sync-invoice/index.ts:208 — the release branch that depends on release rows
+                                     having no invoice_lines; unchanged, but read it before touching
+                                     anything retention-release
+  docs/BACKLOG.md                  — B65 filed + closed; B64 status corrected
+  CLAUDE.md, Data Integrity rule #6 — the rule this bug is the third violation of. Worth re-reading
+                                     before adding any new invoice or line type.
+
+
+GIT STATE
+---------
+  main @ 8458156, pushed, live on prod.
+  Commits this session: 4b5024d → 02c3a08 (merge) → 8458156, plus this handoff.
+  Branch fix/retention-release-zeroed-on-edit: merged to main and pushed; local + origin copies
+  still present at close pending the branch-hygiene decision.
+  Working tree otherwise clean. No worktrees opened this session.
+  Seven parked worktree branches left intact by design, including fix/qb-payment-sync-back (the B62
+  spike marked DO NOT DEPLOY). feat/deposit-checkbox-fill is merged into main but still checked out
+  in its own worktree — flagged, not touched.
+  No PRs (direct merge).
+
+
+END STATE
+---------
+Merged, deployed, smoke-verified on preview, data repaired. Ready for a fresh session.

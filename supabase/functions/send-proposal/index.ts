@@ -45,7 +45,7 @@ serve(async (req) => {
     // Load proposal + call_log + customer + tenant config server-side
     const { data: proposal, error: propErr } = await supabase
       .from("proposals")
-      .select("id, proposal_number, signing_token, intro, tenant_id, call_log_id, call_log(customer_name, job_name, display_job_number, sales_name, customer_id)")
+      .select("id, proposal_number, signing_token, intro, tenant_id, call_log_id, customer_id, customer, call_log(customer_name, job_name, display_job_number, sales_name, customer_id)")
       .eq("id", proposalId)
       .maybeSingle();
 
@@ -86,8 +86,11 @@ serve(async (req) => {
       }
     }
 
-    // Validate recipient against customer_contacts for the proposal's customer
-    const customerId = proposal.call_log?.customer_id;
+    // Validate recipient against customer_contacts for the proposal's customer.
+    // Multi-GC: a sister proposal carries its own customer_id (the GC it was
+    // cloned to). Validating against the parent job's customer would reject
+    // every legitimate contact at the sister's GC.
+    const customerId = (proposal as any).customer_id || proposal.call_log?.customer_id;
     if (customerId) {
       const { data: contacts } = await supabase
         .from("customer_contacts")
@@ -120,7 +123,8 @@ serve(async (req) => {
     const companyName = config?.company_name || "Sales Command";
     const companyTagline = config?.tagline || "";
     const companyPhone = config?.phone || "";
-    const customerName = escapeHtml(recipientName || proposal.call_log?.customer_name || "Customer");
+    // proposals.customer is the sister's own GC name on a multi-GC clone.
+    const customerName = escapeHtml(recipientName || (proposal as any).customer || proposal.call_log?.customer_name || "Customer");
     const jobName = escapeHtml(proposal.call_log?.job_name || proposal.call_log?.display_job_number || "");
     const proposalNumber = escapeHtml(proposal.proposal_number || proposal.id);
     const emailIntro = proposal.intro || config?.default_proposal_intro || "";

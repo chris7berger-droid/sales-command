@@ -74,6 +74,9 @@ const [depositSaving, setDepositSaving] = useState(false);
 const [depositSaved, setDepositSaved] = useState(false);
 const [depositError, setDepositError] = useState(null);
 const [recipients, setRecipients] = useState([]);
+// Multi-GC sister: the GC this proposal was cloned to, when it differs from
+// the parent job's customer. null on ordinary proposals.
+const [gcCustomer, setGcCustomer] = useState(null);
 const [sendingToSchedule, setSendingToSchedule] = useState(false);
 const [sentToSchedule, setSentToSchedule] = useState(false);
 // Pre-send review modal (material_flow §5.2): holds the [K1]-validated snapshot
@@ -110,9 +113,14 @@ useEffect(() => {
 useEffect(() => {
   supabase.from("team_members").select("id, name").eq("active", true).order("name").then(({ data }) => setAllTeamMembers(data || []));
   supabase.from("proposal_recipients").select("*, customer_contacts(id, role, is_primary)").eq("proposal_id", p.id).order("created_at").then(({ data }) => setRecipients(data || []));
-  const custId = pInit.call_log?.customer_id;
+  // Multi-GC: a sister proposal carries its own customer_id (the GC it was
+  // cloned to). Fall back to the parent job's customer for ordinary proposals.
+  const custId = pInit.customer_id || pInit.call_log?.customer_id;
   if (custId) {
     supabase.from("customer_contacts").select("*").eq("customer_id", custId).order("is_primary", { ascending: false }).order("name").then(({ data }) => setCustomerContacts(data || []));
+  }
+  if (pInit.customer_id && pInit.customer_id !== pInit.call_log?.customer_id) {
+    supabase.from("customers").select("id, name, email, contact_email, business_address, business_city, business_state, business_zip").eq("id", pInit.customer_id).maybeSingle().then(({ data }) => setGcCustomer(data || null));
   }
   // Check if already sent to Schedule Command
   if (pInit.status === "Sold") {
@@ -371,12 +379,18 @@ async function deletePropAttachment(fullName) {
   }
 
   const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
-  const custId = p.call_log?.customer_id;
+  // Sister proposals resolve to their own GC; ordinary proposals to the job's customer.
+  const custId = p.customer_id || p.call_log?.customer_id;
+  const isSisterCustomer = !!(p.customer_id && p.customer_id !== p.call_log?.customer_id);
 
   async function savePrimaryEmail() {
     if (primaryDraft && !isValidEmail(primaryDraft)) { alert("Invalid email address"); return; }
     await supabase.from("customers").update({ email: primaryDraft, contact_email: primaryDraft }).eq("id", custId);
-    setP(prev => ({ ...prev, call_log: { ...prev.call_log, customers: { ...prev.call_log?.customers, email: primaryDraft, contact_email: primaryDraft } } }));
+    if (isSisterCustomer) {
+      setGcCustomer(prev => ({ ...(prev || { id: custId }), email: primaryDraft, contact_email: primaryDraft }));
+    } else {
+      setP(prev => ({ ...prev, call_log: { ...prev.call_log, customers: { ...prev.call_log?.customers, email: primaryDraft, contact_email: primaryDraft } } }));
+    }
     setEditingPrimary(false);
   }
 
@@ -1044,8 +1058,8 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20 }}>
             <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Recipients</div>
             {(() => {
-              const cust = p.call_log?.customers;
-              const custName = p.call_log?.customer_name || p.customer || "";
+              const cust = gcCustomer || p.call_log?.customers;
+              const custName = gcCustomer?.name || p.call_log?.customer_name || p.customer || "";
               const custEmail = cust?.contact_email || cust?.email || "";
               return (
                 <>

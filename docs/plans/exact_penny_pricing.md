@@ -32,6 +32,8 @@ Customers increasingly (≈2–3×/week, no customer-type pattern) pay the **exa
 
 ## §2 The rule [LOCKED]
 
+> **⚠️ SUPERSEDED IN PART — see "Amendment 2026-07-28 (post-ship): the exact-penny window is closed" at the end of this doc.** The rule below is now the *opening* bound of a closed window; proposals quoted on/after midnight Central 2026-07-29 round UP again. Everything else in §2 still holds.
+
 A proposal prices to the **exact penny** iff its **pricing era** `>= 2026-06-26T12:00:00-05:00` (noon Central). The pricing era is `pricing_anchor_at ?? created_at` — normally `created_at`, but a multi-GC clone inherits the **source's** era via `pricing_anchor_at` (§3.5.1). Otherwise it rounds up (`Math.ceil`), exactly as today.
 
 - **[LOCKED] Trigger is `created_at`, an immutable field** — NOT `status`/`sent_at`. Mutable triggers break consistency: the app freezes price at Lock (status `Draft`) but recomputes the invoice live later (status `Sent`), so a status-based rule would freeze exact and bill ceil — re-creating the exact bug. `created_at` never changes, so preview, freeze, invoice, PDF, and snapshot always agree.
@@ -327,3 +329,86 @@ Cross-tenant findings cap at Med (live_tenants == 1). Multi-user race findings c
 ### Suggested agent count: 3
 
 Rationale: a genuinely NEW schema/migration layer (`pricing_anchor_at` + clone RPC; irreversibility no longer none) earns a dedicated agent; the doubled-coverage + warn-convergence is the core verification; MultiGC + line-sum is the calc surface. 3 holds — not 2 (the migration is too distinct from coverage to merge) and not 4 (no cross-repo READ, 0 open questions). **Plateau guard:** round 3 is plateau-prone — if findings don't drop ≥30% (>6 in-cap), `/runaudit` MUST present the scope-cut (defer `pricing_anchor_at` migration + MultiGC to their own loop) as the ONLY build option, not another expansion.
+
+---
+
+## Amendment 2026-07-28 (post-ship): the exact-penny window is closed
+
+**Status: shipped on `fix/proposal-pdf-rounding`.** This amendment does not edit any
+[LOCKED] section above — it records what was learned after that plan shipped and
+what changed as a result.
+
+### What this plan got wrong
+
+§1 [LOCKED] named the round-up as the defect: "the round-up is an artifact of
+`Math.ceil` … not a contractual amount." That framing rested on an unexamined
+assumption — that the customer was looking at the un-rounded number. Nobody asked
+*where* the customer saw it.
+
+They saw it on the proposal PDF. `ProposalPDFModal.jsx` computed its own total by
+hand (`totals.labor + totals.materials + totals.travel - totals.discount`) instead
+of calling `calcWtcPrice`, so the customer-facing document printed the raw pre-ceil
+sum while the invoice billed the ceil'd figure. `git log -L` confirms that line was
+never touched — it dates to the original component extraction (`b969309`), predating
+this plan, and the ~15 call-site rewires in §3.2 missed it because it never called
+into `calc.js` at all.
+
+So §1's "confirmed root fact" was a true observation with the causation inverted:
+the customer paid the pre-ceil total **because that is the number we printed for
+them**. The billed side was never the broken side.
+
+### What changed
+
+1. **`ProposalPDFModal` prints the canonical price.** Proposal total and each work
+   type line now come from `calcWtcPrice(wtc, undefined, exact)` — the same figure
+   Invoices, SOV, and ProposalDetail use. The printed Subtotal is derived from the
+   rounded total (`proposalPrice + discount`) so `Subtotal − Discount = Total` on
+   the page instead of being off by the per-WTC rounding.
+2. **Cents print whenever the price has cents.** The job-level `show_cents`
+   checkbox no longer suppresses them on penny-priced proposals (PDF + public
+   signing page). Hiding cents on a penny-priced job put a rounded number in front
+   of a customer that was not the number we would bill — the same class of defect
+   this plan set out to fix, pointed the other way.
+3. **Exact-penny pricing became a closed window.** `usesExactPricing` now returns
+   true only for eras in `[EXACT_PRICING_CUTOFF, EXACT_PRICING_END)`.
+   `EXACT_PRICING_END = 2026-07-29T00:00:00-05:00`. Outside the window, round UP.
+
+### Why round-up is the going-forward default
+
+With the PDF fixed, round-up is coherent: the customer signs the rounded number and
+is billed the rounded number. It is also the house preference — whole-dollar
+customer-facing figures, with exact change the rare exception (ratified 2026-07-28).
+
+### Why the window is closed rather than deleted
+
+Proposals quoted between 6/26 and 7/29 were quoted, sent, and in some cases signed
+at penny-exact prices. Repricing them would change contract amounts on committed
+work. They keep penny pricing permanently — a ~1-month cohort that will print cents
+forever. That is the accepted cost of not touching signed work.
+
+`EXACT_PRICING_END` is midnight Central 7/29 rather than midnight 7/28 for the same
+reason at day scale: two proposals were quoted on 7/28 and one was already **Sent**
+to a customer at $27,443.47. An earlier boundary would have repriced a proposal
+already in a customer's hands.
+
+### Consequences for the rest of this plan
+
+- **B61 is retired, not fixed.** It existed only because round-up was considered
+  wrong for a revived pre-cutoff proposal. Round-up is now correct for that
+  proposal, so the manual `pricing_anchor_at` re-anchor is no longer needed.
+- **`pricing_anchor_at` keeps its job and gains one.** It still carries clone era
+  inheritance (§3.5.1). It is also the hook for the deferred per-job "bill to the
+  exact penny" switch: anchoring a proposal inside the closed window opts it back
+  into penny pricing with no new column and no new call-site sweep.
+- **The doubled SELECT-coverage contract (`PROPOSAL_ERA`) still stands unchanged.**
+  The window narrows what the era *means*, not which columns must be selected.
+
+### Deferred (not built)
+
+A per-job **"Bill to the exact penny"** switch. Job-level only — a customer-level
+default was considered and rejected 2026-07-28 (the need is rare and not a standing
+trait of any GC). When built, it must freeze at approval/signing so toggling it
+cannot move money on work already under contract, and it should reuse
+`pricing_anchor_at` rather than add a column. The existing `call_log.show_cents`
+checkbox is display-only and should be relabeled or absorbed at that time — today
+it reads as if it controls money, and it does not.

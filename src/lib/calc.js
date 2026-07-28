@@ -2,13 +2,35 @@
 // Single source of truth. Used by WTCCalculator, Proposals, Invoices,
 // and PublicSigningPage. Do NOT duplicate these in component files.
 
-// ── Exact-penny pricing (§exact_penny_pricing plan) ─────────────────────
-// Proposals whose pricing era is at/after noon Central 2026-06-26 bill to the
-// exact penny (Math.round to cent). Everything created before keeps the legacy
-// round-UP (Math.ceil). The era is `pricing_anchor_at ?? created_at`: normally
-// created_at, but a multi-GC clone inherits its SOURCE's era via
-// pricing_anchor_at so a clone never silently flips ceil↔exact.
+// ── Exact-penny pricing (§exact_penny_pricing plan, amended 2026-07-28) ──
+// Exact-penny pricing is a WINDOW, not an open-ended era. A proposal bills to
+// the exact penny (Math.round to cent) iff its pricing era falls in
+// [EXACT_PRICING_CUTOFF, EXACT_PRICING_END). Outside that window — before it or
+// after it — pricing rounds UP to the whole dollar (Math.ceil).
+//
+// Why the window closed: the 6/26 change treated round-UP as the defect, but the
+// real defect was that the customer-facing proposal PDF printed its own raw,
+// un-rounded sum (ProposalPDFModal computed the total by hand instead of using
+// calcWtcPrice) while the invoice billed the rounded figure. Customers paid what
+// the proposal said and came up cents short. With the PDF fixed to print the
+// same number the invoice bills, round-UP is coherent again — and it is the
+// house preference for customer-facing numbers.
+//
+// The window is CLOSED, not deleted: proposals quoted between 6/26 and 7/29 were
+// quoted, sent, and in some cases signed at penny-exact prices. Moving them now
+// would change contract amounts on committed work. They keep penny pricing
+// forever.
+//
+// The era is `pricing_anchor_at ?? created_at`: normally created_at, but a
+// multi-GC clone inherits its SOURCE's era via pricing_anchor_at so a clone
+// never silently flips ceil↔exact. That field is also the hook for a future
+// per-job "bill to the exact penny" switch — anchoring a proposal inside the
+// window opts it back into penny pricing without a new column.
 export const EXACT_PRICING_CUTOFF = Date.parse("2026-06-26T12:00:00-05:00");
+// Midnight Central 2026-07-29 — deliberately AFTER the two proposals quoted on
+// 7/28 (one already Sent to a customer at $27,443.47). An earlier boundary would
+// have repriced a proposal already in a customer's hands.
+export const EXACT_PRICING_END = Date.parse("2026-07-29T00:00:00-05:00");
 
 // Shared SELECT fragment — the pricing-era columns. Splice into EVERY
 // `from("proposals").select(...)` and `proposals(...)` embed so the column set
@@ -46,7 +68,7 @@ export function usesExactPricing(proposal) {
     }
     return false;
   }
-  return ts >= EXACT_PRICING_CUTOFF;
+  return ts >= EXACT_PRICING_CUTOFF && ts < EXACT_PRICING_END;
 }
 
 // Round a raw dollar figure: exact → nearest cent (kills float dust), legacy →

@@ -2,11 +2,17 @@ import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fmt$, fmt$c } from "../lib/utils";
-import { calcLabor, calcMaterialRow, calcTravel } from "../lib/calc";
+import { calcWtcPrice, usesExactPricing } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 
 function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove }) {
-  const money = proposal.call_log?.show_cents ? fmt$c : fmt$;
+  const exactPricing = usesExactPricing(proposal);
+  // Cents are shown whenever the price HAS cents — i.e. penny-priced proposals
+  // (the 6/26–7/29 window) always print them, regardless of the job's checkbox.
+  // Hiding them would put a rounded number in front of the customer that isn't
+  // the number we bill. Round-up proposals are whole dollars already, so the
+  // checkbox stays meaningful only for legacy jobs that want .00 spelled out.
+  const money = (proposal.call_log?.show_cents || exactPricing) ? fmt$c : fmt$;
   const [wtcs, setWtcs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("preview");
@@ -147,27 +153,21 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
     load();
   }, [proposal.id]);
 
-  // Aggregate totals across all WTCs
-  const totals = wtcs.reduce((acc, wtc) => {
-    const labor = calcLabor({
-      regular_hours:  wtc.regular_hours  || 0,
-      ot_hours:       wtc.ot_hours       || 0,
-      markup_pct:     wtc.markup_pct     || 0,
-      burden_rate:    wtc.prevailing_wage ? (wtc.pw_rate || 0) : (wtc.burden_rate || 0),
-      ot_burden_rate: wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0),
-    });
-    const mats = (wtc.materials || []).reduce((s, i) => s + calcMaterialRow(i), 0);
-    const trav = calcTravel(wtc.travel);
-    const disc = wtc.discount || 0;
-    return {
-      labor:     acc.labor    + labor.total,
-      materials: acc.materials + mats,
-      travel:    acc.travel   + trav,
-      discount:  acc.discount + disc,
-    };
-  }, { labor: 0, materials: 0, travel: 0, discount: 0 });
+  // Only the discount is aggregated here — it's the one figure the PDF prints
+  // on its own line. Labor/materials/travel are no longer summed separately:
+  // every printed dollar now derives from calcWtcPrice so the page can't
+  // disagree with the invoice.
+  const totals = wtcs.reduce(
+    (acc, wtc) => ({ discount: acc.discount + (wtc.discount || 0) }),
+    { discount: 0 }
+  );
 
-  const proposalPrice = totals.labor + totals.materials + totals.travel - totals.discount;
+  // The price the customer signs MUST be the price we invoice. Sum the SAME
+  // per-WTC figure Invoices/SOV/ProposalDetail use (calcWtcPrice, which applies
+  // the era's rounding per work type) — never a hand-rolled raw sum here. This
+  // line printing its own un-rounded total, while the invoice billed the rounded
+  // one, is what made customers pay cents short and triggered the 6/26 work.
+  const proposalPrice = wtcs.reduce((s, w) => s + calcWtcPrice(w, undefined, exactPricing), 0);
 
   // Combine all Sales SOWs
   const combinedSOW = wtcs
@@ -328,15 +328,9 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
                   </div>
                 ) : (
                   wtcs.filter(w => (w.sales_sow || "").trim()).map((wtc, i, arr) => {
-                    const wtcLabor = calcLabor({
-                      regular_hours: wtc.regular_hours || 0, ot_hours: wtc.ot_hours || 0,
-                      markup_pct: wtc.markup_pct || 0,
-                      burden_rate: wtc.prevailing_wage ? (wtc.pw_rate || 0) : (wtc.burden_rate || 0),
-                      ot_burden_rate: wtc.prevailing_wage ? (wtc.pw_ot_rate || 0) : (wtc.ot_burden_rate || 0),
-                    });
-                    const wtcMats = (wtc.materials || []).reduce((s, item) => s + calcMaterialRow(item), 0);
-                    const wtcTrav = calcTravel(wtc.travel);
-                    const wtcTotal = wtcLabor.total + wtcMats + wtcTrav - (wtc.discount || 0);
+                    // Same per-WTC figure the invoice bills, so the printed work
+                    // type lines add up to the printed Proposal Total exactly.
+                    const wtcTotal = calcWtcPrice(wtc, undefined, exactPricing);
                     return (
                       <div key={wtc.id} style={{ marginBottom: i < arr.length - 1 ? 24 : 0 }}>
                         {arr.length > 1 && (
@@ -366,7 +360,11 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
                 <div style={{ border: "2px solid #30cfac", borderRadius: 8, padding: "14px 20px", marginBottom: 28 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#4a4238", letterSpacing: "0.08em", textTransform: "uppercase" }}>Subtotal</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#1c1814" }}>{money(totals.labor + totals.materials + totals.travel)}</div>
+                    {/* Derived from the rounded total, not the raw component sum,
+                        so Subtotal − Discount = Proposal Total on the printed page.
+                        A raw subtotal is off by the per-WTC rounding and reads as
+                        an arithmetic error to the customer. */}
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#1c1814" }}>{money(proposalPrice + totals.discount)}</div>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#1c1814", letterSpacing: "0.08em", textTransform: "uppercase" }}>

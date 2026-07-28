@@ -1,0 +1,197 @@
+SC_Handoff_v168 — Proposal PDF printed a different total than the invoice billed (root cause of the 6/26 exact-penny work); exact-penny window closed
+====================================================================================================================================================
+Date: 2026-07-28
+Repo/branch: sales-command @ fix/proposal-pdf-rounding (pushed to origin, NOT merged to main, NOT deployed)
+Prior: v167 (white-free checkbox sweep, shipped). Mode: build (opus 5). Work origin: user bug report.
+Session ended early by design — Chris explicitly declined smoke testing and moved to a different bug.
+
+
+SESSION SUMMARY
+---------------
+Chris asked why the PDF coming out of the WTC wizard was rounding, said he didn't want it to, and
+that if rounding was deliberate it should round UP.
+
+It was rounding for two unrelated reasons, and chasing the second one turned up the root cause of
+the 2026-06-26 exact-penny project.
+
+`ProposalPDFModal.jsx` computed the customer-facing proposal total by hand —
+`totals.labor + totals.materials + totals.travel - totals.discount` — instead of calling
+`calcWtcPrice`. `git log -L170,170` shows that line has never been modified since the file was
+created in b969309 (the v52 component extraction), predating the exact-penny plan. Because it never
+called into `calc.js`, the plan's ~15 call-site rewires walked past it.
+
+Consequence: the customer-facing PDF printed the raw PRE-ceil sum while the invoice billed the
+CEIL'd figure. That is precisely the complaint §1 of `docs/plans/exact_penny_pricing.md` was written
+to solve — "customers pay the exact contract amount ≈2–3×/week while we billed the rounded-up
+figure." The plan read that as evidence the round-UP was wrong and removed it from the billed side.
+The causation was inverted: customers paid the un-rounded amount BECAUSE THAT IS THE NUMBER WE
+PRINTED FOR THEM. The billed side was never the broken side.
+
+With the PDF fixed to print the number it bills, round-UP is coherent again and is Chris's stated
+preference for customer-facing figures. So exact-penny pricing was converted from an open-ended era
+into a CLOSED WINDOW rather than being left in place.
+
+
+CHANGES SHIPPED (this session)
+------------------------------
+1 commit, on branch only:
+
+  e24173f  Fix proposal PDF printing a different total than the invoice bills
+
+    src/components/ProposalPDFModal.jsx
+      - Proposal total is now `wtcs.reduce(sum + calcWtcPrice(w, undefined, exactPricing))` — the
+        same per-WTC figure Invoices / SOV / ProposalDetail use. Was a hand-rolled raw sum.
+      - Per-work-type line totals switched from a local calcLabor/calcMaterialRow/calcTravel
+        recompute to `calcWtcPrice`, so printed lines sum EXACTLY to the printed total.
+      - Printed Subtotal now derives from the rounded total (`proposalPrice + totals.discount`)
+        instead of the raw component sum, so `Subtotal − Discount = Proposal Total` on the page.
+        A raw subtotal is off by the per-WTC rounding and reads as an arithmetic error to a customer.
+      - `money` formatter shows cents when the job's `show_cents` is ticked OR the proposal is
+        penny-priced. Hiding cents on a penny-priced job printed a number we would not bill.
+      - The `totals` reduce collapsed to discount-only; labor/materials/travel aggregation deleted
+        (every printed dollar now derives from calcWtcPrice). Dropped now-unused calc imports.
+
+    src/pages/PublicSigningPage.jsx
+      - Same display defect on the page the customer actually SIGNS. `cents` is now
+        `show_cents || total % 1 !== 0`. Deliberately keyed off the authoritative `proposal.total`
+        having a fractional part rather than re-deriving the era — this page intentionally does no
+        client-side recompute (Audit H6) and that stays true.
+
+    src/lib/calc.js
+      - NEW `EXACT_PRICING_END = Date.parse("2026-07-29T00:00:00-05:00")`.
+      - `usesExactPricing` → `ts >= EXACT_PRICING_CUTOFF && ts < EXACT_PRICING_END`.
+      - Header comment rewritten to explain the window, why it closed, and why it is closed rather
+        than deleted.
+
+    docs/plans/exact_penny_pricing.md
+      - Appended "Amendment 2026-07-28 (post-ship): the exact-penny window is closed". No [LOCKED]
+        section was edited; a visible SUPERSEDED-IN-PART pointer was added at the top of §2 so a
+        reader of the locked rule is not misled.
+
+    docs/BACKLOG.md
+      - New Last-updated entry. B61 retired. F41 filed.
+
+
+DEPLOYED
+--------
+NOTHING. Branch is pushed to origin only. No merge to main, so no Vercel deploy. No edge functions,
+no migrations, no DB writes, no secrets. The DB was READ ONLY this session (two SELECTs via the
+Supabase MCP to check what was quoted on 7/28).
+
+
+DECISIONS / CHOICES MADE
+------------------------
+- Round UP going forward, not penny-exact (Chris ratified). Chris's own framing broke the problem
+  open: "if the proposal had been originally sent out at 37,155, that whole problem goes away,
+  correct?" — correct, and it relocated the defect from the invoice to the PDF.
+- The window CLOSES rather than the era being deleted. Proposals quoted 6/26–7/29 were quoted, sent,
+  and in some cases signed at penny-exact prices; repricing them would move contract amounts on
+  committed work. That ~1-month cohort prints cents permanently. Accepted cost.
+- `EXACT_PRICING_END` is midnight Central 7/29, NOT midnight 7/28. Checked the DB first: two
+  proposals were quoted on 7/28 and one was already status=Sent to a customer at $27,443.47
+  (id 72572e85-98ae-476d-8067-ee5c3494fb69). A same-morning boundary would have repriced a proposal
+  already in a customer's hands. Cost of the later boundary: anything quoted the evening of 7/28
+  still prices to the penny.
+- Considered and REJECTED: making `call_log.show_cents` the real money switch. It would need a
+  per-proposal mode column + backfill (a job can carry proposals from both eras — mixed archive +
+  live jobs), the same ~15-site SELECT-coverage sweep the 6/26 work took 3 audit rounds to get
+  right, and a write in both the approval path and the `mark_proposal_signed` RPC. Half a day-plus
+  and a shared-DB migration versus one constant. Deferred as F41.
+- Customer-level default for exact-change REJECTED (Chris): the need is rare and not a standing
+  trait of any GC; "the trend is more often to rounding." Job-level only when built.
+- Fixed the public signing page unasked. Out of the literal ask ("PDF in my WTC wizard") but it is
+  the identical defect on the document the customer signs — one line, same class, same session.
+- Multi-GC markup override deliberately NOT threaded into the PDF price
+  (`calcWtcPrice(w, undefined, exact)`). That matches ProposalDetail and Invoices exactly. Passing
+  the override here would have partially fixed B53 in one surface and created a NEW
+  PDF-vs-stored-total mismatch. Left alone; B53 remains open and owns that.
+
+
+NEW BACKLOG ITEMS
+-----------------
+- F41 (T3, Lev 4 · Eff half-day) — per-job "Bill to the exact penny" switch, replacing the
+  display-only `show_cents` checkbox. Must reuse `proposals.pricing_anchor_at` (no new column,
+  no new SELECT sweep), must freeze the mode at approval/signing so toggling cannot move money on
+  work under contract, and should relabel/absorb `show_cents` so one control means one thing.
+
+
+CLOSED THIS SESSION
+-------------------
+- B61 RETIRED, not fixed — the desired behavior inverted underneath it. It existed only because
+  round-UP was considered wrong when re-approving a pulled-back pre-cutoff proposal. Round-UP is now
+  correct for that proposal and for all new work, so the manual `pricing_anchor_at` re-anchor
+  workaround is obsolete. Original row text preserved in BACKLOG for history.
+
+
+VERIFICATION
+------------
+- `npm run build` passes clean (360ms).
+- Boundary behavior checked by importing `src/lib/calc.js` directly in node and evaluating
+  `usesExactPricing` + `roundPrice(37154.09, …)` across the window edges:
+    pre-6/26            → round UP   → 37155
+    in-window 7/13      → exact      → 37154.09
+    7/28 13:34 (Sent)   → exact      → 37154.09   (the live Sent proposal does NOT move)
+    7/28 23:59          → exact      → 37154.09
+    7/29 08:00          → round UP   → 37155
+    2026-08-15          → round UP   → 37155
+    clone anchored into window       → true  (multi-GC inheritance intact)
+    missing era                      → false (safe default preserved)
+- Confirmed the rounding rule lives in exactly ONE place: only `calc.js:11` and `calc.js:49`
+  reference `EXACT_PRICING_CUTOFF`, and nothing in `supabase/functions/` or `command-suite-db`
+  reimplements it (the 6/26 migration only COPIES `pricing_anchor_at` for clones).
+- Confirmed no server-side total: `send-proposal` emails a link only, no dollar figure;
+  `proposal-signed` contains no total/format logic. The PDF is client-rendered, so the two surfaces
+  changed here (PDF modal + signing page) are the complete customer-facing set.
+
+  *** NOT SMOKE-TESTED IN A BROWSER. Chris explicitly declined. No proposal PDF was opened, no
+      signing page loaded, no preview deploy created. Everything above is build- and
+      code-verified only. ***
+
+
+NOT TOUCHED
+-----------
+- No migrations, no edge functions, no RLS, no secrets. Nothing in command-suite-db.
+- B52 (multi-invoice cumulative 1¢ drift) and B53 (override-sister mispricing ignores per-GC markup)
+  — both still open, both pre-existing, both adjacent to this code. Not in scope.
+- `WTCCalculator.jsx`'s own `PDFPreviewModal` / `CustomerSigningPage` (lines ~1417, ~1607). They
+  already use `roundPrice` + a 2-decimal formatter and are not the surface Chris sees — the wizard's
+  "Generate Proposal PDF" button closes the wizard and hands off to `ProposalPDFModal`
+  (ProposalDetail.jsx:838, `onClose(true)`). Left alone.
+- Invoice-side display rounding. `Invoices.jsx` still uses `invoice.show_cents ? fmt$c : fmt$`, so a
+  whole-dollar-display invoice can still PRINT a rounded figure while charging the exact stored
+  amount. Pre-existing, not in scope, and much smaller now that new work is whole-dollar priced —
+  but it is the same class of bug and F41 should sweep it.
+
+
+NEXT SESSION POINTERS
+---------------------
+1. THIS BRANCH IS UNMERGED AND UNVERIFIED. `fix/proposal-pdf-rounding` is pushed but not on main and
+   not deployed. It changes money that customers see. Before merging: open a real proposal PDF on a
+   preview deploy and confirm (a) work-type lines sum to the total, (b) Subtotal − Discount = Total
+   on a discounted proposal, (c) a 6/26–7/29 proposal prints cents, (d) a proposal created 7/29+
+   prints whole dollars and matches its invoice.
+2. Chris moved to a different bug immediately after this — that work is NOT in this handoff.
+3. If someone later asks "why do these ~1 month of jobs show cents when nothing else does" — that is
+   the closed exact-penny window, and it is deliberate. See the amendment in
+   `docs/plans/exact_penny_pricing.md`, not just the [LOCKED] §2 rule, which is superseded in part.
+4. The lesson worth carrying: the 6/26 plan's [LOCKED] §1 "confirmed root fact" was a true
+   observation with the causation backwards, and three audit rounds never questioned it because
+   nobody asked WHERE the customer was reading the number. The audits verified the plan; they could
+   not verify the premise.
+
+
+FILES TO KNOW
+-------------
+  src/lib/calc.js                        — EXACT_PRICING_CUTOFF / EXACT_PRICING_END / usesExactPricing / roundPrice / calcWtcPrice
+  src/components/ProposalPDFModal.jsx    — the customer-facing proposal PDF (the surface that was wrong)
+  src/pages/PublicSigningPage.jsx        — the page the customer signs (same defect, also fixed)
+  src/components/CallLogDetail.jsx:596   — the display-only "Show cents" checkbox (F41 will absorb it)
+  docs/plans/exact_penny_pricing.md      — original plan + "Amendment 2026-07-28" at the end
+  docs/BACKLOG.md                        — B61 retired, F41 filed
+
+
+GIT STATE
+---------
+  branch fix/proposal-pdf-rounding @ e24173f, pushed to origin, tracking set.
+  main untouched @ 15fdcc2. Working tree clean apart from this handoff.
+  PR not opened. Merge is the outstanding action.

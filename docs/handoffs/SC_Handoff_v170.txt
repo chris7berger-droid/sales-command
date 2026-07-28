@@ -62,8 +62,10 @@ command-suite-db (the Supabase MCP is read-only and refused the write).
   Both UPDATEs were guarded on id + amount=0 + retention_release_of='10104' + status='New' +
   sent_at IS NULL + qb_invoice_id IS NULL + not voided/deleted, so they could only ever touch the
   one damaged draft row.
-  The 8/21 due date Chris set during his edit was preserved. #10137 is still New / unsent / not
-  QB-synced, so no downstream (QB, Stripe, customer email) correction was needed.
+  The 8/21 due date Chris set during his edit was preserved. At the time of both repairs #10137 was
+  still New / unsent / not QB-synced, so no downstream (QB, Stripe, customer email) correction was
+  needed. Chris then sent it at 22:19 on the fixed code, at the correct $87.50 — it is now Sent,
+  QB id 148111, and verified correct in QuickBooks (see NEXT SESSION POINTERS #2).
 
 BLAST RADIUS — swept prod for every invoice with zero `invoice_lines`. Five rows total:
   #10137 ($87.50, release of #10104) — the ONLY casualty, repaired
@@ -156,9 +158,13 @@ NEXT SESSION POINTERS
 ---------------------
 1. Nothing is pending on B65. If you want belt-and-braces, open #10137 on prod after a hard refresh
    and do one Edit → Save; it should hold at $87.50. The preview run already proved the logic.
-2. #10137 is still a NEW, unsent draft for $87.50 — Mountain River's retention has been BILLED in
-   Sales Command but not sent to the customer and not synced to QuickBooks. That is a business
-   to-do, not an engineering one: Chris decides when it goes out.
+2. #10137 is DONE — Chris sent it at 22:19 and it synced to QuickBooks (QB id 148111). Verified in
+   QB directly at session close per [[qb-reconcile-query-qb-directly]]: DocNumber 10137, TotalAmt
+   $87.50, Balance $87.50 open, txn date 2026-07-28, due 2026-08-21, booked to sub-customer
+   "7438 - Mountain River Construction - 6055 Lancer St - Clean & Seal", ONE line on item
+   "1121- Retention %" (description "Retention release", qty 1 @ $87.50). That is the correct
+   retention item, so the held $87.50 moves out of the Other Current Asset account into A/R as
+   designed. Nothing outstanding on this invoice but the customer paying it.
 3. v169's pointer 1 is still open and unchanged — press Send on one sister proposal to exercise the
    `send-proposal` allowlist. Use a TEST recipient. Failure mode is a loud 400 that writes nothing.
 4. v169's pointer 2 is DONE (B64 status line corrected this session). Pointer 3 (whether

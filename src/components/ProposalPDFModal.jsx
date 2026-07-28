@@ -24,6 +24,8 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
   const [contacts, setContacts] = useState([]);
   const [signerEmail, setSignerEmail] = useState("");
   const [viewerEmails, setViewerEmails] = useState([]);
+  // Multi-GC sister: the GC this proposal was cloned to. null on ordinary proposals.
+  const [gcCustomer, setGcCustomer] = useState(null);
 
   useEffect(() => {
     getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url, proposalEmailIntro: cfg.default_proposal_email_intro || "", proposal_validity_days: cfg.proposal_validity_days || 90 }));
@@ -33,22 +35,39 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
         if (data) setRepContact({ phone: data.phone || "", email: data.email || "" });
       });
     }
-    // Load customer contacts
-    const custId = proposal.call_log?.customer_id;
-    const primaryEmail = proposal.call_log?.customers?.contact_email || proposal.call_log?.customers?.email || "";
-    const primaryName = proposal.call_log?.customer_name || proposal.customer || "";
-    const allContacts = [];
-    if (primaryEmail) allContacts.push({ name: primaryName, email: primaryEmail, role: "Primary", isPrimary: true });
-    if (custId) {
-      supabase.from("customer_contacts").select("*").eq("customer_id", custId).order("created_at").then(({ data }) => {
+    // Load customer contacts. Multi-GC: a sister proposal carries its own
+    // customer_id (the GC it was cloned to), so the recipient list and the
+    // default signer must come from THAT customer — not the parent job's.
+    const isSister = !!(proposal.customer_id && proposal.customer_id !== proposal.call_log?.customer_id);
+    const custId = proposal.customer_id || proposal.call_log?.customer_id;
+    (async () => {
+      let gcCust = null;
+      if (isSister) {
+        const { data } = await supabase
+          .from("customers")
+          .select("id, name, email, contact_email, business_address, business_city, business_state, business_zip")
+          .eq("id", proposal.customer_id)
+          .maybeSingle();
+        gcCust = data || null;
+        setGcCustomer(gcCust);
+      }
+      const primaryEmail = isSister
+        ? (gcCust?.contact_email || gcCust?.email || "")
+        : (proposal.call_log?.customers?.contact_email || proposal.call_log?.customers?.email || "");
+      const primaryName = isSister
+        ? (gcCust?.name || proposal.customer || "")
+        : (proposal.call_log?.customer_name || proposal.customer || "");
+      const allContacts = [];
+      if (primaryEmail) allContacts.push({ name: primaryName, email: primaryEmail, role: "Primary", isPrimary: true });
+      if (custId) {
+        const { data } = await supabase.from("customer_contacts").select("*").eq("customer_id", custId).order("created_at");
         const extra = (data || []).filter(c => c.email && c.email !== primaryEmail).map(c => ({ name: c.name, email: c.email, role: c.role }));
         setContacts([...allContacts, ...extra]);
-        if (primaryEmail) setSignerEmail(primaryEmail);
-      });
-    } else {
-      setContacts(allContacts);
+      } else {
+        setContacts(allContacts);
+      }
       if (primaryEmail) setSignerEmail(primaryEmail);
-    }
+    })();
   }, []);
   const signingUrl = `https://salescommand.app/sign/${proposal.signing_token}`;
 
@@ -100,7 +119,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
         body: {
           proposalId: proposal.id,
           recipientEmail: signerEmail,
-          recipientName: signerContact?.name || proposal.call_log?.customer_name || "Customer",
+          recipientName: signerContact?.name || gcCustomer?.name || proposal.call_log?.customer_name || "Customer",
         },
       });
       if (fnError) throw new Error(fnError.message || "Send failed.");
@@ -289,14 +308,20 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
                 <div style={{ flex: 1, minWidth: 0, paddingRight: 24 }}>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Prepared For</div>
                   <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{proposal.customer || "—"}</div>
-                  {proposal.call_log?.customers?.business_address && (
-                    <div style={{ fontSize: 11, fontWeight: 400, color: "#887c6e", marginTop: 2, lineHeight: 1.7 }}>
-                      {proposal.call_log.customers.business_address}
-                      {proposal.call_log.customers.business_city ? ", " + proposal.call_log.customers.business_city : ""}
-                      {proposal.call_log.customers.business_state ? ", " + proposal.call_log.customers.business_state : ""}
-                      {proposal.call_log.customers.business_zip ? " " + proposal.call_log.customers.business_zip : ""}
-                    </div>
-                  )}
+                  {(() => {
+                    // "Prepared For" is the proposal's own customer — the GC on a
+                    // multi-GC sister, the job's customer otherwise.
+                    const preparedFor = gcCustomer || proposal.call_log?.customers;
+                    if (!preparedFor?.business_address) return null;
+                    return (
+                      <div style={{ fontSize: 11, fontWeight: 400, color: "#887c6e", marginTop: 2, lineHeight: 1.7 }}>
+                        {preparedFor.business_address}
+                        {preparedFor.business_city ? ", " + preparedFor.business_city : ""}
+                        {preparedFor.business_state ? ", " + preparedFor.business_state : ""}
+                        {preparedFor.business_zip ? " " + preparedFor.business_zip : ""}
+                      </div>
+                    );
+                  })()}
                   {proposal.call_log?.jobsite_address && (
                     <div style={{ marginTop: 14 }}>
                       <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Jobsite Address</div>

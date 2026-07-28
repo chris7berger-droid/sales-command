@@ -437,14 +437,18 @@ export default function PublicSigningPage() {
 
   const jobName = proposal.call_log?.job_name || proposal.call_log?.display_job_number || "Proposal";
   const customerName = proposal.call_log?.customer_name || "";
-  const cents = proposal.call_log?.show_cents;
-  const fmt = n => n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
-
   // Audit H6: grand total comes from proposal.total (the authoritative
   // value handleLock() wrote when the proposal was locked). No client
   // recompute — the customer sees exactly the number the internal app
   // computed, with zero risk of drift from a SQL/JS calc divergence.
   const total = proposal.total || 0;
+
+  // This is the number the customer signs, so it is never rounded for display:
+  // if the authoritative total carries cents (penny-priced proposals), print
+  // them whether or not the job ticked "show cents". Round-up proposals are
+  // whole dollars already and are unaffected.
+  const cents = proposal.call_log?.show_cents || total % 1 !== 0;
+  const fmt = n => n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
 
   const wtcs = wtc || [];
 

@@ -1,0 +1,195 @@
+SC_Handoff_v169 — Multi-GC sister proposals were showing (and would have failed sending to) the parent job's GC; RFP # made optional
+==================================================================================================================================
+Date: 2026-07-28
+Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (merges 8393606, dd419bd)
+Prior: v168 (proposal PDF rounding + exact-penny window closed). Mode: build (opus 5). Work origin: user bug report.
+This is the "different bug" v168's pointer 3 said was not captured in that handoff.
+
+
+SESSION SUMMARY
+---------------
+Chris reported that on job 10220 (Boys & Girls Club Commercial Kitchen — Urethane Cement), the
+sister proposal cloned to Peerless Construction still had KalB Construction wired into its
+recipients.
+
+The data was correct. Every read of it was wrong.
+
+`clone_proposal_to_gcs` had done its job: the sister carries its own `proposals.customer_id`
+(Peerless), its own `proposals.customer` ("Peerless Construction, Ltd"), and the right
+`proposal_recipients` row (Vince Mack, vince@peerlessconst.com, signer). But `MultiGCWizard.jsx:126`
+was the ONLY consumer in the entire codebase reading `proposals.customer_id`. Every other surface
+resolved the customer as `call_log.customer_id` — which is permanently the parent GC, by design.
+
+The visible symptom was cosmetic. The one underneath it was not: `send-proposal` validated the
+recipient against the PARENT customer's contacts, so sending a sister proposal to any genuine
+contact at its own GC would have been rejected 400 "Recipient email not associated with this
+customer." Sister sends were hard-blocked, not merely mis-defaulted. Nobody had hit it because
+nobody had sent one.
+
+Four sites fixed to `proposals.customer_id ?? call_log.customer_id`. Merged and deployed at Chris's
+explicit instruction. Chris then asked for the Multi-GC wizard's RFP # to stop being required;
+shipped as a separate commit.
+
+
+CHANGES SHIPPED (this session)
+------------------------------
+2 branches, both merged to main and pushed:
+
+  0dc6f00  Closes B64: sister proposals resolve their own GC, not the parent job's customer
+  8393606  Merge fix/multi-gc-sister-recipients
+
+    src/components/ProposalDetail.jsx
+      - New `gcCustomer` state, loaded when `proposals.customer_id` differs from
+        `call_log.customer_id`. Declared with the other useStates, above the effects (TDZ rule).
+      - Recipients card's "Primary" row now renders the sister's own GC name + email. It was
+        rendering the parent's — this is the row Chris saw.
+      - "Add from customer contacts" now lists the sister's GC's contacts.
+      - `savePrimaryEmail` now writes to the resolved customer. It would have written the Peerless
+        email onto KalB Construction's customer record — a silent cross-customer data write, and
+        the worst thing in this commit.
+
+    src/components/ProposalPDFModal.jsx
+      - Contact loader rewritten as one async IIFE: resolves the effective customer, fetches the GC
+        row when the proposal is a sister, and builds the contact list + default signer from it.
+        The pre-filled "To" on the send screen was the wrong GC.
+      - PDF header's "Prepared For" address block now uses the resolved customer. It printed the
+        parent's business address underneath the (already correct) GC name.
+      - `recipientName` fallback prefers the GC name.
+
+    supabase/functions/send-proposal/index.ts
+      - Proposal SELECT now pulls `customer_id, customer`.
+      - Allowlist resolves `proposal.customer_id || proposal.call_log?.customer_id`. THIS is the
+        fix that unblocks sending; the three client changes above are display only.
+      - Email greeting falls back to `proposals.customer` (the sister's own GC name) before
+        `call_log.customer_name`.
+
+    docs/BACKLOG.md — B64 filed and marked fixed.
+
+  8de8344  Make RFP # optional in the Multi-GC wizard
+  dd419bd  Merge fix/multi-gc-rfp-optional
+
+    src/components/MultiGCWizard.jsx
+      - `canNext()` and `tabHasMissing()` no longer require `rfp_number`. Signer contact and bid
+        due date still gate Screen 2.
+      - Label reads "RFP # (optional)". Field kept.
+      - Nothing downstream changed: `clone_proposal_to_gcs` already coerced empty → null, and the
+        review summary already rendered the RFP line conditionally.
+
+
+DEPLOYED
+--------
+LIVE ON PROD. Chris instructed "deploy the function and merge it" explicitly.
+
+  Edge function: send-proposal → version 45, project pbgvgjjuhnpsumnowuym, --no-verify-jwt.
+  Deployed source VERIFIED by reading the live bundle back via the Supabase MCP — v45 contains the
+  `customer_id, customer` SELECT, the new allowlist resolution, and the greeting fallback. That
+  proves the right code is deployed; it does NOT prove a send succeeds (see VERIFICATION).
+  Dashboard: https://supabase.com/dashboard/project/pbgvgjjuhnpsumnowuym/functions
+
+  Client: merged to main, pushed, Vercel auto-deployed (project sales-command).
+
+No migrations. No secrets. No schema change — `proposals.customer_id` has existed since Migration 1a
+(2026-05-13); this session only started reading it. The DB was READ ONLY (four SELECTs via the
+Supabase MCP to establish what job 10220 actually held).
+
+
+DECISIONS / CHOICES MADE
+------------------------
+- Deployed + merged without /buildvsplan. Chris asked why the work was sitting on a branch, and the
+  answer was the standing gate. He then ratified skipping it. Defensible here: this was a bug fix
+  with no plan to check against, and the gate exists to catch spec-vs-code drift.
+- Fixed the send-proposal allowlist even though Chris only reported the display symptom. It is the
+  same root cause one layer down, and shipping the display fix alone would have made the app look
+  right while the send still failed — arguably worse than the original state.
+- Fixed the PDF "Prepared For" address block unasked. Same one-line resolution, in the document
+  Peerless receives, three lines from code already being changed.
+- RFP #: kept the field, dropped the requirement. Chris picked this over deleting the field
+  outright. Reversible, and GCs that do issue an RFP number can still have it recorded.
+- Did NOT touch the parallel resolution in `send-pay-app/index.ts:184`
+  (`invoiceRow.proposals.call_log.customer_id`) — see NOT TOUCHED.
+
+
+NEW BACKLOG ITEMS
+-----------------
+- B64 (T1, Sev 7 · Like 9 · Eff 1h) — filed and fixed in the same session. Full root-cause writeup
+  lives in the BACKLOG row, including the four sites and why the allowlist was the load-bearing one.
+
+
+CLOSED THIS SESSION
+-------------------
+- B64 — commit 0dc6f00, merged 8393606, edge fn v45 deployed. Marked "Fix built 2026-07-28, gates
+  pending" in the row at commit time; it went live later the same session, so the row's status text
+  is now behind reality. Worth a one-line correction next time BACKLOG is touched.
+
+
+VERIFICATION
+------------
+- `npm run build` clean on both changes (338ms / 340ms).
+- Job 10220's actual data confirmed by direct SELECT before writing any code: P1 = KalB
+  (customer_id null), P2 = Peerless (customer_id 0ea8637e-…, cloned_from P1), P2's single
+  proposal_recipients row = Vince Mack / vince@peerlessconst.com / signer. This is what established
+  that the bug was in the reads, not the clone.
+- Confirmed by grep that `MultiGCWizard.jsx:126` was the only pre-existing reader of
+  `proposals.customer_id` in `src/` or `supabase/functions/`.
+- Deployed edge function source read back from the live project and confirmed to contain the fix.
+
+  *** NOT SMOKE-TESTED IN A BROWSER BY THIS SESSION. No proposal was opened, no send performed. ***
+
+  Chris replied "Looks perfect" after the merge was reported. He did not state that he had opened
+  the app, and this session did not ask — do not read that as a browser smoke.
+
+  THE UNEXERCISED PATH IS THE IMPORTANT ONE: the allowlist fix has never been run. A real send to a
+  sister proposal is the only thing that proves it. Suggested smoke steps were given to Chris at
+  merge time (primary row shows the GC / contacts list is the GC's / default signer is Vince Mack /
+  send goes through / PDF address is Peerless's), with the caution that step 4 emails a real GC and
+  a TEST recipient on a throwaway sister is the safer way to exercise it.
+
+
+NOT TOUCHED
+-----------
+- `supabase/functions/send-pay-app/index.ts:184` resolves its customer the same way
+  (`proposals.call_log.customer_id`) and has the identical latent defect for a pay app on a sister
+  proposal. Out of the reported scope, un-smoked, and pay apps on sisters may not be a real
+  workflow — deliberately left rather than fixed blind. If a sister ever needs a pay app, this
+  bites in exactly the same way.
+- B53 (override-sister mispricing ignores per-GC markup) — open, pre-existing, directly adjacent to
+  multi-GC. Not in scope.
+- B46 (`award_proposal` RPC's false-sister predicate) — open, still unwired to any UI.
+- F14 (multi-viewer recipients on sister proposals) — open. The wizard still collects one signer per
+  sister; nothing in this session changed that.
+- No migrations, no RLS, nothing in command-suite-db.
+- B62 / B63 (QB payment sync + retention aging) — untouched, still the largest open item.
+
+
+NEXT SESSION POINTERS
+---------------------
+1. Send one sister proposal end to end. That is the only unverified thing shipped this session, and
+   it is the half that was hard-broken. Use a TEST recipient on a throwaway sister unless you are
+   ready to email Peerless. If it 400s with "Recipient email not associated with this customer,"
+   the edge fn fix did not take — check `send-proposal` is still on v45.
+   Rollback if needed: `git revert -m 1 8393606` for the client; redeploy the prior fn from
+   `git show 8393606^:supabase/functions/send-proposal/index.ts` if the server half needs backing out.
+2. Correct B64's status line in BACKLOG from "gates pending" to shipped + deployed.
+3. Consider whether `send-pay-app` gets the same treatment (see NOT TOUCHED). Decide by asking
+   whether a sister proposal ever carries a pay app — that is a business question, not a code one.
+4. B62 remains the biggest open thing in this repo and did not move today.
+
+
+FILES TO KNOW
+-------------
+  src/components/ProposalDetail.jsx        — gcCustomer state; Recipients card; savePrimaryEmail
+  src/components/ProposalPDFModal.jsx      — send-screen contact loader; PDF "Prepared For" block
+  supabase/functions/send-proposal/index.ts — recipient allowlist (the load-bearing fix), live v45
+  src/components/MultiGCWizard.jsx         — RFP # now optional; line 126 is the original correct
+                                             `proposals.customer_id` read that the rest of the app
+                                             was missing
+  docs/BACKLOG.md                          — B64 filed + fixed
+
+
+GIT STATE
+---------
+  main @ dd419bd, pushed, live on prod.
+  Commits this session: 0dc6f00 → 8393606 (merge) → 8de8344 → dd419bd (merge), plus this handoff.
+  Branches fix/multi-gc-sister-recipients and fix/multi-gc-rfp-optional are merged; local copies
+  still present at close (never pushed to origin).
+  Working tree otherwise clean. No worktrees opened this session. No PRs (direct merges).

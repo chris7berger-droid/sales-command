@@ -1798,7 +1798,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       const pct = parseFloat(editPcts[l.id]) || 0;
       return { id: l.id, billing_pct: pct, amount: Math.round(wtcTotal * (pct / 100) * 100) / 100 };
     });
-    const newAmount = newLines.reduce((sum, l) => sum + l.amount, 0);
+    // A retention-release invoice carries its dollars on the HEADER only — it is minted
+    // with no invoice_lines by design (qb-sync-invoice's release branch depends on that
+    // and emits its own single retention-item line). With no lines the reduce below
+    // yields 0, which silently zeroed the release amount on any in-place edit (#10137).
+    // Same trap as archive (14000c5) and pay-app (33c385e): the fallthrough must PRESERVE
+    // the stored value, never produce 0 because the source was missing (CLAUDE.md #6).
+    const newAmount = newLines.length
+      ? newLines.reduce((sum, l) => sum + l.amount, 0)
+      : (parseFloat(inv.amount) || 0);
     // Retention + discount are owned by the pay-app flow for a pay-app invoice —
     // preserve the stored values there (a GC/pay-app deposit's retention lives in
     // that flow; don't double-zero it). For a NON-pay-app invoice, recompute from the

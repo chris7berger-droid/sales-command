@@ -1,7 +1,7 @@
 SC_Handoff_v168 — Proposal PDF printed a different total than the invoice billed (root cause of the 6/26 exact-penny work); exact-penny window closed
 ====================================================================================================================================================
 Date: 2026-07-28
-Repo/branch: sales-command @ fix/proposal-pdf-rounding (pushed to origin, NOT merged to main, NOT deployed)
+Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (merge e30e940)
 Prior: v167 (white-free checkbox sweep, shipped). Mode: build (opus 5). Work origin: user bug report.
 Session ended early by design — Chris explicitly declined smoke testing and moved to a different bug.
 
@@ -74,9 +74,14 @@ CHANGES SHIPPED (this session)
 
 DEPLOYED
 --------
-NOTHING. Branch is pushed to origin only. No merge to main, so no Vercel deploy. No edge functions,
-no migrations, no DB writes, no secrets. The DB was READ ONLY this session (two SELECTs via the
-Supabase MCP to check what was quoted on 7/28).
+LIVE ON PROD. Chris ratified the merge at the end of the session, knowing it was not smoke-tested.
+Merged to main as e30e940 (--no-ff), pushed, Vercel auto-deployed (project: sales-command).
+Prod URL: https://salescommand.app (www.scmybiz.com 308-redirects there).
+Deploy VERIFIED live by content hash: prod serves index-U2DRg-Ls.js, identical to a local
+`npm run build` of merged main. Vite hashes are content-based, so this proves prod is running this
+code — it does NOT prove the PDF renders correctly (see VERIFICATION).
+Frontend only. No edge functions, no migrations, no DB writes, no secrets. The DB was READ ONLY this
+session (two SELECTs via the Supabase MCP to check what was quoted on 7/28).
 
 
 DECISIONS / CHOICES MADE
@@ -165,11 +170,14 @@ NOT TOUCHED
 
 NEXT SESSION POINTERS
 ---------------------
-1. THIS BRANCH IS UNMERGED AND UNVERIFIED. `fix/proposal-pdf-rounding` is pushed but not on main and
-   not deployed. It changes money that customers see. Before merging: open a real proposal PDF on a
-   preview deploy and confirm (a) work-type lines sum to the total, (b) Subtotal − Discount = Total
-   on a discounted proposal, (c) a 6/26–7/29 proposal prints cents, (d) a proposal created 7/29+
-   prints whole dollars and matches its invoice.
+1. THIS IS LIVE ON PROD AND WAS NEVER OPENED IN A BROWSER. It changes money that customers see.
+   Highest-value 5 minutes for whoever picks this up: open a real proposal PDF on prod and confirm
+   (a) work-type lines sum to the total, (b) Subtotal − Discount = Total on a DISCOUNTED
+   multi-work-type proposal (that Subtotal line is the riskiest change — it is now derived from the
+   rounded total, not the raw component sum), (c) a 6/26–7/29 proposal prints cents, (d) a proposal
+   created 7/29+ prints whole dollars and matches its invoice.
+   Rollback if something looks wrong: `git revert -m 1 e30e940` — frontend-only, no migrations, no
+   data written, so a revert is clean and complete.
 2. Chris moved to a different bug immediately after this — that work is NOT in this handoff.
 3. If someone later asks "why do these ~1 month of jobs show cents when nothing else does" — that is
    the closed exact-penny window, and it is deliberate. See the amendment in
@@ -192,6 +200,9 @@ FILES TO KNOW
 
 GIT STATE
 ---------
-  branch fix/proposal-pdf-rounding @ e24173f, pushed to origin, tracking set.
-  main untouched @ 15fdcc2. Working tree clean apart from this handoff.
-  PR not opened. Merge is the outstanding action.
+  main @ e30e940 (merge of fix/proposal-pdf-rounding), pushed, live on prod.
+  Commits: e24173f (the fix) → 86466f7 (this handoff) → e30e940 (merge).
+  Branch fix/proposal-pdf-rounding deleted local + remote after merge. No PR opened (direct merge).
+  Working tree clean. No open worktrees from this session.
+  Nothing outstanding in code. The only open action is the browser check in pointer 1 — and it is
+  optional in the sense that nobody is blocked on it, but it is unpaid risk until someone looks.

@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice as calcWtcTotal, roundPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
+import { saveCatalogRow, catalogErrorMessage } from "../lib/materialsCatalog";
 import Checkbox from "../components/Checkbox";
 
 // ── Design tokens ──────────────────────────────────────────────────────────
@@ -20,6 +21,15 @@ const T = {
 const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 const fmtDec = fmt; // alias for backward compat
 const pct = n => `${(n || 0).toFixed(2)}%`;
+
+const nowIso = () => new Date().toISOString();
+// Canonical SOW material spec keys (DMS-1 §2/§4.2) — one set, defined once.
+const SPEC_KEYS = ["mils", "coverage_rate", "mix_time", "mix_speed", "cure_time", "unit"];
+// A row "carries specs" if ≥1 spec field is a non-empty value. Drives the tri-state
+// confirm init (§2 F1): stamp specs_confirmed=false ONLY when there's a real spec to
+// confirm — blank-spec rows stay absent (no forced click-through ritual).
+const hasAnySpec = (o = {}) =>
+  SPEC_KEYS.some(k => o[k] != null && String(o[k]).trim() !== "");
 
 // Calc helpers imported from ../lib/calc.js (single source of truth)
 
@@ -436,7 +446,7 @@ function MaterialsTab({ items, taxRate, onChange }) {
   const [editingSaving, setEditingSaving] = useState(false);
 
   const loadCatalog = async () => {
-    const rows = await fetchAll("materials_catalog", "id, tenant_id, name, kit_size, price, coverage, supplier", {
+    const rows = await fetchAll("materials_catalog", "id, tenant_id, name, kit_size, price, coverage, supplier, mils, mix_time, mix_speed, cure_time, unit, specs_updated_at", {
       filters: [["eq", "active", true]],
       order: { column: "name" },
     });
@@ -456,51 +466,49 @@ function MaterialsTab({ items, taxRate, onChange }) {
     if (!editingCatalog?.name?.trim()) return;
     setEditingSaving(true);
     try {
-      const { error } = await supabase
-        .from("materials_catalog")
-        .update({
-          name:     editingCatalog.name.trim(),
-          kit_size: editingCatalog.kit_size?.trim() || null,
-          price:    parseFloat(editingCatalog.price) || 0,
-          coverage: editingCatalog.coverage?.trim() || null,
-          supplier: editingCatalog.supplier?.trim() || null,
-        })
-        .eq("id", editingCatalog.id);
-      if (error) throw error;
+      // Fork-on-edit + INSERT-stamp + 0-rows/23505 handling all live in the shared
+      // helper. _orig is the pristine catalog row (system default → fork; tenant → update).
+      await saveCatalogRow({ original: editingCatalog._orig ?? editingCatalog, values: editingCatalog });
       await loadCatalog();
       setEditingCatalog(null);
     } catch (e) {
-      alert("Could not save material: " + (e?.message || e));
+      alert("Could not save material: " + catalogErrorMessage(e));
     } finally {
       setEditingSaving(false);
     }
   }
 
   const updateItem = (id, key, val) => {
-    const isText = ["product", "kit_size", "coverage_rate", "supplier"].includes(key);
+    // Specs are human instructions (text), not math — keep "20-25 mils" intact.
+    const isText = ["product", "kit_size", "coverage_rate", "supplier", "mils", "mix_time", "mix_speed", "cure_time", "unit"].includes(key);
     const coerced = isText ? val : (typeof val === "string" && val.endsWith(".") ? val : parseFloat(val) || 0);
     onChange(items.map(i => i.id === id ? { ...i, [key]: coerced } : i));
   };
   const removeItem = id => onChange(items.filter(i => i.id !== id));
-  const addFromDB = m => onChange([...items, { id: Date.now(), product: m.name, kit_size: m.kit_size || "", price_per_unit: m.price, coverage_rate: m.coverage || "", supplier: m.supplier || "", qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0, from_catalog: true }]);
+  // Hop 1 of the stamp (§4.2): copy catalog_id + EVERY spec column onto the Tab-3
+  // cost line and stamp specs_stamped_at HERE — the moment values leave the catalog.
+  // catalog_id + specs_stamped_at are NET-NEW keys, not a fix of existing ones.
+  const addFromDB = m => onChange([...items, {
+    id: Date.now(), catalog_id: m.id, product: m.name, kit_size: m.kit_size || "",
+    price_per_unit: m.price, coverage_rate: m.coverage || "", supplier: m.supplier || "",
+    mils: m.mils || "", mix_time: m.mix_time || "", mix_speed: m.mix_speed || "",
+    cure_time: m.cure_time || "", unit: m.unit || "", specs_stamped_at: nowIso(),
+    qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0, from_catalog: true,
+  }]);
   const addCustom = (initialName = "") => onChange([...items, { id: Date.now(), product: initialName, kit_size: "", price_per_unit: 0, coverage_rate: "", supplier: "", qty: 0, tax: taxRate || 0, freight: 0, markup_pct: 0 }]);
 
   async function saveCustomToCatalog(item) {
     if (!item.product?.trim()) return;
     setSavingCatalogId(item.id);
     try {
-      const { data: tc } = await supabase.from("tenant_config").select("id").single();
-      if (!tc?.id) throw new Error("Could not resolve tenant");
-      const { error } = await supabase.from("materials_catalog").insert({
-        tenant_id: tc.id,
-        name: item.product.trim(),
-        kit_size: item.kit_size?.trim() || null,
-        price: parseFloat(item.price_per_unit) || 0,
-        coverage: item.coverage_rate?.trim() || null,
-        supplier: item.supplier?.trim() || null,
-        active: true,
-      });
-      if (error) throw error;
+      // New tenant row via the shared helper (INSERT-stamp contract + 23505 handling).
+      // Map the Tab-3 line shape (product/coverage_rate) onto the catalog columns.
+      await saveCatalogRow({ values: {
+        name: item.product, kit_size: item.kit_size, price: item.price_per_unit,
+        coverage: item.coverage_rate, supplier: item.supplier,
+        mils: item.mils, mix_time: item.mix_time, mix_speed: item.mix_speed,
+        cure_time: item.cure_time, unit: item.unit,
+      } });
       await loadCatalog();
       setSavingCatalogId(null);
       setJustSavedId(item.id);
@@ -511,7 +519,7 @@ function MaterialsTab({ items, taxRate, onChange }) {
         setJustSavedId(null);
       }, 1500);
     } catch (e) {
-      alert("Could not save to catalog: " + (e?.message || e));
+      alert("Could not save to catalog: " + catalogErrorMessage(e));
       setSavingCatalogId(null);
     }
   }
@@ -542,7 +550,7 @@ function MaterialsTab({ items, taxRate, onChange }) {
         </span>
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: items.length > 0 ? 4 : 16 }}>
-        <MaterialPicker onSelect={addFromDB} onAddCustom={addCustom} catalog={catalog} onEdit={m => setEditingCatalog({ ...m, price: m.price == null ? "" : String(m.price) })} />
+        <MaterialPicker onSelect={addFromDB} onAddCustom={addCustom} catalog={catalog} onEdit={m => setEditingCatalog({ ...m, price: m.price == null ? "" : String(m.price), _orig: m })} />
         <Btn onClick={() => addCustom()} variant="secondary" small>+ Custom</Btn>
       </div>
       {items.length > 0 && (
@@ -643,9 +651,34 @@ function CatalogEditModal({ editing, setEditing, onSave, onCancel, saving }) {
             <input style={input} value={editing.coverage || ""} onChange={e => set("coverage", e.target.value)} />
           </div>
         </div>
-        <div style={{ marginBottom: 18 }}>
+        <div style={{ marginBottom: 12 }}>
           <div style={label}>Supplier</div>
           <input style={input} value={editing.supplier || ""} onChange={e => set("supplier", e.target.value)} />
+        </div>
+        {/* Application specs (text) — flow to the SOW stamp + crew ticket */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <div style={label}>Mils</div>
+            <input style={input} value={editing.mils || ""} onChange={e => set("mils", e.target.value)} placeholder="e.g. 20-25" />
+          </div>
+          <div>
+            <div style={label}>Unit</div>
+            <input style={input} value={editing.unit || ""} onChange={e => set("unit", e.target.value)} placeholder="e.g. kit, gal" />
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 18 }}>
+          <div>
+            <div style={label}>Mix Time</div>
+            <input style={input} value={editing.mix_time || ""} onChange={e => set("mix_time", e.target.value)} placeholder="e.g. 3 min" />
+          </div>
+          <div>
+            <div style={label}>Mix Speed</div>
+            <input style={input} value={editing.mix_speed || ""} onChange={e => set("mix_speed", e.target.value)} placeholder="e.g. Low" />
+          </div>
+          <div>
+            <div style={label}>Cure Time</div>
+            <input style={input} value={editing.cure_time || ""} onChange={e => set("cure_time", e.target.value)} placeholder="e.g. 24 hrs" />
+          </div>
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <Btn variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Btn>
@@ -707,7 +740,7 @@ function DiscountTab({ data, onChange }) {
       )}
     </div>
   );
-}function FieldSowMaterialPicker({ wtcMaterials, selectedMaterials, onChange }) {
+}function FieldSowMaterialPicker({ wtcMaterials, selectedMaterials, onChange, dayTasks = [] }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
   const btnRef = useRef();
@@ -736,17 +769,34 @@ function DiscountTab({ data, onChange }) {
   const available   = safeMaterials.filter(m => !selectedIds.has(safeId(m)));
 
   const addMaterial = m => {
+    // Hop 2 of the stamp (§4.2): stamp from the Tab-3 line. Read coverage_rate
+    // (Tab-3 lines carry coverage_rate, NOT coverage — the old m.coverage stamped
+    // "" every time). Carry catalog_id + specs_stamped_at through unchanged (do NOT
+    // re-stamp now() — a catalog correction between hops must not wear a fresh date).
+    // Legacy lines (no catalog_id/specs) stay grandfathered: specs_confirmed omitted.
     const entry = {
-      wtc_material_id: safeId(m), name: safeName(m), kit_size: safeKit(m),
-      qty_planned: 0, mils: 0, coverage_rate: m.coverage || "", mix_time: 0, mix_speed: "", cure_time: ""
+      wtc_material_id: safeId(m), catalog_id: m.catalog_id ?? null, task_ref: "",
+      name: safeName(m), kit_size: safeKit(m), qty_planned: 0,
+      mils: m.mils || "", coverage_rate: m.coverage_rate || "", mix_time: m.mix_time || "",
+      mix_speed: m.mix_speed || "", cure_time: m.cure_time || "", unit: m.unit || "",
+      specs_stamped_at: m.specs_stamped_at ?? null,
+      ...(hasAnySpec(m) ? { specs_confirmed: false } : {}),
     };
     onChange([...(selectedMaterials || []), entry]);
     setOpen(false);
   };
 
   const removeMaterial = id => onChange((selectedMaterials || []).filter(m => String(m.wtc_material_id) !== String(id)));
-  const updateField = (id, key, val) => onChange((selectedMaterials || []).map(m =>
-    String(m.wtc_material_id) === String(id) ? { ...m, [key]: val } : m
+  const updateField = (id, key, val) => onChange((selectedMaterials || []).map(m => {
+    if (String(m.wtc_material_id) !== String(id)) return m;
+    const next = { ...m, [key]: val };
+    // A changed spec is an unconfirmed spec (§2): downgrade a confirmed entry only;
+    // never force-confirm an absent/grandfathered one.
+    if (SPEC_KEYS.includes(key) && m.specs_confirmed === true) next.specs_confirmed = false;
+    return next;
+  }));
+  const confirmSpecs = id => onChange((selectedMaterials || []).map(m =>
+    String(m.wtc_material_id) === String(id) ? { ...m, specs_confirmed: true } : m
   ));
 
   const specInput = (m, key, placeholder, width, type = "text") => (
@@ -767,15 +817,34 @@ function DiscountTab({ data, onChange }) {
           {(selectedMaterials || []).map(m => (
             <div key={String(m.wtc_material_id)} style={{ background: "rgba(28,24,20,0.04)", border: `1.5px solid rgba(28,24,20,0.15)`, borderRadius: 8, padding: "10px 12px", position: "relative" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: T.gray900 }}>{m.name}</span>
                   <span style={{ fontSize: 11, color: T.gray400, background: T.gray100, borderRadius: 4, padding: "1px 7px" }}>{m.kit_size}</span>
+                  {/* TASK N picker (D5) → chip. Blank allowed; links this material to a day task. */}
+                  <select value={m.task_ref || ""} onChange={e => updateField(m.wtc_material_id, "task_ref", e.target.value)}
+                    style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em", border: `1px solid ${m.task_ref ? T.green : "rgba(28,24,20,0.2)"}`, borderRadius: 4, padding: "1px 4px", background: m.task_ref ? T.dark : "#bfb3a1", color: m.task_ref ? T.green : T.gray500, outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
+                    <option value="">— TASK —</option>
+                    {dayTasks.map((t, ti) => <option key={t.id} value={t.id}>TASK {ti + 1}</option>)}
+                  </select>
                 </div>
                 <button onClick={() => removeMaterial(m.wtc_material_id)}
                   style={{ background: "none", border: "none", color: T.gray300, cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1 }}
                   onMouseEnter={e => e.target.style.color = T.red}
                   onMouseLeave={e => e.target.style.color = T.gray300}>×</button>
               </div>
+              {/* Tri-state amber confirm gate (§2): only specs_confirmed===false shows the
+                  chip + blocks Send. Absent (grandfathered / blank-spec) passes silently. */}
+              {m.specs_confirmed === false && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, background: "rgba(28,24,20,0.06)", border: `1px solid ${T.amber}`, borderRadius: 6, padding: "6px 10px" }}>
+                  <span style={{ fontSize: 11, color: T.gray700, fontWeight: 600, lineHeight: 1.3, flex: 1 }}>
+                    ⚠️ Specs pulled from Material Memory — confirm for this job's conditions.
+                  </span>
+                  <button onClick={() => confirmSpecs(m.wtc_material_id)}
+                    style={{ background: T.amber, border: "none", color: T.dark, borderRadius: 5, padding: "4px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                    Confirm specs
+                  </button>
+                </div>
+              )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 10px", marginBottom: 8 }}>
                 <div>
                   <div style={{ fontSize: 9, fontWeight: 700, color: T.gray400, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 3 }}>Qty Planned</div>
@@ -787,7 +856,7 @@ function DiscountTab({ data, onChange }) {
                 <div>
                   <div style={{ fontSize: 9, fontWeight: 700, color: T.gray400, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 3 }}>Mils</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    {specInput(m, "mils", "0", "100%", "number")}
+                    {specInput(m, "mils", "e.g. 20-25", "100%")}
                     <span style={{ fontSize: 11, color: T.gray400 }}>mil</span>
                   </div>
                 </div>
@@ -800,7 +869,7 @@ function DiscountTab({ data, onChange }) {
                 <div>
                   <div style={{ fontSize: 9, fontWeight: 700, color: T.gray400, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 3 }}>Mix Time</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    {specInput(m, "mix_time", "0", "100%", "number")}
+                    {specInput(m, "mix_time", "e.g. 3 min", "100%")}
                     <span style={{ fontSize: 11, color: T.gray400 }}>min</span>
                   </div>
                 </div>
@@ -876,7 +945,7 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
   // New day (§3.1): mobilization_id defaults to the first mobilization (audit B5 —
   // not seq:1), null when none exist yet; sq_ft/linear_ft default 0 (0-means-blank,
   // matching the crew_count/hours_planned metric siblings).
-  const addDay    = () => onChange({ ...data, field_sow: [...(data.field_sow || []), { id: uid(), day_label: `Day ${(data.field_sow || []).length + 1}`, date: null, mobilization_id: mobilizations[0]?.id ?? null, sq_ft: 0, linear_ft: 0, tasks: [newTask()], crew_count: 0, hours_planned: 0, materials: [] }] });
+  const addDay    = () => onChange({ ...data, field_sow: [...(data.field_sow || []), { id: uid(), day_label: `Day ${(data.field_sow || []).length + 1}`, date: null, mobilization_id: mobilizations[0]?.id ?? null, sq_ft: 0, linear_ft: 0, scope_notes: "", tasks: [newTask()], crew_count: 0, hours_planned: 0, materials: [] }] });
   const removeDay = id => onChange({ ...data, field_sow: (data.field_sow || []).filter(e => e.id !== id) });
   // Explicit per-key coercion map (§3.1 A1/A2) — replaces the old
   // ["day_label","date"].includes(key) include-list, which silently ran every
@@ -889,6 +958,7 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
     mobilization_id: v => v || null,
     sq_ft:           v => parseFloat(v) || 0,
     linear_ft:       v => parseFloat(v) || 0,
+    scope_notes:     v => v,                 // free-text callout (jsonb-additive)
     crew_count:      v => parseFloat(v) || 0,
     hours_planned:   v => parseFloat(v) || 0,
   };
@@ -1093,6 +1163,17 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
                   onMouseLeave={e => e.target.style.color = T.gray300}>×</button>
               </div>
 
+              {/* Scope Notes (D2) — free-text callout, becomes the SCOPE NOTES box on the crew ticket */}
+              <div style={{ padding: "10px 16px 0" }}>
+                <Label>Scope Notes</Label>
+                <textarea value={entry.scope_notes || ""} rows={2}
+                  placeholder="Crew-facing notes for this day — site conditions, sequence reminders, callouts…"
+                  onChange={e => updateDay(entry.id, "scope_notes", e.target.value)}
+                  style={{ width: "100%", border: `1.5px solid ${T.gray200}`, borderRadius: 6, padding: "7px 10px", fontSize: 13, outline: "none", fontFamily: "inherit", background: "#bfb3a1", color: T.gray900, boxSizing: "border-box", resize: "vertical" }}
+                  onFocus={e => e.target.style.borderColor = T.green}
+                  onBlur={e => e.target.style.borderColor = T.gray200} />
+              </div>
+
               {/* Tasks */}
               <div style={{ padding: "10px 16px 4px" }}>
                 {tasks.map((task, ti) => {
@@ -1149,6 +1230,7 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
               <FieldSowMaterialPicker
                 wtcMaterials={wtcMaterials}
                 selectedMaterials={entry.materials || []}
+                dayTasks={entry.tasks || []}
                 onChange={mats => updateDayMaterials(entry.id, mats)}
               />
             </div>

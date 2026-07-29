@@ -33,6 +33,25 @@ function buildMobValidation(wtcList, mobilizations) {
   return { mobById, failures };
 }
 
+// [DMS-1 §2] Spec-confirm gate. Scans every field_sow day material for the tri-state
+// `specs_confirmed`. Reads the TRI-STATE, never a JS-truthy check: only an explicit
+// `=== false` (specs stamped from Material Memory, not yet human-confirmed) blocks.
+// Absent (grandfathered / blank-spec) and `true` both pass — an "absent" material must
+// never false-block Send. Returns the list of unconfirmed material rows.
+function buildSpecConfirmValidation(wtcList) {
+  const failures = [];
+  (wtcList || []).forEach((wtc, wi) => {
+    (wtc.field_sow || []).forEach((d, di) => {
+      (d.materials || []).forEach(m => {
+        if (m.specs_confirmed === false) {
+          failures.push({ wtcLabel: `WTC ${wi + 1}`, dayLabel: d.day_label || `Day ${di + 1}`, name: m.name || "material" });
+        }
+      });
+    });
+  });
+  return failures;
+}
+
 // Keep a single decimal point as the user types — collapses multi-dot input so
 // "1.2.3" → "1.23" cleanly (the prior parse silently truncated at the 2nd dot).
 const sanitizeAmount = (s) => {
@@ -79,6 +98,9 @@ const [recipients, setRecipients] = useState([]);
 const [gcCustomer, setGcCustomer] = useState(null);
 const [sendingToSchedule, setSendingToSchedule] = useState(false);
 const [sentToSchedule, setSentToSchedule] = useState(false);
+// [DMS-1 §4.3] "SOW updated in Schedule — this version is historical" badge. True when
+// any job_wtcs row for this proposal's job has sow_revision_count > 0 (Phase-1 trigger).
+const [sowRevisedInSchedule, setSowRevisedInSchedule] = useState(false);
 // Pre-send review modal (material_flow §5.2): holds the [K1]-validated snapshot
 // (wtcList, mobById map, mobilizations, failures) so the commit reuses the same fetch.
 const [showSendReview, setShowSendReview] = useState(false);
@@ -125,6 +147,18 @@ useEffect(() => {
   // Check if already sent to Schedule Command
   if (pInit.status === "Sold") {
     supabase.from("jobs").select("job_id").eq("source_proposal_id", pInit.id).maybeSingle().then(({ data }) => { if (data) setSentToSchedule(true); });
+  }
+  // [DMS-1 §4.3] Read the revision stamp from job_wtcs (not a proposals column):
+  // jobs by call_log_id → their job_wtcs → MAX(sow_revision_count). A job can have
+  // multiple WTCs and a call_log multiple jobs, so aggregate across all of them.
+  if (pInit.call_log_id) {
+    supabase.from("jobs").select("job_id").eq("call_log_id", pInit.call_log_id).then(async ({ data: jobsRows }) => {
+      const jobIds = (jobsRows || []).map(j => j.job_id);
+      if (!jobIds.length) return;
+      const { data: wtcRows } = await supabase.from("job_wtcs").select("sow_revision_count").in("job_id", jobIds);
+      const maxRev = (wtcRows || []).reduce((mx, r) => Math.max(mx, r.sow_revision_count || 0), 0);
+      if (maxRev > 0) setSowRevisedInSchedule(true);
+    });
   }
 }, []);
 
@@ -619,8 +653,9 @@ async function deletePropAttachment(fullName) {
       const { data: freshProp } = await supabase.from("proposals").select("mobilizations").eq("id", p.id).single();
       const freshMobilizations = freshProp?.mobilizations || [];
       const { mobById, failures } = buildMobValidation(wtcList, freshMobilizations);
+      const specFailures = buildSpecConfirmValidation(wtcList);
 
-      setSendReview({ wtcList, mobById, mobilizations: freshMobilizations, failures });
+      setSendReview({ wtcList, mobById, mobilizations: freshMobilizations, failures, specFailures });
       setShowSendReview(true);
     } catch (e) {
       alert("Error: " + e.message);
@@ -892,6 +927,9 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
 
         </h2>
         <Pill label={p.status} cm={PROP_C} />
+        {sowRevisedInSchedule && (
+          <span title="The field SOW was edited in Schedule Command after this proposal was sent. The proposal is frozen at send — this version is historical." style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(245,158,11,0.14)", color: "#7a5800", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(245,158,11,0.4)", cursor: "help", letterSpacing: "0.04em" }}>SOW UPDATED IN SCHEDULE — HISTORICAL</span>
+        )}
         {p.is_archive_proposal && (
           <span title="Archive Job Proposal — no WTC. Invoice with a flat amount." style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "3px 10px", borderRadius: 10, fontFamily: F.ui, border: "1px solid rgba(142,68,173,0.25)", cursor: "help" }}>ARCHIVE</span>
         )}
@@ -1496,7 +1534,8 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
         // days are listed with a pointer back to the WTC SowTab.
         const mobLabel = new Map((sendReview.mobilizations || []).map(m => [m.id, m]));
         const fmtDate = d => d ? fmtD(d) : "TBD";
-        const blocked = sendReview.failures.length > 0;
+        const specFailures = sendReview.specFailures || [];
+        const blocked = sendReview.failures.length > 0 || specFailures.length > 0;
         return (
           <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,20,35,0.7)", backdropFilter: "blur(4px)" }}
             onClick={e => { if (e.target === e.currentTarget && !sendingToSchedule) setShowSendReview(false); }}>
@@ -1551,11 +1590,21 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               })}
 
               {/* [K1] block state */}
-              {blocked && (
+              {sendReview.failures.length > 0 && (
                 <div style={{ marginTop: 8, marginBottom: 4, padding: "12px 14px", background: "rgba(229,57,53,0.08)", border: `1px solid ${C.red}`, borderRadius: 10 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 800, color: C.red, fontFamily: F.ui, marginBottom: 4 }}>Can't send yet — {sendReview.failures.length} day{sendReview.failures.length === 1 ? "" : "s"} without a mobilization</div>
                   <div style={{ fontSize: 12, color: C.textBody, fontFamily: F.ui }}>
                     {sendReview.failures.map(f => `${f.wtcLabel} '${f.dayLabel}'`).join(", ")}. Open the WTC → Scope of Work, assign a mobilization to each day, and save before sending.
+                  </div>
+                </div>
+              )}
+
+              {/* [DMS-1 §2] Spec-confirm block state */}
+              {specFailures.length > 0 && (
+                <div style={{ marginTop: 8, marginBottom: 4, padding: "12px 14px", background: "rgba(229,57,53,0.08)", border: `1px solid ${C.red}`, borderRadius: 10 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, color: C.red, fontFamily: F.ui, marginBottom: 4 }}>Can't send yet — {specFailures.length} material{specFailures.length === 1 ? "" : "s"} with unconfirmed specs</div>
+                  <div style={{ fontSize: 12, color: C.textBody, fontFamily: F.ui }}>
+                    {specFailures.map(f => `${f.wtcLabel} '${f.dayLabel}' — ${f.name}`).join(", ")}. Open the WTC → Scope of Work, review the specs pulled from Material Memory, and click <strong>Confirm specs</strong> on each before sending.
                   </div>
                 </div>
               )}

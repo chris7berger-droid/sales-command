@@ -1,0 +1,110 @@
+SC_Handoff_v171 — DMS-1 Phase 2 SHIPPED: Sales SOW authoring (specs + scope notes + confirm gate)
+==================================================================================================
+Date: 2026-07-28
+Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (merge 3f19f2f)
+Prior: v170 (retention-release edit zeroed amount). Mode: build (ERD loop #44). Work origin: DMS-1 Phase 2 build.
+Cross-repo: shipped in tandem with sch-command (Step 1 save-protection). See sch-command SCH_HANDOFF_v28.md.
+
+
+SESSION SUMMARY
+---------------
+DMS-1 Phase 2 is the front half of the Daily Material Schedule initiative: make the Sales SOW carry
+real material application specs (mils, coverage, mix/cure) + per-day scope notes + a task->material
+tag, all confirmed before Send, so that data flows Sales bid -> Schedule -> (later) the crew ticket.
+
+The plan was authored + audited (2 rounds, 8->2 findings, converged) in the T1/T2 terminals; this
+session built Steps 2-7 in sales-command against the build spec, gated through buildvsplan / code-
+review / security-review, smoke-verified on the shared DB, and merged to prod SECOND (after Schedule's
+save-protection went live first — see Decisions).
+
+Full record: sch-command/docs/plans/daily_material_schedule_phase2_build.md (Steps 1-7) +
+daily_material_schedule_buildorder.md §2 + daily_material_schedule.md §1/§2/§4. This handoff points,
+it does not duplicate.
+
+
+CHANGES SHIPPED (sales-command, Steps 2-7)
+------------------------------------------
+- Two-hop catalog stamp: addFromDB (hop 1) copies ALL spec columns + catalog_id + specs_stamped_at
+  from the catalog row; addMaterial (hop 2) fixes the broken coverage read (coverage_rate, not
+  m.coverage) and carries the stamp forward (never re-stamps now()).
+- Text spec inputs in BOTH editors (Tab-3 isText list + FieldSowMaterialPicker.specInput) — "20-25
+  mils" no longer coerces to 20.
+- Scope Notes: per-day textarea in the SowTab day card (jsonb-additive).
+- Task->material tag: TASK-N picker on the day-material entry -> chip.
+- Tri-state amber confirm chip + Send gate: reads the tri-state (confirmed / unconfirmed / absent-
+  grandfathered), NOT a JS-truthy check; init false only when the source has >=1 non-empty spec.
+- Shared lib/materialsCatalog.js saveCatalogRow: fork-on-edit + by-hand INSERT-stamp (typed->now(),
+  price-only->copy source) + 0-rows error + 23505 friendly catch. Wired into WTCCalculator AND
+  Settings (the two catalog editors, previously duplicated).
+- Revision badge on ProposalDetail: reads job_wtcs MAX(sow_revision_count) join by call_log_id (NOT
+  a proposals column) -> "SOW updated in Schedule — this version is historical" when > 0.
+
+
+DECISIONS
+---------
+- Deploy order = Schedule FIRST, Sales SECOND. The sch-command handleSave passthrough had to be live
+  before Sales started writing task_ref/catalog_id/specs_stamped_at/scope_notes — otherwise the
+  §0.2b strip window would have eaten the new fields too. Recorded so a future reader knows why the
+  two merges are ordered.
+- No migration. Steps 2-7 are jsonb-additive + app code; Phase-1 spec columns/trigger (command-
+  suite-db 20260714120000-120300) were already live.
+- specs_confirmed reset-on-edit lives on the SALES side already (updateField downgrades true->false).
+  The SCHEDULE side does not have it yet — deliberately deferred to Phase 3 (see DMS-2).
+
+
+NEW / CLOSED BACKLOG ITEMS
+--------------------------
+New (carry forward — do NOT close):
+- F42 (T3, ~half-day) — make the Send-to-Schedule review blockers CLICKABLE (deep-link to the
+  offending day/material). docs/BACKLOG.md:135.
+- F43 (T3, plan-mode) — mobilization flow is clunky; authoring vs per-day assignment split across two
+  surfaces. Needs a UX rethink (/decide -> ideate -> plan). Pairs with F42. docs/BACKLOG.md:134.
+(Cross-repo, filed in sch-command: DMS-2 Phase-3 blocker, DMS-3 hasAnySpec drift.)
+
+Closed: none this loop.
+
+
+VERIFICATION
+------------
+- buildvsplan (T4): 0 blockers; live-schema probe confirmed every referenced column deployed; all
+  round-1 fixes propagated; Send wiring spread-preserved -> SMOKE GO.
+- Smoke (preview, shared DB): authored -> confirmed -> sent (job 95 / display 10021) -> landed clean
+  on job_wtcs[].field_sow (day, task, Crown 8202, coverage 200, scope_notes, mobilization_seq,
+  specs_confirmed all present).
+- code-review (T5): 0 ship-blockers (filed DMS-2 + DMS-3).
+- security-review (T6): 0 exploitable-today; role_aware_money_rls is the real gate; the new client
+  write path adds no new exposure.
+
+
+NOT TOUCHED
+-----------
+- Schedule-side SOW display / confirm gate (Phase 3).
+- Crew-ticket print (Phase 4). NOTE: the existing "Field SOW and Production Rate Tracker" PDF is the
+  OLD print, NOT the Daily Material Schedule ticket.
+- materials table + jobs.field_sow mirror retirement (Phase 5).
+- The shop-manager shortage view — CUT from this initiative's near-term scope to its own loop (not
+  buildable from existing schema; reconcile against job_material_lines).
+
+
+NEXT SESSION POINTERS
+---------------------
+- Phase 3 (Schedule-side, sch-command) is the next build and MUST carry DMS-2 (reset-on-edit) or
+  specs edited in Schedule wear a stale confirmation.
+- F42 + F43 are a natural paired plan-mode item on the Send/mobilization flow.
+- ERD loop #44 remains OPEN (its picture is the printed ticket); Phase 2 logged as a milestone.
+
+
+FILES TO KNOW
+-------------
+- src/pages/WTCCalculator.jsx — SowTab (specs, scope_notes, task tag, confirm chip), addFromDB/addMaterial two-hop stamp.
+- src/lib/materialsCatalog.js — shared saveCatalogRow (fork + INSERT-stamp + errors).
+- src/pages/Settings.jsx — second catalog editor (now via saveCatalogRow).
+- src/components/ProposalDetail.jsx — revision badge (job_wtcs MAX join) + Send review gate.
+- Plan docs live in sch-command/docs/plans/daily_material_schedule*.md.
+
+
+GIT STATE
+---------
+- sales-command main @ 3f19f2f (LIVE, scmybiz.com). feat/dms1-phase2 deleted local + remote.
+- sch-command main @ 5ac2e20 (LIVE, schedulecommand.com), merged first.
+- No migration / edge fn / config changes.

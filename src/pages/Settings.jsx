@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { getTenantConfig, updateTenantConfig } from "../lib/config";
+import { saveCatalogRow, catalogErrorMessage } from "../lib/materialsCatalog";
 import { fmt$ } from "../lib/utils";
 import SectionHeader from "../components/SectionHeader";
 import Btn from "../components/Btn";
@@ -243,35 +244,34 @@ function MaterialsCatalogSection() {
     if (tc) setTenantId(tc.id);
     const { data } = await supabase
       .from("materials_catalog")
-      .select("id, name, kit_size, price, coverage, supplier")
+      .select("id, tenant_id, name, kit_size, price, coverage, supplier, mils, mix_time, mix_speed, cure_time, unit, specs_updated_at")
       .not("tenant_id", "is", null)
       .order("name");
     if (data) setRows(data);
     setLoading(false);
   }
 
-  const startNew  = () => setEditing({ isNew: true, name: "", kit_size: "", price: "", coverage: "", supplier: "" });
-  const startEdit = (r) => setEditing({ ...r, price: r.price == null ? "" : String(r.price) });
+  const startNew  = () => setEditing({ isNew: true, name: "", kit_size: "", price: "", coverage: "", supplier: "", mils: "", mix_time: "", mix_speed: "", cure_time: "", unit: "" });
+  const startEdit = (r) => setEditing({ ...r, price: r.price == null ? "" : String(r.price), _orig: r });
   const cancel    = () => setEditing(null);
 
   async function save() {
     if (!editing.name.trim()) return;
     setSaving(true);
-    const payload = {
-      name:      editing.name.trim(),
-      kit_size:  editing.kit_size.trim() || null,
-      price:     parseFloat(editing.price) || 0,
-      coverage:  editing.coverage.trim() || null,
-      supplier:  editing.supplier.trim() || null,
-    };
-    if (editing.isNew) {
-      await supabase.from("materials_catalog").insert({ ...payload, tenant_id: tenantId, active: true });
-    } else {
-      await supabase.from("materials_catalog").update(payload).eq("id", editing.id);
+    try {
+      // Shared write path: INSERT-stamp + fork-on-edit + 0-rows/23505 handling.
+      await saveCatalogRow({
+        original: editing.isNew ? null : (editing._orig ?? editing),
+        values: editing,
+        tenantId,
+      });
+      setEditing(null);
+      load();
+    } catch (e) {
+      alert("Could not save material: " + catalogErrorMessage(e));
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    setEditing(null);
-    load();
   }
 
   async function remove(id) {
@@ -364,6 +364,29 @@ function MaterialEditRow({ editing, setEditing, onSave, onCancel, saving }) {
         <div>
           <div style={labelStyle}>Supplier (optional)</div>
           <input style={inputStyle} value={editing.supplier} onChange={e => set("supplier", e.target.value)} placeholder="e.g. CSS" />
+        </div>
+      </div>
+      {/* Application specs (text) — flow to the SOW stamp + crew ticket */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 12 }}>
+        <div>
+          <div style={labelStyle}>Mils</div>
+          <input style={inputStyle} value={editing.mils || ""} onChange={e => set("mils", e.target.value)} placeholder="20-25" />
+        </div>
+        <div>
+          <div style={labelStyle}>Mix Time</div>
+          <input style={inputStyle} value={editing.mix_time || ""} onChange={e => set("mix_time", e.target.value)} placeholder="3 min" />
+        </div>
+        <div>
+          <div style={labelStyle}>Mix Speed</div>
+          <input style={inputStyle} value={editing.mix_speed || ""} onChange={e => set("mix_speed", e.target.value)} placeholder="Low" />
+        </div>
+        <div>
+          <div style={labelStyle}>Cure Time</div>
+          <input style={inputStyle} value={editing.cure_time || ""} onChange={e => set("cure_time", e.target.value)} placeholder="24 hrs" />
+        </div>
+        <div>
+          <div style={labelStyle}>Unit</div>
+          <input style={inputStyle} value={editing.unit || ""} onChange={e => set("unit", e.target.value)} placeholder="kit" />
         </div>
       </div>
       <div style={{ display: "flex", gap: 8 }}>

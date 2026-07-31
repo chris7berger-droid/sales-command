@@ -335,17 +335,13 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
           .from("invoice_lines")
           .select("*, proposal_wtc:proposal_wtc_id(*, work_types(name)), billing_schedule_line:billing_schedule_line_id(line_code, description, scheduled_value)")
           .eq("invoice_id", invoice.id);
-        // Deposit badge reads callLog.deposit_invoice_id === invoice.id — fetch the
-        // job's current deposit pointer so a GC (pay-app) deposit's PDF shows the badge.
-        const clId = proposal.call_log?.id || proposal.call_log_id;
-        const { data: clDep } = clId
-          ? await supabase.from("call_log").select("deposit_invoice_id").eq("id", clId).maybeSingle()
-          : { data: null };
+        // Deposit badge now reads invoice.is_deposit (per-invoice, 20260731120000) —
+        // no job-pointer lookup needed; a GC (pay-app) deposit carries its own flag.
         const result = await generateInvoicePdf({
           invoice,
           lines: lines || [],
           tenantConfig,
-          callLog: { ...proposal.call_log, subcontractor_job_no: jobNumber, deposit_invoice_id: clDep?.deposit_invoice_id || null },
+          callLog: { ...proposal.call_log, subcontractor_job_no: jobNumber },
           customer,
           proposal,
         });

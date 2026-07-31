@@ -1,0 +1,183 @@
+SC_Handoff_v172 — Multi-deposit fix SHIPPED: deposits are per-invoice, not one per job
+==================================================================================================
+Date: 2026-07-31
+Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (merge 242f5ef)
+Prior: v171 (DMS-1 Phase 2 Sales SOW authoring). Mode: fix (bug reported from live use on job 7215).
+Cross-repo: shipped with command-suite-db (migration + gate change) and sch-command (deposit tag).
+  See CSDB_Handoff_v6.txt and SCH_HANDOFF_v30.md.
+
+
+SESSION SUMMARY
+---------------
+Chris hit a wall invoicing job 7215: it has multiple WTCs, each needing its own material deposit
+invoice, and the app allowed exactly one deposit per job. The deposit-tag v2 model (2026-06-21) put a
+single pointer on the JOB (call_log.deposit_invoice_id), so marking a second invoice MOVED the tag off
+the first instead of adding one. Real-world use disproved the one-per-job assumption, so the flag moved
+back onto the invoice: invoices.is_deposit, any number per job.
+
+Ratified with Chris before building: (1) flag per invoice; (2) the job-level "Deposit required"
+checkbox and hand-typed "Deposit Amount" get REMOVED — he never used them because they meant manual
+math kept in sync by hand; (3) Schedule derives the tag from the invoices instead. The customer-facing
+green stamp was explicitly kept — it's the proof shown on a collections call — which forced a fix to
+the anon-exposure gate (see command-suite-db handoff).
+
+Built, rehearsed, gated through T4 (build-vs-plan, 4 reviewers), fixed the two money-path holes it
+found, then migrated prod, merged all three repos, and did the post-push housekeeping. Chris confirmed
+on prod: 7215 now carries two deposit invoices (10140 $7,350 sent, 10141 $13,257 unsent), both stamped.
+
+No plan doc — same-session fix. The ratified spec is recorded in the T4 prompt inside this session and
+summarised under DECISIONS below. /auditcriteria + /runaudit were deliberately NOT run (Chris's call).
+
+
+CHANGES SHIPPED (sales-command)
+-------------------------------
+36350bc "Closes B50, B49: deposits are per-invoice, not one per job"
+  - Invoices.jsx: isDepositInvoice reads inv.is_deposit (was: job pointer === this invoice).
+    handleToggleDeposit writes the invoice's OWN flag — no pointer-stealing, no steal-confirm.
+    Confirm now fires only when UN-marking an already-sent/paid deposit.
+  - Closes B50: the toggle zeroes retention_pct/retention_amount in the SAME write instead of
+    waiting for the next edit-form save. Pay-app + QB-synced invoices excluded (that money is owned
+    by the pay-app flow / already in QuickBooks).
+  - PublicInvoicePage.jsx: selects is_deposit explicitly (anon column), badge off the per-invoice flag.
+  - invoicePdf.js: badge reads invoice.is_deposit; no longer needs a callLog pointer.
+  - PayAppDetailModal.jsx: dropped the extra call_log pointer fetch in the pay-app PDF path.
+  - Closes B49: the job-level Materials Deposit card (checkbox + amount + saveDeposit) REMOVED from
+    ProposalDetail.jsx and CallLogDetail.jsx, plus the now-unused Checkbox import + sanitizeAmount
+    helper in both. deposit_required/deposit_amount dropped from the call_log selects in
+    ProposalDetail + Proposals.
+541a891 "T4 gate fixes: close two money-path holes in the deposit toggle"
+  - The deposit checkbox is disabled until `loading` clears, and handleToggleDeposit guards the write
+    on it too. linkedPayApp is useState(null) behind ~8 sequential awaits while the checkbox renders
+    ABOVE the loading gate — ticking early on a pay-app invoice passed the retention guard and would
+    have zeroed retainage owned by the pay-app flow.
+  - Void-and-replace (handleVoidConfirm's replacement insert) now carries is_deposit alongside
+    type/retention_released. Without it, pulling back a marked deposit returned a plain invoice and the
+    job silently lost that deposit from its total.
+  - docs/BACKLOG.md: B51 corrected, B66 + B67 filed (see NEW BACKLOG ITEMS).
+
+
+DEPLOYED
+--------
+Migration (shared Supabase pbgvgjjuhnpsumnowuym, applied from command-suite-db via npm run db:push):
+  20260731120000_deposit_per_invoice.sql
+  - invoices.is_deposit boolean NOT NULL DEFAULT false
+  - backfill from every call_log.deposit_invoice_id pointer (5 rows, all carried)
+  - partial index invoices_is_deposit_call_log_idx ON (call_log_id) WHERE is_deposit
+  - GRANT SELECT (is_deposit) TO anon (public invoice page renders the stamp)
+Post-apply verify against prod: pointers_not_carried_over=0, deposit_invoices_now=5, index present,
+anon CAN read is_deposit, anon still CANNOT read stripe_checkout_url.
+
+Vercel prod: sales-command main 242f5ef, sch-command main 452ef78. No edge functions touched.
+
+
+DECISIONS / CHOICES MADE
+------------------------
+- Per-invoice flag over keeping the job pointer. The pointer is inherently one-per-job; no workaround
+  exists. Considered and rejected: reusing the vestigial invoices.type='deposit' — a pay-app invoice
+  CAN be a deposit, and type already carries 'pay-app', so one field can't hold both.
+- Removed the job-level deposit controls rather than leaving them. Chris doesn't use them; leaving a
+  second, hand-maintained source of deposit truth would drift against the invoices. This also dissolved
+  B49 (last-write-wins across sibling proposals) — no shared value left to race on.
+- Kept the customer-facing stamp, which required opening one anon-readable column. Chris's reason,
+  recorded because it drives the security trade-off: "especially when we have to call them to follow
+  up. They can look at the invoice, and we can prove that this was a material deposit and they should
+  have paid it sooner." The gate change that made this expressible is in command-suite-db.
+- Schedule tag shows what's STILL OWED while unpaid, flipping to the full total once everything is
+  paid. Judgment call made after the T4 review asked; a $10k tag on a job with $4k collected answers
+  the wrong question. Tooltip names which figure it is.
+- call_log.deposit_required / deposit_amount / deposit_invoice_id NOT dropped. Both deployed mains
+  still selected them at migration time; dropping under a live app 400s the job board and proposal
+  screen. Deferred to B51 (corrected this session — the earlier note understated it as sch-only).
+- No plan doc and no /auditcriteria + /runaudit pass. Offered; Chris declined ("not needed").
+  T4 (build-vs-plan) was run and did catch two real money-path defects.
+
+
+NEW BACKLOG ITEMS
+-----------------
+- B66 (T4, [Sev 3 · Like 2 · Eff half-day]) — no automated control proves the anon-gate's
+  added-column branch keeps its teeth under --pre. The existing vacuity control strips the invoices
+  REVOKE, which exercises the UN-hardened branch only. Hand-probed 2026-07-31, not codified.
+- B67 (T4, [Sev 4 · Like 2 · Eff 1h]) — invoices.type can't be dropped as "zero readers": it has four
+  live WRITERS on every invoice-create path. Carved out of B51. Prod carries 0 rows with
+  type='deposit' (probed), so the pointer-only backfill lost nothing.
+- B51 (existing) — rewritten: now Open (blocked), scope corrected to the call_log trio +
+  proposals.deposit_*, blocked until BOTH apps' new code is live in prod, invoices.type excluded.
+
+
+CLOSED THIS SESSION
+-------------------
+- B49 — closed obsolete @ 36350bc. Job-level deposit field last-write-wins across sibling proposals;
+  the field and both saveDeposit handlers no longer exist.
+- B50 — closed fixed @ 36350bc. Retention now zeroed on the deposit toggle itself.
+
+
+VERIFICATION
+------------
+- Migration rehearsed on a prod-shaped throwaway (scripts/rehearse.sh) BEFORE push: applied clean,
+  baseline fingerprints matched prod, no new anon exposure in either phase.
+- Gate probed twice, deliberately trying to make it fail: an unlisted GRANT (invoices.void_reason)
+  still fails post-state; a stale pending line (public.invoices.status) still fails pre-state.
+- Pre-push prod probe: 0 invoices carried the older type='deposit' marking, so reading only the
+  pointer in the backfill loses no deposit history. 5 pointer rows, all carried.
+- Post-apply prod verify: see DEPLOYED.
+- T4 build-vs-plan gate: 1 Tier-1 (deploy ordering), 4 Tier-2. All handled; two were real money-path
+  defects now fixed (load-window retention hole, void-and-replace losing the mark).
+- Both apps build clean.
+- SMOKE (Chris, on prod): 7215 marked with two deposit invoices, both keep the green stamp — the
+  thing that was impossible before. Invoice 10141 preview screenshot confirms the MATERIALS DEPOSIT
+  INVOICE stamp, $13,257, no retention.
+- NOT verified by a human: the Schedule board deposit tag (expected: red "Due", $20,607 outstanding,
+  since 10141 is unsent), and the customer-facing PUBLIC invoice page stamp (only the internal preview
+  was eyeballed). Code-only confidence on both.
+
+
+NOT TOUCHED THIS SESSION
+------------------------
+- DMS-1 Phase 3 (the other machine's in-flight work, sch-command feat/dms1-phase3 + sales-command
+  feat/dms1-phase3-task-size-unit). Verified non-colliding twice, including a real trial merge; left
+  strictly alone.
+- B51 drop migration — blocked by design until both apps' code has been live long enough to trust.
+- B66 / B67 — filed, not started.
+- F42 / F43 (from v171) — untouched.
+
+
+NEXT SESSION POINTERS
+---------------------
+1. First action if resuming this thread: look at the Schedule board tag on 7215 and the customer-facing
+   invoice link. Those are the two surfaces nobody has eyeballed.
+2. Chris was mid-invoicing 7215 when this started — the real billing work for that job is his next
+   move, now unblocked.
+3. Safe: marking/unmarking deposits, sending invoices (edge fns untouched; sending from PROD is fine —
+   only preview URLs are CORS-blocked).
+4. Before any future migration in command-suite-db: the baseline snapshot and EXPECT_* constants were
+   refreshed this session, so a rehearsal should come up green. If it doesn't, something drifted AFTER
+   2026-07-31 — investigate, don't bump the numbers.
+
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+- src/pages/Invoices.jsx — handleToggleDeposit (per-invoice write + retention zeroing + loading guard),
+  isDepositInvoice, the replacement-insert carry.
+- src/components/ProposalDetail.jsx, src/components/CallLogDetail.jsx — deposit UI removed; a comment
+  marks where it was.
+- src/pages/PublicInvoicePage.jsx — the only place that names is_deposit in an explicit anon select.
+- src/lib/invoicePdf.js — badge gate.
+- docs/BACKLOG.md — B49/B50 closed, B51 corrected, B66/B67 new.
+- (command-suite-db) scripts/rehearse/anon_hardened_pending.txt — the staging file for a future
+  customer-visible column. Empty now; read its RULES before using it.
+
+
+GIT STATE ON CLOSE
+------------------
+- Branch: main. Merge 242f5ef on origin/main (fix/multi-deposit-invoices merged --no-ff).
+- Branch fix/multi-deposit-invoices exists local + remote, fully merged — deletion offered at close.
+- Working tree: clean apart from this handoff.
+- Sibling repos: command-suite-db main 09b55d9, sch-command main 452ef78 (both pushed).
+- Other machine's branches (untouched): sales-command feat/dms1-phase3-task-size-unit,
+  sch-command feat/dms1-phase3.
+
+
+END STATE
+---------
+Merged, migrated, deployed, smoke-confirmed on the core case by Chris; Schedule tag + public invoice
+page unverified by eye. Ready for a fresh session.

@@ -2001,7 +2001,9 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   // QB-synced invoices keep their stored retention: that money is owned by the pay-app
   // flow / already synced to QuickBooks, and this toggle must not move it.
   async function handleToggleDeposit() {
-    if (inv.voided_at || inv.deleted_at || markingDeposit) return;
+    // `loading` gates the write, not just the checkbox: linkedPayApp is still null
+    // mid-load, and acting on it then would zero pay-app retainage.
+    if (loading || inv.voided_at || inv.deleted_at || markingDeposit) return;
     const turningOn = !inv.is_deposit;
 
     if (!turningOn && (inv.sent_at || inv.paid_at)) {
@@ -2112,6 +2114,9 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           show_cents: inv.show_cents,
           status: "New",
           type: inv.type || "regular", // replacement inherits the voided invoice's kind
+          is_deposit: inv.is_deposit,  // ...including its deposit mark — without this a pulled-back
+                                       // deposit returns as a plain invoice and the job silently
+                                       // drops it from the deposit total
         }]).select().single();
         if (newErr) { alert(`Replacement invoice insert failed: ${newErr.message}`); setSaving(false); return; }
 
@@ -2305,7 +2310,12 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
               once the invoice is sent; an unsent one shows a 'not sent' indicator. */}
           {!inv.voided_at && !inv.deleted_at && (
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 24, padding: "12px 16px", background: C.linenDeep, border: `1px solid ${isDepositInvoice ? C.green : C.border}`, borderLeft: `4px solid ${isDepositInvoice ? C.green : C.border}`, borderRadius: 10 }}>
-              <Checkbox checked={isDepositInvoice} onChange={handleToggleDeposit} disabled={markingDeposit} accent={C.green} label="Mark as a material deposit invoice" labelStyle={{ fontSize: 13, fontWeight: 700, color: C.textHead }} style={{ cursor: markingDeposit ? "wait" : "pointer" }} />
+              {/* Disabled until the page finishes loading: linkedPayApp is null for the
+                  first ~8 awaits, and the retention guard in handleToggleDeposit reads it.
+                  Ticking this early would pass the guard and zero retainage owned by the
+                  pay-app flow (CLAUDE.md #7 — a guard that is null before it loads is not
+                  a guard). The handler re-checks too; this just stops the click. */}
+              <Checkbox checked={isDepositInvoice} onChange={handleToggleDeposit} disabled={loading || markingDeposit} accent={C.green} label="Mark as a material deposit invoice" labelStyle={{ fontSize: 13, fontWeight: 700, color: C.textHead }} style={{ cursor: (loading || markingDeposit) ? "wait" : "pointer" }} />
               {isDepositInvoice && (inv.sent_at
                 ? <span style={{ fontSize: 11, fontWeight: 700, color: C.green, fontFamily: F.ui, background: "rgba(67,160,71,0.14)", padding: "3px 10px", borderRadius: 6 }}>Recorded{inv.paid_at ? " · paid" : ""}</span>
                 : <span style={{ fontSize: 11, fontWeight: 700, color: C.amber, fontFamily: F.ui, background: "rgba(249,168,37,0.14)", padding: "3px 10px", borderRadius: 6 }}>Not sent — deposit not recorded yet</span>

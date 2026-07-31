@@ -258,7 +258,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
 
     // Create invoice — type set EXPLICITLY (Data Integrity #6): this handler only
     // mints regular/archive invoices ('regular'). A deposit is just a normal invoice
-    // later pointed at by call_log.deposit_invoice_id (Mark-as-deposit toggle) — no
+    // later flagged via invoices.is_deposit (Mark-as-deposit toggle) — no
     // special create path. Pay-app invoices are minted in NewPayAppModal ('pay-app').
     const { data: inv, error: invErr } = await supabase
       .from("invoices")
@@ -638,7 +638,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
   const retentionAmt = parseFloat(invoice.retention_amount) || 0;
   const retentionPct = parseFloat(invoice.retention_pct) || 0;
   const netTotal = (invoice.amount || 0) - (invoice.discount || 0) - retentionAmt;
-  const isDepositInvoice = (invoice.proposals?.call_log?.deposit_invoice_id || null) === invoice.id;
+  const isDepositInvoice = !!invoice.is_deposit;
 
   // Load billing contact from customer_contacts (Billing Contact role) → fall back to customers table
   useEffect(() => {
@@ -1295,7 +1295,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   async function reloadInv() {
     const { data: refreshed } = await supabase
       .from("invoices")
-      .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))`)
+      .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
       .eq("id", inv.id)
       .maybeSingle();
     if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
@@ -1466,7 +1466,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       // recent QB link/unlink action — list-cached props can be stale.
       const { data: freshInv } = await supabase
         .from("invoices")
-        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id, customer_id, customers(billing_email, billing_name, contact_email, email, first_name, last_name, name)))`)
+        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, customer_id, customers(billing_email, billing_name, contact_email, email, first_name, last_name, name)))`)
         .eq("id", inv.id)
         .maybeSingle();
       if (freshInv) setInv(prev => ({ ...prev, ...freshInv }));
@@ -1666,7 +1666,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
       const { data: refreshed } = await supabase
         .from("invoices")
-        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))`)
+        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
         .eq("id", inv.id)
         .maybeSingle();
       if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
@@ -1732,11 +1732,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   }
 
   const isArchiveInvoice = lines.length > 0 && lines.every(l => !l.proposal_wtc_id && !l.billing_schedule_line_id);
-  // One-field model: the job points at its deposit invoice via call_log.deposit_invoice_id.
-  // THIS invoice is the deposit iff the job's pointer references it. Drives the badge,
+  // Per-invoice deposit flag (20260731120000). A job bills a separate material deposit
+  // per WTC, so the flag lives on the invoice — any number per job. Drives the badge,
   // the Mark-as-deposit toggle, and the (non-pay-app) retention suppression.
-  const depositInvoiceId = inv.proposals?.call_log?.deposit_invoice_id || null;
-  const isDepositInvoice = depositInvoiceId != null && depositInvoiceId === inv.id;
+  const isDepositInvoice = !!inv.is_deposit;
 
   function startEditing() {
     setEditId(inv.id);
@@ -1990,54 +1989,46 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     onUpdated && onUpdated();
   }
 
-  // Mark / unmark THIS invoice as the job's deposit. ONE atomic write on the single
-  // pointer call_log.deposit_invoice_id — set to this invoice's id, or null to un-mark.
-  // No clear-before-set, no compensation: a single field can't reach a half-state, and
-  // stealing the pointer from another invoice is the same one write. Confirm only when
-  // the CURRENT deposit link points at a sent/paid invoice (don't silently un-record a
-  // collected deposit). (plan v2 #1)
+  // Mark / unmark THIS invoice as a material deposit. ONE write on the invoice's own
+  // is_deposit flag — marking a second invoice ADDS a deposit, it no longer steals a
+  // job-level pointer from the first (the one-per-job model broke on job 7215, which
+  // bills a deposit per WTC). Confirm only when un-marking an already-collected
+  // deposit — don't silently un-record money that came in.
+  //
+  // Retention: a direct (non-pay-app) deposit carries none, so marking one zeroes it in
+  // the SAME write. handleSaveEdit forces 0 too, but that only fired on the next edit —
+  // the invoice kept displaying retention on a "deposit" until then (B50). Pay-app and
+  // QB-synced invoices keep their stored retention: that money is owned by the pay-app
+  // flow / already synced to QuickBooks, and this toggle must not move it.
   async function handleToggleDeposit() {
-    if (inv.voided_at || inv.deleted_at || markingDeposit || !inv.call_log_id) return;
-    const currentId = inv.proposals?.call_log?.deposit_invoice_id || null;
-    const turningOn = currentId !== inv.id;        // not currently this invoice → make it the deposit
-    const nextValue = turningOn ? inv.id : null;
+    // `loading` gates the write, not just the checkbox: linkedPayApp is still null
+    // mid-load, and acting on it then would zero pay-app retainage.
+    if (loading || inv.voided_at || inv.deleted_at || markingDeposit) return;
+    const turningOn = !inv.is_deposit;
 
-    if (currentId) {
-      // Status of whatever the pointer currently references (this invoice on un-mark, or
-      // another invoice we're about to steal it from).
-      let cur;
-      if (currentId === inv.id) cur = { sent_at: inv.sent_at, paid_at: inv.paid_at, voided_at: inv.voided_at, deleted_at: inv.deleted_at };
-      else {
-        const { data } = await supabase.from("invoices").select("sent_at, paid_at, voided_at, deleted_at").eq("id", currentId).maybeSingle();
-        cur = data;
-      }
-      // Only confirm for a LIVE collected deposit — a voided/deleted pointer invoice is
-      // inactive (state already reads "required"), so moving/clearing it is free. This
-      // mirrors the reader active-filter; no clear-on-void handler is needed.
-      const active = cur && !cur.voided_at && !cur.deleted_at;
-      if (active && (cur.sent_at || cur.paid_at)) {
-        const what = cur.paid_at ? "paid" : "sent";
-        const msg = turningOn
-          ? `This job's deposit is invoice #${currentId} (${what}). Move the deposit to invoice #${inv.id}?`
-          : `Invoice #${inv.id} is the job's recorded deposit (${what}). Remove it as the deposit? The job will show a deposit as still required.`;
-        if (!confirm(msg)) return;
-      }
+    if (!turningOn && (inv.sent_at || inv.paid_at)) {
+      const what = inv.paid_at ? "paid" : "sent";
+      if (!confirm(`Invoice #${inv.id} is recorded as a deposit (${what}). Remove the deposit mark? The job will show that much less deposit collected.`)) return;
     }
 
+    const zeroRetention = turningOn && !linkedPayApp && !syncedLock
+      && ((parseFloat(inv.retention_pct) || 0) > 0 || (parseFloat(inv.retention_amount) || 0) > 0);
+    const updates = zeroRetention
+      ? { is_deposit: turningOn, retention_pct: 0, retention_amount: 0 }
+      : { is_deposit: turningOn };
+
     setMarkingDeposit(true);
-    const { data: updated, error } = await supabase.from("call_log")
-      .update({ deposit_invoice_id: nextValue })
-      .eq("id", inv.call_log_id)
+    const { data: updated, error } = await supabase.from("invoices")
+      .update(updates)
+      .eq("id", inv.id)
       .select();
     setMarkingDeposit(false);
     if (error || !updated || updated.length < 1) {
       alert(error?.message || "Couldn't update the deposit — refresh and try again.");
       return;
     }
-    // Reflect the pointer (lives on the job's call_log, embedded under proposals).
-    setInv(prev => prev.proposals?.call_log
-      ? { ...prev, proposals: { ...prev.proposals, call_log: { ...prev.proposals.call_log, deposit_invoice_id: nextValue } } }
-      : prev);
+    setInv(prev => ({ ...prev, ...updates }));
+    if (zeroRetention) setEditRetentionPct("0");
     onUpdated && onUpdated();
   }
 
@@ -2123,6 +2114,9 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           show_cents: inv.show_cents,
           status: "New",
           type: inv.type || "regular", // replacement inherits the voided invoice's kind
+          is_deposit: inv.is_deposit,  // ...including its deposit mark — without this a pulled-back
+                                       // deposit returns as a plain invoice and the job silently
+                                       // drops it from the deposit total
         }]).select().single();
         if (newErr) { alert(`Replacement invoice insert failed: ${newErr.message}`); setSaving(false); return; }
 
@@ -2311,12 +2305,17 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             <StatCard label={inv.retention_amount > 0 ? "Payment Due" : "Net Total"} value={money((inv.amount || 0) - (inv.discount || 0) - (inv.retention_amount || 0))} accent={C.green} />
           </div>
 
-          {/* Mark-as-deposit (internal). The deposit only "records" once the invoice is
-              sent — an unsent deposit shows a 'not sent' indicator so a checked-but-still-
-              required state doesn't read as contradictory. (plan v2 #1/#3) */}
+          {/* Mark-as-deposit (internal). A job may have several — one per WTC — so this
+              is a plain per-invoice flag, not a single-select. The deposit only "records"
+              once the invoice is sent; an unsent one shows a 'not sent' indicator. */}
           {!inv.voided_at && !inv.deleted_at && (
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 24, padding: "12px 16px", background: C.linenDeep, border: `1px solid ${isDepositInvoice ? C.green : C.border}`, borderLeft: `4px solid ${isDepositInvoice ? C.green : C.border}`, borderRadius: 10 }}>
-              <Checkbox checked={isDepositInvoice} onChange={handleToggleDeposit} disabled={markingDeposit} accent={C.green} label="Mark as the job's deposit invoice" labelStyle={{ fontSize: 13, fontWeight: 700, color: C.textHead }} style={{ cursor: markingDeposit ? "wait" : "pointer" }} />
+              {/* Disabled until the page finishes loading: linkedPayApp is null for the
+                  first ~8 awaits, and the retention guard in handleToggleDeposit reads it.
+                  Ticking this early would pass the guard and zero retainage owned by the
+                  pay-app flow (CLAUDE.md #7 — a guard that is null before it loads is not
+                  a guard). The handler re-checks too; this just stops the click. */}
+              <Checkbox checked={isDepositInvoice} onChange={handleToggleDeposit} disabled={loading || markingDeposit} accent={C.green} label="Mark as a material deposit invoice" labelStyle={{ fontSize: 13, fontWeight: 700, color: C.textHead }} style={{ cursor: (loading || markingDeposit) ? "wait" : "pointer" }} />
               {isDepositInvoice && (inv.sent_at
                 ? <span style={{ fontSize: 11, fontWeight: 700, color: C.green, fontFamily: F.ui, background: "rgba(67,160,71,0.14)", padding: "3px 10px", borderRadius: 6 }}>Recorded{inv.paid_at ? " · paid" : ""}</span>
                 : <span style={{ fontSize: 11, fontWeight: 700, color: C.amber, fontFamily: F.ui, background: "rgba(249,168,37,0.14)", padding: "3px 10px", borderRadius: 6 }}>Not sent — deposit not recorded yet</span>
@@ -2648,7 +2647,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             setSyncReLink(false);
             const { data: refreshed } = await supabase
               .from("invoices")
-              .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))`)
+              .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
               .eq("id", inv.id)
               .maybeSingle();
             if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
@@ -2769,7 +2768,7 @@ export default function Invoices({ setSubPage, teamMember }) {
   const load = async () => {
     const data = await fetchAll(
       "invoices",
-      `*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))`,
+      `*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`,
       { filters: [["is", "deleted_at", null]], order: { column: "sent_at", ascending: false } }
     );
     setInvoices(data);
@@ -2800,7 +2799,7 @@ export default function Invoices({ setSubPage, teamMember }) {
     (async () => {
       const { data } = await supabase
         .from("invoices")
-        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, deposit_invoice_id))`)
+        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
         .eq("id", routeInvoiceId)
         .is("deleted_at", null)
         .maybeSingle();

@@ -186,3 +186,23 @@ export function calcWtcPrice(wtc, markup_override_pct, exact = false) {
 export function calcProposalTotal(wtcs, markup_override_pct, exact = false) {
   return (wtcs || []).reduce((sum, w) => sum + calcWtcPrice(w, markup_override_pct, exact), 0);
 }
+
+// ── Contract billed-to-date ─────────────────────────────────────────────
+// How much of the CONTRACT has been billed. Single source of truth for
+// "Billed" / "Remaining" / "% Invoiced" anywhere a job or proposal is rolled up.
+//
+// The trap: an invoice with retention carries the FULL work value in `amount`
+// and withholds retention as a deduction on the net due (Payment Due =
+// amount − discount − retention_amount). The later retention-release invoice
+// re-bills that withheld money as its own `amount`. So a raw sum of `amount`
+// counts the retention twice and pushes % Invoiced past 100 — job 7438 read
+// $1,750 + $87.50 = $1,838 / 105% on a $1,750 contract.
+//
+// Contract progress is gross work billed, so a release contributes $0 here.
+// (It is still real money owed — cash/AR views must count it; this is not that.)
+export function sumContractBilled(invoices) {
+  return (invoices || []).reduce((s, i) => {
+    if (!i || i.voided_at || i.deleted_at || i.retention_release_of) return s;
+    return s + (parseFloat(i.amount) || 0);
+  }, 0);
+}

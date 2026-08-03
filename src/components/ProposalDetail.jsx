@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
-import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcWtcBreakdown, calcBidStamp, usesExactPricing } from "../lib/calc";
+import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcWtcBreakdown, calcBidStamp, usesExactPricing, sumContractBilled } from "../lib/calc";
 import { PROP_C } from "../lib/mockData";
 import { getTenantConfig } from "../lib/config";
 import WTCCalculator from "../pages/WTCCalculator";
@@ -106,7 +106,7 @@ const navigate = useNavigate();
 
 useEffect(() => {
   (async () => {
-    const { data } = await supabase.from("invoices").select("id, amount").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null).order("sent_at", { ascending: false });
+    const { data } = await supabase.from("invoices").select("id, amount, retention_release_of").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null).order("sent_at", { ascending: false });
     setLinkedInvoices(data || []);
   })();
 }, [p.id]);
@@ -1708,7 +1708,7 @@ function ArchiveProposalPanel({ p, setP, money, linkedInvoices = [] }) {
   const [tagged, setTagged] = useState([]);
 
   const historical = parseFloat(p.historical_billed_amount) || 0;
-  const billedSC = linkedInvoices.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+  const billedSC = sumContractBilled(linkedInvoices);
   const totalBilled = historical + billedSC;
   const remaining = (parseFloat(p.total) || 0) - totalBilled;
 

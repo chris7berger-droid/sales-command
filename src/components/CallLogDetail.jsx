@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { C, F } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
+import { sumContractBilled } from "../lib/calc";
 import Btn from "./Btn";
 import { supabase } from "../lib/supabase";
 import ArchiveProposalModal from "./ArchiveProposalModal";
@@ -184,7 +185,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       }
       const [{ data: props }, { data: invs }] = await Promise.all([
         supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, cloned_from_proposal_id, is_archive_proposal, customer_id, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
-        supabase.from("invoices").select("id, status, amount, job_name, voided_at, void_reason").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
+        supabase.from("invoices").select("id, status, amount, job_name, voided_at, void_reason, retention_release_of").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
       ]);
       setLinkedProposals(props || []);
       setLinkedInvoices(invs || []);
@@ -789,7 +790,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           }, 0);
         const historical = linkedProposals.filter(p => p.status === "Sold")
           .reduce((s, p) => s + (parseFloat(p.historical_billed_amount) || 0), 0);
-        const billedSC = linkedInvoices.filter(i => !i.voided_at).reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+        const billedSC = sumContractBilled(linkedInvoices);
         const billed = historical + billedSC;
         const remaining = sold - billed;
         const pct = sold > 0 ? Math.round((billed / sold) * 100) : 0;
@@ -899,6 +900,12 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                     >
                       <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.03em", minWidth: 140, textDecoration: isVoided ? "line-through" : "none" }}>Invoice #{inv.id}</span>
                       <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: ic.bg, color: ic.color, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>{isVoided ? "VOIDED" : inv.status}</span>
+                      {inv.retention_release_of && (
+                        <span title={`Releases retention withheld on Invoice #${inv.retention_release_of} — already counted in Billed, so it does not add to the contract total.`}
+                          style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: "rgba(249,168,37,0.13)", color: "#7a5000", fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          Retention Release
+                        </span>
+                      )}
                       <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto", textDecoration: isVoided ? "line-through" : "none" }}>{fmt$(inv.amount)}</span>
                     </button>
                   );

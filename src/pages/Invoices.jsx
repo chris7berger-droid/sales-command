@@ -4,7 +4,7 @@ import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
-import { calcWtcPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
+import { calcWtcPrice, usesExactPricing, PROPOSAL_ERA, sumContractBilled } from "../lib/calc";
 import { INV_C, PROP_C } from "../lib/mockData";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 import SectionHeader from "../components/SectionHeader";
@@ -141,11 +141,11 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
     if (p.is_archive_proposal) {
       const { data: priorInv } = await supabase
         .from("invoices")
-        .select("amount")
+        .select("amount, retention_release_of")
         .eq("proposal_id", p.id)
         .is("deleted_at", null)
         .is("voided_at", null);
-      const inSystem = (priorInv || []).reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+      const inSystem = sumContractBilled(priorInv);
       const historical = parseFloat(p.historical_billed_amount) || 0;
       setArchiveBilled(inSystem + historical);
       setArchiveAmount("");

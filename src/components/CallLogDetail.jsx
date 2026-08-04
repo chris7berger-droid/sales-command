@@ -105,6 +105,8 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   );
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const attachInputRef = useRef(null);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [showMultiGC, setShowMultiGC] = useState(false);
   const [showQBActionModal, setShowQBActionModal] = useState(false);
@@ -207,8 +209,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     fetchLinked();
   }, [job.id, job.parent_job_id]);
 
-  async function handleUpload(e) {
-    const files = Array.from(e.target.files);
+  async function uploadFiles(files) {
     if (!files.length) return;
     setUploading(true);
     const failures = [];
@@ -221,7 +222,18 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     if (failures.length) alert(`Failed to upload: ${failures.join(", ")}`);
     await fetchAttachments();
     setUploading(false);
+  }
+
+  async function handleUpload(e) {
+    await uploadFiles(Array.from(e.target.files));
     e.target.value = "";
+  }
+
+  async function handleAttachmentDrop(e) {
+    e.preventDefault();
+    setDragging(false);
+    if (uploading) return;
+    await uploadFiles(Array.from(e.dataTransfer.files));
   }
 
   function toggleWorkType(id) {
@@ -772,10 +784,30 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
             <span style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>No attachments yet</span>
           )}
         </div>
-        <label style={{ background: C.dark, color: C.teal, fontWeight: 800, fontSize: 12, fontFamily: F.display, letterSpacing: "0.06em", padding: "6px 14px", borderRadius: 6, cursor: uploading ? "not-allowed" : "pointer", display: "inline-block", opacity: uploading ? 0.6 : 1 }}>
-          {uploading ? "Uploading…" : "+ Upload Files"}
-          <input type="file" multiple onChange={handleUpload} disabled={uploading} style={{ display: "none" }} />
-        </label>
+        <div
+          onDragOver={(e) => { e.preventDefault(); if (!uploading) setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={handleAttachmentDrop}
+          onClick={() => { if (!uploading) attachInputRef.current?.click(); }}
+          style={{
+            border: `2px dashed ${dragging ? C.teal : C.borderStrong}`,
+            borderRadius: 10,
+            padding: "16px 20px",
+            textAlign: "center",
+            background: dragging ? C.tealGlow : C.linenDeep,
+            cursor: uploading ? "not-allowed" : "pointer",
+            opacity: uploading ? 0.6 : 1,
+            transition: "all 0.15s",
+          }}
+        >
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.textHead, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            {uploading ? "Uploading…" : "↑ Drop files here or click to upload"}
+          </div>
+          <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
+            Attaches to this job
+          </div>
+          <input ref={attachInputRef} type="file" multiple onChange={handleUpload} disabled={uploading} style={{ display: "none" }} />
+        </div>
       </div>
 
       {/* Job Totals — derived from linkedProposals + linkedInvoices (already family-scoped) */}

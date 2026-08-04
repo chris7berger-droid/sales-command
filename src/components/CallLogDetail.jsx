@@ -790,22 +790,19 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           onDrop={handleAttachmentDrop}
           onClick={() => { if (!uploading) attachInputRef.current?.click(); }}
           style={{
-            border: `2px dashed ${dragging ? C.teal : C.borderStrong}`,
-            borderRadius: 10,
-            padding: "16px 20px",
-            textAlign: "center",
-            background: dragging ? C.tealGlow : C.linenDeep,
+            border: `1.5px dashed ${dragging ? C.teal : C.borderStrong}`,
+            borderRadius: 8,
+            padding: "8px 16px",
+            display: "inline-block",
+            background: dragging ? C.tealGlow : "none",
             cursor: uploading ? "not-allowed" : "pointer",
             opacity: uploading ? 0.6 : 1,
             transition: "all 0.15s",
+            fontSize: 11.5, fontWeight: 700, color: C.textMuted,
+            fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase",
           }}
         >
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.textHead, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            {uploading ? "Uploading…" : "↑ Drop files here or click to upload"}
-          </div>
-          <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
-            Attaches to this job
-          </div>
+          {uploading ? "Uploading…" : "↑ Drop files or click to upload"}
           <input ref={attachInputRef} type="file" multiple onChange={handleUpload} disabled={uploading} style={{ display: "none" }} />
         </div>
       </div>

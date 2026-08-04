@@ -58,7 +58,7 @@ export default function ArchiveProposalModal({ onClose, onCreated, preselectedJo
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("work_types").select("id, name, tenant_id").order("name");
+      const { data } = await supabase.from("work_types").select("id, name, tenant_id, active").order("name");
       setAllWorkTypes(data || []);
     })();
   }, []);

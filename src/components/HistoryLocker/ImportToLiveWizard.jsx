@@ -217,7 +217,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
       const [cAll, tRes, wRes, tcRes, lastJobRes, legacyCheckRes] = await Promise.all([
         fetchAll("customers", "id, name, customer_type, first_name, last_name, phone, email, contact_phone, contact_email, business_address, business_city, business_state, business_zip, billing_terms, billing_name, billing_email, billing_phone", { order: "name" }),
         supabase.from("team_members").select("id, name, email, role").eq("active", true),
-        supabase.from("work_types").select("id, name, cost_code, tenant_id").order("name"),
+        supabase.from("work_types").select("id, name, cost_code, tenant_id, active").order("name"),
         supabase.from("tenant_config").select("default_billing_terms").limit(1).maybeSingle(),
         supabase.from("call_log").select("job_number").order("job_number", { ascending: false }).limit(1),
         legacyJobNumParsed

@@ -1967,7 +1967,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     async function loadWorkTypes() {
       const { data } = await supabase
         .from("work_types")
-        .select("id, name, sales_sow, tenant_id")
+        .select("id, name, sales_sow, tenant_id, active")
         .order("name");
       // Tenant-owned only; the WTC's current work type stays listed even if it's
       // a legacy system default, so an existing selection never disappears.

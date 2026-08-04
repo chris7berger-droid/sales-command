@@ -3,6 +3,7 @@ import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { getTenantConfig, updateTenantConfig } from "../lib/config";
 import { saveCatalogRow, catalogErrorMessage } from "../lib/materialsCatalog";
+import { selectableWorkTypes } from "../lib/workTypes";
 import { fmt$ } from "../lib/utils";
 import SectionHeader from "../components/SectionHeader";
 import Btn from "../components/Btn";
@@ -53,11 +54,11 @@ function WorkTypesSection() {
     if (tc) setTenantId(tc.id);
     const { data } = await supabase
       .from("work_types")
-      .select("id, name, cost_code, sales_sow, sort_order, tenant_id")
+      .select("id, name, cost_code, sales_sow, sort_order, tenant_id, active")
       .order("name");
     if (data) {
-      // Tenant-owned work types only — system defaults carry no SOW and are redundant here
-      setWorkTypes(data.filter(wt => wt.tenant_id).sort((a, b) => a.name.localeCompare(b.name)));
+      // Tenant-owned and not retired — system defaults carry no SOW and are redundant here
+      setWorkTypes(selectableWorkTypes(data));
     }
     setLoading(false);
   }

@@ -792,7 +792,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           style={{
             border: `1.5px dashed ${dragging ? C.teal : C.borderStrong}`,
             borderRadius: 8,
-            padding: "8px 16px",
+            padding: "26px 16px",
             display: "inline-block",
             background: dragging ? C.tealGlow : "none",
             cursor: uploading ? "not-allowed" : "pointer",

@@ -43,6 +43,7 @@ function WorkTypesSection() {
   const [editing, setEditing]       = useState(null); // row being edited (or { isNew:true })
   const [saving, setSaving]         = useState(false);
   const [deleteId, setDeleteId]     = useState(null);
+  const [removeError, setRemoveError] = useState(null);
 
   useEffect(() => { load(); }, []);
 
@@ -90,8 +91,22 @@ function WorkTypesSection() {
 
   async function remove(id) {
     setDeleteId(id);
-    await supabase.from("work_types").delete().eq("id", id);
+    setRemoveError(null);
+    // .select() so an RLS block shows up as zero rows returned rather than a silent no-op
+    const { data: deleted, error } = await supabase.from("work_types").delete().eq("id", id).select("id");
     setDeleteId(null);
+    if (error) {
+      setRemoveError(
+        error.code === "23503"
+          ? "This work type is still attached to a job or a proposal work type card — including deleted proposals, which stay in the database. Clear it there first."
+          : error.message
+      );
+      return;
+    }
+    if (!deleted?.length) {
+      setRemoveError("Nothing was deleted — your account may not have permission to remove this work type.");
+      return;
+    }
     load();
   }
 
@@ -140,6 +155,12 @@ function WorkTypesSection() {
       {!workTypes.length && !editing && (
         <div style={{ fontSize: 13, fontFamily: F.ui, color: C.textFaint, padding: "10px 0" }}>
           No work types yet. Add your first one below.
+        </div>
+      )}
+
+      {removeError && (
+        <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textBody, background: C.linenDeep, border: `1px solid ${C.borderStrong}`, borderLeft: `3px solid ${C.teal}`, borderRadius: 8, padding: "10px 14px", lineHeight: 1.5 }}>
+          {removeError}
         </div>
       )}
 

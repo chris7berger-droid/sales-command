@@ -1,8 +1,9 @@
 // SC-20 — Call Log Row Detail View
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { C, F } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
 import { sumContractBilled } from "../lib/calc";
+import { selectableWorkTypes } from "../lib/workTypes";
 import Btn from "./Btn";
 import { supabase } from "../lib/supabase";
 import ArchiveProposalModal from "./ArchiveProposalModal";
@@ -102,6 +103,12 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [saved,  setSaved]  = useState(false);
   const [selectedWorkTypes, setSelectedWorkTypes] = useState(
     (job.job_work_types || []).map(jw => jw.work_type_id)
+  );
+  // Frozen at mount so unchecking a legacy default doesn't make it vanish mid-edit
+  const [taggedAtOpen] = useState(() => (job.job_work_types || []).map(jw => jw.work_type_id));
+  const pickableWorkTypes = useMemo(
+    () => selectableWorkTypes(workTypes, taggedAtOpen),
+    [workTypes, taggedAtOpen]
   );
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -714,7 +721,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       </Section>
 
       {/* Work Types (dropdown with checkboxes) */}
-      {workTypes?.length > 0 && (
+      {pickableWorkTypes.length > 0 && (
         <div style={{ marginBottom: 24, position: "relative" }} ref={wtDropRef}>
           <div style={labelStyle}>Work Types</div>
           <button type="button" onClick={() => editing && setWtDropOpen(p => !p)}
@@ -726,7 +733,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           </button>
           {wtDropOpen && (
             <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: C.linenDeep, border: `1.5px solid ${C.borderStrong}`, borderRadius: 8, boxShadow: "0 4px 20px rgba(0,0,0,0.15)", zIndex: 999, maxHeight: 240, overflowY: "auto", marginTop: 2 }}>
-              {workTypes.map(wt => {
+              {pickableWorkTypes.map(wt => {
                 const selected = selectedWorkTypes.includes(wt.id);
                 return (
                   <div key={wt.id} onClick={() => toggleWorkType(wt.id)}
@@ -743,7 +750,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           {selectedWorkTypes.length > 0 && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
               {selectedWorkTypes.map(id => {
-                const wt = workTypes.find(w => w.id === id);
+                const wt = pickableWorkTypes.find(w => w.id === id);
                 if (!wt) return null;
                 return (
                   <span key={id} style={{ background: C.dark, color: C.teal, border: `1px solid ${C.tealBorder}`, borderRadius: 14, padding: "3px 10px", fontSize: 11, fontWeight: 700, fontFamily: F.ui, display: "flex", alignItems: "center", gap: 5 }}>

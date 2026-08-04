@@ -73,11 +73,17 @@ export async function enrichCallLogRows(rows) {
   // Fetch work types for linking
   const { data: workTypes } = await supabase
     .from("work_types")
-    .select("id, name");
+    .select("id, name, tenant_id");
 
+  // Tenant-owned row wins when a name exists as both custom and system default —
+  // imported jobs should land on the work type that carries the SOW.
   const wtMap = {};
+  const wtIsTenant = {};
   for (const wt of (workTypes || [])) {
-    wtMap[wt.name.toLowerCase().trim()] = wt.id;
+    const key = wt.name.toLowerCase().trim();
+    if (wtMap[key] && wtIsTenant[key] && !wt.tenant_id) continue;
+    wtMap[key] = wt.id;
+    wtIsTenant[key] = !!wt.tenant_id;
   }
 
   // Get next job number

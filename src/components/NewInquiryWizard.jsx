@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { C, F } from "../lib/tokens";
+import { selectableWorkTypes } from "../lib/workTypes";
 import { supabase } from "../lib/supabase";
 import { STAGES } from "../lib/mockData";
 import Checkbox from "./Checkbox";
@@ -756,9 +757,10 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
       );
 
       case "workTypes": {
+        const pickable = selectableWorkTypes(workTypes);
         const filtered = wtSearch.trim()
-          ? workTypes.filter(wt => wt.name.toLowerCase().includes(wtSearch.trim().toLowerCase()) || (wt.cost_code || "").toLowerCase().includes(wtSearch.trim().toLowerCase()))
-          : workTypes;
+          ? pickable.filter(wt => wt.name.toLowerCase().includes(wtSearch.trim().toLowerCase()) || (wt.cost_code || "").toLowerCase().includes(wtSearch.trim().toLowerCase()))
+          : pickable;
         return (
         <div>
           <StepLabel n={step + 1} label="Work Types (select all that apply)" />

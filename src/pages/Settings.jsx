@@ -3,6 +3,7 @@ import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { getTenantConfig, updateTenantConfig } from "../lib/config";
 import { saveCatalogRow, catalogErrorMessage } from "../lib/materialsCatalog";
+import { selectableWorkTypes } from "../lib/workTypes";
 import { fmt$ } from "../lib/utils";
 import SectionHeader from "../components/SectionHeader";
 import Btn from "../components/Btn";
@@ -43,6 +44,7 @@ function WorkTypesSection() {
   const [editing, setEditing]       = useState(null); // row being edited (or { isNew:true })
   const [saving, setSaving]         = useState(false);
   const [deleteId, setDeleteId]     = useState(null);
+  const [removeError, setRemoveError] = useState(null);
 
   useEffect(() => { load(); }, []);
 
@@ -52,42 +54,23 @@ function WorkTypesSection() {
     if (tc) setTenantId(tc.id);
     const { data } = await supabase
       .from("work_types")
-      .select("id, name, cost_code, sales_sow, sort_order, tenant_id")
+      .select("id, name, cost_code, sales_sow, sort_order, tenant_id, active")
       .order("name");
     if (data) {
-      // Dedupe by name — prefer tenant override over system default
-      const byName = new Map();
-      for (const wt of data) {
-        const existing = byName.get(wt.name);
-        if (!existing || (wt.tenant_id && !existing.tenant_id)) {
-          byName.set(wt.name, wt);
-        }
-      }
-      setWorkTypes(Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name)));
+      // Tenant-owned and not retired — system defaults carry no SOW and are redundant here
+      setWorkTypes(selectableWorkTypes(data));
     }
     setLoading(false);
   }
 
   const startNew  = () => setEditing({ isNew: true, name: "", cost_code: "", sales_sow: "" });
-  const startEdit = (wt) => {
-    if (wt.tenant_id) {
-      setEditing({ ...wt });
-    } else {
-      // System row — open form prefilled; save as tenant override
-      setEditing({
-        isOverride: true,
-        name: wt.name,
-        cost_code: wt.cost_code || "",
-        sales_sow: "",
-      });
-    }
-  };
+  const startEdit = (wt) => setEditing({ ...wt });
   const cancel    = () => setEditing(null);
 
   async function save() {
     if (!editing.name.trim()) return;
     setSaving(true);
-    if (editing.isNew || editing.isOverride) {
+    if (editing.isNew) {
       await supabase.from("work_types").insert({
         name: editing.name.trim(),
         cost_code: editing.cost_code.trim(),
@@ -109,8 +92,22 @@ function WorkTypesSection() {
 
   async function remove(id) {
     setDeleteId(id);
-    await supabase.from("work_types").delete().eq("id", id);
+    setRemoveError(null);
+    // .select() so an RLS block shows up as zero rows returned rather than a silent no-op
+    const { data: deleted, error } = await supabase.from("work_types").delete().eq("id", id).select("id");
     setDeleteId(null);
+    if (error) {
+      setRemoveError(
+        error.code === "23503"
+          ? "This work type is still attached to a job or a proposal work type card — including deleted proposals, which stay in the database. Clear it there first."
+          : error.message
+      );
+      return;
+    }
+    if (!deleted?.length) {
+      setRemoveError("Nothing was deleted — your account may not have permission to remove this work type.");
+      return;
+    }
     load();
   }
 
@@ -138,27 +135,21 @@ function WorkTypesSection() {
           <div key={wt.id} style={rowStyle}>
             <span style={{ fontSize: 13, fontFamily: F.ui, color: C.textBody, display: "flex", alignItems: "center", gap: 10 }}>
               {wt.name}
-              {wt.tenant_id ? (
-                <span style={{ fontSize: 9, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 4, padding: "2px 6px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Custom</span>
-              ) : (
-                <span style={{ fontSize: 9, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Default</span>
-              )}
+              <span style={{ fontSize: 9, fontWeight: 700, color: C.teal, background: C.dark, borderRadius: 4, padding: "2px 6px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Custom</span>
             </span>
             <span style={{ fontSize: 13, fontFamily: F.ui, color: C.textMuted }}>{wt.cost_code || "—"}</span>
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn sz="sm" v="ghost" onClick={() => startEdit(wt)}>{wt.tenant_id ? "Edit" : "Add SOW"}</Btn>
-              {wt.tenant_id && (
-                <Btn sz="sm" v="ghost" onClick={() => remove(wt.id)} disabled={deleteId === wt.id}>
-                  {deleteId === wt.id ? "…" : "Delete"}
-                </Btn>
-              )}
+              <Btn sz="sm" v="ghost" onClick={() => startEdit(wt)}>Edit</Btn>
+              <Btn sz="sm" v="ghost" onClick={() => remove(wt.id)} disabled={deleteId === wt.id}>
+                {deleteId === wt.id ? "…" : "Delete"}
+              </Btn>
             </div>
           </div>
         )
       )}
 
-      {/* New / override row form */}
-      {(editing?.isNew || editing?.isOverride) && (
+      {/* New row form */}
+      {editing?.isNew && (
         <EditRow editing={editing} setEditing={setEditing} onSave={save} onCancel={cancel} saving={saving} inputStyle={inputStyle} />
       )}
 
@@ -168,9 +159,9 @@ function WorkTypesSection() {
         </div>
       )}
 
-      {workTypes.length > 0 && (
-        <div style={{ fontSize: 11, fontFamily: F.ui, color: C.textFaint, marginTop: 4, lineHeight: 1.5 }}>
-          System defaults are read-only. Click <strong>Add SOW</strong> to create a tenant-specific override with your own default scope of work.
+      {removeError && (
+        <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textBody, background: C.linenDeep, border: `1px solid ${C.borderStrong}`, borderLeft: `3px solid ${C.teal}`, borderRadius: 8, padding: "10px 14px", lineHeight: 1.5 }}>
+          {removeError}
         </div>
       )}
 

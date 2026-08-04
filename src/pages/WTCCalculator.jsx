@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "../lib/supabase";
+import { selectableWorkTypes } from "../lib/workTypes";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice as calcWtcTotal, roundPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
@@ -1803,6 +1804,9 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const autosaveTimer = useRef(null);
   const [workTypes,  setWorkTypes] = useState([]);
   const [selectedWorkTypeId, setSelectedWorkTypeId] = useState(workTypeId ?? null);
+  // Frozen at mount — the work type this WTC arrived with stays listed even if
+  // it's a legacy system default, so an existing selection never disappears.
+  const [wtIdAtOpen] = useState(workTypeId ?? null);
   const [bidding,  setBidding]  = useState({ burden_rate: DEFAULTS.default_burden_rate, ot_burden_rate: DEFAULTS.default_ot_burden_rate, tax_rate: DEFAULTS.default_tax_rate, prevailing_wage: false, ot_overridden: false, start_date: "", end_date: "" });
   const [labor,    setLabor]    = useState({ regular_hours: 0, ot_hours: 0, markup_pct: 0 });
   const [materials,setMaterials]= useState([]);
@@ -1963,22 +1967,14 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     async function loadWorkTypes() {
       const { data } = await supabase
         .from("work_types")
-        .select("id, name, sales_sow, tenant_id")
+        .select("id, name, sales_sow, tenant_id, active")
         .order("name");
-      if (data) {
-        // Dedupe by name — tenant override hides matching system default
-        const byName = new Map();
-        for (const wt of data) {
-          const existing = byName.get(wt.name);
-          if (!existing || (wt.tenant_id && !existing.tenant_id)) {
-            byName.set(wt.name, wt);
-          }
-        }
-        setWorkTypes(Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name)));
-      }
+      // Tenant-owned only; the WTC's current work type stays listed even if it's
+      // a legacy system default, so an existing selection never disappears.
+      if (data) setWorkTypes(selectableWorkTypes(data, [wtIdAtOpen]));
     }
     loadWorkTypes();
-  }, []);
+  }, [wtIdAtOpen]);
 
   // ── Auto-load SOW template when work type selected ───────────────────────
   // ── CO inheritance: load parent proposal's WTCs ─────────────────────────

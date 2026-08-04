@@ -1,0 +1,160 @@
+SC_Handoff_v174 — Work types are custom-only across the app
+===========================================================
+Date: 2026-08-04
+Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (merge e2dec86)
+Prior: v173 (Job Detail attachment drop zone). Mode: /fix (reported from live use on Settings).
+Cross-repo: none. No migration, no edge function, no RLS change. One prod DATA write (see below).
+
+
+SESSION SUMMARY
+---------------
+Chris opened salescommand.app/settings, saw the Work Types list carrying rows tagged DEFAULT next to
+the CUSTOM ones, and asked to remove them: "Those are all redundant, and they do not have SOWs."
+
+Diagnosis: Settings loaded ALL 84 `work_types` rows. 51 are seeded system rows (`tenant_id IS NULL`);
+33 are tenant-owned. System rows can't hold a SOW, which is why they rendered "Add SOW" instead of
+Edit/Delete. The premise was half right — they ARE the redundancy source, but they are NOT all
+redundant (see OPEN ITEM). Reps picking a SOW-less default is how the near-duplicate names got
+created in the first place: "Clean and Seal" vs "Clean & Seal", "Joint fill" vs "Joint Fill Caulking",
+"Flattening" vs "Flatten", "Shot Blast" vs "Shot Blasting", "Patching" vs "Heavy Patching".
+
+Chris ratified the shape explicitly: leave the rows in the DATABASE, remove them from the UI. Nothing
+is deleted anywhere in this session's code — historical jobs, proposals and WTCs keep resolving their
+work-type names exactly as before.
+
+
+CHANGES SHIPPED (sales-command)
+-------------------------------
+NEW FILE — src/lib/workTypes.js — the rule lives in ONE place so it can't drift:
+
+    selectableWorkTypes(all, keepIds = [])
+      → keeps a row if: it's in keepIds, OR (tenant_id set AND active !== false)
+      → sorted by name
+
+  keepIds is the escape hatch and the reason this is safe: anything already tagged on the record being
+  edited stays in the list. Without it, opening an old job tagged with a now-hidden work type would
+  show that box unchecked, and saving would silently drop the tag. Filter bars deliberately do NOT use
+  this helper — they need the full catalog to filter historical records.
+
+dae3510 "Settings Work Types lists tenant-owned work types only"
+  - src/pages/Settings.jsx: load() filters to tenant rows. Removed the dedupe-by-name map, the
+    DEFAULT badge branch, the "Add SOW" override path (startEdit's isOverride, save()'s isOverride
+    branch, the isOverride render guard), and the now-false helper paragraph about system defaults.
+    Every row is Custom now, so every row gets Edit + Delete.
+
+0e654ea "work-type pickers offer custom work types only"
+  - CallLogDetail.jsx: `taggedAtOpen` frozen at mount via useState initializer + `pickableWorkTypes`
+    useMemo. Frozen deliberately — if keepIds tracked live state, unchecking a legacy default would
+    make the row vanish mid-edit with no way to re-check it.
+  - NewInquiryWizard.jsx: picker list wrapped, search filters the pickable list.
+  - WTCCalculator.jsx: `wtIdAtOpen` frozen at mount (was briefly keyed to selectedWorkTypeId, which
+    would have refetched on every dropdown change); replaced the old dedupe-by-name block.
+  - ArchiveProposalModal.jsx + HistoryLocker/ImportToLiveWizard.jsx: same rule; both selects had to
+    add `tenant_id` (and later `active`) to the column list.
+  - Import/importApi.js: CSV name→id map now prefers the tenant row when a name exists as both, so
+    imported jobs land on the work type that carries the SOW.
+  - NOT touched: FilterBar on Proposals.jsx and the Sales Dash filter — full catalog on purpose.
+
+f30d31e "Delete on a work type says why it failed instead of silently reverting"
+  - remove() discarded the PostgREST error entirely, so a failed delete looked like the row snapping
+    back for no reason. Now reports the FK case (23503) in plain English and surfaces any other
+    error message; `.select("id")` on the delete catches the RLS zero-rows no-op separately.
+    Error renders above the "+ Add Work Type" button.
+
+12a2e74 "retire a custom work type with active=false instead of deleting it"
+  - `work_types.active` existed and every row was true, but NOTHING in the codebase read it. It is
+    now the retire switch: selectableWorkTypes drops active=false, Settings loads through the same
+    helper, and all five call sites select the column.
+
+e2dec86 merge to main. ef4d47e backlog Completed Log entry.
+
+
+PROD DATA WRITE (the only one)
+------------------------------
+  update work_types set active = false where id = 89 and name = 'TEST';
+
+Run via `supabase db query --linked -f` from ~/command-suite-db (the Supabase MCP is read-only;
+sales-command is unlinked). Returned active:false — verified.
+
+Why TEST couldn't just be deleted: `proposal_wtc_work_type_id_fkey` is NO ACTION and three
+proposal_wtc rows still point at work type 89 — all on proposals soft-deleted on 2026-04-13 (x2) and
+2026-05-07 ("10031 - Testing push from SC to SCH C"). Soft-deleted proposals stay in the database, so
+they keep holding the FK. Chris was offered a cleanup of those 3 rows and declined: "no, that's my
+problem... go ahead and hide that one too." Hence the retire path rather than a delete.
+
+
+DECISIONS
+---------
+1. Hide, don't delete. Rows stay in the DB; only selectability changes. Chris's call, stated twice.
+2. Already-tagged records keep showing their work type (keepIds), so no re-tag pass was needed before
+   shipping and no save can silently drop a tag.
+3. Filter bars keep the full catalog — hiding defaults there would make old jobs unfilterable.
+4. Retire reuses the existing `active` column rather than adding a schema concept. No migration.
+5. There is no Hide/Unhide button in the UI yet — retiring another work type today means one SQL
+   flip. Not built because only TEST needed it; worth a button if it happens again.
+
+
+VERIFICATION
+------------
+- `npx vite build` green after every commit and again on main before push.
+- FK + RLS shape confirmed by query, not assumption: work_types delete policy is
+  `tenant_id = get_user_tenant_id()` (so RLS was NOT the blocker for TEST); the three FKs into
+  work_types are job_work_types (NO ACTION), proposal_wtc (NO ACTION), work_type_sow_templates (CASCADE).
+- Reference counts pulled per row before deciding anything — that's what surfaced the open item below.
+- NOT smoke-tested in the browser by Claude. Chris was given the click path: open a job tagged
+  Caulking → its dropdown shows the custom list PLUS Caulking still checked; open a fresh New Inquiry
+  → no defaults at all. Worth eyeballing on prod.
+
+
+OPEN ITEM — 10 defaults are on real jobs with no custom twin
+------------------------------------------------------------
+These are NOT redundant duplicates. Each is a system row with no tenant-owned equivalent, and each is
+already on live records. They remain on those records and remain filterable, but they can no longer be
+picked for NEW work:
+
+    Caulking (8 jobs / 12 WTCs), Grind and Seal (5/1), Joint fill (5/2), Patching (3/4),
+    Waterproofing (3/2), Water Based Epoxy (3/0), Joint Fill Caulking Labor (2/0),
+    Epoxy (1/1), Grind Stain and Seal (1/1), Shot Blast (0/1)
+
+If any of these are real offerings, re-create them as custom work types with SOWs in Settings and they
+take over cleanly for new jobs (the old rows stay put for history). Flagged to Chris; logged in
+docs/BACKLOG.md Completed Log under the 2026-08-04 entry. No decision made yet.
+
+
+NOT TOUCHED
+-----------
+- No schema change, no migration, nothing in command-suite-db.
+- No edge function deployed. No RLS policy change.
+- Proposals + Sales Dash filter bars (intentional, see Decisions #3).
+- The 3 orphan proposal_wtc rows pinning TEST (Chris declined).
+- Schedule Command / Field Command — work_types is shared, but no code in those repos was read or
+  changed this session. If either app renders its own work-type picker, it still shows defaults.
+
+
+NEXT SESSION POINTERS
+---------------------
+1. Eyeball the two smoke paths on prod (above) if not already done.
+2. Decide the 10 defaults. Most likely path: add Caulking, Patching, Joint fill, Waterproofing and
+   friends as custom work types with SOWs.
+3. If retiring becomes a recurring need, add a Hide/Unhide button in Settings driving `active` —
+   the read side is already wired everywhere.
+4. Consider whether Schedule/Field pickers need the same rule.
+
+
+FILES TO KNOW
+-------------
+src/lib/workTypes.js                                 the rule — start here
+src/pages/Settings.jsx                               WorkTypesSection: load, remove, error surface
+src/components/CallLogDetail.jsx                     taggedAtOpen / pickableWorkTypes (~line 104)
+src/pages/WTCCalculator.jsx                          wtIdAtOpen (~1806), loadWorkTypes (~1968)
+src/components/NewInquiryWizard.jsx                  workTypes step (~760)
+src/components/ArchiveProposalModal.jsx              tagging dropdown
+src/components/HistoryLocker/ImportToLiveWizard.jsx  setWorkTypes at load (~238)
+src/pages/Import/importApi.js                        CSV name→id map (~74)
+
+
+GIT STATE
+---------
+main @ ef4d47e, pushed, clean tree, in sync with origin.
+Merge commit e2dec86. Branch fix/settings-custom-work-types-only deleted local + remote.
+Vercel auto-deploys main → live on salescommand.app.

@@ -1,0 +1,130 @@
+SC_Handoff_v173 — Job Detail attachment upload: made the control look like an action, not a file
+==================================================================================================
+Date: 2026-08-04
+Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (merge c68e122)
+Prior: v172 (multi-deposit fix). Mode: /fix (UI affordance reported from live use on job 6897 / calllog 3653).
+Cross-repo: none. No migration, no edge function, no RLS change.
+
+
+SESSION SUMMARY
+---------------
+Chris opened /calllog/3653 and asked how to add an attachment. The capability already existed and
+worked — "+ Upload Files" has been on Job Detail since 2026-03-20 (c84d801), and prod storage policies
+were verified allowing public INSERT/SELECT on the `job-attachments` bucket. The real problem was
+visual: the upload control and the attached-file chips wore the SAME treatment (C.dark background,
+C.teal text, borderRadius 6, same font and size, same row region), so when moving fast the button read
+as a fourth attached file. Chris: "when moving fast, the button looks exactly like an attachment."
+
+So this was an affordance fix, not a missing feature. Two options were put to Chris:
+  A. Solid teal fill + black text — matches "+ NEW PROPOSAL", the app's existing action language.
+  B. Dashed-outline drop zone with drag-and-drop — obviously not a file, and faster than the picker.
+Chris ratified B. Two iterations followed from his eyeball on the preview: the first pass was a
+full-bleed card ("not as far as I know... don't go full bleed on the upload bubble, it's too much"),
+so it was shrunk to an inline-block sized to its own text; then "make it twice as tall" for a bigger
+drag target. Shipped at that shape.
+
+
+CHANGES SHIPPED (sales-command) — all in src/components/CallLogDetail.jsx
+------------------------------------------------------------------------
+b1f5916 "Fixes: attachments upload control on job detail read as a fourth file chip"
+  - Replaced the <label> pill (C.dark / C.teal, radius 6) with a drop zone modeled on the app's
+    existing pattern in src/pages/Import/FileUpload.jsx: dashed border, C.linenDeep fill, border +
+    background flash to C.teal / C.tealGlow on drag-over, transition 0.15s.
+  - Added drag-and-drop: onDragOver / onDragLeave / onDrop, new `dragging` state, `attachInputRef`
+    driving the hidden <input type="file" multiple> via click.
+  - Extracted uploadFiles(files) from handleUpload so BOTH entry points (file picker and drop) run
+    one code path. Filename sanitizing (/[^a-zA-Z0-9._-]/g -> "_"), the `${job.id}/${Date.now()}-`
+    path scheme, per-file failure collection + alert, and the refetch are unchanged from before.
+    handleUpload is now a thin wrapper that also clears e.target.value; handleAttachmentDrop
+    early-returns while `uploading` is true.
+69f47d5 "Fixes: shrink attachment drop zone to inline-block — full-bleed box was too heavy"
+  - display inline-block (sized to text, not full width), background "none" (no card), border 1.5px
+    dashed C.borderStrong, radius 8, single uppercase line in F.display / C.textMuted. This is the
+    same dashed-outline button family as BillingScheduleSection "+ Add Line" and NewInquiryWizard.
+  - Dropped the "Attaches to this job" sub-line and the centered two-line block.
+0036a87 "Fixes: double the attachment drop-zone height — easier drag target"
+  - Vertical padding 8px -> 26px. Width deliberately unchanged (Chris: "I like the width").
+c68e122 merge to main.
+
+Final shape: a compact dashed outline reading "↑ DROP FILES OR CLICK TO UPLOAD", roughly double the
+height of a standard button, sitting below the attachment chip row. Reads "Uploading…" at 0.6 opacity
+mid-upload, with the click and drop paths both disabled.
+
+
+DECISIONS
+---------
+1. The chips stay as-is (C.dark + C.teal). The distinction being drawn is FILES = dark chips,
+   ACTIONS = dashed outline. Don't "fix" the chips to match the button later — that would collapse
+   the very distinction this change created.
+2. Drag-and-drop was chosen over the cheaper teal-fill button because it also improves the actual
+   ergonomics, not just the legibility. It cost ~30 min more.
+3. No backlog row was opened or closed — this never had one. Logged in the Completed Log with ID "—".
+4. Deliberately NOT run: /auditcriteria, /runaudit, /buildvsplan, /code-review. UI-only, single file,
+   no money path, no data path, no auth path. `vite build` green was the gate.
+
+
+BACKLOG ITEMS
+-------------
+New: none.
+Closed: none.
+Completed Log: one row added, 2026-08-04, ID "—", pointing at merge c68e122 and this handoff.
+
+Worth knowing (NOT touched, still open, and adjacent to what was edited): S10 — the `job-attachments`
+DELETE policy is bucket-wide, so any authenticated user can storage.remove() any object in the bucket.
+This session read that policy while diagnosing and confirmed it is still bucket-wide. S11 (documents in
+that bucket are public-by-URL) likewise unchanged. Neither was in scope for a visual affordance fix,
+but anyone next touching this section should know the delete X on those chips sits on top of S10.
+
+
+VERIFICATION
+------------
+- `npx vite build` green after each of the three commits (exit 0, no new warnings).
+- Prod storage policies queried directly during diagnosis (pg_policies on storage.objects):
+    "Allow public uploads"  INSERT  with_check bucket_id = 'job-attachments'
+    "Allow public reads"    SELECT  qual       bucket_id = 'job-attachments'
+    "Authenticated can delete job-attachments" DELETE (bucket-wide — see S10 above)
+  So the upload path was never blocked at the DB layer; this was purely visual.
+- Vercel preview built clean on each push (b1f5916 seen Ready by Chris).
+- NOT independently smoke-tested post-merge by this session. Chris eyeballed the preview shape and
+  said "merge it to main". A real file drop against prod is worth 20 seconds next time you're in
+  a job: /calllog/3653 -> drag a file onto the dashed box -> confirm a new chip appears.
+
+
+NOT TOUCHED
+-----------
+- The attachment chips, their delete X, fetchAttachments, handleDeleteAttachment.
+- Every OTHER attachment surface in the app: ProposalDetail, Invoices (F39 invoice attachments),
+  PayAppDetailModal, NewPayAppModal, BillingScheduleSection, NewInquiryWizard, ArchiveRecordDetail,
+  Customers. They all still use their own upload controls. If the dashed-action pattern is worth
+  spreading, that is a separate deliberate sweep — it was explicitly not done here.
+- No DB, no migration, no edge function, no config.
+
+
+NEXT SESSION POINTERS
+---------------------
+- Nothing is in flight in sales-command. Working tree clean on main @ c68e122 (plus this handoff +
+  BACKLOG row).
+- The other machine's active work is in sch-command (feat/dms1-phase5, DMS-1 Phase 5 plan through
+  three audit revision passes as of 2026-08-03). Sales-command and that stream do not overlap.
+- If Chris reports the same "I can't tell what's clickable" problem elsewhere, the pattern to reach
+  for is the one now on Job Detail attachments, and the sweep is the F31-style "every surface"
+  exercise — worth a /decide before starting.
+
+
+FILES TO KNOW
+-------------
+src/components/CallLogDetail.jsx
+  ~106-109  attachments / uploading / dragging state + attachInputRef
+  ~149-165  fetchAttachments (storage.list on `${job.id}` prefix, public URLs)
+  ~212-236  uploadFiles / handleUpload / handleAttachmentDrop
+  ~760-800  Attachments render — chip row, then the dashed drop zone
+src/pages/Import/FileUpload.jsx — the drop-zone pattern this was modeled on (bigger, card-style)
+src/lib/tokens.js — C.borderStrong, C.teal, C.tealGlow, C.linenDeep, F.display
+
+
+GIT STATE
+---------
+sales-command @ main = c68e122 (pushed, Vercel production deployed).
+Branch fix/attachment-dropzone deleted local + remote after merge (Chris's call).
+Commits in the merge: b1f5916, 69f47d5, 0036a87.
+This handoff + the BACKLOG Completed Log row commit on top of the merge.

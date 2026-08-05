@@ -625,7 +625,7 @@ async function deletePropAttachment(fullName) {
   // [K1] validated — never a re-fetch, so the validated set and the stamped set stay
   // identical. Stamps the resolved mobilization_seq into BOTH field_sow copies and
   // strips the Sales-only mobilization_id. No new write, no new rollback: the existing
-  // send shape (jobs insert → job_wtcs upsert + rollback → materials → Parked) is intact.
+  // send shape (jobs insert → job_wtcs upsert + rollback → Parked) is intact.
   async function commitSendToSchedule() {
     const review = sendReview;
     // Belt-and-suspenders — the Confirm button is disabled when failures exist.
@@ -711,7 +711,7 @@ async function deletePropAttachment(fullName) {
         return;
       }
 
-      // Create materials rows from WTC materials
+      // Create canonical job_wtcs rows for the new job
       const newJobId = inserted?.[0]?.job_id;
       if (newJobId) {
         // Canonical job_wtcs rows (SOW vertical §S3): one per WTC — the dated SOW
@@ -770,24 +770,6 @@ async function deletePropAttachment(fullName) {
           return;
         }
 
-        const matRows = [];
-        let ordinal = 0;
-        for (const wtc of wtcList) {
-          const mats = wtc.materials || [];
-          for (const m of mats) {
-            const name = [m.product, m.kit_size ? `(${m.kit_size})` : ""].filter(Boolean).join(" ");
-            const notes = [
-              m.qty ? `Qty: ${m.qty}` : null,
-              m.supplier ? `Supplier: ${m.supplier}` : null,
-            ].filter(Boolean).join(" | ");
-            matRows.push({ job_id: newJobId, ordinal, name, status: "Not Ordered", notes: notes || null });
-            ordinal++;
-          }
-        }
-        if (matRows.length > 0) {
-          const { error: matErr } = await supabase.from("materials").insert(matRows);
-          if (matErr) alert("Materials sync warning: " + matErr.message);
-        }
       }
 
       // Update call_log stage to Parked

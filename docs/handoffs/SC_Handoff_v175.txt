@@ -1,0 +1,180 @@
+SC_Handoff_v175 — Sales reps get told: follow-up reminders + proposal approval emails
+===========================================================
+Date: 2026-08-05
+Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (1d0ebff)
+Prior: v174 (work types custom-only). Mode: /fix (reported from live use).
+Cross-repo: command-suite-db @ main (dbf7d3c) — TWO migrations pushed to prod.
+Edge functions: 4 deployed. RLS: unchanged. Prod DATA writes: see VERIFICATION.
+
+
+SESSION SUMMARY
+---------------
+Chris: "The follow-up needs to send an email to the sales person in charge of the job, and
+sales is also not getting any notification. Once a proposal is approved, they need to get an
+email notifying them."
+
+Three separate holes, one symptom — reps were never told their work landed.
+
+1. FOLLOW-UP REMINDERS NEVER EXISTED. `call_log.follow_up` has been written since day one and
+   the New Inquiry wizard has always read "A 30-day reminder will be sent to the sales rep if
+   this job's status hasn't changed." Nothing anywhere read that column except the Call Log
+   list's overdue colouring. No cron, no function, no email. The on-screen promise was fiction.
+
+2. INTERNAL APPROVE EMAILED NOBODY. `ProposalDetail.handleInternalApprove` flipped status,
+   stamped approved_by/approval_reason, and kicked qb-create-job — with no email on the path.
+   Only a customer e-signature had any email at all. Prod check: 21 of the last 25 approvals
+   went through Internal Approve, so nearly every sold job notified no one.
+
+3. THE E-SIGN PATH DIDN'T DELIVER EITHER — and this one was the real lesson. See DECISIONS.
+
+Incidental find (fixed): the nightly orphan-user security alarm had failed on EVERY run since
+2026-06-09 with `unrecognized configuration parameter "app.settings.supabase_url"`. It had
+never once run successfully.
+
+
+CHANGES SHIPPED
+---------------
+sales-command (main, 3 commits: 9989a7f, ab16e04, 1d0ebff)
+  NEW supabase/functions/_shared/repNotify.ts
+      Rep resolution + one email template shared by every approval route. Rep is matched on
+      TRIMMED, case-insensitive names — prod has a team member stored as "John Paul " with a
+      trailing space, which an exact `=` join drops. Sending is fail-soft and logs loudly.
+  NEW supabase/functions/follow-up-reminders/index.ts
+      Nightly digest, one email per rep listing everything due. Cron target, x-cron-secret
+      gated, deployed --no-verify-jwt. Resolves "today" in America/Los_Angeles so an evening
+      run doesn't fire a day early. Paginated (PostgREST 1000-row cap).
+  NEW supabase/functions/proposal-approved/index.ts
+      Called ONLY by the DB trigger (x-cron-secret gated). Takes a proposal id; reads the rep
+      AND the approval route (internal vs signed) from the row.
+  MOD supabase/functions/proposal-signed/index.ts
+      No longer sends email (the trigger does) and no longer trusts the browser for the
+      recipient. Removed the 500-on-mail-failure that used to abort a successful signature.
+  MOD src/components/ProposalDetail.jsx — Internal Approve sends nothing itself; trigger covers it.
+  MOD src/components/NewInquiryWizard.jsx — follow-up copy now describes what actually happens.
+  MOD supabase/config.toml — entries for the two new functions.
+  MOD docs/BACKLOG.md — B54, B55, B56 filed and Closed.
+
+command-suite-db (main, 2 commits: a83fd3c, dbf7d3c) — both APPLIED TO PROD
+  20260805223000_follow_up_reminders_and_orphan_cron_repair.sql
+      + call_log.follow_up_reminded_for (date)
+      + cron job follow-up-reminders-daily @ '0 14 * * *' (07:00 PT / 06:00 PST)
+      + repaired check-orphan-users-daily off the dead GUC mechanism
+  20260805233000_notify_proposal_approved_trigger.sql
+      + public.notify_proposal_approved() + trg_notify_proposal_approved on proposals
+  Both have rollbacks committed (…223001, …233001) and both were REHEARSED forward AND back.
+
+
+DECISIONS
+---------
+D1. THE APPROVAL NOTIFICATION LIVES IN THE DATABASE, NOT THE APP. This is the important one.
+    First cut invoked an edge function from the browser. Then prod logs for a live customer
+    signature at 23:04:47 showed what actually happens:
+        .865  browser sends the CORS preflight for proposal-signed
+        .896  browser calls the mark_proposal_signed RPC DIRECTLY instead
+        .930  proposal Sold, "Proposal Accepted" on screen
+              the function's POST never happens at all
+    PublicSigningPage has a fallback that commits the signature itself whenever the edge call
+    doesn't land. That fallback is CORRECT — the customer must always be able to sign — but it
+    means the edge function is not a reliable place for anything that must happen. No amount of
+    hardening inside the function fixes it; the function isn't running. So the notifier moved to
+    a trigger on `proposals.status`, the one thing every approval route has in common.
+    Saved to memory as `project_signing_page_silent_fallback`.
+
+D2. TRIGGER FIRES ONLY ON A TRANSITION INTO Sold/Signed, and skips `is_archive_proposal`.
+    Archive imports insert historical closed-out work straight to Sold — records, not news.
+    Re-saving an already-Sold row does not re-notify; pull-back → re-approve does.
+
+D3. EXACTLY ONE NOTIFIER. proposal-signed and Internal Approve both stopped sending their own
+    mail when the trigger landed, so there is no double-send path.
+
+D4. THE 77 ALREADY-OVERDUE FOLLOW-UPS WERE STAMPED AS REMINDED. Firing on day one would have
+    dumped months of stale items on two reps and taught everyone to ignore the email. Reminders
+    start clean from today forward. RELEASING THEM IS ONE STATEMENT, in the migration header:
+        UPDATE public.call_log SET follow_up_reminded_for = NULL
+         WHERE stage NOT IN ('Sold','Lost') AND follow_up IS NOT NULL;
+
+D5. follow_up_reminded_for STORES WHICH DATE WAS REMINDED, not when mail was last sent. That
+    makes the job idempotent, catch-up capable (a missed night isn't a lost reminder), and
+    re-armable (push a date out and it fires again on the new one).
+
+D6. ORPHAN ALARM REPAIRED BY DROPPING THE GUC DEPENDENCY, not by provisioning the GUCs — they
+    need superuser and cannot be set on this managed project (the same block 20260609120100
+    documented). URL is now literal, service-role header dropped, function redeployed
+    --no-verify-jwt. 20260609120100 already recorded that the platform JWT gate "admits ANY
+    authenticated tenant user", so x-cron-secret was always the real gate; now it's the only one.
+
+D7. BOTH MIGRATIONS GUARD ON pg_cron / pg_net PRESENCE. Not defensive padding — an unguarded
+    `cron.job` reference makes a migration unrehearsable, which would mean pushing to the shared
+    DB having never once executed the file. The guard RAISEs a NOTICE, so a prod run that somehow
+    found no extension is visible in the push output rather than silently scheduling nothing.
+
+
+VERIFICATION
+------------
+All against PROD, not a rehearsal.
+  ✓ Migrations rehearsed forward AND back on a prod-shaped throwaway; anon-exposure gate clean
+    on both (committed baseline + post-push).
+  ✓ cron.job now holds check-orphan-users-daily ('0 6 * * *') and follow-up-reminders-daily
+    ('0 14 * * *'), both active.
+  ✓ Follow-up job, empty case: 200 {"date":"2026-08-05","due":0,"emails":0}.
+  ✓ Follow-up job, real send: armed call_log 3548 (TEST, sales_name Chris Berger), ran the
+    SCHEDULED path (net.http_post from the DB, not curl) → 200 {"due":1,"emails":1} and a real
+    email landed at chris@hdspnv.com. Row stamped so it will not repeat. Chris confirmed the
+    email and confirmed the link opened the specific job.
+  ✓ Orphan alarm: 200 {"orphan_count":0} — first successful run since 2026-06-09.
+  ✓ Approval trigger: flipped TEST proposal 198cedd1 Sold→Sent→Sold; trigger fired
+    → 200 {"emailed":true,"detail":"ok","to":"chris@hdspnv.com"}. Chris confirmed: "worked perfectly."
+  ✓ npm run build clean.
+
+PROD DATA WRITES MADE THIS SESSION (all intentional, all restored)
+  - call_log 3548 follow_up set to today twice for smoke, then set back to NULL along with
+    follow_up_reminded_for. Verified NULL/NULL at the end.
+  - proposals 198cedd1 status cycled Sold→Sent→Sold. Left Sold, as found.
+  - Migration backfill stamped follow_up_reminded_for on all past-due rows (D4).
+
+
+NOT TOUCHED
+-----------
+- The 77 overdue follow-ups remain suppressed. Chris's call whether to release them (D4).
+- WHY the browser abandons the proposal-signed call is still unknown. The preflight succeeds
+  from curl on every allowed origin, the function answers POSTs correctly (probed: clean 403 on
+  a bad token), and the browser still bailed 31ms in. Deliberately NOT chased further — the
+  notification no longer depends on it, so this is now cosmetic. If it's ever worth knowing,
+  the answer is in the browser console on a real signing, not in server logs.
+- `_shared/cors.ts` still omits Access-Control-Allow-Methods (known, ADJ-4 / audit C18). Not the
+  cause here — POST is a CORS-safelisted method — and left alone.
+- Nothing done about F29 (post-deploy smoke ritual), which this session's manual smoking is a
+  strong argument for.
+
+
+NEXT SESSION POINTERS
+---------------------
+1. Watch the 7am Pacific run tomorrow. `SELECT * FROM cron.job_run_details ORDER BY start_time
+   DESC` and `SELECT * FROM net._http_response ORDER BY id DESC` — both from
+   `command-suite-db` via `supabase db query --linked -f`, NOT the MCP SQL tool, which runs
+   read-only and cannot decrypt Vault.
+2. Decide on the overdue-follow-up backlog (D4).
+3. If a rep reports a missing notification, check the function logs first — every failure now
+   writes an explicit `rep NOT notified for <id> — <reason>` line. That is new; before this
+   session, failures wrote nothing at all.
+
+
+FILES TO KNOW
+-------------
+  supabase/functions/_shared/repNotify.ts          rep resolution + email template (both routes)
+  supabase/functions/proposal-approved/index.ts    DB-trigger target; reads route from the row
+  supabase/functions/follow-up-reminders/index.ts  nightly digest
+  supabase/functions/proposal-signed/index.ts      signature commit only; sends nothing now
+  src/pages/PublicSigningPage.jsx:363-383          THE FALLBACK — read D1 before touching
+  ~/command-suite-db/supabase/migrations/20260805223000_*.sql   follow-up cron + orphan repair
+  ~/command-suite-db/supabase/migrations/20260805233000_*.sql   approval trigger
+
+
+GIT STATE
+---------
+  sales-command       main @ 1d0ebff — pushed, Vercel deployed. Branch fix/sales-notifications
+                      merged (4cbd444); safe to delete local + remote.
+  command-suite-db    main @ dbf7d3c — pushed, both migrations applied to prod. Branch
+                      fix/sales-notifications merged (69f39c6); safe to delete.
+  Backlog             B54, B55, B56 filed and Closed in docs/BACKLOG.md.
+  Memory              + project_signing_page_silent_fallback (D1).

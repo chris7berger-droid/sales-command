@@ -1,8 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { notifyProposalApproved } from "../_shared/repNotify.ts";
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -36,10 +36,12 @@ serve(async (req) => {
   }
 
   try {
-    const {
-      repEmail, repName, customerName, signerName, signerEmail,
-      pdfUrl, proposalNumber, jobName, signing_token,
-    } = await req.json();
+    // NOTE: the body still carries repEmail/repName/customerName/jobName from
+    // older builds of the signing page. They are deliberately IGNORED — the
+    // signing page is anonymous, so nothing it says about who to notify can be
+    // trusted, and when its own rep lookup came back empty this function used
+    // to skip the email and report success. Recipient now comes from the DB.
+    const { signerName, signerEmail, pdfUrl, signing_token } = await req.json();
 
     if (!signing_token) {
       return jsonResp(400, { error: "Bad Request" }, corsHeaders);
@@ -91,53 +93,26 @@ serve(async (req) => {
     const callLogId  = signedRows[0].call_log_id;
     const becameSold = signedRows[0].became_sold ?? true;
 
-    console.log("proposal-signed: marked", { proposalId, callLogId, becameSold, proposalNumber, signerName });
+    console.log("proposal-signed: marked", { proposalId, callLogId, becameSold, signerName });
 
-    if (!repEmail) {
-      console.log("proposal-signed: no rep email, skipping notification but status updated");
-      return jsonResp(200, { success: true, became_sold: becameSold, message: "Status updated, no email sent" }, corsHeaders);
-    }
-
-    if (!RESEND_API_KEY) {
-      console.error("RESEND_API_KEY is not set");
-      return jsonResp(500, { error: "Email service not configured" }, corsHeaders);
-    }
-
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: "estimates@hdspnv.com",
-        to: repEmail,
-        subject: `Proposal Signed — ${jobName}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
-            <div style="border-bottom: 4px solid #30cfac; padding-bottom: 16px; margin-bottom: 24px;">
-              <h2 style="margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.02em;">High Desert Surface Prep</h2>
-              <p style="margin: 4px 0 0; color: #4a4238; font-size: 13px;">Industrial & Commercial Concrete Coatings</p>
-            </div>
-            <p>Hi ${repName},</p>
-            <p>Great news — <strong>${customerName}</strong> has signed Proposal #${proposalNumber} for <strong>${jobName}</strong>.</p>
-            <p>Signed by: <strong>${signerName}</strong><br/>
-            Date: ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
-            <p>The proposal status has been updated to <strong>${becameSold ? "Sold" : "Signed"}</strong>. You can download the signed PDF from the Proposals page.</p>
-            <p style="color: #887c6e; font-size: 12px; margin-top: 24px;">— Sales Command</p>
-          </div>
-        `,
-      }),
+    // The signature is committed at this point. Notification is best-effort and
+    // must NOT change the response: this used to return 500 when Resend refused
+    // the send, which pushed the signing page into its fallback path, tripped
+    // ALREADY_SIGNED, and showed the customer an error on a signature that had
+    // in fact succeeded. Recipient is resolved from the DB inside the helper.
+    const notify = await notifyProposalApproved(sb, proposalId, {
+      kind: "signed",
+      signerName: signerName ?? "",
     });
-
-    const resBody = await res.text();
-    console.log("Resend response:", res.status, resBody);
-
-    if (!res.ok) {
-      return jsonResp(500, { error: `Email failed: ${resBody}` }, corsHeaders);
+    if (!notify.emailed) {
+      console.error(`proposal-signed: rep NOT notified for ${proposalId} — ${notify.detail}`);
     }
 
-    return jsonResp(200, { success: true, became_sold: becameSold }, corsHeaders);
+    return jsonResp(200, {
+      success: true,
+      became_sold: becameSold,
+      emailed: notify.emailed,
+    }, corsHeaders);
 
   } catch (error) {
     console.error("proposal-signed error:", (error as Error).message);

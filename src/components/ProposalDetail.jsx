@@ -813,6 +813,14 @@ async function deletePropAttachment(fullName) {
       !isTest && supabase.functions.invoke("qb-create-job", { body: { callLogId: p.call_log_id, proposalId: p.id } })
         .catch(() => {});
     }
+
+    // Tell the job's sales rep. Approving in-app used to notify nobody — only a
+    // customer e-signature ever sent mail, and in prod most approvals come
+    // through this button. Fire-and-forget: the approval is already committed
+    // above, so a mail problem must not block the modal from closing.
+    supabase.functions.invoke("proposal-approved", {
+      body: { proposalId: p.id, approvedBy: approveBy.trim(), reason: approveReason.trim() },
+    }).catch(() => {});
     // Refresh
     const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);

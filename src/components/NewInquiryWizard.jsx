@@ -809,7 +809,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
             )}
           </div>
           <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginTop: 12 }}>
-            ℹ A 30-day reminder will be sent to the sales rep if this job's status hasn't changed.
+            ℹ On this date, a reminder email goes to the job's sales rep. You can change or clear it later on the job's page.
           </div>
         </div>
       );

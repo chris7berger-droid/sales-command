@@ -9,6 +9,21 @@
 enabled = true
 verify_jwt = true
 
+# follow-up-reminders is a CRON target with no human caller, same as
+# check-orphan-users. It is deployed WITH --no-verify-jwt (unlike that one) so
+# the scheduled invoker doesn't need a service-role key: the handler's
+# x-cron-secret check is the gate, and that secret is what the pg_cron job
+# sends. See the notify_follow_up_reminders migration in command-suite-db.
+[functions.follow-up-reminders]
+enabled = true
+verify_jwt = false
+
+# proposal-approved is called by a signed-in user from the proposal screen.
+# Auth is the handler's own authenticateCaller + tenant check.
+[functions.proposal-approved]
+enabled = true
+verify_jwt = false
+
 [functions.qb-auth]
 enabled = true
 verify_jwt = false

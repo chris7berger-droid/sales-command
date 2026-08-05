@@ -138,17 +138,23 @@ serve(async (req) => {
       const items = rows.map((r) => {
         const overdue = r.follow_up < today;
         const label = esc(r.job_name || r.display_job_number || "Untitled job");
+        // Every clickable thing in this row points at THIS job. The first cut
+        // of this email also carried a footer link to the Call Log list, and
+        // the two competing targets are how a reminder about one job lands you
+        // on a list of all of them.
+        const jobUrl = `${SITE_URL}/calllog/${r.id}`;
         return `
           <tr>
-            <td style="padding: 8px 12px 8px 0; border-bottom: 1px solid #e6e0d8; vertical-align: top;">
-              <a href="${SITE_URL}/calllog/${r.id}" style="color: #0f766e; font-weight: bold; text-decoration: none;">${label}</a>
+            <td style="padding: 10px 12px 10px 0; border-bottom: 1px solid #e6e0d8; vertical-align: top;">
+              <a href="${jobUrl}" style="color: #0f766e; font-weight: bold; text-decoration: none;">${label}</a>
               <div style="color: #4a4238; font-size: 13px;">${esc(r.customer_name || "")}</div>
-            </td>
-            <td style="padding: 8px 0; border-bottom: 1px solid #e6e0d8; vertical-align: top; white-space: nowrap; text-align: right;">
-              <div style="font-size: 13px; color: ${overdue ? "#b91c1c" : "#1c1814"};">
-                ${fmtDate(r.follow_up)}${overdue ? " (overdue)" : ""}
+              <div style="font-size: 13px; color: ${overdue ? "#b91c1c" : "#1c1814"}; margin-top: 2px;">
+                ${fmtDate(r.follow_up)}${overdue ? " — overdue" : ""}
+                <span style="color: #887c6e;">· ${esc(r.stage || "")}</span>
               </div>
-              <div style="font-size: 12px; color: #887c6e;">${esc(r.stage || "")}</div>
+            </td>
+            <td style="padding: 10px 0; border-bottom: 1px solid #e6e0d8; vertical-align: middle; white-space: nowrap; text-align: right;">
+              <a href="${jobUrl}" style="display: inline-block; background: #1c1814; color: #30cfac; font-weight: bold; font-size: 13px; text-decoration: none; padding: 8px 16px; border-radius: 6px;">Open job</a>
             </td>
           </tr>`;
       }).join("");
@@ -159,8 +165,7 @@ serve(async (req) => {
         <p>You have <strong>${n} follow-up${n === 1 ? "" : "s"}</strong> due:</p>
         <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">${items}</table>
         <p style="font-size: 13px; color: #4a4238;">
-          Change or clear a follow-up date on the job's page in
-          <a href="${SITE_URL}/calllog" style="color: #0f766e;">Sales Command</a>.
+          Change or clear a follow-up date on the job's own page — no link here goes anywhere else.
         </p>
       `);
 

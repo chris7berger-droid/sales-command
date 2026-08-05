@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { notifyProposalApproved } from "../_shared/repNotify.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -95,24 +94,14 @@ serve(async (req) => {
 
     console.log("proposal-signed: marked", { proposalId, callLogId, becameSold, signerName });
 
-    // The signature is committed at this point. Notification is best-effort and
-    // must NOT change the response: this used to return 500 when Resend refused
-    // the send, which pushed the signing page into its fallback path, tripped
-    // ALREADY_SIGNED, and showed the customer an error on a signature that had
-    // in fact succeeded. Recipient is resolved from the DB inside the helper.
-    const notify = await notifyProposalApproved(sb, proposalId, {
-      kind: "signed",
-      signerName: signerName ?? "",
-    });
-    if (!notify.emailed) {
-      console.error(`proposal-signed: rep NOT notified for ${proposalId} — ${notify.detail}`);
-    }
-
-    return jsonResp(200, {
-      success: true,
-      became_sold: becameSold,
-      emailed: notify.emailed,
-    }, corsHeaders);
+    // No email is sent from here on purpose. The rep notification fires from a
+    // trigger on the proposals status change instead (see the
+    // notify_proposal_approved migration). The prod logs showed why: when the
+    // signing page's call to THIS function doesn't land, the page falls back to
+    // calling mark_proposal_signed directly, and any email living here is
+    // simply skipped while the proposal still goes Sold. The trigger sees that
+    // transition either way.
+    return jsonResp(200, { success: true, became_sold: becameSold }, corsHeaders);
 
   } catch (error) {
     console.error("proposal-signed error:", (error as Error).message);

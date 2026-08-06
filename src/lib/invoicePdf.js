@@ -154,6 +154,10 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
   }
 
   // Right: Invoice # / Job # / Due Date
+  // Centered inside a fixed 200pt slot so a longer value (typically the due
+  // date) grows the block downward, never sideways — mirrors the HTML preview.
+  const rightColW = 200;
+  const rightColMid = rightColX + rightColW / 2;
   let ry2 = sectionTop;
   // Deposit badge — gated on invoice kind, sits above the Invoice # label.
   if (isDepositInvoice) {
@@ -163,20 +167,20 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     const padX = 6, badgeH = 15;
     const badgeW = doc.getTextWidth(badgeLabel) + padX * 2;
     doc.setFillColor(...green);
-    doc.roundedRect(rightColX, ry2 - 9, badgeW, badgeH, 3, 3, "F");
+    doc.roundedRect(rightColMid - badgeW / 2, ry2 - 9, badgeW, badgeH, 3, 3, "F");
     doc.setTextColor(255, 255, 255);
-    doc.text(badgeLabel, rightColX + padX, ry2 + 1);
+    doc.text(badgeLabel, rightColMid, ry2 + 1, { align: "center" });
     ry2 += 18;
   }
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...dark);
-  doc.text("INVOICE #", rightColX, ry2);
+  doc.text("INVOICE #", rightColMid, ry2, { align: "center" });
   ry2 += 14;
   doc.setFontSize(11);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...gray);
-  doc.text(String(invoice.id || "—"), rightColX, ry2);
+  doc.text(String(invoice.id || "—"), rightColMid, ry2, { align: "center" });
   ry2 += 18;
 
   // Prefer customer's internal job # (e.g. DA Builders' 6359) over Sales Command's job_id.
@@ -185,12 +189,12 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...dark);
-    doc.text("JOB #", rightColX, ry2);
+    doc.text("JOB #", rightColMid, ry2, { align: "center" });
     ry2 += 14;
     doc.setFontSize(11);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...gray);
-    doc.text(String(displayJobNo), rightColX, ry2);
+    doc.text(String(displayJobNo), rightColMid, ry2, { align: "center" });
     ry2 += 18;
   }
 
@@ -198,12 +202,12 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...dark);
-    doc.text("DUE DATE", rightColX, ry2);
+    doc.text("DUE DATE", rightColMid, ry2, { align: "center" });
     ry2 += 14;
     doc.setFontSize(11);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...gray);
-    doc.text(fmtDate(invoice.due_date), rightColX, ry2);
+    doc.text(fmtDate(invoice.due_date), rightColMid, ry2, { align: "center" });
     ry2 += 18;
   }
 

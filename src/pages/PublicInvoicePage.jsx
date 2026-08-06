@@ -161,7 +161,7 @@ export default function PublicInvoicePage() {
 
           {/* Invoice info */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid rgba(28,24,20,0.12)" }}>
-            <div>
+            <div style={{ flex: 1, minWidth: 0, paddingRight: 24 }}>
               <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Bill To</div>
               <div style={{ fontSize: 12, color: "#887c6e" }}>{billingName || invoice.job_name || "—"}</div>
               {billingEmail && <div style={{ fontSize: 11, color: "#887c6e", marginTop: 2 }}>{billingEmail}</div>}
@@ -172,7 +172,7 @@ export default function PublicInvoicePage() {
                 </div>
               )}
             </div>
-            <div style={{ textAlign: "left" }}>
+            <div style={{ textAlign: "center", width: 200, flexShrink: 0, overflowWrap: "break-word" }}>
               {isDepositInvoice && (
                 <div style={{ display: "inline-block", background: "#43a047", color: "white", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "4px 10px", borderRadius: 4, marginBottom: 10 }}>Materials Deposit Invoice</div>
               )}

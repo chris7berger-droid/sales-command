@@ -430,9 +430,42 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
             phone: form.billingPhone || null,
             email: form.billingEmail || null,
             role: "Billing Contact",
+            is_billing_contact: true,
             is_primary: true,
           }]);
           if (bcErr) alert(`Customer saved, but billing contact didn't save: ${bcErr.message}. Add it from the customer record.`);
+        }
+      }
+
+      // 1b. Existing customer — persist what was entered on the Contact & Billing step.
+      // Without this the whole step is silently discarded on the existing-customer path.
+      // Blank contact fields are skipped so an archive import can't wipe data already on file.
+      // billingSourceContactId set = the picker locked billing from a saved Billing Contact row,
+      // so there's nothing new to write.
+      if (form.customerMode === "existing" && customerId) {
+        const update = { billing_terms: parseInt(form.billingTerms) || 30 };
+        if (form.contactPhone) { update.phone = form.contactPhone; update.contact_phone = form.contactPhone; }
+        if (form.contactEmail) { update.email = form.contactEmail; update.contact_email = form.contactEmail; }
+        if (!form.billingSourceContactId && form.billingName.trim()) {
+          update.billing_same  = false;
+          update.billing_name  = form.billingName.trim();
+          update.billing_phone = form.billingPhone || null;
+          update.billing_email = form.billingEmail || null;
+        }
+        const { error: cuErr } = await supabase.from("customers").update(update).eq("id", customerId);
+        if (cuErr) throw new Error("Customer update: " + cuErr.message);
+
+        if (!form.billingSourceContactId && form.billingName.trim()) {
+          const { error: bcErr } = await supabase.from("customer_contacts").insert([{
+            customer_id: customerId,
+            name: form.billingName.trim(),
+            phone: form.billingPhone || null,
+            email: form.billingEmail || null,
+            role: "Billing Contact",
+            is_billing_contact: true,
+            is_primary: false,
+          }]);
+          if (bcErr) alert(`Customer updated, but billing contact didn't save: ${bcErr.message}. Add it from the customer record.`);
         }
       }
 
@@ -590,6 +623,9 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
       case "contact": return (
         <div>
           <StepLabel n={3} label="Contact & Billing" />
+          {/* onBillingChange drops the picker's billingSame ("billing contact same as job
+              contact") — in this wizard billingSame is the billing-ADDRESS toggle, so letting
+              it through nulls out the job's billing address the moment a billing name is typed. */}
           <ContactBillingPicker
             customerId={form.customerId}
             customerMode={form.customerMode}
@@ -606,7 +642,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
               billingTerms: form.billingTerms,
             }}
             onContactChange={patch => setForm(f => ({ ...f, ...patch }))}
-            onBillingChange={patch => setForm(f => ({ ...f, ...patch }))}
+            onBillingChange={({ billingSame, ...patch }) => setForm(f => ({ ...f, ...patch }))}
             onBillingLockChange={(locked, contactId) =>
               setForm(f => ({ ...f, billingSourceContactId: locked ? contactId : null }))
             }

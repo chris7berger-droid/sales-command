@@ -253,23 +253,50 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
 
   const canDelete = teamMember && (teamMember.role === "Admin" || teamMember.name === job.sales_name);
   async function handleDelete() {
-    const { data: proposals } = await supabase
-      .from("proposals")
-      .select("id")
-      .is("deleted_at", null)
-      .eq("call_log_id", job.id);
+    // Preflight EVERY blocker before mutating anything. This runs as loose statements, not a
+    // transaction, so a blocker found halfway through leaves the job stripped of whatever the
+    // earlier steps already removed (job #6653, 2026-08-06: work types deleted and soft-deleted
+    // proposals detached, then the delete died on the invoice FK — job still there, contents gone).
+    const [{ data: proposals }, { data: liveInvoices }, { data: deadInvoices }] = await Promise.all([
+      supabase.from("proposals").select("id").is("deleted_at", null).eq("call_log_id", job.id),
+      supabase.from("invoices").select("id").is("deleted_at", null).eq("call_log_id", job.id),
+      supabase.from("invoices").select("id").not("deleted_at", "is", null).eq("call_log_id", job.id),
+    ]);
     if (proposals && proposals.length > 0) {
       alert("This job has a proposal attached. Delete the proposal first, then delete the job.");
       return;
     }
-    if (!window.confirm("Delete this job? This cannot be undone.")) return;
+    if (liveInvoices && liveInvoices.length > 0) {
+      alert(`This job has ${liveInvoices.length === 1 ? "an invoice" : `${liveInvoices.length} invoices`} attached (#${liveInvoices.map(i => i.id).join(", #")}). Delete ${liveInvoices.length === 1 ? "it" : "them"} first, then delete the job.`);
+      return;
+    }
+    // Deleted invoices still hold the job by FK, and invoices.call_log_id is NOT NULL — unlike
+    // proposals they can't be detached, so they have to go with the job. Say so before doing it.
+    const deadCount = deadInvoices?.length || 0;
+    const confirmMsg = deadCount > 0
+      ? `Delete this job? This cannot be undone.\n\nIt still holds ${deadCount === 1 ? "1 deleted invoice" : `${deadCount} deleted invoices`} (#${deadInvoices.map(i => i.id).join(", #")}), which will be permanently removed along with it.`
+      : "Delete this job? This cannot be undone.";
+    if (!window.confirm(confirmMsg)) return;
+    if (deadCount > 0) {
+      // invoice_lines / invoice_recipients / invoice_attachments all cascade off invoices.
+      const { error: invErr } = await supabase.from("invoices").delete().not("deleted_at", "is", null).eq("call_log_id", job.id);
+      if (invErr) { alert("Delete failed clearing deleted invoices: " + invErr.message); return; }
+    }
     // Delete linked work types first (FK constraint)
     const { error: wtErr } = await supabase.from("job_work_types").delete().eq("call_log_id", job.id);
     if (wtErr) { alert("Warning: work types cleanup failed: " + wtErr.message); }
     // Null out call_log_id on soft-deleted proposals (DB FK blocks delete otherwise)
     await supabase.from("proposals").update({ call_log_id: null }).eq("call_log_id", job.id).not("deleted_at", "is", null);
     const { error: delErr, count } = await supabase.from("call_log").delete().eq("id", job.id).select();
-    if (delErr) { alert("Delete failed: " + delErr.message); return; }
+    if (delErr) {
+      // Schedule/Field tables (jobs, time_punches, daily_production_reports, daily_log_entries)
+      // also hold call_log with NO ACTION — surface that as English, not raw Postgres.
+      const fk = /violates foreign key constraint "(\w+)"/.exec(delErr.message)?.[1];
+      alert(fk
+        ? `Delete failed — something else in the suite still points at this job (${fk}). It has to be removed there first.`
+        : "Delete failed: " + delErr.message);
+      return;
+    }
     // Verify it was actually deleted (RLS may silently block)
     const { data: still } = await supabase.from("call_log").select("id").eq("id", job.id).maybeSingle();
     if (still) {

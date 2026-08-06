@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { selectableWorkTypes } from "../lib/workTypes";
 import { supabase } from "../lib/supabase";
+import { dbErrorText } from "../lib/dbErrors";
 import Btn from "./Btn";
 import Checkbox from "./Checkbox";
 
@@ -109,7 +110,7 @@ export default function ArchiveProposalModal({ onClose, onCreated, preselectedJo
       }])
       .select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, customers(email, contact_email, business_address, business_city, business_state, business_zip))")
       .single();
-    if (pErr) { setError(pErr.message); setSaving(false); return; }
+    if (pErr) { setError(dbErrorText(pErr)); setSaving(false); return; }
 
     await supabase.from("job_work_types").delete().eq("call_log_id", selJob.id);
     if (selectedWtIds.length > 0) {

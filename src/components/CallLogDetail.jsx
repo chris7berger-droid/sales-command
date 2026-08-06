@@ -6,6 +6,7 @@ import { sumContractBilled } from "../lib/calc";
 import { selectableWorkTypes } from "../lib/workTypes";
 import Btn from "./Btn";
 import { supabase } from "../lib/supabase";
+import { dbErrorText } from "../lib/dbErrors";
 import ArchiveProposalModal from "./ArchiveProposalModal";
 import QBActionModal from "./QBActionModal";
 import MergeJobModal from "./MergeJobModal";
@@ -121,6 +122,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   const [resuming, setResuming] = useState(false);
   const [qbToast, setQbToast] = useState(null);
   const [wtDropOpen, setWtDropOpen] = useState(false);
+  const [jobGone, setJobGone] = useState(false);
   const wtDropRef = useRef(null);
   // (Deposit state removed 2026-07-31 — a job's deposits are told by the invoices marked
   // as deposits, not by a job-level flag + hand-typed amount.)
@@ -182,6 +184,29 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
   }
 
   useEffect(() => { fetchAttachments(); }, [job.id]);
+
+  // This page is the one you live on, so it's the one most likely to be left open while the job
+  // is deleted somewhere else — another tab, another machine, a re-import. Left unchecked it stays
+  // fully interactive over a row that no longer exists, and every save fails on a raw FK error
+  // (2026-08-06: an archive proposal built against deleted job 3806, all values typed and lost).
+  // Re-check on mount and whenever the tab comes back to the front.
+  useEffect(() => {
+    let cancelled = false;
+    async function verifyJobStillExists() {
+      if (document.hidden) return;
+      const { data, error } = await supabase.from("call_log").select("id").eq("id", job.id).maybeSingle();
+      // Only a clean "not found" counts. A network/RLS error must not evict a live page.
+      if (!cancelled && !error && !data) setJobGone(true);
+    }
+    verifyJobStillExists();
+    window.addEventListener("focus", verifyJobStillExists);
+    document.addEventListener("visibilitychange", verifyJobStillExists);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", verifyJobStillExists);
+      document.removeEventListener("visibilitychange", verifyJobStillExists);
+    };
+  }, [job.id]);
 
   useEffect(() => {
     async function fetchLinked() {
@@ -288,15 +313,9 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
     // Null out call_log_id on soft-deleted proposals (DB FK blocks delete otherwise)
     await supabase.from("proposals").update({ call_log_id: null }).eq("call_log_id", job.id).not("deleted_at", "is", null);
     const { error: delErr, count } = await supabase.from("call_log").delete().eq("id", job.id).select();
-    if (delErr) {
-      // Schedule/Field tables (jobs, time_punches, daily_production_reports, daily_log_entries)
-      // also hold call_log with NO ACTION — surface that as English, not raw Postgres.
-      const fk = /violates foreign key constraint "(\w+)"/.exec(delErr.message)?.[1];
-      alert(fk
-        ? `Delete failed — something else in the suite still points at this job (${fk}). It has to be removed there first.`
-        : "Delete failed: " + delErr.message);
-      return;
-    }
+    // Schedule/Field tables (jobs, time_punches, daily_production_reports, daily_log_entries)
+    // also hold call_log with NO ACTION and can still block after the preflight.
+    if (delErr) { alert(dbErrorText(delErr, "Delete failed")); return; }
     // Verify it was actually deleted (RLS may silently block)
     const { data: still } = await supabase.from("call_log").select("id").eq("id", job.id).maybeSingle();
     if (still) {
@@ -401,6 +420,28 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
 
   const sc = stageColor(form.stage);
   const iStyle = { ...inputStyle, ...(editing ? {} : { opacity: 0.75, pointerEvents: "none" }) };
+
+  // Replace the page rather than redirect on a timer — a redirect would yank the screen out from
+  // under whatever is half-typed. The point is to stop you working against a job that's gone,
+  // and going back is one click.
+  if (jobGone) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 14, padding: 28, background: C.linenCard, border: `1.5px solid ${C.borderStrong}`, borderRadius: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textFaint, fontFamily: F.ui }}>
+          Job no longer exists
+        </div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>
+          {job.display_job_number || `Job #${job.job_number}`} has been deleted
+        </div>
+        <div style={{ fontSize: 13.5, color: C.textBody, fontFamily: F.ui, lineHeight: 1.6, maxWidth: 560 }}>
+          This page was open from before the job was removed — most likely deleted in another tab,
+          or deleted and re-imported under a new record. Anything saved from here would fail.
+          Go back to the Call Log and open the current job.
+        </div>
+        <Btn sz="sm" onClick={onBack}>← Back to Call Log</Btn>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>

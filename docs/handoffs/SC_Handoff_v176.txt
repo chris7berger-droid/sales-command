@@ -1,0 +1,183 @@
+SC_Handoff_v176 — History Locker import dropped the billing contact; job delete couldn't finish
+===========================================================
+Date: 2026-08-06
+Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (29cdc55, merge a9dc3fd)
+Prior: v175 (sales rep notifications). Mode: /fix (reported from live use).
+Cross-repo: none. Edge functions: none. Migrations: none. RLS: unchanged.
+Prod DATA writes: see VERIFICATION.
+
+
+SESSION SUMMARY
+---------------
+Chris: "In pulling a History Locker job forward in the wizard, I added the billing contact,
+but it did not save to the system. When I went to create the invoice, the billing contact was
+not there, and when I go to customers and I open up the customer, the contact is also not
+there. This is for job 6653."
+
+One reported bug, three found. All three shared a shape: something the UI accepted, and the
+save path silently had no branch for.
+
+1. THE IMPORT WIZARD SAVED THE CONTACT & BILLING STEP ONLY FOR NEW CUSTOMERS.
+   `ImportToLiveWizard.handleImport()` wrote contact/billing fields inside
+   `if (form.customerMode === "new")` and had no existing-customer counterpart. Import onto an
+   existing customer and the entire step — billing contact, billing terms, job contact
+   phone/email — was collected, validated as REQUIRED, shown on the Review step, and then
+   dropped on the floor. Nothing errored. Job 6653 (Incline Property Management) landed with
+   zero `customer_contacts` rows and a null `billing_name`, which is why invoice creation had
+   no billing contact to resolve. `NewInquiryWizard` got exactly this fix in Loop #28
+   (2026-05-28) and it was never mirrored here.
+
+2. TYPING A BILLING CONTACT NULLED THE JOB'S BILLING ADDRESS. Same step, different mechanism.
+   `ContactBillingPicker`'s `onBillingChange` patch carries `billingSame: false` — in the picker
+   that means "billing contact differs from job contact." This wizard spread the patch straight
+   into form state, where `billingSame` means something else entirely: the billing-ADDRESS
+   toggle read at the `call_log` insert. So the first keystroke in the Billing Contact Name
+   field flipped `billing_address_same` to false and wrote a null billing address. Confirmed on
+   the original 6653 row (`billing_address` NULL, `billing_address_same` false).
+
+3. DELETING THE JOB FAILED AND LEFT IT GUTTED. Found while clearing 6653 to re-test.
+   `CallLogDetail.handleDelete()` preflighted active proposals only, then mutated in sequence:
+   delete work types → detach soft-deleted proposals → delete `call_log`. Soft-deleted INVOICES
+   also hold `call_log_id`, and unlike proposals that column is NOT NULL, so they cannot be
+   detached. The delete died on `invoices_call_log_id_fkey` — after the first two steps had
+   already committed. Job still present, work types gone (0 rows), proposal `4469e0ff`
+   orphaned, and a raw Postgres constraint string in a browser alert as the only explanation.
+
+
+CHANGES SHIPPED
+---------------
+sales-command (main, 2 fix commits + merge: 2887b0a, 4b0c405, merge a9dc3fd, docs 29cdc55)
+
+  MOD src/components/HistoryLocker/ImportToLiveWizard.jsx        (bugs 1 + 2)
+      + step "1b": existing-customer persist branch, mirroring NewInquiryWizard.jsx:311-339.
+        Updates `customers` (billing_name/phone/email, billing_same=false, billing_terms) and
+        inserts the `customer_contacts` Billing Contact row.
+        - Skipped entirely when `billingSourceContactId` is set — that means the picker locked
+          billing from a Billing Contact already on file, so there is nothing new to write.
+        - Blank contact fields are NOT written. Deliberate divergence from NewInquiryWizard,
+          which writes `|| null` unconditionally: an archive import must never be able to wipe
+          a phone/email already on an established customer with an empty box.
+      MOD onBillingChange now destructures `billingSame` out of the patch before merging.
+      MOD both `customer_contacts` inserts in this file now set `is_billing_contact: true`
+        alongside `role` (F31's "verify on touch" — reads are OR-tolerant, writes now agree).
+
+  MOD src/components/CallLogDetail.jsx                            (bug 3)
+      handleDelete() restructured: preflight EVERY blocker before touching anything.
+        - active proposals (existing check, unchanged)
+        - active invoices (new) — named by invoice number in the message
+        - soft-deleted invoices are hard-deleted as part of the job delete, called out by
+          number in the confirm because it is irreversible. `invoice_lines`,
+          `invoice_recipients`, `invoice_attachments` all cascade off `invoices` (verified via
+          pg_constraint, confdeltype='c') so no orphans are left.
+        - a surviving FK violation now renders as English naming the constraint instead of raw
+          Postgres.
+
+  MOD docs/BACKLOG.md — both fixes recorded in the Completed Log with SHAs.
+
+
+DECISIONS
+---------
+D1. THE IMPORT WIZARD DOES NOT OVERWRITE EXISTING CUSTOMER CONTACT DATA WITH BLANKS. An archive
+    import is a low-trust source — its job is to bring a historical job forward, not to be
+    authoritative about a customer who already exists in the system. Blank contact phone/email
+    are skipped rather than written as null. NewInquiryWizard behaves differently (writes
+    unconditionally) and that is correct THERE, because a rep filling the New Inquiry wizard is
+    stating current fact. Do not "harmonize" these two without deciding which trust level
+    applies; they differ on purpose.
+
+D2. THE PICKER'S billingSame IS NOT THIS WIZARD'S billingSame. Rather than rename either field,
+    the fix drops the key at the boundary, with a comment at both the destructure and the JSX.
+    Renaming `ImportToLiveWizard.form.billingSame` → `billingAddressSame` is the real cleanup
+    and is the better long-term move, but it touches the call_log insert and the addresses step
+    and was out of scope for a live-blocking fix. If anyone touches this step again, do the
+    rename — the collision is the kind that returns.
+
+D3. THE JOB-DELETE FIX IS CLIENT-SIDE ONLY, AND KNOWINGLY NOT AIRTIGHT. The correct fix is one
+    atomic RPC (`delete_call_log(id)`) so a blocker can never leave a half-emptied job. That is
+    a `command-suite-db` migration, which escalates a /fix into plan-mode ceremony while Chris
+    was blocked on a smoke test. Preflight-everything-first closes the actual damage window —
+    nothing mutates until every known blocker has cleared — but a concurrent write between the
+    preflight and the delete can still interleave. Flagged to Chris at the time; he took the
+    client-side fix. See NEXT SESSION POINTERS #2.
+
+D4. DELETED INVOICES GO WITH THE JOB RATHER THAN BLOCKING IT. `invoices.call_log_id` is NOT
+    NULL, so the proposal trick (detach and leave the row) is unavailable. The options were:
+    block the delete forever, or take the invoice with it. Chose the latter, because a
+    soft-deleted invoice on a job that is itself being deleted has no remaining reader — but
+    the confirm dialog names the invoice numbers so it is never a surprise.
+
+
+VERIFICATION
+------------
+All against PROD.
+  ✓ Root cause confirmed in the DB BEFORE any code was written — original job 6653 (id 3806):
+    0 customer_contacts, billing_name NULL, billing_address NULL, billing_address_same false.
+    Both bugs visible in one row.
+  ✓ `vite build` clean after each fix.
+  ✓ Chris deleted job 6653 from the preview build — the delete fix worked, confirmed the
+    deleted-invoice warning path.
+  ✓ Chris re-imported 6653 from the preview build as the billing smoke test. Post-import DB:
+      - customer_contacts: Sarah McKimmy / sarah@canopyps.com / 775-831-3331,
+        role='Billing Contact', is_billing_contact=true, tenant_id set.
+      - customers: billing_name/email/phone all written, billing_same=false, billing_terms=30.
+      - call_log 3807: billing_address '848 Tanager St', Incline Village NV 89451,
+        billing_address_same TRUE (was NULL/false pre-fix — bug 2 closed).
+      - contact_email left blank by Chris and correctly NOT written over the customer's
+        existing value (D1 guard working).
+  ✓ Old row cleanup verified: call_log 3806 gone, invoice 10144 gone, 0 orphaned invoice_lines,
+    new job 3807 has its work type.
+  ✓ Vercel production deploy Ready after merge.
+
+PROD DATA WRITES MADE THIS SESSION
+  - None by me. Every write was Chris driving the UI (delete + re-import of job 6653).
+    All MCP SQL this session was read-only SELECT.
+
+
+NOT TOUCHED
+-----------
+- `ImportToLiveWizard.form.billingSame` is still misnamed (D2). Rename to `billingAddressSame`
+  next time this step is opened.
+- Atomic `delete_call_log` RPC not written (D3). No migration this session.
+- F31's cross-surface `is_billing_contact` sweep is still open — only the two writers in
+  ImportToLiveWizard were brought to the both-columns shape. `CallLogDetail.jsx:320-326`
+  (writer) and `:121` (role-only reader) were NOT touched.
+- F32 (DB-level Billing Contact uniqueness) still open, and still the thing that would make
+  these wizard inserts idempotent. The new existing-customer insert has the same theoretical
+  double-insert race the row describes.
+- The archive record carries no imported/status flag — "already imported" is derived purely
+  from a call_log row's `archive_record_id`. Deleting the job frees the archive cleanly. This
+  was verified, not assumed, and is worth knowing before anyone adds such a flag.
+
+
+NEXT SESSION POINTERS
+---------------------
+1. Nothing outstanding from this session blocks anything. Both bugs are closed and live.
+2. If job-delete failures show up again, that is the signal to do D3 properly — an atomic
+   `delete_call_log(id)` RPC in command-suite-db. The client-side version handles every FK we
+   know about; it does not handle ones added later, and Schedule/Field keep adding tables that
+   point at `call_log` (jobs, time_punches, daily_production_reports, daily_log_entries — all
+   NO ACTION today).
+3. The Loop #28 lesson repeated itself here: a fix applied to NewInquiryWizard was never
+   mirrored to ImportToLiveWizard, and the gap sat unnoticed for ~10 weeks until a real job hit
+   it. F31 exists precisely to sweep this class. Worth doing before the next wizard fix, not
+   after.
+
+
+FILES TO KNOW
+-------------
+  src/components/HistoryLocker/ImportToLiveWizard.jsx:399-470  customer persist — new + existing
+  src/components/HistoryLocker/ImportToLiveWizard.jsx:~620     contact step; read D2 before edit
+  src/components/NewInquiryWizard.jsx:311-339                  the pattern that was mirrored
+  src/components/ContactBillingPicker.jsx:229-265              source of the billingSame patch
+  src/components/CallLogDetail.jsx:255-300                     handleDelete — preflight then mutate
+
+
+GIT STATE
+---------
+  sales-command       main @ 29cdc55 — pushed, Vercel production deploy Ready.
+                      Merge a9dc3fd. Branch fix/import-wizard-existing-customer-billing
+                      deleted, local and remote.
+  command-suite-db    untouched this session.
+  Backlog             Two entries added to the Completed Log (2026-08-06). No new open rows;
+                      F31 / F32 already covered the durable follow-ups and were left as-is.
+  Memory              unchanged.

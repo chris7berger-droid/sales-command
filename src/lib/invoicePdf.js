@@ -67,6 +67,12 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...gray);
+  // Mailing address first — this is where checks get sent.
+  if (tenantConfig.address) {
+    doc.text(String(tenantConfig.address), rightX, ry, { align: "right" }); ry += 13;
+    const coCityStateZip = [[tenantConfig.city, tenantConfig.state].filter(Boolean).join(", "), tenantConfig.zip].filter(Boolean).join(" ");
+    if (coCityStateZip) { doc.text(coCityStateZip, rightX, ry, { align: "right" }); ry += 13; }
+  }
   if (tenantConfig.phone)   { doc.text(String(tenantConfig.phone),   rightX, ry, { align: "right" }); ry += 13; }
   if (tenantConfig.email)   { doc.text(String(tenantConfig.email),   rightX, ry, { align: "right" }); ry += 13; }
   if (tenantConfig.website) { doc.text(String(tenantConfig.website), rightX, ry, { align: "right" }); ry += 13; }
@@ -84,10 +90,19 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
   doc.line(margin, y, pageW - margin, y);
   y += 24;
 
-  // ── Bill To (left) + Invoice # / Job # / Due Date (right) ───────────────
+  // ── Bill To (left) + Invoice # / Job # / Due Date (page center) ─────────
   const leftColX = margin;
-  const rightColX = pageW / 2 + 20;
+  // Wrap the left column short of the centered block so a long name/email/
+  // address can never run underneath it.
+  const leftColW = pageW / 2 - 100 - 12 - margin;
   const sectionTop = y;
+  const drawWrapped = (text, yPos, lineH) => {
+    for (const part of doc.splitTextToSize(String(text), leftColW)) {
+      doc.text(part, leftColX, yPos);
+      yPos += lineH;
+    }
+    return yPos;
+  };
 
   // Left: Bill To
   doc.setFontSize(9);
@@ -105,15 +120,13 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
   doc.setFontSize(11);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...gray);
-  doc.text(String(billingName), leftColX, y);
-  y += 13;
+  y = drawWrapped(billingName, y, 13);
 
   const billingEmail = customer.billing_email || customer.contact_email || customer.email || "";
   if (billingEmail) {
     doc.setFontSize(9);
     doc.setTextColor(...lightGray);
-    doc.text(String(billingEmail), leftColX, y);
-    y += 12;
+    y = drawWrapped(billingEmail, y, 12);
   }
 
   // Billing address (fallback to business address)
@@ -124,12 +137,10 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
   if (billAddr) {
     doc.setFontSize(9);
     doc.setTextColor(...lightGray);
-    doc.text(String(billAddr), leftColX, y);
-    y += 12;
+    y = drawWrapped(billAddr, y, 12);
     const cityStateZip = [[billCity, billState].filter(Boolean).join(", "), billZip].filter(Boolean).join(" ");
     if (cityStateZip) {
-      doc.text(cityStateZip, leftColX, y);
-      y += 12;
+      y = drawWrapped(cityStateZip, y, 12);
     }
   }
 
@@ -144,20 +155,17 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...lightGray);
-    doc.text(String(callLog.jobsite_address), leftColX, y);
-    y += 12;
+    y = drawWrapped(callLog.jobsite_address, y, 12);
     const jsCity = [[callLog.jobsite_city, callLog.jobsite_state].filter(Boolean).join(", "), callLog.jobsite_zip].filter(Boolean).join(" ");
     if (jsCity) {
-      doc.text(jsCity, leftColX, y);
-      y += 12;
+      y = drawWrapped(jsCity, y, 12);
     }
   }
 
-  // Right: Invoice # / Job # / Due Date
-  // Centered inside a fixed 200pt slot so a longer value (typically the due
-  // date) grows the block downward, never sideways — mirrors the HTML preview.
-  const rightColW = 200;
-  const rightColMid = rightColX + rightColW / 2;
+  // Center column: Invoice # / Job # / Due Date
+  // Anchored to the page centerline so a longer value (typically the due date)
+  // grows the block downward, never sideways — mirrors the HTML preview.
+  const rightColMid = pageW / 2;
   let ry2 = sectionTop;
   // Deposit badge — gated on invoice kind, sits above the Invoice # label.
   if (isDepositInvoice) {

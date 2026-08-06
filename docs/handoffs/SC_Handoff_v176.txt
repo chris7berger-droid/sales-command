@@ -269,6 +269,15 @@ GIT STATE
                       Merges a9dc3fd (bugs 1-3) and 6d6a3a7 (bugs 4-5). Both branches
                       (fix/import-wizard-existing-customer-billing,
                       fix/stale-job-page-and-db-error-messages) deleted local + remote.
+  Parked stream     CLOSED OUT: feat/billing-contact-save-on-archive-live (worktree
+                      ~/sales-command-billing-contact-save-on-archive-live) was a stub for THIS
+                      EXACT BUG, detached 2026-07-06 and never planned — §0-§5 all [TODO]. It sat
+                      a month while the bug stayed live, and Chris rediscovered it in use rather
+                      than from the queue. Nothing to rescue (stub only). Worktree removed,
+                      branch deleted local + remote, stub preserved on main at
+                      docs/plans/billing-contact-save-on-archive-live.md marked CLOSED with a
+                      pointer to the fix. Same shape as MIG-1: an item that rode along unowned.
+                      Worth a look at what else is parked — six worktrees remain.
   command-suite-db    untouched this session.
   Backlog             Three entries added to the Completed Log (2026-08-06). No new open rows;
                       F31 / F32 already covered the durable follow-ups and were left as-is.

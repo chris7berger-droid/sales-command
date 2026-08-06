@@ -899,7 +899,11 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
                   {invoice.job_id && (
                     <>
                       <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Job #</div>
-                      <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{invoice.job_id}</div>
+                      {/* job_id carries the whole display string ("6897 - Plenium
+                          Builders Virginia Palmer Elementary - Polish"). A field
+                          labeled Job # prints the number, not the job name — the
+                          name wrapped to two ragged lines under the label. */}
+                      <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{String(invoice.job_id).split(" - ")[0]}</div>
                     </>
                   )}
                   {invoice.due_date && (

@@ -192,7 +192,10 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
   ry2 += 18;
 
   // Prefer customer's internal job # (e.g. DA Builders' 6359) over Sales Command's job_id.
-  const displayJobNo = callLog?.subcontractor_job_no || callLog?.job_number || invoice.job_id;
+  // The job_id fallback carries "<number> - <job name>"; strip the name so a long
+  // one can't wrap under the label the way it did on screen.
+  const displayJobNo = callLog?.subcontractor_job_no || callLog?.job_number ||
+    (invoice.job_id ? String(invoice.job_id).split(" - ")[0] : null);
   if (displayJobNo) {
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");

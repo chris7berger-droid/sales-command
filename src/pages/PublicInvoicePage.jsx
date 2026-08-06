@@ -190,7 +190,9 @@ export default function PublicInvoicePage() {
               {invoice.job_id && (
                 <>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Job #</div>
-                  <div style={{ fontSize: 12, color: "#887c6e" }}>{invoice.job_id}</div>
+                  {/* Number only — job_id carries "<number> - <job name>", and a
+                      long job name wrapped to two ragged lines under the label. */}
+                  <div style={{ fontSize: 12, color: "#887c6e" }}>{String(invoice.job_id).split(" - ")[0]}</div>
                 </>
               )}
               {invoice.due_date && (

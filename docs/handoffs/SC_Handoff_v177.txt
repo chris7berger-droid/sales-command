@@ -1,0 +1,244 @@
+SC_Handoff_v177 — The invoice header: one reported drift, four bugs
+===========================================================
+Date: 2026-08-06
+Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (2326f27)
+  One merge (ec2a758) plus a follow-up commit straight to main (2326f27).
+Prior: v176 (History Locker billing contact + 4 bugs behind it). Mode: /fix (reported from live use).
+Cross-repo: command-suite-db @ 93451df — one migration, PUSHED TO THE SHARED PROD DB.
+Edge functions: none. RLS: unchanged. Prod DATA writes: none (see VERIFICATION).
+
+
+SESSION SUMMARY
+---------------
+Chris, looking at invoice 10146: "On my header, the invoice job number and due date are on the
+right and move all over the place depending on what date is put into it. They should not be
+moving left to right. They should only move up and down. I swear we just fixed this."
+
+He was right that we'd just fixed it — on the PROPOSAL header, 2026-07-27, commit 15fdcc2. The
+same bug, in the same shape, was still sitting in the invoice header. That is the headline of
+this session: a per-surface fix that never got swept across surfaces, found ten days later by
+the same person hitting the same annoyance on a different screen.
+
+Fixing it exposed three more, each found by looking at the screen rather than by searching:
+
+1. THE BLOCK DRIFTED BECAUSE ITS WIDTH WAS ITS CONTENT'S WIDTH. `space-between` pins the right
+   block's RIGHT edge to the card edge. The block had auto width, so the longest string in it —
+   in practice the due date — set the width, and the width set where the left edge landed. A
+   longer date genuinely moved the whole block sideways.
+
+2. THE ENTIRE COMPANY HEADER WAS BLANK, AND HAD BEEN IN BOTH SCREENSHOTS. No company name, no
+   tagline, no phone, no website, no license, and the logo quietly falling back to the bundled
+   /hdsp-logo.png. Chris read this as a preview-deploy artifact. It was not. See DECISIONS D2 —
+   this is the most interesting bug of the session and the one most likely to come back.
+
+3. THE MAILING ADDRESS WASN'T THERE AT ALL. Chris, mid-session: "We also need to add the High
+   Desert Surface Preps address in here, probably in the top right, so that people know where to
+   mail a check. I hate mixing two fixes in one terminal session, but this is where we're at."
+   Internally that's a tenant_config read. For the CUSTOMER-facing page it wasn't available at
+   any price — get_public_tenant_config() didn't return the address columns. The one audience
+   that actually needs a remit-to address was the one audience that couldn't be shown it.
+
+4. JOB # WAS PRINTING THE JOB NAME. Surfaced when Chris opened invoice 10127 after the centering
+   fix landed: "6897 - Plenium Builders Virginia Palmer Elementary - Polish" wrapped to two
+   ragged centered lines under a label that says JOB #. The block hadn't moved — it had WRAPPED.
+   invoices.job_id stores the whole display string. 10146's job name is "STY 4", short enough
+   that the problem was invisible on the invoice we'd been staring at all session.
+
+
+CHANGES SHIPPED
+---------------
+sales-command (main, merge ec2a758 = 3 commits, then 2326f27 direct)
+
+  MOD src/pages/Invoices.jsx                    (InvoicePDFModal — the preview Chris sees)
+      The info row is now `display: grid; gridTemplateColumns: "1fr 200px 1fr"`. Invoice # /
+      Job # / Due Date live in the MIDDLE cell, which is dead-center on the page no matter what
+      the side columns hold. Text centered, `overflowWrap: break-word`. Bill To / Jobsite
+      Address take column 1 with `minWidth: 0` so they can neither push nor be pushed. Column 3
+      is intentionally empty — two children in a three-column grid leaves it so.
+      + company address/city/state/zip added to the COMPANY state object and its
+        getTenantConfig() hydration (they weren't being read at all), rendered as the first two
+        lines of the top-right contact block, above phone.
+      + JOB # renders `String(invoice.job_id).split(" - ")[0]`.
+
+  MOD src/pages/PublicInvoicePage.jsx           (what the customer opens from the email)
+      Same three changes. Its config comes from the get_public_tenant_config RPC, not a direct
+      table read — which is why the migration below was required for the address to appear here.
+
+  MOD src/lib/invoicePdf.js                     (the attached PDF on send-invoice)
+      + centered block anchored at pageW/2 (was left-aligned at pageW/2 + 20).
+      + company mailing address at the top of the right-aligned contact block.
+      + NEW `drawWrapped()` — the Bill To / Jobsite column now wraps at a fixed width
+        (pageW/2 - 100 - 12 - margin) instead of running as unwrapped doc.text(). jsPDF does not
+        wrap, and moving the right block from x=326 to a 200pt slot centered at x=306 moved the
+        collision line left; without this a long billing email would print UNDER the centered
+        block. Every left-column string goes through it.
+      + the job_id fallback gets the same `.split(" - ")[0]` treatment.
+
+  MOD src/lib/config.js                         (the blank-header root cause)
+      getTenantConfig() no longer caches a miss: `if (!data) return { ...DEFAULTS }` before the
+      cache write. Plus a module-level `supabase.auth.onAuthStateChange(() => { _cache = null })`.
+
+  MOD src/lib/TenantConfigContext.jsx
+      The provider sits ABOVE the auth gate and read exactly once on mount, so a pre-auth read
+      would have stuck for the life of the page even with config.js fixed. Now re-reads on every
+      auth transition and unsubscribes on unmount.
+
+  MOD docs/BACKLOG.md — one Completed Log entry covering all four.
+
+command-suite-db (main @ 93451df)
+
+  NEW supabase/migrations/20260806140000_public_tenant_config_mailing_address.sql
+      DROP + CREATE get_public_tenant_config() adding address, city, state, zip to the returned
+      subset (CREATE OR REPLACE can't widen an OUT-column list). SECURITY DEFINER, STABLE,
+      search_path=public, EXECUTE to anon/authenticated/service_role — all preserved from the
+      original. Additive for every caller.
+
+
+DECISIONS
+---------
+D1. CENTER, NOT RIGHT-ALIGNED — AND CHRIS OVERRODE ME ON IT. The first fix mirrored the proposal
+    header: fixed 200px width, still right-anchored. Chris said center. I pushed back once —
+    right-aligned would share a hard edge with the teal rule, the LINE TOTAL column and the
+    AMOUNT DUE box, where centered ties to nothing — and offered both. He restated it plainly:
+    "All I want you to do is take the invoice, the job number, and the due date. I want those to
+    move to the center of the page. Do you understand that?" Centered it is. Do not re-litigate
+    this in a polish pass; it is a stated preference, not an oversight.
+
+D2. THE BLANK HEADER WAS A POISONED CACHE, AND THE FIX IS NOT "RETRY". Worth reading in full,
+    because the shape recurs. tenant_config's SELECT policy is `id = get_user_tenant_id()` for
+    the `authenticated` role only — anon has no policy at all. Login.jsx:15 calls
+    getTenantConfig() on mount to show the company name on the login screen, i.e. while still
+    anonymous. That read correctly returns nothing. config.js then did
+    `_cache = { ...DEFAULTS, ...data }` with data === null, storing all-empty DEFAULTS in a
+    module-level variable that lives as long as the SPA does. Every consumer that asked
+    afterward — invoice preview, proposal PDF modal, WTC calculator, InvoicePaidPage — got the
+    blanks. It looked intermittent because landing directly on an authenticated route (a
+    refresh on /invoices) never mounts Login, so the first read comes from an authenticated
+    context and succeeds. THE LESSON: a cache that stores failures is a cache that converts a
+    transient permission state into a permanent one. Anywhere a module-level cache fronts an
+    RLS-gated read, the miss must not be cached and the cache must clear on auth change.
+    Both are now done here; nothing else in the codebase caches an RLS read this way (checked).
+
+D3. THE MIGRATION WAS PUSHED TO PROD MID-SESSION, WITH EXPLICIT PERMISSION. Rehearsed first per
+    the standing MIG-1 discipline: check-migration-safety.sh (A + B PASS), then
+    ./scripts/rehearse.sh against a prod-shaped throwaway — all nine fingerprints matched prod,
+    candidate applied clean, and the post-candidate anon-exposure check confirmed no new anon
+    exposure. Only then asked Chris, who said push. Verified live afterward by calling the
+    function AS the anon role. The address is business mailing information already printed on
+    every proposal and invoice that leaves the building — the same thing a customer reads off
+    the paper copy — so widening the anon-visible subset is not a disclosure.
+
+D4. JOB # SHOWS THE NUMBER AND DROPS THE JOB NAME. A field labeled JOB # printing
+    "6897 - Plenium Builders Virginia Palmer Elementary - Polish" is wrong independent of the
+    wrapping. Took the leading segment, matching what ProposalPDFModal already does with
+    display_job_number. The cost, flagged to Chris and accepted ("yes i like that"): 10146 now
+    reads "7215", not "7215 - STY 4". The jobsite address and work description already identify
+    the job. If the name is ever wanted back, it belongs on its own line under the number — not
+    crammed into the number field.
+
+D5. SCREEN AND PDF CAN STILL DISAGREE ON JOB #, KNOWINGLY. invoicePdf.js prefers
+    `callLog.subcontractor_job_no` (the GC's own job number, e.g. DA Builders' 6359) over ours;
+    the two HTML surfaces have no access to that column. Matching them means adding
+    job_number / subcontractor_job_no to the public page's call_log select, which means granting
+    those columns to anon — a migration AND a change to the rehearsal anon-exposure allowlist,
+    for a cosmetic field. Not taken. Only shows up on jobs that HAVE a subcontractor job number;
+    none of today's did.
+
+D6. THE LEFT COLUMN'S PDF WRAP IS A CONSEQUENCE OF THE CENTERING, NOT AN OPPORTUNISTIC FIX.
+    Centering moved the right block's left edge from x=326 to x=206. The left column was
+    unwrapped doc.text() and had ~120pt more room before. drawWrapped() was required to keep the
+    centering from creating an overlap bug in the emailed PDF. It is not scope creep; it is the
+    other half of the same change.
+
+
+VERIFICATION
+------------
+  ✓ Root cause of the blank header proven in the DB BEFORE any code was written, in this order:
+      - tenant_config row is fully populated (High Desert Surface Prep, 1460 Pittman Ave,
+        Sparks NV 89431-5617, phone, email, website).
+      - column grants on tenant_config for authenticated/anon: full, no column REVOKE in play.
+      - RLS policy read: `id = get_user_tenant_id()`, {authenticated}, SELECT.
+      - Chris's team_members.tenant_id === tenant_config.id (they match).
+      - simulated the app's exact read as role `authenticated` with his auth_id in
+        request.jwt.claims → returned the row. Server side was never the problem.
+    Only then was the client cache examined. Worth repeating that order.
+  ✓ `vite build` green after every commit (4 builds).
+  ✓ Migration: check-migration-safety.sh A+B PASS; rehearse.sh — 9/9 fingerprints match prod
+    (column_grants 8212, functions 41, indexes 155, policies 212, pub_powersync 9,
+    pub_realtime 1, table_grants 1028, tables 49, triggers 47), candidate applied clean,
+    no new anon exposure before OR after.
+  ✓ Migration live: pg_get_function_result confirms the widened TABLE(...) signature, and
+    `set local role anon; select ... from get_public_tenant_config()` returns the address.
+    Ledger row 20260806140000 present.
+  ✓ Chris smoke-tested the centering and the populated company header on the branch preview and
+    on prod ("looks great"), and the JOB # fix on 10127 ("yes i like that").
+  ✗ NOT verified in a browser: the customer-facing page (/invoice/:token). The DB half is
+    verified as anon and the client half is the same JSX as the preview modal, but nobody has
+    opened a real customer link and looked at the header. See POINTERS #1.
+  ✗ NOT verified: the generated PDF attached to a sent invoice. invoicePdf.js took the most
+    change of any file today (centering + address + drawWrapped) and no invoice was SENT this
+    session. See POINTERS #2.
+
+PROD DATA WRITES MADE THIS SESSION
+  - None. Every SQL statement against prod was a read except the migration itself, which is DDL
+    on one function. No invoice, call_log, customer or tenant_config row was written.
+
+
+NOT TOUCHED
+-----------
+- The PROPOSAL header (ProposalPDFModal.jsx) still uses the fixed-200px-RIGHT-anchored shape
+  from 15fdcc2, not the centered grid. Proposals and invoices now differ visually in this one
+  spot. Chris asked for centering on the invoice; extending it to proposals was not asked for
+  and was deliberately not done. If the two should match, that is a decision, not a bug.
+- The proposal header also does NOT show the company mailing address — only the invoice does.
+  Same reasoning. A proposal isn't something you mail a check against, but if Chris wants
+  brand consistency it's the same three-line addition in ProposalPDFModal.jsx.
+- The second COMPANY state in Invoices.jsx (InvoiceDetail, ~:1141) got the address fields added
+  for consistency but that component renders no header — harmless, unused today.
+- ~88 `alert(err.message)` sites and the dbErrorText sweep from v176: untouched, still D7 there.
+- Six parked worktrees flagged in v176's GIT STATE: still unexamined.
+
+
+NEXT SESSION POINTERS
+---------------------
+1. Open a real customer invoice link (/invoice/:token) and look at the header. That's the whole
+   point of the migration and it is the one path nobody has laid eyes on. Two minutes.
+2. Send a test invoice and open the attached PDF. invoicePdf.js changed the most and is the only
+   surface with no human verification. Check three things: the block is centered, the mailing
+   address is above the phone, and a long Bill To email wraps instead of running under the
+   centered block.
+3. THE REAL FOLLOW-UP: this bug existed because 15fdcc2 fixed one header and stopped. There are
+   at least four header-bearing surfaces (invoice preview, public invoice, invoice PDF, proposal
+   PDF) and they drift independently — today's session had to make the same edit in three files
+   three times, and the fourth is still different by decision. A shared InvoiceHeader/DocHeader
+   component is the durable fix. Not filed as a backlog row because it's a refactor looking for
+   a trigger; the trigger is the NEXT time someone edits a document header.
+4. If a screen ever renders blank tenant/company data again, D2 is the first thing to read.
+   The tell is: data correct in the DB, RLS correct, and the screen still empty.
+
+
+FILES TO KNOW
+-------------
+  src/pages/Invoices.jsx:~880-915          invoice info row — the 3-col grid; read D1
+  src/pages/PublicInvoicePage.jsx:~163-200 same row, customer-facing; config comes from the RPC
+  src/lib/invoicePdf.js:~93-115            drawWrapped + left column wrap; read D6
+  src/lib/invoicePdf.js:~165-215           centered block at pageW/2
+  src/lib/config.js:16-32                  the cache. Read D2 before touching.
+  src/lib/TenantConfigContext.jsx:9-20     re-reads on auth change; the other half of D2
+  src/pages/Login.jsx:15                   the pre-auth read that poisoned the cache
+  command-suite-db supabase/migrations/20260806140000_public_tenant_config_mailing_address.sql
+
+
+GIT STATE
+---------
+  sales-command       main @ 2326f27 — pushed, Vercel production deploying/deployed.
+                      Merge ec2a758 (centering + address + config cache) and direct commit
+                      2326f27 (JOB #). Branch fix/invoice-header-anchor deleted local + remote.
+  command-suite-db    main @ 93451df — pushed. Branch fix/public-tenant-config-address deleted
+                      local + remote. Migration 20260806140000 APPLIED TO PROD and in the ledger.
+                      Note: origin/main had three master-schedule docs commits from the other
+                      machine (ea59849, 45870ea, 8bcf2a6); merged in, no conflict (different
+                      files), and check-migration-safety.sh re-run PASS after the merge.
+  Backlog             One Completed Log entry (2026-08-06). No new open rows — POINTERS #3 is
+                      deliberately not filed; see the note there.
+  Memory              unchanged.

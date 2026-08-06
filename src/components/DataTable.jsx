@@ -1,7 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { C, F } from "../lib/tokens";
 
-export default function DataTable({ cols, rows, onRow, defaultSort = null }) {
+// focusKey: identity of the row to highlight + scroll to (e.g. the record you just
+// came back from). rowKey maps a row to that identity — defaults to row.id.
+export default function DataTable({ cols, rows, onRow, defaultSort = null, focusKey = null, rowKey = (r) => r.id }) {
+  const focusRef = useRef(null);
   const initialIdx = defaultSort
     ? cols.findIndex((c, i) => (defaultSort.key ? c.k === defaultSort.key : false) || (defaultSort.idx === i))
     : -1;
@@ -40,6 +43,11 @@ export default function DataTable({ cols, rows, onRow, defaultSort = null }) {
     };
     return [...rows].sort((a, b) => (sortDir === "asc" ? cmp(a, b) : cmp(b, a)));
   }, [rows, sortIdx, sortDir, cols]);
+
+  useEffect(() => {
+    if (!focusKey || !focusRef.current) return;
+    focusRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focusKey, sortedRows]);
 
   return (
     <div style={{
@@ -89,17 +97,22 @@ export default function DataTable({ cols, rows, onRow, defaultSort = null }) {
           </tr>
         </thead>
         <tbody>
-          {sortedRows.map((row, i) => (
+          {sortedRows.map((row, i) => {
+            const focused = focusKey != null && rowKey(row) === focusKey;
+            const baseBg = focused ? C.tealGlow : i % 2 === 0 ? C.linenLight : C.linen;
+            return (
             <tr key={i}
+              ref={focused ? focusRef : undefined}
               onClick={() => onRow && onRow(row)}
               style={{
                 borderBottom: `1px solid ${C.border}`,
-                background: i % 2 === 0 ? C.linenLight : C.linen,
+                background: baseBg,
+                boxShadow: focused ? `inset 4px 0 0 ${C.teal}` : "none",
                 cursor: onRow ? "pointer" : "default",
                 transition: "background 0.12s",
               }}
               onMouseEnter={e => { if (onRow) e.currentTarget.style.background = C.tealGlow; }}
-              onMouseLeave={e => { e.currentTarget.style.background = i % 2 === 0 ? C.linenLight : C.linen; }}
+              onMouseLeave={e => { e.currentTarget.style.background = baseBg; }}
             >
               {cols.map((c, j) => (
                 <td key={j} style={{ padding: "12px 15px", color: C.textBody, verticalAlign: "middle" }}>
@@ -107,7 +120,8 @@ export default function DataTable({ cols, rows, onRow, defaultSort = null }) {
                 </td>
               ))}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

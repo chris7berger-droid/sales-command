@@ -2762,6 +2762,7 @@ export default function Invoices({ setSubPage, teamMember }) {
   const [preselectedProposal, setPreselectedProposal] = useState(null);
   const [payAppContext, setPayAppContext] = useState(null); // { schedule, lines, proposal }
   const [sel, setSel] = useState(null);
+  const [lastViewedId, setLastViewedId] = useState(null);
   const [qbConnected, setQbConnected] = useState(null);
   const [filters, setFilters] = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "", invoiceNumber: "" });
 
@@ -2862,6 +2863,9 @@ export default function Invoices({ setSubPage, teamMember }) {
   useEffect(() => {
     if (setSubPage) setSubPage(sel ? "detail" : showModal ? "new" : null);
   }, [sel, showModal]);
+
+  // Remember the invoice you were just in so the list highlights + scrolls to it on the way back
+  useEffect(() => { if (sel?.id) setLastViewedId(sel.id); }, [sel?.id]);
 
   if (sel) return <InvoiceDetail
     key={sel.id}
@@ -2989,6 +2993,7 @@ export default function Invoices({ setSubPage, teamMember }) {
             ]}
             rows={filteredInvoices}
             onRow={row => navigate(`/invoices/${row.id}`)}
+            focusKey={lastViewedId}
             defaultSort={isRetentionView ? { key: "retention_amount", dir: "desc" } : { key: "sent_at", dir: "desc" }}
           />
         )}

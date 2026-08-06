@@ -21,6 +21,7 @@ export default function Proposals({ teamMember, setSubPage }) {
   const [proposals, setProposals] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [sel, setSel]             = useState(null);
+  const [lastViewedId, setLastViewedId] = useState(null);
   const [showModal, setShowModal] = useState(!!navState.newJob);
 
   const [preselectedJob, setPreselectedJob] = useState(navState.newJob || null);
@@ -80,6 +81,9 @@ export default function Proposals({ teamMember, setSubPage }) {
   useEffect(() => {
     if (setSubPage) setSubPage(sel ? "detail" : null);
   }, [sel]);
+
+  // Remember the proposal you were just in so the list highlights + scrolls to it on the way back
+  useEffect(() => { if (sel?.id) setLastViewedId(sel.id); }, [sel?.id]);
 
   if (sel) return <ProposalDetail
     p={sel}
@@ -208,6 +212,7 @@ export default function Proposals({ teamMember, setSubPage }) {
             ]}
             rows={filteredProposals}
             onRow={setSel}
+            focusKey={lastViewedId}
             defaultSort={{ key: "created_at", dir: "desc" }}
           />
         )}

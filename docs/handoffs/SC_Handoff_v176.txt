@@ -1,7 +1,8 @@
-SC_Handoff_v176 — History Locker import dropped the billing contact; job delete couldn't finish
+SC_Handoff_v176 — History Locker import dropped the billing contact, and three bugs behind it
 ===========================================================
 Date: 2026-08-06
-Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (29cdc55, merge a9dc3fd)
+Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (630dd84)
+  Two merges this session: a9dc3fd (bugs 1-3), 6d6a3a7 (bugs 4-5).
 Prior: v175 (sales rep notifications). Mode: /fix (reported from live use).
 Cross-repo: none. Edge functions: none. Migrations: none. RLS: unchanged.
 Prod DATA writes: see VERIFICATION.
@@ -14,8 +15,10 @@ but it did not save to the system. When I went to create the invoice, the billin
 not there, and when I go to customers and I open up the customer, the contact is also not
 there. This is for job 6653."
 
-One reported bug, three found. All three shared a shape: something the UI accepted, and the
-save path silently had no branch for.
+One reported bug, five found. Bugs 1-3 shared a shape: something the UI accepted, and the save
+path silently had no branch for. Bugs 4-5 were found while clearing the wreckage of bug 3, and
+share a different shape: the app hands database errors straight to the operator and keeps
+letting them work against records that are gone.
 
 1. THE IMPORT WIZARD SAVED THE CONTACT & BILLING STEP ONLY FOR NEW CUSTOMERS.
    `ImportToLiveWizard.handleImport()` wrote contact/billing fields inside
@@ -42,6 +45,19 @@ save path silently had no branch for.
    detached. The delete died on `invoices_call_log_id_fkey` — after the first two steps had
    already committed. Job still present, work types gone (0 rows), proposal `4469e0ff`
    orphaned, and a raw Postgres constraint string in a browser alert as the only explanation.
+
+4. RAW POSTGRES ERRORS WENT STRAIGHT TO THE SCREEN. Twice in one session. The second one cost
+   real work: with 6653 deleted and re-imported as a NEW row (3807), a tab still open on the old
+   3806 accepted a fully-built Archive Job Proposal — sold amount 469,073.4, historical billed
+   376,391.94, a goodwill-credit description — and failed on `insert or update on table
+   "proposals" violates foreign key constraint "proposals_call_log_id_fkey"`. That string was the
+   entire explanation offered, and the typed values were lost on the reload it required.
+
+5. JOB DETAIL STAYED FULLY INTERACTIVE OVER A DELETED JOB. The page that Chris lives on (see
+   [[project_job_detail_is_home]]) never re-checked that its row still existed. Left open across
+   a delete — another tab, another machine, a delete-and-re-import — every control kept working
+   and every save was guaranteed to fail. This is what turned bug 4 from an ugly message into
+   lost work.
 
 
 CHANGES SHIPPED
@@ -73,6 +89,33 @@ sales-command (main, 2 fix commits + merge: 2887b0a, 4b0c405, merge a9dc3fd, doc
           Postgres.
 
   MOD docs/BACKLOG.md — both fixes recorded in the Completed Log with SHAs.
+
+sales-command (main, 2nd merge: 0c563c1, merge 6d6a3a7, docs 630dd84)
+
+  NEW src/lib/dbErrors.js                                         (bug 4)
+      `friendlyDbError(err)` maps both FK directions by constraint NAME:
+        - missing parent  ("insert or update on table X violates FK …") → "the job this proposal
+          belongs to no longer exists. It was most likely deleted or replaced in another tab."
+        - blocked by child ("update or delete on table X violates FK … on table Y") → "an invoice
+          still points at this record and has to be removed first."
+      Plus 23505 / 23502 / 42501. Label tables were built from the REAL pg_constraint list, not
+      guessed; only NO ACTION and RESTRICT constraints appear in the blocked-by table, since
+      CASCADE and SET NULL can never surface as a block.
+      Returns NULL for anything unrecognized. `dbErrorText(err, prefix)` falls back to the raw
+      message in that case — see D5.
+
+  MOD src/components/CallLogDetail.jsx                            (bugs 4 + 5)
+      - handleDelete's inline FK regex replaced with dbErrorText().
+      - NEW effect: re-checks the job exists on mount and on window focus / visibilitychange.
+        Only a clean not-found sets `jobGone` — an error result is ignored so a network blip or
+        RLS hiccup can never evict a live page.
+      - When gone, the component returns a "this job has been deleted" panel with a Back to Call
+        Log button INSTEAD of the form. Not a redirect — see D6.
+
+  MOD src/components/ArchiveProposalModal.jsx                     (bug 4)
+      handleCreate surfaces dbErrorText(pErr) instead of pErr.message.
+
+  MOD docs/BACKLOG.md — third Completed Log entry.
 
 
 DECISIONS
@@ -106,6 +149,26 @@ D4. DELETED INVOICES GO WITH THE JOB RATHER THAN BLOCKING IT. `invoices.call_log
     soft-deleted invoice on a job that is itself being deleted has no remaining reader — but
     the confirm dialog names the invoice numbers so it is never a surprise.
 
+D5. THE TRANSLATOR RETURNS NULL RATHER THAN GUESSING, AND CALLERS MUST FALL BACK TO THE RAW
+    MESSAGE. A confidently wrong friendly sentence is worse than an ugly accurate one — it sends
+    you chasing the wrong thing with no way to see what actually happened. Every caller uses
+    `dbErrorText(err, prefix)`, which prints the raw message when the mapping doesn't fire. Do
+    not "improve" this by adding a generic catch-all sentence at the bottom of friendlyDbError.
+
+D6. THE STALE-PAGE GUARD REPLACES THE PAGE; IT DOES NOT REDIRECT. A timed redirect on focus
+    would have destroyed exactly the work bug 4 already destroyed — Chris had real numbers typed
+    into a modal at the moment the tab went stale. Replacing the component stops you working
+    against a dead row (the actual goal) while leaving the going-back to a click. Chris asked for
+    "drop you back to the Call Log"; this is a deliberate, flagged softening of that, and he
+    accepted it. If it ever feels like it's in the way, the redirect is a one-line change.
+
+D7. SCOPED TO JOB DETAIL ONLY — the ~88 other `alert(err.message)` sites across ~20 files were
+    deliberately NOT swept, and Proposals / Invoices / Customers did NOT get the existence check.
+    Offered as a choice (A: Job Detail only / B: every detail screen); Chris ratified A. The
+    reasoning: the general version is where you end up building polling, subscriptions and a
+    staleness layer nobody asked for, to cover cases none of those screens has actually hit. The
+    other screens now at least fail in English via the helper. Revisit only on a real report.
+
 
 VERIFICATION
 ------------
@@ -128,6 +191,20 @@ All against PROD.
     new job 3807 has its work type.
   ✓ Vercel production deploy Ready after merge.
 
+Second merge (bugs 4-5):
+  ✓ friendlyDbError exercised in node against the REAL error strings from both of today's
+    failures plus four more shapes. Confirmed output:
+      proposals_call_log_id_fkey (insert)  → "the job this proposal belongs to no longer exists…"
+      invoices_call_log_id_fkey (delete)   → "an invoice still points at this record…"
+      time_punches_job_id_fkey (delete)    → "a crew time punch still points at this record…"
+      23505 / 23502 / 42501                → correct, and 23502 names the column
+      "TypeError: Failed to fetch"         → null, and dbErrorText fell back to the raw text
+  ✓ FK label tables built from a live pg_constraint query, not guessed.
+  ✓ `vite build` clean; Vercel production deploy Ready after the second merge.
+  ✗ NOT smoke-tested in the browser by Chris. The translator is verified by direct execution and
+    the guard is verified by build only — nobody has watched the "job has been deleted" panel
+    render against a real deleted job. Low risk, but it is untested in the UI. See POINTERS #4.
+
 PROD DATA WRITES MADE THIS SESSION
   - None by me. Every write was Chris driving the UI (delete + re-import of job 6653).
     All MCP SQL this session was read-only SELECT.
@@ -147,6 +224,13 @@ NOT TOUCHED
 - The archive record carries no imported/status flag — "already imported" is derived purely
   from a call_log row's `archive_record_id`. Deleting the job frees the archive cleanly. This
   was verified, not assumed, and is worth knowing before anyone adds such a flag.
+- ~88 `alert(err.message)` / `setError(err.message)` sites remain untranslated across ~20 files
+  (heaviest: Invoices.jsx 15, ProposalDetail.jsx 12, BillingScheduleSection.jsx 10). D7 — not a
+  backlog row, just use `dbErrorText` when you're already in one of those files.
+- Proposals / Invoices / Customers detail screens have no existence check (D7).
+- Chris's lost archive proposal for 6653 (469,073.4 sold / 376,391.94 billed / goodwill-credit
+  description) was NOT re-entered by anyone. If job 6653 still has no archive proposal, that is
+  why.
 
 
 NEXT SESSION POINTERS
@@ -161,6 +245,11 @@ NEXT SESSION POINTERS
    mirrored to ImportToLiveWizard, and the gap sat unnoticed for ~10 weeks until a real job hit
    it. F31 exists precisely to sweep this class. Worth doing before the next wizard fix, not
    after.
+4. The stale-page panel has never been seen in a browser (VERIFICATION). Next time a job is
+   deleted, leave a second tab open on it and confirm the panel renders and Back works. Two
+   minutes, and it retires the only unverified thing shipped today.
+5. `dbErrorText` is the house pattern now. When you're in a file for other reasons and it has
+   `alert(err.message)`, swap it. Do not make a sweep out of it (D7).
 
 
 FILES TO KNOW
@@ -170,14 +259,17 @@ FILES TO KNOW
   src/components/NewInquiryWizard.jsx:311-339                  the pattern that was mirrored
   src/components/ContactBillingPicker.jsx:229-265              source of the billingSame patch
   src/components/CallLogDetail.jsx:255-300                     handleDelete — preflight then mutate
+  src/lib/dbErrors.js                                          FK/constraint → English; read D5
+  src/components/CallLogDetail.jsx (jobGone effect + panel)     stale-page guard; read D6
 
 
 GIT STATE
 ---------
-  sales-command       main @ 29cdc55 — pushed, Vercel production deploy Ready.
-                      Merge a9dc3fd. Branch fix/import-wizard-existing-customer-billing
-                      deleted, local and remote.
+  sales-command       main @ 630dd84 — pushed, Vercel production deploy Ready.
+                      Merges a9dc3fd (bugs 1-3) and 6d6a3a7 (bugs 4-5). Both branches
+                      (fix/import-wizard-existing-customer-billing,
+                      fix/stale-job-page-and-db-error-messages) deleted local + remote.
   command-suite-db    untouched this session.
-  Backlog             Two entries added to the Completed Log (2026-08-06). No new open rows;
+  Backlog             Three entries added to the Completed Log (2026-08-06). No new open rows;
                       F31 / F32 already covered the durable follow-ups and were left as-is.
   Memory              unchanged.

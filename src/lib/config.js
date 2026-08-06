@@ -15,12 +15,23 @@ const DEFAULTS = {
 
 let _cache = null;
 
+// The tenant_config SELECT policy is `id = get_user_tenant_id()` for the
+// `authenticated` role only, so a pre-auth call (Login.jsx mounts and asks for
+// the company name before sign-in) legitimately comes back empty. Caching that
+// empty result poisoned every later consumer for the rest of the session —
+// blank company name/address/phone on the invoice + proposal headers, with the
+// logo falling back to the bundled default. Only a real row gets cached.
 export async function getTenantConfig() {
   if (_cache) return _cache;
   const { data } = await supabase.from("tenant_config").select("*").limit(1).single();
+  if (!data) return { ...DEFAULTS };
   _cache = { ...DEFAULTS, ...data };
   return _cache;
 }
+
+// Signing in changes who the RLS policy sees, so anything read as anon is stale
+// by definition. Drop the cache on every auth transition.
+supabase.auth.onAuthStateChange(() => { _cache = null; });
 
 export async function refreshTenantConfig() {
   _cache = null;

@@ -67,6 +67,12 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...gray);
+  // Mailing address first — this is where checks get sent.
+  if (tenantConfig.address) {
+    doc.text(String(tenantConfig.address), rightX, ry, { align: "right" }); ry += 13;
+    const coCityStateZip = [[tenantConfig.city, tenantConfig.state].filter(Boolean).join(", "), tenantConfig.zip].filter(Boolean).join(" ");
+    if (coCityStateZip) { doc.text(coCityStateZip, rightX, ry, { align: "right" }); ry += 13; }
+  }
   if (tenantConfig.phone)   { doc.text(String(tenantConfig.phone),   rightX, ry, { align: "right" }); ry += 13; }
   if (tenantConfig.email)   { doc.text(String(tenantConfig.email),   rightX, ry, { align: "right" }); ry += 13; }
   if (tenantConfig.website) { doc.text(String(tenantConfig.website), rightX, ry, { align: "right" }); ry += 13; }
@@ -84,10 +90,19 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
   doc.line(margin, y, pageW - margin, y);
   y += 24;
 
-  // ── Bill To (left) + Invoice # / Job # / Due Date (right) ───────────────
+  // ── Bill To (left) + Invoice # / Job # / Due Date (page center) ─────────
   const leftColX = margin;
-  const rightColX = pageW / 2 + 20;
+  // Wrap the left column short of the centered block so a long name/email/
+  // address can never run underneath it.
+  const leftColW = pageW / 2 - 100 - 12 - margin;
   const sectionTop = y;
+  const drawWrapped = (text, yPos, lineH) => {
+    for (const part of doc.splitTextToSize(String(text), leftColW)) {
+      doc.text(part, leftColX, yPos);
+      yPos += lineH;
+    }
+    return yPos;
+  };
 
   // Left: Bill To
   doc.setFontSize(9);
@@ -105,15 +120,13 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
   doc.setFontSize(11);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...gray);
-  doc.text(String(billingName), leftColX, y);
-  y += 13;
+  y = drawWrapped(billingName, y, 13);
 
   const billingEmail = customer.billing_email || customer.contact_email || customer.email || "";
   if (billingEmail) {
     doc.setFontSize(9);
     doc.setTextColor(...lightGray);
-    doc.text(String(billingEmail), leftColX, y);
-    y += 12;
+    y = drawWrapped(billingEmail, y, 12);
   }
 
   // Billing address (fallback to business address)
@@ -124,12 +137,10 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
   if (billAddr) {
     doc.setFontSize(9);
     doc.setTextColor(...lightGray);
-    doc.text(String(billAddr), leftColX, y);
-    y += 12;
+    y = drawWrapped(billAddr, y, 12);
     const cityStateZip = [[billCity, billState].filter(Boolean).join(", "), billZip].filter(Boolean).join(" ");
     if (cityStateZip) {
-      doc.text(cityStateZip, leftColX, y);
-      y += 12;
+      y = drawWrapped(cityStateZip, y, 12);
     }
   }
 
@@ -144,16 +155,17 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...lightGray);
-    doc.text(String(callLog.jobsite_address), leftColX, y);
-    y += 12;
+    y = drawWrapped(callLog.jobsite_address, y, 12);
     const jsCity = [[callLog.jobsite_city, callLog.jobsite_state].filter(Boolean).join(", "), callLog.jobsite_zip].filter(Boolean).join(" ");
     if (jsCity) {
-      doc.text(jsCity, leftColX, y);
-      y += 12;
+      y = drawWrapped(jsCity, y, 12);
     }
   }
 
-  // Right: Invoice # / Job # / Due Date
+  // Center column: Invoice # / Job # / Due Date
+  // Anchored to the page centerline so a longer value (typically the due date)
+  // grows the block downward, never sideways — mirrors the HTML preview.
+  const rightColMid = pageW / 2;
   let ry2 = sectionTop;
   // Deposit badge — gated on invoice kind, sits above the Invoice # label.
   if (isDepositInvoice) {
@@ -163,20 +175,20 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     const padX = 6, badgeH = 15;
     const badgeW = doc.getTextWidth(badgeLabel) + padX * 2;
     doc.setFillColor(...green);
-    doc.roundedRect(rightColX, ry2 - 9, badgeW, badgeH, 3, 3, "F");
+    doc.roundedRect(rightColMid - badgeW / 2, ry2 - 9, badgeW, badgeH, 3, 3, "F");
     doc.setTextColor(255, 255, 255);
-    doc.text(badgeLabel, rightColX + padX, ry2 + 1);
+    doc.text(badgeLabel, rightColMid, ry2 + 1, { align: "center" });
     ry2 += 18;
   }
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...dark);
-  doc.text("INVOICE #", rightColX, ry2);
+  doc.text("INVOICE #", rightColMid, ry2, { align: "center" });
   ry2 += 14;
   doc.setFontSize(11);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...gray);
-  doc.text(String(invoice.id || "—"), rightColX, ry2);
+  doc.text(String(invoice.id || "—"), rightColMid, ry2, { align: "center" });
   ry2 += 18;
 
   // Prefer customer's internal job # (e.g. DA Builders' 6359) over Sales Command's job_id.
@@ -185,12 +197,12 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...dark);
-    doc.text("JOB #", rightColX, ry2);
+    doc.text("JOB #", rightColMid, ry2, { align: "center" });
     ry2 += 14;
     doc.setFontSize(11);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...gray);
-    doc.text(String(displayJobNo), rightColX, ry2);
+    doc.text(String(displayJobNo), rightColMid, ry2, { align: "center" });
     ry2 += 18;
   }
 
@@ -198,12 +210,12 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...dark);
-    doc.text("DUE DATE", rightColX, ry2);
+    doc.text("DUE DATE", rightColMid, ry2, { align: "center" });
     ry2 += 14;
     doc.setFontSize(11);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...gray);
-    doc.text(fmtDate(invoice.due_date), rightColX, ry2);
+    doc.text(fmtDate(invoice.due_date), rightColMid, ry2, { align: "center" });
     ry2 += 18;
   }
 

@@ -625,11 +625,11 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
   // passed in read-only here — the send view only REVIEWS what will go out; it
   // never creates/edits. Mirrors how recipients are managed on the detail page
   // and shown read-only in the send flow.
-  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
+  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url, address: DEFAULTS.address, city: DEFAULTS.city, state: DEFAULTS.state, zip: DEFAULTS.zip });
   const [repContact, setRepContact] = useState({ phone: "", email: "" });
 
   useEffect(() => {
-    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url }));
+    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url, address: cfg.address, city: cfg.city, state: cfg.state, zip: cfg.zip }));
     if (teamMember) {
       setRepContact({ phone: teamMember.phone || "", email: teamMember.email || "" });
     }
@@ -861,6 +861,12 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
                   <div style={{ fontSize: 12, color: "#4a4238", marginTop: 3 }}>{COMPANY.tagline}</div>
                 </div>
                 <div style={{ textAlign: "right", fontSize: 11, color: "#4a4238", lineHeight: 1.7 }}>
+                  {COMPANY.address && (
+                    <>
+                      <div>{COMPANY.address}</div>
+                      <div>{[[COMPANY.city, COMPANY.state].filter(Boolean).join(", "), COMPANY.zip].filter(Boolean).join(" ")}</div>
+                    </>
+                  )}
                   <div>{repContact.phone || COMPANY.phone}</div>
                   <div>{repContact.email || COMPANY.email}</div>
                   <div>{COMPANY.website}</div>
@@ -869,8 +875,11 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
               </div>
 
               {/* Invoice info row */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid rgba(28,24,20,0.12)" }}>
-                <div>
+              {/* 3-column grid: the middle 200px column is dead-center on the page
+                  regardless of what's in the side columns, so Invoice #/Job #/Due Date
+                  grow downward and never slide left or right. */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 200px 1fr", alignItems: "flex-start", marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid rgba(28,24,20,0.12)" }}>
+                <div style={{ minWidth: 0, paddingRight: 24 }}>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Bill To</div>
                   <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{billingName || invoice.job_name || "—"}</div>
                   {billingEmail && <div style={{ fontSize: 11, fontWeight: 400, color: "#887c6e", marginTop: 2 }}>{billingEmail}</div>}
@@ -881,7 +890,7 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
                     </div>
                   )}
                 </div>
-                <div style={{ textAlign: "left" }}>
+                <div style={{ textAlign: "center", minWidth: 0, overflowWrap: "break-word" }}>
                   {isDepositInvoice && (
                     <div style={{ display: "inline-block", background: "#43a047", color: "white", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "4px 10px", borderRadius: 4, marginBottom: 10 }}>Materials Deposit Invoice</div>
                   )}
@@ -1138,10 +1147,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [editDiscount, setEditDiscount] = useState(String(invoice.discount || 0));
   const [editRetentionPct, setEditRetentionPct] = useState(String(invoice.retention_pct || 0));
   const [editArchiveAmount, setEditArchiveAmount] = useState(String(invoice.amount || 0));
-  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url });
+  const [COMPANY, setCOMPANY] = useState({ name: DEFAULTS.company_name, tagline: DEFAULTS.tagline, phone: DEFAULTS.phone, email: DEFAULTS.email, website: DEFAULTS.website, license: DEFAULTS.license_number, logo_url: DEFAULTS.logo_url, address: DEFAULTS.address, city: DEFAULTS.city, state: DEFAULTS.state, zip: DEFAULTS.zip });
 
   useEffect(() => {
-    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url }));
+    getTenantConfig().then(cfg => setCOMPANY({ name: cfg.company_name, tagline: cfg.tagline, phone: cfg.phone, email: cfg.email, website: cfg.website, license: cfg.license_number, logo_url: cfg.logo_url, address: cfg.address, city: cfg.city, state: cfg.state, zip: cfg.zip }));
   }, []);
   const [editDesc, setEditDesc] = useState(invoice.description || "");
   const [editIntro, setEditIntro] = useState(invoice.intro || "");

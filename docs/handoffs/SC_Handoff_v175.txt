@@ -87,9 +87,17 @@ D2. TRIGGER FIRES ONLY ON A TRANSITION INTO Sold/Signed, and skips `is_archive_p
 D3. EXACTLY ONE NOTIFIER. proposal-signed and Internal Approve both stopped sending their own
     mail when the trigger landed, so there is no double-send path.
 
-D4. THE 77 ALREADY-OVERDUE FOLLOW-UPS WERE STAMPED AS REMINDED. Firing on day one would have
-    dumped months of stale items on two reps and taught everyone to ignore the email. Reminders
-    start clean from today forward. RELEASING THEM IS ONE STATEMENT, in the migration header:
+D4. THE 77 ALREADY-OVERDUE FOLLOW-UPS STAY SUPPRESSED — SETTLED, DO NOT RE-OPEN.
+    Firing on day one would have sent John Paul a 49-row email and Joe a 28-row email, oldest
+    dated 2026-04-13. Chris was offered the release, took it, saw the counts, and reversed:
+    "I don't want these guys getting an email with 49 things and 28 things to go check through.
+    It just needs to work from here forward." Released and re-suppressed same session; verified
+    0 rows would email.
+    The old dates remain on the jobs and still show red on the Call Log list — nothing deleted,
+    they just don't generate mail. Editing one of those jobs to a NEW follow-up date re-arms it
+    normally; only the stale values are muted.
+    If a future session ever needs the opposite, it is one statement (also in the migration
+    header) — but treat it as a decision to re-litigate with Chris, not a cleanup task:
         UPDATE public.call_log SET follow_up_reminded_for = NULL
          WHERE stage NOT IN ('Sold','Lost') AND follow_up IS NOT NULL;
 
@@ -135,7 +143,7 @@ PROD DATA WRITES MADE THIS SESSION (all intentional, all restored)
 
 NOT TOUCHED
 -----------
-- The 77 overdue follow-ups remain suppressed. Chris's call whether to release them (D4).
+- The 77 overdue follow-ups remain suppressed — SETTLED, see D4. Not an open question.
 - WHY the browser abandons the proposal-signed call is still unknown. The preflight succeeds
   from curl on every allowed origin, the function answers POSTs correctly (probed: clean 403 on
   a bad token), and the browser still bailed 31ms in. Deliberately NOT chased further — the
@@ -153,7 +161,7 @@ NEXT SESSION POINTERS
    DESC` and `SELECT * FROM net._http_response ORDER BY id DESC` — both from
    `command-suite-db` via `supabase db query --linked -f`, NOT the MCP SQL tool, which runs
    read-only and cannot decrypt Vault.
-2. Decide on the overdue-follow-up backlog (D4).
+2. Overdue-follow-up backlog is SETTLED (D4) — suppressed, stays suppressed. Do not re-raise.
 3. If a rep reports a missing notification, check the function logs first — every failure now
    writes an explicit `rep NOT notified for <id> — <reason>` line. That is new; before this
    session, failures wrote nothing at all.

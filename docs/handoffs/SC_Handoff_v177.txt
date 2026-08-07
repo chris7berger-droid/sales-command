@@ -189,10 +189,10 @@ NOT TOUCHED
 - The PROPOSAL header (ProposalPDFModal.jsx) still uses the fixed-200px-RIGHT-anchored shape
   from 15fdcc2, not the centered grid. Proposals and invoices now differ visually in this one
   spot. Chris asked for centering on the invoice; extending it to proposals was not asked for
-  and was deliberately not done. If the two should match, that is a decision, not a bug.
+  and was deliberately not done. SETTLED 2026-08-07 — Chris: "proposal header does not need to
+  match." The divergence is intentional. Do not re-raise it as a consistency bug.
 - The proposal header also does NOT show the company mailing address — only the invoice does.
-  Same reasoning. A proposal isn't something you mail a check against, but if Chris wants
-  brand consistency it's the same three-line addition in ProposalPDFModal.jsx.
+  Covered by the same ruling above. A proposal isn't something you mail a check against.
 - The second COMPANY state in Invoices.jsx (InvoiceDetail, ~:1141) got the address fields added
   for consistency but that component renders no header — harmless, unused today.
 - ~88 `alert(err.message)` sites and the dbErrorText sweep from v176: untouched, still D7 there.

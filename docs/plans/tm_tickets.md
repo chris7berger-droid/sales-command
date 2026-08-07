@@ -251,6 +251,17 @@ Add `tm_ticket_id uuid null, FK tm_tickets`. Exactly parallel to `billing_schedu
 
 New component `src/components/TMTicketModal.jsx` (repo convention: modals live in `components/`). Opened from a new **T&M Tickets** `Section` on `CallLogDetail.jsx`, rendered alongside the existing Proposals (`:928`) and Invoices (`:983`) blocks.
 
+**A ticket gets a real URL [DERIVED — corrects an omission].** The standing repo discipline is that every section and detail has its own router URL and is reached with `navigate()`, not local state. An earlier draft of this plan reused `/calllog/:id` with no ticket address, which breaks that rule: a half-typed ticket couldn't be linked, bookmarked, or reopened by back-button.
+
+Add to `App.jsx` beside the existing `/calllog/:id` (`:241`):
+
+```
+/calllog/:id/ticket/new          → open a blank ticket on that job
+/calllog/:id/ticket/:ticketId    → open that ticket
+```
+
+`CallLog` reads the params and opens `TMTicketModal`; closing navigates back to `/calllog/:id`. Same shape as the existing `/proposals/:id` and `/invoices/:id` routes.
+
 ### 3.1 The form is the paper form
 
 Same field order, same section headings, same column headers as §0.10. The office user is transcribing a document in front of them; anything that reorders or renames fields makes transcription slower and more error-prone.
@@ -291,7 +302,53 @@ A **"This is a rate card"** checkbox in `WTCCalculator.jsx`. When on: hide the h
 
 `ProposalDetail.jsx:341` changes to skip `is_rate_card` WTCs. **P7's total goes from $28,379.64 → $27,999.64.**
 
-Every other `calcWtcPrice`-over-all-WTCs site must be swept for the same exclusion — including the billing-schedule seed at `ProposalDetail.jsx:351-357`, which would otherwise put three phantom $105/$125/$150 lines on an SOV.
+**Every `calcWtcPrice` site, enumerated [read-verified 2026-08-07 via `grep -rn "calcWtcPrice" src`].** An earlier draft said only "must be swept"; that is the exact failure mode that has passed clean audits before, so here is the list.
+
+**Sums across all WTCs of a proposal — MUST exclude rate cards:**
+
+| # | site | what it computes | verdict |
+|---|---|---|---|
+| S1 | `ProposalDetail.jsx:341` | `proposals.total` on WTC lock | **exclude** |
+| S2 | `ProposalDetail.jsx:357` | `billing_schedule_lines.scheduled_value` on SOV seed | **exclude** — else 3 phantom SOV lines |
+| S3 | `Invoices.jsx:109` | `billing_schedule.contract_sum` on the auto-seed for `requires_pay_app` customers | **exclude** |
+| S4 | `Invoices.jsx:117` | `billing_schedule_lines.scheduled_value`, same auto-seed | **exclude** |
+| S5 | `ProposalPDFModal.jsx:189` | **the customer-facing proposal PDF total** | **exclude** — see below |
+| S6 | `MultiGCWizard.jsx:530` | per-tier total in the multi-GC preview | **exclude** |
+| S7 | `MultiGCWizard.jsx:635` | per-tier total written on multi-GC clone | **exclude** |
+
+**S5 is the one that bites.** `ProposalPDFModal.jsx:189` computes the printed proposal total independently. Miss it and the PDF prints $28,379.64 while the app says $27,999.64 — a customer-facing number diverging from the billed number. That is the **exact defect** the exact-penny work was written to kill: see `calc.js:12-18`, *"the customer-facing proposal PDF printed its own raw, un-rounded sum… Customers paid what the proposal said and came up cents short."* Repeating it would be repeating a known, documented mistake.
+
+**S3/S4 note:** Contract Flooring is `requires_pay_app = false` (§0.1), so job 7215 never reaches this path. The path is live for other customers.
+
+**Per-WTC display sites — must render a rate card as a rate, not a price:**
+
+| # | site | verdict |
+|---|---|---|
+| D1 | `ProposalDetail.jsx:933` | rate-card render |
+| D2 | `ProposalPDFModal.jsx:358` | rate-card render (customer-facing) |
+| D3 | `Invoices.jsx:456` | filtered out entirely by §4.3 |
+| D4 | `MultiGCWizard.jsx:588-589` | rate-card render |
+| D5 | `invoicePdf.js:281` | unreachable today (§0.5, §6.2) — no action |
+
+### 4.2b The public signing page needs a migration, not a JSX edit [DERIVED — run-verified]
+
+`PublicSigningPage.jsx:551` renders each WTC's price as `w.locked_line_total`. For P7's rate cards that value is **105 / 125 / 150** — so the customer's signing page would print "$105" as a line price for a $105/hr rate.
+
+It cannot be fixed in the component. The page deliberately does **not** import calc helpers (`PublicSigningPage.jsx:7-11`, audit finding H6 — cost basis must not cross the wire) and instead reads a `SECURITY DEFINER` RPC. The RPC hand-builds a fixed key list [run-verified via `pg_get_functiondef`]:
+
+```sql
+'wtc', json_agg(json_build_object(
+  'id', w.id, 'sales_sow', w.sales_sow,
+  'locked_line_total', w.locked_line_total, 'work_type_name', wt.name))
+```
+
+`is_rate_card` and `rate_amount` are not in that list and cannot reach the page without changing the function.
+
+**Action:** `get_public_proposal_view` gets a forward migration in `command-suite-db` adding `is_rate_card` and `rate_amount` to the `wtc` object. Both are safe to expose — a published hourly rate is already on the customer's proposal; neither reveals cost basis, so H6 is not reopened.
+
+The RPC also returns `'total', p.total`, which after §4.2 is material-only. The signing page then needs the "plus labor at rates shown, billed as incurred" line so the customer isn't shown a contract value that omits the labor they're agreeing to.
+
+**This is a second migration the plan previously missed entirely.** It is on the customer-signature path — the highest-consequence surface in the build.
 
 ### 4.3 Rate-card WTCs are excluded from percent billing [LOCKED]
 
@@ -338,9 +395,53 @@ Invoice total = Σ percent lines + Σ ticket lines. No cap applies to a ticket l
 
 A ticket is billed iff an `invoice_lines` row references it on an invoice with `deleted_at is null and voided_at is null`. Voiding an invoice returns its tickets to the pickable list — matching how `getBilledPct` already treats voided invoices (§0.2).
 
-**Weak point:** this is a read-then-insert with no unique constraint. Two invoices created concurrently could each bill the same ticket. Concurrency here is one office user (§ deployment context), but a **unique partial index on `invoice_lines.tm_ticket_id` where the invoice is live** is the durable fix and should be specified, not assumed away.
+**Double-billing guard — specified, not deferred [DERIVED]:**
 
-### 5.4 No unbilled-tickets list this build [LOCKED]
+```sql
+create unique index tm_ticket_billed_once
+  on public.invoice_lines (tm_ticket_id)
+  where tm_ticket_id is not null;
+```
+
+A plain partial unique index on the column, **not** one conditioned on invoice liveness — a partial index cannot reference another table, so "live invoice only" is not expressible here. The consequence is deliberate: once a ticket is billed, re-billing it is refused at the database level even if the first invoice was later voided.
+
+That is the correct trade for this build. Re-billing a voided invoice's ticket is a rare correction; silently double-billing a GC is a dispute. If the correction case ever comes up, the operator deletes the voided invoice (its lines cascade — `CallLogDetail.jsx:306-308` already hard-deletes soft-deleted invoices for a job) and the ticket frees up.
+
+**The picker's "unbilled" filter still excludes voided-invoice tickets** (they read as billed), so §5.1 must not offer a ticket the index will then reject. Filter and index agree: a ticket with **any** `invoice_lines` row is not pickable.
+
+### 5.4 Every existing `invoice_lines` consumer, enumerated [read-verified 2026-08-07]
+
+Adding a third line kind is only safe if every reader survives a row with `proposal_wtc_id = null` **and** `billing_pct = null`. `grep -rn "invoice_lines" src supabase/functions` returns **11 files**. An earlier draft named four. All of them:
+
+| # | site | reads | verdict |
+|---|---|---|---|
+| C1 | `Invoices.jsx:166` | `proposal_wtc_id, billing_pct` for the cap | **safe** — ticket lines carry null on both, contribute 0 to `getBilledPct`. Correct: a ticket must not consume WTC percentage. |
+| C2 | `Invoices.jsx:288-296` | archive line insert | untouched |
+| C3 | `Invoices.jsx:305-310` | percent line insert | extended (§5.2) |
+| C4 | `Invoices.jsx:946` | line display `rowAmount` | **needs a branch** — falls to `0` with no WTC |
+| C5 | `Invoices.jsx:1790-1854` | invoice line **editing** | **needs review** — the edit path recomputes from `billing_pct`; a ticket line has none. Must be read-only or ticket-aware, never silently zeroed. |
+| C6 | `Invoices.jsx:2144, 2370` | line rows in the detail view | **needs a branch** (`isSov`/`isArchiveLine` pattern exists at 2370) |
+| C7 | `PublicInvoicePage.jsx:50, 219-228` | customer-facing lines | **needs the §6.1 branch** |
+| C8 | `invoicePdf.js:22, 267-281` | pay-app PDF | unreachable for regular invoices (§6.2) |
+| C9 | `qb-sync-invoice/index.ts:150, 243-256` | QB line push | **needs the §6.5 description fix**; dollars already correct |
+| C10 | `NewPayAppModal.jsx:209` / `PayAppDetailModal.jsx:335` | pay-app path | **not reached** — pay-app invoices are SOV-lined; verify, don't assume |
+| C11 | `CallLogDetail.jsx:306-308` | comment + invoice hard-delete | **interaction to verify** — lines cascade off invoices, which frees the ticket. Correct behavior, but confirm the `on delete restrict` FK (§2.6) doesn't block the delete. |
+| C12 | `Customers.jsx:517, 707` | `invWtNames(inv.invoice_lines)` → work-type name column | **cosmetic break** — a T&M-only invoice shows "—" in Work Types |
+| C13 | **`SalesDash.jsx:417, 494-502`** | **buckets invoiced/paid dollars by work type** | **money-reporting break — see below** |
+
+**C13 is the real one.** `SalesDash.jsx:497` buckets every dollar as `line.proposal_wtc?.work_types?.name || "Unknown"`, so all T&M revenue lands in a bucket named **"Unknown."** Worse, `:498`:
+
+```js
+if (filterWt !== "__all__" && String(line.proposal_wtc?.work_type_id) !== filterWt) continue;
+```
+
+With no WTC this is `String(undefined) !== filterWt` → `"undefined" !== filterWt` → always true → **`continue`**. Under any work-type filter, T&M dollars **silently disappear from the dashboard**.
+
+**This is a pre-existing bug, not one this plan creates** — archive invoices (null WTC, `Invoices.jsx:288-296`) already fall into it today. T&M would make it materially worse, because T&M revenue on this job is recurring weekly rather than a one-off archive import.
+
+**Scope call:** fix C13's bucketing to fall back to `line.description` and stop dropping null-WTC lines under a filter. It is ~6 lines in a file the plan otherwise doesn't touch, and leaving it means shipping a revenue dashboard that under-reports the new feature. C12 is cosmetic and can ride along or wait.
+
+### 5.5 No unbilled-tickets list this build [LOCKED]
 
 Chris considered and declined a standing "unbilled tickets" report. Weekly billing plus the picker in §5.1 is the whole control. Revisit only if a ticket is ever found unbilled.
 
@@ -382,33 +483,41 @@ Fix: prefer `line.description` when present. That is a two-line change and also 
 
 | piece | est. code |
 |---|---|
-| Migration (3 tables + RLS + 4 columns + index) — authored in `command-suite-db` | ~180 lines SQL |
+| Migration A (3 tables + 12 RLS policies + 4 columns + unique index + trigger) — `command-suite-db` | ~180 lines SQL |
+| Migration B (`get_public_proposal_view` RPC — expose `is_rate_card`/`rate_amount`) — §4.2b | ~60 lines SQL |
 | `TMTicketModal.jsx` (entry form) | ~350 lines |
-| `CallLogDetail` T&M Tickets section | ~70 lines |
+| `CallLogDetail` T&M Tickets section + `App.jsx` ticket routes (§3) | ~90 lines |
 | `WTCCalculator` rate-card fields | ~80 lines |
-| `proposals.total` + contract-value helper sweep | ~60 lines |
-| `Invoices.jsx` T&M picker + line creation | ~120 lines |
-| `PublicInvoicePage` ticket block | ~90 lines |
-| `qb-sync-invoice` description fix | ~5 lines |
-| **Total** | **~955 lines** |
+| Rate-card exclusion across S1–S7 + rate-card render across D1–D4 (§4.2) | ~110 lines |
+| Contract-value helper + call sites (§4.5) | ~40 lines |
+| `Invoices.jsx` T&M picker + line creation + consumer branches C4/C5/C6 (§5.4) | ~170 lines |
+| `PublicInvoicePage` ticket block (C7) | ~90 lines |
+| `PublicSigningPage` rate-card render (§4.2b) | ~30 lines |
+| `SalesDash.jsx` null-WTC bucketing fix (C13) | ~10 lines |
+| `qb-sync-invoice` description fix (C9) | ~5 lines |
+| **Total** | **~1,215 lines** |
 
 **Time budget: 60 min** — set by Chris, 2026-08-07. Finding cap = 6.
 
-**Estimate divergence, recorded not resolved:** the drafter's read of this surface was 240 min (~955 lines across a migration, two existing screens, the invoice path, and the public invoice page). Chris locked 60. Per the standing rule that a **time budget is not a scope cap**, the named surface in §§2-6 is unchanged — nothing was trimmed to fit the number. If the build runs long, that is a Delta to name at close, not a reason to silently drop §6.1 or §4.5.
+**Estimate divergence, recorded not resolved:** the drafter's read of this surface was 240 min; a post-draft sweep (2026-08-07, prompted by Chris asking why known gaps weren't just fixed) raised it — the enumerations in §4.2, §4.2b and §5.4 found a **second migration on the customer-signature path**, four more sum-sites, and seven more invoice-line consumers than the first draft named. Honest read is now **~300 min**. Chris locked **60**.
+
+Per the standing rule that a **time budget is not a scope cap**, the named surface in §§2-6 is unchanged — nothing was trimmed to fit the number. If the build runs long, that is a Delta to name at close, not a reason to silently drop §4.2b or §5.4.
 
 ---
 
 ## §8 Build order
 
-1. Migration in `command-suite-db` → **rehearse** → push → repair ledger if needed
-2. Rate-card fields on the WTC + `proposals.total` exclusion + contract-value helper *(verifiable on its own: P7 reads $27,999.64)*
+1. Migration A + Migration B in `command-suite-db` → **rehearse both** → push → repair ledger if needed
+2. Rate-card fields on the WTC + the S1–S7 exclusion sweep + D1–D4 renders + contract-value helper *(verifiable: P7 reads $27,999.64 in the app **and** on the proposal PDF **and** on the signing page — all three, or the sweep isn't done)*
 3. Backfill P7's three rate cards by hand (§4.6)
-4. Ticket entry modal + job-detail section *(verifiable: ticket CCF_000982 entered, total reads $6,765)*
-5. Invoice T&M picker + line creation *(verifiable: invoice carries the $6,765 line)*
-6. Public invoice page ticket block
-7. QB description fix
+4. Ticket entry modal + job-detail section + routes *(verifiable: ticket CCF_000982 entered at `/calllog/3791/ticket/…`, total reads $6,765 against the paper)*
+5. Invoice T&M picker + line creation + consumer branches C4/C5/C6 *(verifiable: invoice carries the $6,765 line and the existing percent lines still bill correctly)*
+6. Public invoice page ticket block (C7)
+7. QB description fix (C9) + SalesDash bucketing fix (C13)
 
 Steps 2 and 4 each produce something Chris can look at before the next step starts.
+
+**Step 2 is the risky one and it comes first on purpose** — it changes a stored contract value and three customer-facing surfaces. If anything in this build gets cut for time, it is not step 2; a half-done step 2 is worse than not starting it, because the app and the printed proposal would disagree.
 
 ---
 
@@ -416,13 +525,18 @@ Steps 2 and 4 each produce something Chris can look at before the next step star
 
 | # | question | §  | blocking? |
 |---|---|---|---|
-| O1 | Ticket number format — global `TM-00001` or per-job `7215-TM-01`? Allocation must not copy the racy max+1 pattern at `Invoices.jsx:270` | §2.4 | no — pick at build |
+Only questions that need **Chris's judgment** remain here. Everything that was merely unlooked-up — the sum-site list, the consumer list, the index definition, the signing-page path, the ticket route — was resolved in the 2026-08-07 sweep and moved into the plan body where it belongs.
+
+| # | question | §  | blocking? |
+|---|---|---|---|
+| O1 | Ticket number format — global `TM-00001` or per-job `7215-TM-01`? (Mechanism is settled: a Postgres sequence, **not** the racy max+1 pattern at `Invoices.jsx:270-278`. Only the display format is open.) | §2.4 | no — pick at build |
 | O2 | Which proposal's rate card prefills when a job has more than one? | §3.2 | no |
 | O3 | Attach the scan at ticket entry instead of invoice time? (needs a new table if yes) | §3.5 | no |
-| O4 | Rate-card wording/layout on the customer-facing proposal PDF and signing page | §4.4 | no |
+| O4 | Rate-card wording on the proposal PDF and signing page — what the customer reads under the material total | §4.4, §4.2b | no |
 | O5 | Backfill P7 by hand or by migration? | §4.6 | no — hand recommended |
 | O6 | Build the unreachable `invoicePdf` branch, or leave it out? | §6.2 | **recommend out** |
-| O7 | ~~Time budget confirmation~~ — **resolved: 60 min (Chris, 2026-08-07)**. Drafter's estimate was 240; scope deliberately not cut to match (§7) | §7 | closed |
+| O7 | ~~Time budget confirmation~~ — **resolved: 60 min (Chris, 2026-08-07)**; drafter's post-sweep estimate is 300. Scope deliberately not cut (§7) | §7 | closed |
+| O8 | C13 (`SalesDash` null-WTC bucketing) is a **pre-existing** bug this build worsens. Fix it here (~10 lines) or file it? Plan recommends fixing in-flow. | §5.4 | no |
 
 ---
 
@@ -444,6 +558,9 @@ Steps 2 and 4 each produce something Chris can look at before the next step star
 | L12 | No `status` column on tickets — "billed" is derived from live invoice lines. |
 | L13 | Rate cards are keyed by `is_rate_card`, not by `work_type_id = 31`. |
 | L14 | Migrations author in `command-suite-db` and are rehearsed before any push to the shared DB. |
+| L15 | A ticket has its own router URL (`/calllog/:id/ticket/:ticketId`), per the standing every-detail-has-a-URL rule. |
+| L16 | Double-billing is refused by a unique index on `invoice_lines.tm_ticket_id`, accepting that a voided invoice's ticket needs the invoice deleted before it can be re-billed (§5.3). |
+| L17 | The rate-card exclusion must land on **all seven** sum-sites S1–S7 including the customer-facing proposal PDF, and on the signing-page RPC (§4.2, §4.2b). A partial sweep is a worse outcome than not starting. |
 
 ---
 
@@ -452,7 +569,9 @@ Steps 2 and 4 each produce something Chris can look at before the next step star
 _Generated by `/auditcriteria` on 2026-08-07. Consumed by `/runaudit` to size the adversarial audit pass._
 
 ### Bottom line (plain English)
-This plan adds a new kind of invoice line, and the invoice line is touched by eleven different files across the app — including three screens the plan never mentions. That's the thing most likely to break something that works today, so most of the review points there and at the money math. Four reviewers, and only the six most serious problems come back.
+Two things in this plan reach the customer: the price printed on the proposal, and the page they sign. Changing what a rate card is worth changes both, and one of them can only be fixed down in the database — so that's where most of the review points. The rest goes to the money math and to the eleven places in the app that read an invoice line. Four reviewers, and only the six most serious problems come back.
+
+**Note for `/runaudit`:** this plan was swept once already (2026-08-07) after Chris asked why known gaps were being reported instead of fixed. Everything that was merely unlooked-up got looked up and written into the plan body — the seven sum-sites (§4.2), the signing-page RPC (§4.2b), all eleven invoice-line consumers (§5.4), the unique index (§5.3), the ticket route (§3). **Do not re-report those as findings; they are now the spec.** Attack whether the spec is *right*, and what it still misses.
 
 ### Round
 - Plan type: **feature**
@@ -484,12 +603,12 @@ Synthesis MUST surface only the top-6 most consequential findings. Remainder go 
 **Do not report unbuilt scope as a finding.** §7 records an open estimate divergence (60 locked vs 240 estimated) with scope intentionally preserved. That is a known, accepted Delta, not a defect.
 
 ### Surface
-- Total lines: 446
+- Total lines: 677 (446 pre-sweep)
 - Sections: 11 (§0–§10)
-- [LOCKED] decisions: 14 (§10 summary; 13 inline tags)
-- [DESIGN-OPEN] items: 5 (§2.4, §3.2, §3.5, §4.4, §4.6)
-- [OPEN] items: 6 live of 7 in §9 (O7 closed)
-- Plan-to-code ratio: **446 : 955** ≈ 0.47:1 — well under the 50:1 flag. The plan is smaller than the build; no scope-creep signal.
+- [LOCKED] decisions: 17
+- [DESIGN-OPEN] items: 6
+- [OPEN] items: 7 live of 8 in §9 (O7 closed)
+- Plan-to-code ratio: **677 : 1,215** ≈ 0.56:1 — well under the 50:1 flag. Plan grew, but the build grew with it; no scope-creep signal.
 
 ### Layers touched
 - UI / components — `TMTicketModal` (new), `CallLogDetail`, `WTCCalculator`, `Invoices` modal, `PublicInvoicePage`
@@ -506,12 +625,13 @@ Synthesis MUST surface only the top-6 most consequential findings. Remainder go 
 - New columns: `invoice_lines.tm_ticket_id` (uuid, FK, on delete restrict); `proposal_wtc.is_rate_card` (bool), `.rate_class` (text, checked), `.rate_amount` (numeric)
 - New RLS policies: 12 (4 × 3 tables) — **referenced by pattern, not written in the plan**
 - New trigger: `updated_at` on `tm_tickets`
-- New index: unique partial index on `invoice_lines.tm_ticket_id` scoped to live invoices (§5.3) — **named as the fix, never specified**
-- New helper: contract-value helper in `calc.js` (§4.5) — **invented, signature and call sites undefined**
-- New allocator: `ticket_number` assignment (§2.4) — **invented, mechanism and format undecided**
+- New index: `tm_ticket_billed_once` — unique partial on `invoice_lines(tm_ticket_id) where tm_ticket_id is not null` (§5.3, now specified)
+- **Modified RPC**: `get_public_proposal_view` (`SECURITY DEFINER`) gains `is_rate_card` + `rate_amount` in its `wtc` payload (§4.2b) — **second migration, on the customer-signature path**
+- New helper: contract-value helper in `calc.js` (§4.5) — **still invented; signature undefined, call sites listed but not enumerated**
+- New allocator: `ticket_number` via a Postgres sequence (§2.4) — mechanism settled, display format open (O1)
 - New component: `src/components/TMTicketModal.jsx`
-- New branch: third invoice-line kind in `PublicInvoicePage.jsx:219-228`
-- New routes: **none** — reuses `/calllog/:id`
+- New branch: third invoice-line kind in `PublicInvoicePage.jsx:219-228`, `Invoices.jsx:946/2144/2370`, `qb-sync-invoice:243`
+- New routes: `/calllog/:id/ticket/new`, `/calllog/:id/ticket/:ticketId` (§3)
 
 ### Cross-system reach
 - `command-suite-db` — sole authoring home for the migration; forward-only ledger shared with `sales-command`, `sch-command`, `field-command`
@@ -521,40 +641,47 @@ Synthesis MUST surface only the top-6 most consequential findings. Remainder go 
 - Service-role / bypass-RLS write paths to the new tables: **plan claims none — verify, don't accept**
 
 ### Irreversibility
-- **Migration**: additive only (3 tables, 4 columns, 1 index, 1 trigger). Ledger-coordinated across three repos — a stray sibling ledger row blocks `db push`. Rehearsal via `command-suite-db/scripts/rehearse.sh` is mandatory (L14).
+- **Migration A**: additive only (3 tables, 4 columns, 1 unique index, 1 trigger, 12 policies). Ledger-coordinated across three repos — a stray sibling ledger row blocks `db push`. Rehearsal via `command-suite-db/scripts/rehearse.sh` is mandatory (L14).
+- **Migration B — `CREATE OR REPLACE` on a live `SECURITY DEFINER` function** (`get_public_proposal_view`, §4.2b). Not additive: it replaces a function that serves the **unauthenticated public signing page**. A malformed replacement breaks proposal signing for every customer, and there is no feature flag in front of it. Highest-consequence single step in the build.
 - **Backfill**: P7's three T&M WTCs get `is_rate_card`/`rate_class`/`rate_amount` (§4.6). Three rows, by hand, recommended over a migration.
 - **Stored contract value mutation**: §4.2 rewrites `proposals.total` for P7 from $28,379.64 → $27,999.64. **P7 status is `Sent`** — this changes a stored figure on a proposal already in a customer's hands. Reversible in principle; the sent PDF is not.
 - Public API changes: none.
 
 ### Known weak points
-- **§2.6 / §5.2 — the invoice-line consumer sweep is incomplete.** `invoice_lines` is read in **11 distinct files**: `Invoices.jsx` (166, 288, 305, 1541, 1814, 1848-1854, 2144), `PublicInvoicePage.jsx:50`, `invoicePdf.js:22`, `qb-sync-invoice/index.ts:150,211`, `NewPayAppModal.jsx:209`, `PayAppDetailModal.jsx:335`, `CallLogDetail.jsx:306`, `Customers.jsx:517,707`, `SalesDash.jsx:417,496`, `dbErrors.js:15-34`. **The plan names only four of them.** `Customers.jsx`, `SalesDash.jsx`, and `CallLogDetail.jsx` are never mentioned — any of them that assumes a line has a `proposal_wtc` or a `billing_pct` will break or mis-total on a ticket line. Highest-risk item in the plan.
-- **§4.2 — the `proposals.total` exclusion sweep is asserted, not enumerated.** "Every other `calcWtcPrice`-over-all-WTCs site must be swept" names no site list. A missed site silently mis-prices a live proposal. This is precisely the design-baseline failure mode that has passed clean audits before.
-- **§4.5 — the contract-value helper is named but undefined.** Call sites given as "any billed-vs-sold display on `CallLogDetail`" — unenumerated. An undefined helper with unenumerated call sites is two unknowns stacked.
-- **§4.2 — repricing a `Sent` proposal is unaddressed.** The repo has explicit prior art against this: `calc.js:30-33` sets `EXACT_PRICING_END` to a date chosen *specifically* to avoid repricing a proposal already sent to a customer. The plan changes P7's stored total without engaging that precedent.
-- **§5.3 — double-billing race is named but not fixed.** Read-then-insert with no constraint. The plan proposes a unique partial index and then never specifies it. Concurrency is solo (cap severity accordingly), but the unspecified fix is a real gap.
-- **§2.4 — ticket numbering has no mechanism.** The plan correctly warns off the racy max+1 pattern at `Invoices.jsx:270-278` and then proposes nothing concrete in its place.
-- **§2.2 — `tm_ticket_labor.amount` is stored with no check constraint** tying it to `hours × rate`. A UI arithmetic bug writes a wrong billed dollar figure with nothing to catch it. The paper form's own total is the only cross-check, and it lives outside the system.
-- **§2.2 — three fixed rate slots is a hard limit.** A fourth rate class (separate foreman rate, prevailing-wage split) requires DDL. Named in the plan; verify it is genuinely acceptable rather than convenient.
+
+**Resolved in the 2026-08-07 sweep — do not re-report:** the invoice-line consumer sweep (now §5.4, all 11 files with a verdict each), the `calcWtcPrice` sum-site list (now §4.2, S1–S7 + D1–D5), the double-billing index (now specified in §5.3), ticket-number allocation (sequence, §2.4), and the missing ticket route (now §3, L15).
+
+**Still open — attack these:**
+
+- **§4.2b — Migration B replaces a live `SECURITY DEFINER` function serving the unauthenticated signing page.** No flag, no staged rollout, and the plan gives it one line in the build order. Break it and no customer can sign anything. The plan also asserts exposing `rate_amount` doesn't reopen audit finding H6 (cost basis over the wire) — **that claim deserves adversarial checking, not acceptance**: `rate_amount` is a sell rate, but confirm nothing in the new payload lets a customer back into burden rate or markup.
+- **§4.2 — repricing a `Sent` proposal is still unaddressed.** The repo has explicit prior art: `calc.js:30-33` sets `EXACT_PRICING_END` to a date chosen *specifically* to avoid repricing a proposal already in a customer's hands. This plan changes P7's stored total ($28,379.64 → $27,999.64) while P7 is `Sent`, and does not engage that precedent. The counter-argument (the old number was never a real contract value) may well be right — but the plan asserts it rather than arguing it.
+- **§4.5 — the contract-value helper remains undefined.** Signature unwritten; call sites given as "any billed-vs-sold display on `CallLogDetail`" and never enumerated. This is the one enumeration the sweep did **not** finish, and it is the arithmetic that decides whether a T&M job reads as overbilled. Highest-value remaining gap.
+- **§5.3 — the unique index trades a rare correction for a common protection.** Once billed, a ticket cannot be re-billed even if its invoice was voided; recovery requires hard-deleting the invoice. The plan calls this the right trade. Pressure it: is "void then re-bill" actually rare in this office, or routine?
+- **§5.4 / C5 — the invoice line-edit path (`Invoices.jsx:1790-1854`) is flagged "needs review", not specified.** It recomputes from `billing_pct`, which a ticket line does not have. Left as-is it may silently zero a billed ticket line. This is money, and it is the least-specified consumer.
+- **§5.4 / C13 — `SalesDash.jsx:498` drops null-WTC lines under any work-type filter** (`String(undefined) !== filterWt` → always `continue`). Pre-existing (archive lines hit it today), worsened by weekly T&M. Plan proposes a ~10-line in-flow fix (O8). Verify the proposed fix doesn't change existing archive-line reporting in a way nobody expects.
+- **§2.2 — `tm_ticket_labor.amount` is stored with no check constraint** tying it to `hours × rate`. A UI arithmetic bug writes a wrong billed dollar with nothing to catch it. The paper form's own total is the only cross-check and it lives outside the system.
+- **§2.2 — three fixed rate slots is a hard limit.** A fourth rate class (foreman rate, prevailing-wage split) requires DDL. Named in the plan; verify it's genuinely acceptable rather than merely convenient — HDSP runs prevailing-wage jobs (`proposal_wtc.prevailing_wage`, `pw_rate`, `pw_ot_rate` all exist).
 - **§2.5 — 12 RLS policies are referenced by pattern, not written.** "Standard 4-policy `tenant_id` pattern" is an instruction, not a spec.
-- **§6.2 — the plan recommends NOT building the `invoicePdf` branch.** If the audit pushes back, that is scope growth against a 60-minute budget. Agents should take a position rather than leave it hanging.
-- **§3.5 / O3 — the signed scan attaches to the invoice, one step removed from the ticket it proves.** If a ticket is ever billed on an invoice whose attachment is missing, nothing links the two.
+- **§6.2 / O6 — the plan recommends NOT building the `invoicePdf` branch.** Agents should take a position rather than leave it hanging; reversing it is scope growth against a 60-minute budget.
+- **§3.5 / O3 — the signed scan attaches to the invoice, one step removed from the ticket it proves.** If a ticket is billed on an invoice whose attachment is missing, nothing links the two.
+- **Budget vs surface.** Post-sweep estimate is 300 min against a 60-min lock (§7). The plan explicitly refuses to cut scope. Agents must **not** report unbuilt scope as a finding — but should flag if the build order (§8) puts a customer-facing half-change at risk of being left half-done.
 
 ### Open questions
-- Count: **6** live (§9: O1–O6; O7 closed)
-- Highest-pressure: **O1** (ticket numbering mechanism — the plan rejects the existing pattern without replacing it) and **O6** (build the unreachable PDF branch or not — the only open question that changes scope against a fixed 60-min budget)
+- Count: **7** live (§9: O1–O6, O8; O7 closed)
+- Highest-pressure: **O6** (build the unreachable PDF branch or not — the only open question that changes scope against a fixed 60-min budget) and **O8** (fix a pre-existing dashboard bug in-flow or file it)
 
 ### Suggested attack angles (4 total)
 
-1. **Invoice-line consumer sweep** — covers data layer, UI, edge functions, external integrations. Required reading: all 11 files listed under Known weak points, especially `Customers.jsx:517,707`, `SalesDash.jsx:417,496`, `CallLogDetail.jsx:306` (unmentioned by the plan), plus `Invoices.jsx:1795-1854` and `qb-sync-invoice/index.ts:243-256`. Specific pressure: for **each** consumer, does it survive a line with `proposal_wtc_id = null`, `billing_pct = null`, `tm_ticket_id` set? Does it total correctly, render without crashing, and label sanely? Precedent to compare against: how each consumer already handles the archive null-WTC line (`Invoices.jsx:288-296`) and the SOV line (`billing_schedule_line_id`).
+1. **Customer-facing surfaces + the signing-page RPC** — covers migrations, edge/RPC, UI, external reach. Required reading: `src/pages/PublicSigningPage.jsx:1-20, 540-560`, the live `get_public_proposal_view` definition (§4.2b quotes it), `src/components/ProposalPDFModal.jsx:177-195, 358`, `src/lib/calc.js:1-35`. Specific pressure: **Migration B replaces a live `SECURITY DEFINER` function on the unauthenticated signing path with no flag** — what breaks if the replacement is wrong, and is a `CREATE OR REPLACE` on that function safe to rehearse? Does adding `rate_amount` to the payload reopen audit H6 (cost basis over the wire)? Does site S5 (`ProposalPDFModal.jsx:189`) actually get excluded, or does the printed proposal diverge from the app — the precise defect `calc.js:12-18` documents? Is repricing a **`Sent`** proposal defensible against the `EXACT_PRICING_END` precedent at `calc.js:30-33`?
 
-2. **Money-model correctness** — covers state model, business logic, data layer. Required reading: `src/lib/calc.js`, `src/components/ProposalDetail.jsx:320-360, 1690-1800`, `src/pages/Invoices.jsx:150-320`. Specific pressure: enumerate every `calcWtcPrice`-over-all-WTCs site §4.2 must touch and prove the list is complete; attack the undefined contract-value helper (§4.5) and its unenumerated call sites; challenge repricing a `Sent` proposal against the `EXACT_PRICING_END` precedent at `calc.js:30-33`; attack stored-vs-derived `amount` (§2.2) and derived-billed (§5.3).
+2. **Money-model correctness** — covers state model, business logic, data layer. Required reading: `src/lib/calc.js`, `src/components/ProposalDetail.jsx:320-360, 1690-1800`, `src/pages/Invoices.jsx:100-320, 1780-1860`. Specific pressure: the S1–S7 list in §4.2 is now enumerated — **verify it is complete**, don't re-derive it. Then attack what the sweep did *not* finish: the undefined contract-value helper (§4.5) and its unenumerated call sites, which decide whether a T&M job reads as overbilled. Also C5 (`Invoices.jsx:1790-1854`, the line-edit path) — the least-specified money consumer; and stored-not-derived `tm_ticket_labor.amount` with no check constraint.
 
-3. **Schema / migration / cross-repo** — covers migrations, cross-repo reach. Required reading: `command-suite-db` ledger + `scripts/rehearse.sh`, `sales-command/docs/plans/shared_migrations_consolidation.md`, `scripts/check-migration-safety.sh`. Specific pressure: FK delete behavior (`on delete restrict` on `invoice_lines.tm_ticket_id` vs `cascade` on the ticket children — is that pair coherent?); the unspecified unique partial index (§5.3); shared-ledger coordination with `sch-command`/`field-command`; whether anything in Schedule or Field reads `proposal_wtc` and would see the three new columns.
+3. **Schema / migration / cross-repo** — covers migrations, cross-repo reach. Required reading: `command-suite-db` ledger + `scripts/rehearse.sh`, `sales-command/docs/plans/shared_migrations_consolidation.md`, `scripts/check-migration-safety.sh`. Specific pressure: coherence of `on delete restrict` on `invoice_lines.tm_ticket_id` against `on delete cascade` on the ticket children — and against `CallLogDetail.jsx:306-308`, which hard-deletes invoices for a job (C11: does the restrict FK block that delete?); the `tm_ticket_billed_once` index and its voided-invoice trade (§5.3); two migrations in one push across a three-repo shared ledger; whether Schedule or Field read `proposal_wtc` and would see the three new columns.
 
-4. **RLS / multi-tenancy** — covers RLS/auth. Required reading: an existing 4-policy migration in `command-suite-db` as the pattern of record, plus `qb-sync-invoice/index.ts` (a service-role reader of `invoice_lines`). Specific pressure: the 12 unwritten policies; `tenant_id` default + FK on all three new tables; whether the `invoice_lines → tm_tickets → tm_ticket_labor` embed on the **public** invoice page (`PublicInvoicePage.jsx`, unauthenticated, token-scoped) can expose ticket rows across tenants or beyond the invoice's own tickets; verify the plan's claim of "no service-role write path."
+4. **RLS / multi-tenancy** — covers RLS/auth. Required reading: an existing 4-policy migration in `command-suite-db` as the pattern of record, `src/pages/PublicInvoicePage.jsx:35-60`, `supabase/functions/qb-sync-invoice/index.ts` (service-role reader of `invoice_lines`). Specific pressure: the 12 unwritten policies; `tenant_id` default + FK on all three new tables; whether the `invoice_lines → tm_tickets → tm_ticket_labor` embed on the **public, unauthenticated, token-scoped** invoice page can expose ticket rows across tenants or beyond the invoice's own tickets — note this page reads via PostgREST with an anon key, unlike the signing page which was deliberately moved behind an RPC for exactly this reason; verify the plan's claim of "no service-role write path."
 
 _(A fifth angle — UI / framework-fit — was scored and **dropped by Chris, 2026-08-07**, as the lowest value per token against a 6-finding cap. Not audited this round: V52 convention conformance, and the fact that the plan adds **no router URL** for a ticket and reuses `/calllog/:id` against the standing "every section and detail has a real URL" discipline. Recorded here so the gap is known, not forgotten.)_
 
 ### Suggested agent count: 4
 
-Rationale: the formula yields 11 angles (8 layers + cross-system + ≥3 novel mechanisms + ≥5 open questions), so this was a 5 by ceiling rather than by fit; Chris cut the UI angle to bring agent spend closer to the 6-finding cap. The four remaining angles are all money- or data-integrity-bearing — none can be dropped further without leaving a live prod surface unexamined.
+Rationale: the formula yields 11 angles (8 layers + cross-system + ≥3 novel mechanisms + ≥5 open questions), so this was a 5 by ceiling rather than by fit; Chris cut the UI angle to bring agent spend closer to the 6-finding cap. The four remaining angles are all money- or customer-facing — none can be dropped further without leaving a live prod surface unexamined. The 2026-08-07 sweep did not reduce the count: it converted three angles from "find what the plan missed" into "verify what the plan now claims," and it surfaced a second migration (§4.2b) that made angle 1 the most consequential rather than the least.

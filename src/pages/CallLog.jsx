@@ -3,7 +3,7 @@ import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
-import { fmtD, over } from "../lib/utils";
+import { fmtD, over, tod } from "../lib/utils";
 import { STAGES, STAGE_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
 import DataTable from "../components/DataTable";
@@ -166,13 +166,13 @@ export default function CallLog({ teamMember, setSubPage }) {
     );
   }
 
-  const tod = new Date().toISOString().slice(0, 10);
+  const todayStr = tod();
   const activeRows = rows.filter(r => !r.archived);
   const oldRows = rows.filter(r => r.archived);
   // When searching, search ALL rows so old jobs aren't hidden from search results
   const visibleRows = q ? rows : (showOld ? oldRows : activeRows);
   const filtered = visibleRows.filter(r => {
-    if (bidDueFilter && r.bid_due !== tod) return false;
+    if (bidDueFilter && r.bid_due !== todayStr) return false;
     if (!bidDueFilter && filter !== "All" && r.stage !== filter) return false;
     if (q && !((r.display_job_number || r.job_name)?.toLowerCase().includes(q.toLowerCase()) || String(r.job_number || r.id).includes(q) || (r.customer_name || "").toLowerCase().includes(q.toLowerCase()))) return false;
     if (filters.sales && r.sales_name !== filters.sales) return false;

@@ -11,7 +11,9 @@ const inputStyle = {
   WebkitAppearance: "none", outline: "none", width: "100%",
 };
 
-function todayISO() { return new Date().toISOString().slice(0, 10); }
+// Local wall-clock date. toISOString() would give the UTC date, printing
+// tomorrow on any pay app built after 5pm Pacific.
+function todayISO() { return new Date().toLocaleDateString("en-CA"); }
 
 export default function NewPayAppModal({ schedule, lines, proposal, onClose, onCreated }) {
   const [priorApps, setPriorApps] = useState([]);

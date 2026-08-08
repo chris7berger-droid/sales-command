@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams, useLocation } from "react-rout
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
-import { fmt$, fmt$c, fmtD } from "../lib/utils";
+import { fmt$, fmt$c, fmtD, tod, dayDiff } from "../lib/utils";
 import { calcWtcPrice, usesExactPricing, PROPOSAL_ERA, sumContractBilled } from "../lib/calc";
 import { INV_C, PROP_C } from "../lib/mockData";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
@@ -1614,7 +1614,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     if (inv.voided_at) { alert("This invoice is voided and cannot change status."); return; }
     const updates = { status: newStatus };
     if (newStatus === "Sent" && !inv.sent_at) {
-      updates.sent_at = new Date().toISOString();
+      updates.sent_at = tod();   // `date` column — local wall-clock date, not the UTC instant
       updates.viewing_token_expires_at = new Date(Date.now() + 90 * 86400000).toISOString();
     }
     if (newStatus === "Paid" && !inv.paid_at) updates.paid_at = new Date().toISOString();
@@ -1695,7 +1695,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
   const aging = () => {
     if (!inv.due_date) return null;
-    return Math.round((new Date() - new Date(inv.due_date)) / 86400000);
+    return dayDiff(inv.due_date);
   };
   const ageDays = aging();
 
@@ -2697,7 +2697,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           hideSend={!!linkedPayApp}
           onClose={() => setShowPDF(false)}
           onSent={async (responseData) => {
-            const updates = { status: "Sent", sent_at: new Date().toISOString(), viewing_token_expires_at: new Date(Date.now() + 90 * 86400000).toISOString(), stripe_checkout_id: null, stripe_checkout_url: responseData?.checkoutUrl || null, stripe_payment_link_id: responseData?.paymentLinkId || null };
+            const updates = { status: "Sent", sent_at: tod(), viewing_token_expires_at: new Date(Date.now() + 90 * 86400000).toISOString(), stripe_checkout_id: null, stripe_checkout_url: responseData?.checkoutUrl || null, stripe_payment_link_id: responseData?.paymentLinkId || null };
             await supabase.from("invoices").update(updates).eq("id", inv.id);
             setInv(prev => ({ ...prev, ...updates }));   // instant feedback
             await reloadInv();                            // reconcile server-written fields (e.g. qb_invoice_id from the pay-app approve path, which syncs before onSent)
@@ -2855,7 +2855,7 @@ export default function Invoices({ setSubPage, teamMember }) {
 
   const aging = (inv) => {
     if (!inv.due_date || inv.status === "Paid") return null;
-    return Math.round((new Date() - new Date(inv.due_date)) / 86400000);
+    return dayDiff(inv.due_date);
   };
 
   const baseList = isRetentionView ? retentionInvoices : invoices;

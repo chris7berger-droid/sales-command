@@ -476,7 +476,7 @@ Step 4 is the one that has to be right — it carries the round-2 Critical's des
 
 **Stub for its own loop. Not in this plan.**
 
-> **T&M rate cards should not count as contract dollars.** P7 reads $28,379.64; the real contract is $27,999.64 of material plus three hourly rates. Make rate-card WTCs contribute $0 to every proposal total and print as a rate instead of a price — including on the customer's proposal PDF and signing page, which needs replacing the `get_public_proposal_view` database function and refreshing the migration rehearsal baseline first.
+> **T&M rate cards should not count as contract dollars.** P7 reads $28,379.64; the real contract is $27,999.64 of material plus three hourly rates. Make rate-card WTCs contribute $0 to every proposal total and print as a rate instead of a price — including on the customer's proposal PDF and signing page, which needs replacing the `get_public_proposal_view` database function and refreshing the migration rehearsal baseline first (**split to `O11`** — that gate guards every migration the suite pushes, not just this one).
 
 Round-2 evidence for anyone picking it up: the exclusion and its migration accounted for **8 of 14 findings (57%)**, including every finding that touched a customer-facing surface. Known starting points — `proposals.total` has **three** writers (`ProposalDetail.jsx:341`, `WTCCalculator.jsx:2161`, `:2188`), all unfiltered; `calcProposalTotal` (`calc.js:186`) has exactly one caller, so seven of eight sum-sites hand-roll their own reduce; `CREATE OR REPLACE` resets `SECURITY DEFINER` and `SET search_path` unless restated; and `rehearse.sh` currently reports green against a drifted baseline.
 

@@ -4,6 +4,19 @@ export const fmt$ = v =>
 export const fmt$c = v =>
   v == null ? "—" : "$" + Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// F44: a rate card carries no fixed contract price — it prints as an hourly T&M
+// rate ("$105/hr · Overtime"), never a line total, on the proposal detail and
+// on customer-facing surfaces (PDF + signing page). Cents shown only when the
+// rate has them. Pure formatting — safe to import on the public signing page
+// (no pricing/cost logic, per Audit H6).
+export const RATE_CLASS_LABEL = { regular: "Regular", ot: "Overtime (1.5×)", dt: "Double time (2×)" };
+export const rateCardLabel = w => {
+  const amt = Number(w?.rate_amount || 0);
+  const money = "$" + amt.toLocaleString("en-US", { minimumFractionDigits: amt % 1 ? 2 : 0, maximumFractionDigits: 2 });
+  const cls = w?.rate_class ? ` · ${RATE_CLASS_LABEL[w.rate_class] || w.rate_class}` : "";
+  return `${money}/hr${cls}`;
+};
+
 export const fmtD = d =>
   d ? new Date(String(d).includes("T") ? d : d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
 

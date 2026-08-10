@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
-import { fmt$, fmt$c, fmtD } from "../lib/utils";
+import { fmt$, fmt$c, fmtD, rateCardLabel } from "../lib/utils";
 import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcProposalTotal, calcWtcBreakdown, calcBidStamp, usesExactPricing, sumContractBilled } from "../lib/calc";
 import { PROP_C } from "../lib/mockData";
 import { getTenantConfig } from "../lib/config";
@@ -943,7 +943,8 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                       <div style={{ fontWeight: 800, fontSize: 15, color: C.textHead, fontFamily: F.display }}>
                         {wtcLabel}{typeName ? ` — ${typeName}` : ""}
                       </div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginTop: 4 }}>{money(price)}</div>
+                      {/* F44: a rate card shows its hourly T&M rate, not a fixed price (it adds $0 to the proposal total). */}
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginTop: 4 }}>{wtc.is_rate_card ? `${rateCardLabel(wtc)} · T&M` : money(price)}</div>
                       {wtc.start_date && wtc.end_date && (
                         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontFamily: F.ui }}>
                           <span style={{ color: C.textFaint }}>Start</span> {fmtD(wtc.start_date)} — <span style={{ color: C.textFaint }}>End</span> {fmtD(wtc.end_date)}

@@ -74,6 +74,17 @@ behavioural key-diff, not just fingerprint counts.
   Distinct concern (cent-rounding, deliberate rate edits, null-hours guard); not coupled to this
   migration.
 
+## Backfill (required — existing data does not self-correct)
+
+`proposals.total` is only recomputed on save/lock, so every already-sold proposal keeps its
+rate-card-inflated total until touched (P7/job 7215 stays $28,379.64 → $380 phantom). A one-time
+**Node backfill** (`scripts/backfill_rate_card_totals.mjs`) reuses `calc.js` `calcProposalTotal`
+(exact rounding era per proposal) to recompute + update `proposals.total` for every proposal that
+has ≥1 `is_rate_card` WTC. Reuses the exact primitive rather than reimplementing rounding in SQL.
+sales-command is unlinked, so run against prod with a minted user JWT / service context. Dry-run
+first (print old→new per proposal), then apply. Also recompute `billing_schedule.contract_sum`
+for any affected pay-app job.
+
 ## Verify (before anything goes live)
 
 1. Job 7215 (P7): Remaining on contract reads **$0**, not $380; job value + T&M unaffected.

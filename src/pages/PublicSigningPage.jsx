@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { createPublicClient } from "../lib/supabasePublic";
 import { useMemo } from "react";
 import { DEFAULTS } from "../lib/config";
+import { rateCardLabel } from "../lib/utils"; // pure formatter, no pricing/cost logic (Audit H6-safe)
 
 // Audit H6: this page used to call calcWtcPrice() client-side, which
 // required burden_rate, ot_burden_rate, markup_pct, materials, and
@@ -547,8 +548,9 @@ export default function PublicSigningPage() {
             <pre style={{ margin: 0, fontSize: 13, color: T.gray700, lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>{w.sales_sow}</pre>
             {wtcs.length > 1 && (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.gray200}` }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: T.gray500 }}>Work Type {i + 1}{w.work_type_name ? ` — ${w.work_type_name}` : ""} Total</div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: T.green }}>{fmt(w.locked_line_total ?? 0)}</div>
+                {/* F44: a rate card shows its hourly T&M rate, not a fixed line total, and adds $0 to the Proposal Total below. */}
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.gray500 }}>Work Type {i + 1}{w.work_type_name ? ` — ${w.work_type_name}` : ""}{w.is_rate_card ? " — T&M Rate" : " Total"}</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T.green }}>{w.is_rate_card ? `${rateCardLabel(w)} · billed as incurred` : fmt(w.locked_line_total ?? 0)}</div>
               </div>
             )}
           </div>

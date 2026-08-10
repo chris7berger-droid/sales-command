@@ -1,0 +1,291 @@
+SC_Handoff_v178 — The invoice you sent after 5pm was dated tomorrow
+===========================================================
+Date: 2026-08-07
+Repo/branch: sales-command @ main — MERGED + PUSHED + LIVE ON PROD (c648dc3)
+  One commit, fast-forwarded onto main. Vercel production build Ready.
+Prior: v177 (invoice header: one reported drift, four bugs). Mode: /fix (reported from live use).
+Cross-repo: none. No migration. command-suite-db untouched.
+Edge functions: send-pay-app REDEPLOYED (v19, --no-verify-jwt). RLS: unchanged.
+Prod DATA writes: YES — 2 invoice rows in Supabase + the same 2 invoices in QuickBooks.
+  See VERIFICATION. This is the first handoff in a while with real prod data writes; read that
+  section before assuming the DB is untouched.
+
+
+SESSION SUMMARY
+---------------
+Chris, at 5:51pm Pacific: "I just invoiced job number 10040 and when I filter my invoices by
+date, it's not showing up, and I want to know why. This is very concerning."
+
+He had just sent invoice #10154. The Invoices filter was set FROM 08/03/2026 TO 08/07/2026.
+The invoice existed, showed SENT on the job detail's Linked Items panel, and was absent from
+the list.
+
+`invoices.sent_at` is a Postgres **date** column. Every path that marks an invoice sent wrote
+`new Date().toISOString()` — a full UTC instant. Postgres casts that to the **UTC** date. At
+5:51pm Pacific on Aug 7 the UTC instant is `2026-08-08T00:51Z`, so the stored date was
+2026-08-08. The filter's ceiling was 08/07, and the row fell out.
+
+This is a five-hours-a-day bug. Between 5pm Pacific and midnight, every invoice sent is stamped
+with tomorrow's date, in Sales Command AND in QuickBooks. It has been in the code the whole
+time and was invisible because the display path and the filter path disagreed about which
+timezone they were in: `fmtD()` renders a bare date string by appending `T00:00:00` (LOCAL), so
+a row stored as "2026-08-08" prints as Aug 8 — correct-looking, just a day late — while the
+filter compares the raw string. Nothing ever looked broken on screen; the row just quietly
+sorted and filtered as a different day.
+
+Two more things on the same screen turned out to share the root cause, found by reading the
+screenshot rather than by searching:
+
+1. AGING READ A DAY EARLY. `Math.round((new Date() - new Date(inv.due_date)) / 86400000)`
+   subtracts a LOCAL instant from a date string parsed as UTC MIDNIGHT. In Chris's screenshot
+   invoice 10150, due Aug 7, showed "1d overdue" on Aug 7. 10143, due Aug 6, showed "2d". Every
+   aging figure on the page was one day hot after 5pm Pacific.
+
+2. THE PAY-APP PATH HAD THE SAME STAMP, WORSE. `send-pay-app/index.ts` runs on the edge in UTC
+   — not just after 5pm Pacific but for the whole UTC-ahead window — and wrote the same
+   `nowIso` into `sent_at`. `NewPayAppModal`'s printed `invoice_date` used the same
+   `toISOString().slice(0,10)`, so the date on the PDF the GC receives could be tomorrow's.
+
+
+CHANGES SHIPPED
+---------------
+sales-command (main @ c648dc3, single commit off main via a throwaway worktree)
+
+  MOD src/lib/utils.js                          (the root cause, and the new shared helper)
+      `tod()` now returns `new Date().toLocaleDateString("en-CA")` — the LOCAL wall-clock date
+      in YYYY-MM-DD — instead of `toISOString().slice(0,10)`. This also fixes `over()` (the
+      overdue colouring on Call Log's Bid Due / Follow Up) and Home.jsx's "due today" counts,
+      which both consumed the UTC date.
+      + NEW `dayDiff(dateStr, from = tod())` — whole days between two wall-clock dates, both
+        parsed at UTC midnight so the subtraction is apples-to-apples. Positive = past due.
+
+  MOD src/pages/Invoices.jsx
+      Both `sent_at` writes now use `tod()`: the Mark-as-Sent status handler (~:1617) and the
+      InvoicePDFModal `onSent` callback (~:2700), which is the one Chris actually hit.
+      Both `aging()` implementations (the detail view ~:1696 and the list ~:2856) now call
+      `dayDiff()`.
+
+  MOD supabase/functions/send-pay-app/index.ts
+      `sent_at` now uses a new `todayLocal` = `toLocaleDateString("en-CA", { timeZone:
+      "America/Los_Angeles" })`. `submitted_at` on `billing_schedule_pay_apps` is a timestamptz
+      and correctly keeps `nowIso` — only the date column changed. Follows the existing pattern
+      in `follow-up-reminders/index.ts:38`, which already had this right.
+
+  MOD src/components/NewPayAppModal.jsx
+      `todayISO()` → local date. Feeds the printed `invoice_date` on the pay app PDF.
+
+  MOD src/pages/CallLog.jsx
+      Deleted its own local `const tod = new Date().toISOString().slice(0,10)` (:169) and
+      imported the shared helper. It was a second copy of the same defect, sitting one import
+      line away from the fixed version, driving the "Bid Due today" filter.
+
+  `vite build` green.
+
+
+DECISIONS
+---------
+D1. FIX THE HELPER, NOT THE CALL SITES. The tempting minimal fix was `sent_at` alone. But
+    `tod()` in utils.js was the same defect in the shared helper every date comparison in the
+    app already used, and CallLog carried a hand-rolled duplicate of it. Fixing `sent_at` and
+    leaving a known-wrong `tod()` one file away would have left the next person to find it
+    twice. The blast radius of the helper change is `over()` and Home's today-counts — both
+    were ALREADY wrong in the same direction, so this corrects them rather than changing
+    behavior anyone depends on.
+
+D2. `date` COLUMNS AND timestamptz COLUMNS ARE NOT THE SAME PROBLEM, AND ONLY ONE WAS TOUCHED.
+    Checked the actual `information_schema` types before editing anything. On `invoices`:
+    `sent_at` and `due_date` are **date**; `paid_at`, `voided_at`, `deleted_at`,
+    `viewing_token_expires_at` are **timestamptz**. `toISOString()` is CORRECT for a
+    timestamptz and was left alone everywhere. Across the whole public schema, `sent_at` is a
+    date on `invoices` ONLY — `proposals`, `proposal_recipients`, `invoice_recipients` all
+    store timestamptz, so none of them have this bug. That check is why the fix is five files
+    and not thirty.
+
+D3. `due_date` WAS NOT TOUCHED, ON EVIDENCE. It is also a date column, but it comes from a
+    manual `<input type="date">` in the new-invoice modal (`Invoices.jsx:516`), not from
+    today's clock — so it never went through `toISOString()`. Confirmed against the data:
+    10154's due date is 2026-09-04, which is 28 days from Aug **7**, not Aug 8. Left alone.
+
+D4. THE IMPORT-PATH `toISOString().slice(0,10)` CALLS WERE DELIBERATELY LEFT. `importUtils.js`
+    and `ArchiveImportWizard.jsx` use the same expression, but on an ALREADY-PARSED Date from a
+    spreadsheet cell, not on "now". Changing those risks shifting historical import dates for
+    no reported symptom. Different concern, not swept.
+
+D5. QUICKBOOKS HAD TO BE REPAIRED TOO, AND THAT WAS NOT OBVIOUS FROM THE BUG REPORT.
+    `qb-sync-invoice/index.ts:365` sets `TxnDate` from `invoice.sent_at`. Both of tonight's
+    invoices were already synced (qb_invoice_id 148261 / 148262), so the wrong date had already
+    left the building into the accounting system. Fixing only Sales Command would have left SC
+    and QB disagreeing — worse than both being wrong the same way. Queried QB directly for
+    ground truth per the standing rule rather than assuming, confirmed both at txn_date
+    2026-08-08, and corrected both.
+
+
+VERIFICATION
+------------
+  ✓ Root cause proven in prod DATA before any code was written: 10153 and 10154 stored
+    `sent_at = 2026-08-08`; 10151 and 10152, sent earlier the same afternoon, correctly stored
+    2026-08-07. The bug turns on at 5pm Pacific and the data shows exactly that boundary.
+  ✓ Column types read from `information_schema` before editing (see D2), not assumed.
+  ✓ `vite build` green.
+  ✓ Merge was a genuine fast-forward — `git merge-base --is-ancestor origin/main HEAD` checked
+    against a fresh fetch before pushing, so nothing from a parallel session was clobbered.
+  ✓ Vercel production deploy Ready (`sales-command-ohmopejvq`).
+  ✓ Edge function verified BY READING THE DEPLOYED SOURCE BACK, not by deploy exit code —
+    `get_edge_function` on send-pay-app returns v19 containing `todayLocal` and
+    `sent_at: todayLocal`. (Per the standing post-deploy-smoke rule; exit 0 is not evidence.)
+  ✓ Post-repair re-query: 10153 and 10154 both `sent_at = 2026-08-07`, qb links intact.
+  ✓ QuickBooks re-read after the update: both invoices `transaction_date = 2026-08-07`,
+    amounts, due dates and line items unchanged.
+  ✗ NOT verified in a browser: nobody has sent an invoice after 5pm Pacific on the fixed build
+    and watched it appear in the filter. The data path is proven and the build is live, but the
+    actual repro has not been re-run. See POINTERS #1.
+  ✗ NOT verified: the pay-app path. Smoke-testing `send-pay-app` means emailing a real GC, so
+    it was not exercised. Deployed source is confirmed correct by inspection only.
+
+PROD DATA WRITES MADE THIS SESSION
+  - Supabase: `UPDATE invoices SET sent_at = '2026-08-07' WHERE id IN ('10153','10154')`,
+    guarded with `AND sent_at = '2026-08-08'`. 2 rows. Nothing else written.
+  - QuickBooks: `transaction_date` set to 2026-08-07 on QB invoices 148261 (#10153, Epoxy Flake
+    Garage, $11,580) and 148262 (#10154, job 10040 Demo Cam C MRI, $1,779). Sparse update —
+    only the date field was sent.
+  - Both were done with Chris's explicit go-ahead ("fix 10153 and 10154, then merge and deploy").
+
+
+NOT TOUCHED
+-----------
+- HISTORICAL MIS-STAMPED INVOICES — SWEPT 2026-08-07, see ADDENDUM below. (This section
+  originally read "there is NO way to detect them." That was wrong; `invoices.created_at` is a
+  timestamptz and is a usable witness. Corrected in the addendum, left here so the reasoning
+  error is visible rather than quietly overwritten.)
+- The import-path date normalizers — see D4.
+- `docs/BACKLOG.md` active table: no new rows. Nothing here is deferred; the whole defect is
+  closed. One Completed Log entry added.
+- Six parked worktrees (carried from v176/v177): still unexamined. Now seven; see GIT STATE.
+
+
+NEXT SESSION POINTERS
+---------------------
+1. After 5pm Pacific, send a test invoice and filter to today. Two minutes, and it is the only
+   thing between "proven in data" and "proven in the app." Check the aging column at the same
+   time — invoices due today should read "Due today," not "1d overdue."
+2. THE REAL FOLLOW-UP, AND IT IS THE SAME SHAPE AS v177's POINTER #3. v177 ended with "a
+   per-surface fix that never got swept across surfaces." This session is the same story in a
+   different dimension: ONE date helper, copy-pasted into CallLog, and a family of call sites
+   that each decided independently whether "now" meant UTC or local. The durable fix is that
+   `src/lib/utils.js` is the ONLY place allowed to answer "what day is it," and nothing else
+   calls `toISOString()` on a value destined for a `date` column. Worth a grep gate. Not filed
+   as a backlog row — like v177 #3, it is a refactor looking for a trigger, and the trigger is
+   the next time someone writes a date.
+3. `supabase/.temp/` is committed to git AND listed in `.gitignore:28` — it was tracked before
+   the ignore rule landed (commit e3659f2). The Supabase CLI rewrites those files, so three
+   parked worktrees permanently show phantom ` D supabase/.temp/*` deletions that are not real
+   work. This makes "is anything uncommitted?" harder to answer than it should be, across every
+   session. One `git rm -r --cached supabase/.temp` on main clears it for good. Not done here —
+   it touches every worktree at once and this was a /fix session on someone else's terminal.
+4. If a date ever looks off by one again, the tell is: the screen shows the RIGHT day but a
+   filter, sort or day-count disagrees. That means a `date` column got a UTC instant. Read D2.
+
+
+FILES TO KNOW
+-------------
+  src/lib/utils.js:10-22                   tod() + dayDiff(). The root cause and the fix. Read D1.
+  src/pages/Invoices.jsx:~1617             Mark-as-Sent status handler — sent_at write #1
+  src/pages/Invoices.jsx:~2700             InvoicePDFModal onSent — sent_at write #2, the one hit
+  src/pages/Invoices.jsx:~1696, ~2856      the two aging() calcs
+  supabase/functions/send-pay-app/index.ts:~447  todayLocal; note submitted_at stays nowIso
+  supabase/functions/qb-sync-invoice/index.ts:365  TxnDate ← sent_at. This is why QB drifted too.
+  supabase/functions/follow-up-reminders/index.ts:30-38  the TZ pattern that was already correct
+  src/components/NewPayAppModal.jsx:14     todayISO() — printed on the pay app PDF
+
+
+GIT STATE
+---------
+  sales-command       main @ c648dc3 — pushed, Vercel production Ready.
+                      Branch `fix/invoice-sent-date-tz` still exists local + remote (not
+                      deleted, unlike v177's practice — delete it when convenient).
+  PARALLEL WORK       Chris opened with "watch out for other work that is happening here right
+                      now." This terminal sits in /Users/chrisberger/sales-command on
+                      `feat/tm-tickets`, which was NOT touched: the entire fix was done in a
+                      throwaway worktree cut from origin/main, then removed. `feat/tm-tickets`
+                      still has 1 local commit unpushed (d8dddba, the O11 split) belonging to
+                      another session — left alone deliberately, NOT pushed.
+                      Seven worktrees are parked; three show phantom `supabase/.temp` deletions
+                      that are gitignore noise, not work (POINTERS #3).
+  command-suite-db    untouched. No migration this session.
+  Backlog             One Completed Log entry (2026-08-07). No new open rows.
+  Memory              unchanged.
+
+
+===========================================================
+ADDENDUM 2026-08-07 — the two "not touched" items, both closed
+===========================================================
+Chris, on reading the close-out: "Both of these sound like issues that should be fixed."
+
+A1. THE HISTORICAL MIS-STAMPS WERE DETECTABLE. I called them undetectable. That was wrong, and
+    the correction is worth more than the fix. `invoices.sent_at` is a date and carries no time —
+    but `invoices.created_at` is a **timestamptz**, and 112 of 127 sent invoices (88%) were
+    created and sent in the same sitting. That makes created_at a usable witness for the send
+    instant on the large majority of rows.
+
+    THE DETECTOR (conservative — only fires where the witness is trustworthy):
+      sent_at = (created_at at time zone 'UTC')::date            -- created + sent same session
+      AND (created_at at time zone 'America/Los_Angeles')::date
+          < (created_at at time zone 'UTC')::date                -- instant fell in the bad window
+    The second line is the bug's exact signature: the UTC date is a day ahead of the Pacific
+    date precisely when the instant lands between 5pm Pacific and midnight. Postgres handles
+    PDT/PST, so the boundary is correctly 5pm in summer and 4pm in winter without special-casing.
+
+    RESULT: 12 invoices, from four evening billing runs — Jun 5 (10073-10076), Jun 29
+    (10097, 10098), Jul 1 (10102), Jul 13 (10119-10123). Every one created between 17:02 and
+    17:42 Pacific. A tight cluster right at the boundary is itself evidence the detector is
+    picking up the real mechanism and not noise.
+
+    INDEPENDENT CORROBORATION, TWICE:
+      - QB `private_memo` on 10097 reads "VOIDED/PULLED BACK 6/29/2026, 5:31:23 PM" while its
+        QB txn_date said 6/30. A human-written timestamp inside QuickBooks, disagreeing with
+        QuickBooks' own date field, in exactly the predicted direction.
+      - The 4 invoices that DO have a real `invoice_recipients.sent_at` timestamptz
+        (10051, 10088, 10089, 10124) all agree with their stored date — the detector correctly
+        does NOT flag them.
+
+    REPAIRED: all 12 in Supabase (`sent_at` set to the Pacific date of created_at). 9 of them in
+    QuickBooks. The other 3 (10097, 10098, 10102) are voided $0 test invoices — deliberately not
+    touched in QB; editing a voided transaction is pointless and the SC-side value is cosmetic.
+    NO MONTH BOUNDARIES WERE CROSSED by any of the 12 (Jun 5→6, Jun 29→30, Jul 1→2, Jul 13→14),
+    so no QB reporting period moved and no P&L or A/R aging total changed. That was checked
+    BEFORE writing, and it is the reason this was safe to do without an accountant in the loop.
+    Post-repair detector re-run: 0 remaining.
+
+    RESIDUAL, GENUINELY UNKNOWN: 15 invoices where `sent_at` differs from created_at's UTC date
+    — i.e. created one day, sent another. The witness doesn't apply and nothing else records the
+    send instant. Any of them sent after 5pm is still a day late. This is the honest floor of
+    what's knowable from current data. The durable fix is to record a real send TIMESTAMP, not
+    just a date — see POINTERS #5.
+
+A2. THE `supabase/.temp` NOISE WAS NOT WHERE I SAID IT WAS. I recommended
+    `git rm -r --cached supabase/.temp` on main. On main that is a **no-op** — main dropped
+    those files back in `b112470` (migration consolidation) and tracks zero of them. The noise
+    lives on three parked branches that point at commits PREDATING b112470 and still track 7
+    files each: feat/deposit-checkbox-fill, feat/inquiry-modal-redesign,
+    feat/inquiry-wizard-drop-step-one. The CLI rewrites the files on disk, so each worktree
+    permanently showed phantom ` D` deletions.
+    FIXED with one commit per branch (`git rm -r --cached supabase/.temp`) — no rebase, no
+    history rewrite, matching what main already did. All three working trees now clean. The two
+    with upstreams were pushed; feat/deposit-checkbox-fill has no upstream so it is local-only.
+
+    SIDE FIND, NEEDS CHRIS: **feat/deposit-checkbox-fill is 0 commits ahead of origin/main** —
+    it is fully merged and has no upstream. It is a leftover branch + worktree, not live work.
+    Left in place because deleting parked work is Chris's call, not mine. Deleting it and its
+    worktree would take the count from seven to six.
+
+POINTERS ADDED
+  5. RECORD A SEND INSTANT, NOT A SEND DATE. The 15 unresolvable invoices exist because nothing
+     durably stores WHEN an invoice was sent — `sent_at` is a date, and `invoice_recipients.sent_at`
+     (a timestamptz, the right shape) is populated on only 4 of 127. Either backfill that path so
+     every send writes it, or add `invoices.sent_instant timestamptz`. Until then this class of
+     question stays unanswerable after the fact. Migration lives in command-suite-db.
+  6. THE GENERAL LESSON, AND IT IS THE POINT OF THIS ADDENDUM: "undetectable" was a conclusion
+     reached from ONE column instead of from the schema. `created_at` was sitting right there,
+     already in a query result printed earlier in the same session. Before declaring data
+     unrecoverable, enumerate every timestamptz on the table and every related table — a date
+     column loses information, but the rows around it usually haven't.

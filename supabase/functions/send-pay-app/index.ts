@@ -445,6 +445,10 @@ serve(async (req) => {
 
     // ── Mark pay app submitted (tenant-scoped defense-in-depth) ───────
     const nowIso = new Date().toISOString();
+    // invoices.sent_at is a `date` column. The function runs in UTC, so a send
+    // after 5pm Pacific would stamp tomorrow and drop out of date filters.
+    // Same pattern as follow-up-reminders/index.ts.
+    const todayLocal = new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
     const { error: payAppUpdErr } = await supabase
       .from("billing_schedule_pay_apps")
       .update({ status: "submitted", submitted_at: nowIso })
@@ -457,7 +461,7 @@ serve(async (req) => {
     // ── Mark invoice sent (tenant-scoped defense-in-depth) ────────────
     const { error: invUpdErr } = await supabase
       .from("invoices")
-      .update({ status: "Sent", sent_at: nowIso })
+      .update({ status: "Sent", sent_at: todayLocal })
       .eq("id", invoiceId)
       .eq("tenant_id", caller.tenantId);
     if (invUpdErr) {

@@ -294,3 +294,44 @@ command-suite-db   main @ 9a2baf8 (Migration A merged + pushed + LIVE)
 Also merged to command-suite-db main earlier this session: the O11 rehearsal-gate
 fix (9c396d8) — baseline re-dumped, --against-prod now runs on every rehearsal,
 and a permanent canary proves the gate can still fail.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ADDENDUM — SHIPPED 2026-08-10, same session
+═══════════════════════════════════════════════════════════════════════════════
+Everything above that says "NOT MERGED" / "NOT PUSHED" / "NOT DEPLOYED" is now
+DONE. The DO THIS NEXT checklist was executed in order, steps 1-5:
+
+  [x] 1. command-suite-db: fix/invoices-anon-nte-amount merged (f848e05) and
+         `npm run db:push` applied 20260810160000 to shared prod.
+         Verified: anon now holds SELECT on invoices.nte_amount.
+  [x] 2. qb-sync-invoice deployed (--no-verify-jwt --project-ref
+         pbgvgjjuhnpsumnowuym). NOTE: sales-command is deliberately unlinked from
+         the Supabase project, so --project-ref is REQUIRED here; a bare deploy
+         fails with "Cannot find project ref".
+  [x] 3. sales-command: feat/tm-tickets merged to main (5b72722), Vercel deployed.
+  [x] 4. Post-push housekeeping (74dee26): pending-allowlist line deleted,
+         baseline re-dumped with the hand-added REVOKE re-applied,
+         EXPECT_COLUMN_GRANTS 8655→8656, REHEARSE_EXPECT_INVOICES_ANON_COLS 18→19.
+         Both counts moved by exactly ONE — the arithmetic confirming a single
+         column-level SELECT grant and nothing riding along. A new COLUMN would
+         have moved column_grants by 12 (3 roles x 4 privilege types).
+         --against-prod green, --verify green, canary still red on both must-fail
+         files.
+  [x] 5. PROD SMOKE PASSED: invoice #10151 (Lakes Crossing – Underlayment,
+         $31,810.41, sent 8/7) opened normally at
+         /invoice/cbd91240-c350-4e53-9b92-65020b6d193e — a real customer link, not
+         the fixture. This was the check that step 1 landed: PostgREST fails the
+         WHOLE query on one denied column, so a missing grant would have broken
+         every invoice link, not only T&M ones.
+
+Both repos: main, clean, feature branches deleted local + remote.
+  sales-command     5b72722
+  command-suite-db  74dee26
+
+STILL OPEN (unchanged from above):
+  [ ] 6. Tear down the fixture — scripts/tm_fixture_teardown.sql. Job 999 is
+         sitting in the live job list with a $9,105 invoice against it.
+  [ ] 7. F44 (T1) — see NEXT SESSION POINTERS. The job screen currently shows
+         $380 "remaining on contract" that does not exist.
+  Void-and-reissue of a T&M invoice remains UNTESTED.

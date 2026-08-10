@@ -372,7 +372,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
           </div>
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: data.is_rate_card ? "1fr 1fr" : "1fr 1fr 1fr", gap: "0 20px", alignItems: "end" }}>
+      <div style={{ display: "grid", gridTemplateColumns: data.is_rate_card ? "1fr" : "1fr 1fr 1fr", gap: "0 20px", alignItems: "end" }}>
         <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" error={rateMissing} readOnly={pwRateLocked} />
         {/* OT is meaningless on a rate card. It only ever multiplies ot_hours,
             which is zero here, and overtime is expressed by having a SECOND rate
@@ -410,7 +410,14 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
           </div>
         </div>
         )}
-        <Field label="Tax Rate" value={data.tax_rate} onChange={set("tax_rate")} suffix="%" type="number" />
+        {/* Tax Rate is meaningless on a rate card too, and for a stronger reason
+            than OT: calcWtcPrice never reads wtc.tax_rate at all. It only seeds
+            the tax on new MATERIAL rows (calcMaterialRow reads item.tax), and a
+            rate card has no materials. Hiding it therefore hides nothing that can
+            move a dollar — unlike Burden Rate, which stays. */}
+        {!data.is_rate_card && (
+          <Field label="Tax Rate" value={data.tax_rate} onChange={set("tax_rate")} suffix="%" type="number" />
+        )}
       </div>
       {rateMissing && (
         <div style={{ marginTop: -6, marginBottom: 12 }}>

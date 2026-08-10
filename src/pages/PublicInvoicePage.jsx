@@ -2,7 +2,10 @@ import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { createPublicClient } from "../lib/supabasePublic";
 import { useMemo } from "react";
-import { calcWtcPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
+// NO calc helpers. This page is unauthenticated; computing a price here would
+// require burden_rate / markup_pct in the browser, which is exactly what the
+// allow-listed select below refuses to send. It reads stored figures only.
+// Same discipline as PublicSigningPage (audit H6). Do not re-import them.
 import { DEFAULTS } from "../lib/config";
 import { fmt$, fmt$c, fmtD } from "../lib/utils";
 
@@ -37,7 +40,7 @@ export default function PublicInvoicePage() {
       // lives in migration 20260625130000. (plan §4.5)
       const { data: inv, error: invErr } = await supabase
         .from("invoices")
-        .select(`id, proposal_id, job_id, job_name, status, amount, discount, due_date, paid_at, description, show_cents, retention_amount, retention_pct, voided_at, viewing_token, is_deposit, proposals(total, is_archive_proposal, ${PROPOSAL_ERA}, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))`)
+        .select(`id, proposal_id, job_id, job_name, status, amount, discount, due_date, paid_at, description, show_cents, retention_amount, retention_pct, voided_at, viewing_token, is_deposit, nte_amount, proposals(total, is_archive_proposal, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))`)
         .eq("viewing_token", token)
         .single();
 
@@ -46,9 +49,26 @@ export default function PublicInvoicePage() {
       setInvoice(inv);
 
       // Load lines
+      // COLUMN ALLOW-LIST, not `*`. This page is unauthenticated — anyone holding
+      // the link runs this query. `proposal_wtc(*)` was shipping burden_rate,
+      // ot_burden_rate, pw_rate, pw_ot_rate, markup_pct, materials and discount to
+      // the customer's browser: our cost basis and our margin, on an invoice.
+      //
+      // Same class as audit finding H6, which is why PublicSigningPage was moved
+      // behind an RPC and told not to import calc helpers. This page still reads
+      // through PostgREST, so the allow-list IS the boundary here.
+      //
+      // calcWtcPrice needs the pricing inputs to compute a percent line's full
+      // value, so those cannot simply be dropped — but the invoice already stores
+      // what it billed, so the page does not need to recompute anything. Only the
+      // fields it DISPLAYS are selected.
       const { data: lineData } = await supabase
         .from("invoice_lines")
-        .select("*, proposal_wtc(*, work_types(name))")
+        .select(
+          "id, invoice_id, amount, billing_pct, description, " +
+          "work_date, crew_count, area, reg_hours, reg_rate, ot_hours, ot_rate, dt_hours, dt_rate, " +
+          "proposal_wtc_id, proposal_wtc(id, is_rate_card, locked_line_total, work_types(name))"
+        )
         .eq("invoice_id", inv.id);
       setLines(lineData || []);
 
@@ -219,19 +239,45 @@ export default function PublicInvoicePage() {
                 {lines.map(l => {
                   const wtc = l.proposal_wtc;
                   const isArchiveLine = !wtc && isArchive;
-                  const lineLabel = isArchiveLine ? (archiveWorkTypes || "—") : (wtc?.work_types?.name || "—");
+                  const isTM = !!wtc?.is_rate_card;
+                  // A T&M row's own description carries date · crew · area; the
+                  // work type is "T&M" on every one of them.
+                  const lineLabel = isArchiveLine ? (archiveWorkTypes || "—")
+                    : isTM ? (l.description || "T&M")
+                    : (wtc?.work_types?.name || "—");
                   const wtcNum = wtc ? wtcIndex[wtc.id] : null;
                   const wtcCell = wtcNum ? `WTC ${wtcNum}` : "—";
-                  const rowAmount = isArchiveLine ? archiveSold : (wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(invoice.proposals)) : 0);
+                  // Reads the LOCKED SNAPSHOT rather than recomputing from burden
+                  // rate and markup — those are no longer sent to this page, and
+                  // locked_line_total is the figure the customer signed anyway.
+                  // A T&M row's full value is simply its own amount: there is no
+                  // larger number it represents a slice of.
+                  const rowAmount = isArchiveLine ? archiveSold
+                    : isTM ? (parseFloat(l.amount) || 0)
+                    : (parseFloat(wtc?.locked_line_total) || 0);
                   const billingPct = isArchiveLine
                     ? (archiveSold > 0 ? ((parseFloat(l.amount) || 0) / archiveSold) * 100 : 0)
                     : (parseFloat(l.billing_pct) || 0);
+                  // The hours behind the money — what makes this approvable without
+                  // a phone call, and what the signed ticket in the attachment says.
+                  const hourBits = [
+                    l.reg_hours > 0 ? `${l.reg_hours} hrs @ ${fmt$c(l.reg_rate)}` : null,
+                    l.ot_hours  > 0 ? `${l.ot_hours} hrs OT @ ${fmt$c(l.ot_rate)}` : null,
+                    l.dt_hours  > 0 ? `${l.dt_hours} hrs DT @ ${fmt$c(l.dt_rate)}` : null,
+                  ].filter(Boolean);
                   return (
                     <tr key={l.id} style={{ borderBottom: "1px solid rgba(28,24,20,0.1)" }}>
                       <td style={{ padding: "10px 12px", fontWeight: 700, whiteSpace: "nowrap" }}>{wtcCell}</td>
-                      <td style={{ padding: "10px 12px", fontWeight: 600 }}>{lineLabel}</td>
+                      <td style={{ padding: "10px 12px", fontWeight: 600 }}>
+                        {lineLabel}
+                        {isTM && hourBits.length > 0 && (
+                          <div style={{ fontWeight: 500, fontSize: 12, color: "#6b6358", marginTop: 3 }}>
+                            {hourBits.join("  ·  ")}
+                          </div>
+                        )}
+                      </td>
                       <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(rowAmount)}</td>
-                      <td style={{ padding: "10px 12px", textAlign: "right" }}>{fmtPct(billingPct)}</td>
+                      <td style={{ padding: "10px 12px", textAlign: "right" }}>{isTM ? "—" : fmtPct(billingPct)}</td>
                       <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{money(l.amount)}</td>
                     </tr>
                   );
@@ -239,6 +285,17 @@ export default function PublicInvoicePage() {
               </tbody>
             </table>
           </div>
+
+          {/* Weekly not-to-exceed — stated either way (§4.5). Silence would read
+              as "no limit was discussed"; saying "no cap" is the honest version,
+              and where a cap WAS given the GC can see we stayed inside it. */}
+          {lines.some(l => l.proposal_wtc?.is_rate_card) && (
+            <div style={{ fontSize: 12, color: "#6b6358", marginBottom: 10, fontStyle: "italic" }}>
+              {invoice.nte_amount > 0
+                ? `Time & materials not to exceed ${fmt$c(invoice.nte_amount)} for this billing period.`
+                : "Time & materials billed as incurred — no cap given for this billing period."}
+            </div>
+          )}
 
           {/* Totals */}
           {(invoice.discount > 0 || retentionAmt > 0) && (

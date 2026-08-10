@@ -338,30 +338,51 @@ No change. `invoicePdf.js` has no regular-invoice caller (§0.6). **[DESIGN-OPEN
 
 ---
 
-## §6 The T&M row on the job screen [LOCKED]
+## §6 Job Totals — one ledger [LOCKED — revised during build, 2026-08-10]
 
-`CallLogDetail.jsx:885-914` renders **Job Totals**: `Sold` · `Billed` · `Remaining` · `% Invoiced`. That box assumes a fixed contract. T&M has none, so T&M dollars landing in `Billed` with nothing matching in `Sold` push `Remaining` down about $6,765 per week.
+`CallLogDetail.jsx` renders **Job Totals**. That box assumes a fixed contract. T&M has none, so T&M dollars landing in `Billed` with nothing matching in `Sold` push `Remaining` down about $6,765 per week.
 
-**Don't bend the box. Add a row beside it:**
+**Revised during build.** The first design added a T&M row *beside* the contract figures. Built, it read:
 
 ```
-Sold  $607,840   Billed  $340,120   Remaining  $267,720   67%
-
-T&M   $105 / $125 / $150 per hr
-      43 reg · 18 OT hrs                        $6,765 billed
+SOLD $2,720   BILLED $0   REMAINING $2,720   % INVOICED 0%
+T&M  $105 per hr · 43 reg · 18 OT hrs              BILLED $6,765
 ```
+
+Chris, on sight: *"it's confusing to see job totals with a billed zero and then, right below it, the same word billed with an amount."* Correct — and `% Invoiced 0%` on a job that has invoiced $6,765 was the same fault.
+
+**Design research (2026-08-10)** — every construction job summary surveyed uses ONE running ledger: original contract + approved changes = revised value, then billed against that. The G702 itself, Mastt's contract dashboard, Foundation's billing reports, Procore's change-order guide. None show two "billed" figures side by side, because a job summary answers *"what is this worth now, and how much have I invoiced"* — one number each. Billed T&M hours grow the job's value exactly as an approved change order does, so they belong **in** the ledger:
+
+```
+JOB TOTALS
+  Contract                          $2,720
+  T&M billed to date              + $6,765
+      43 · 18 OT hrs @ $105 / $125
+  ────────────────────────────────────────
+  Job value to date                 $9,485
+
+  Billed  $6,765   Remaining on contract  $2,720   % Invoiced  72%
+```
+
+- **`Billed` appears exactly once** and means the whole job.
+- **`Remaining on contract`** is explicitly contract-only — T&M counts down no scheduled value, so an unqualified "Remaining" was always a half-truth. **This is the harm §6 exists to prevent, and it is prevented: a T&M invoice does not move it.**
+- **`% Invoiced` is against job value**, not contract. So it cannot read 0% on a job that has invoiced $6,765.
+
+Two boxes was rejected: the reader would have to add two numbers to answer what the job is worth, and both boxes would still need a `Billed` label — the collision moves rather than resolves.
 
 ### 6.1 It needs line-level data the screen doesn't load [DERIVED — round-2 over-cap]
 
 `sumContractBilled` takes invoices and sums `i.amount` (§0.11). It **cannot** be filtered by line kind — an invoice mixing material percent lines and T&M day rows has one `amount`.
 
-**Fix:** extend the `CallLogDetail.jsx:222` invoice select to embed the lines it needs —
-`invoice_lines(amount, proposal_wtc_id, reg_hours, ot_hours, dt_hours, proposal_wtc(is_rate_card))` — then:
+**Fix as built:** the `CallLogDetail.jsx` invoice select embeds the lines it needs — `invoice_lines(amount, reg_hours, reg_rate, ot_hours, ot_rate, dt_hours, dt_rate, proposal_wtc(is_rate_card))` — then:
 
-- **Billed** = invoice amounts **minus** the sum of rate-card line amounts
-- **T&M row** = the sum of rate-card line amounts, with hours totalled by class
+- **T&M billed** = sum of rate-card line amounts
+- **Contract billed** = invoice amounts **minus** T&M billed
+- **Job value** = contract + T&M billed · **Billed** = the whole job · **Remaining** = contract only
 
-One extra embed on a query that already runs. **Do not add a second round-trip**, and keep `sumContractBilled`'s existing retention-release exclusion (`calc.js:190-208`) intact — it is there because a raw sum double-counts retention.
+One extra embed on a query that already runs. **No second round-trip**, and `sumContractBilled`'s live-invoice rule (skip voided / deleted / retention-release, `calc.js:190-208`) is applied **identically** to the T&M split — verified token-for-token at the build gate, since the two halves disagreeing about which invoices count would make both untrustworthy.
+
+**Rates are read from the ROWS, not the rate card.** Every day row anchors to the straight-time card (§4.2), so reading the card printed "$105 per hr" beside "18 OT hrs" — implying overtime at $105 when it was billed at $125.
 
 **[DESIGN-OPEN O4]** should T&M revenue count toward billing goals (`SalesDash.jsx:131-137`, `Home.jsx:130-133`)? Out of scope either way.
 

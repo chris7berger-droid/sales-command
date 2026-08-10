@@ -2414,29 +2414,42 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           is_deposit: inv.is_deposit,  // ...including its deposit mark — without this a pulled-back
                                        // deposit returns as a plain invoice and the job silently
                                        // drops it from the deposit total
-          nte_amount: inv.nte_amount,  // ...and its weekly cap. Without this the replacement
-                                       // silently prints "No cap" on work the GC capped.
+          // nte_amount deliberately NOT carried: the cap describes a week of T&M
+          // hours, and those lines do not come across (see the filter below). A
+          // replacement holding a cap with no hours under it states a limit on
+          // nothing. It is re-entered with the re-transcribed rows.
         }]).select().single();
         if (newErr) { alert(`Replacement invoice insert failed: ${newErr.message}`); setSaving(false); return; }
 
-        if (lines && lines.length > 0) {
-          const newLines = lines.map(l => ({
+        // T&M lines do NOT come across — not the rows, not the dollars.
+        //
+        // A day row is a TRANSCRIPTION of a signed paper ticket. If an invoice is
+        // being voided, the correctness of that transcription is exactly what may
+        // be in question, and carrying it forward copies a previous reading of the
+        // paper instead of re-reading the paper. Worse, a T&M line's hours are
+        // preserve-only once billed, so a carried-over wrong figure could not be
+        // corrected — you would void again into another copy of the same error.
+        //
+        // An earlier version of this copied them, on the assumption that voids are
+        // usually for reasons unrelated to the lines. There is no evidence for that
+        // assumption, and prefilling money data on a guess is the wrong default.
+        //
+        // Percent / SOV / archive lines still copy: those are derived from the work
+        // type or the billing schedule and cannot be independently wrong.
+        const carriedLines = (lines || []).filter(l => !l.proposal_wtc?.is_rate_card);
+        if (carriedLines.length > 0) {
+          const newLines = carriedLines.map(l => ({
             invoice_id: nextId,
             proposal_wtc_id: l.proposal_wtc_id || null,
             billing_schedule_line_id: l.billing_schedule_line_id || null,
             billing_pct: l.billing_pct,
             amount: l.amount,
-            // Carry the day breakdown, or a voided-and-reissued T&M invoice keeps
-            // the dollars and loses the date/crew/area/hours that justify them —
-            // exactly the backup a GC asks for on a disputed invoice. `description`
-            // was already being dropped here before T&M existed; fixed with it.
+            // `description` was being dropped here before T&M existed — a
+            // pre-existing gap, fixed while in the file. The nine day columns are
+            // deliberately NOT listed: no carried line can have them (rate-card
+            // lines are filtered out above), so copying them would be dead code
+            // implying a behaviour that does not happen.
             description: l.description || null,
-            work_date: l.work_date || null,
-            crew_count: l.crew_count ?? null,
-            area: l.area || null,
-            reg_hours: l.reg_hours ?? null, reg_rate: l.reg_rate ?? null,
-            ot_hours:  l.ot_hours  ?? null, ot_rate:  l.ot_rate  ?? null,
-            dt_hours:  l.dt_hours  ?? null, dt_rate:  l.dt_rate  ?? null,
           }));
           const { error: linesErr } = await supabase.from("invoice_lines").insert(newLines);
           if (linesErr) { alert(`Replacement invoice lines failed: ${linesErr.message}`); setSaving(false); return; }

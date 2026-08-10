@@ -3,6 +3,12 @@
 -- Inserted directly at status='Sold': every side-effect trigger on proposals is
 -- AFTER UPDATE, so this fires NO approval email and NO QuickBooks job.
 -- P7 (job 7215) is not touched.
+--
+-- JOB NUMBER MUST STAY BELOW THE LIVE SEQUENCE. NewInquiryWizard.jsx:97-99 mints
+-- the next job as max(job_number) + 1, so a fixture numbered ABOVE the real range
+-- hijacks the next real job. 99001 was used first, and the next customer job was
+-- created as 99002 instead of 10232 (fixed 2026-08-10). A test number that "looks
+-- obviously fake" by being high is exactly the dangerous kind.
 BEGIN;
 
 with j as (
@@ -10,7 +16,7 @@ with j as (
     (job_name, job_number, display_job_number, customer_id, customer_name,
      stage, qb_skip_sync, qb_customer_id, tenant_id, customer_type, notes)
   values
-    ('TEST — T&M Billing', 99001, '99001 - TEST — T&M Billing',
+    ('TEST — T&M Billing', 999, '999 - TEST — T&M Billing',
      '115932bd-f9e7-4919-bc7c-1caa8e4ccf5f', 'TEST TEST',
      'Sold', true, null, '246f6551-60de-4965-bb97-9a52971bc05d', 'Commercial',
      'FIXTURE for the T&M billing build (docs/plans/tm_billing.md 8). Safe to delete when the build is done. Named TEST so ProposalDetail.jsx:812 skips QuickBooks; qb_skip_sync also set.')

@@ -392,6 +392,14 @@ The earlier plan called this "a data step." It is not. It is three irreversible 
 
 ### 8.1 Build and prove on a throwaway job
 
+**Number the fixture BELOW the live sequence [LOCKED — learned the hard way 2026-08-10].**
+`NewInquiryWizard.jsx:97-99` mints a new job as `max(job_number) + 1`. The fixture
+was first created as **99001** because a high number looks obviously fake — which
+is precisely what made it dangerous: it became the maximum, and the next REAL
+customer job was minted as 99002 instead of 10232. Caught only because a team
+member noticed and told Chris. Fixture is now **999**; keep any future fixture
+below the live range, never above it.
+
 1. **Create a new job** in the app with a name containing **"TEST"** — e.g. `TEST — T&M Billing`. This is not a convention invented here: `ProposalDetail.jsx:812` already keys its QuickBooks skip on exactly `job_name.toLowerCase().includes("test")` [run-verified].
 2. Point it at a customer **not linked to QuickBooks** (`call_log.qb_customer_id` null), and set `call_log.qb_skip_sync = true` as a second belt.
 3. **Create a proposal on it** with one normal priced WTC and three rate-card WTCs mirroring P7's $105 / $125 / $150.
@@ -460,7 +468,7 @@ Created by `scripts/tm_fixture.sql`, then returned to Draft by `scripts/tm_fixtu
 
 | | |
 |---|---|
-| job | `call_log.id = 3810` · `99001 - TEST — T&M Billing` · stage `Has Bid` · **`sales_name` null — keep it that way (§8.1 step 4)** |
+| job | `call_log.id = 3810` · `999 - TEST — T&M Billing` · stage `Has Bid` · **`sales_name` null — keep it that way (§8.1 step 4)** |
 | customer | `TEST TEST` (`115932bd-…`) — `qb_customer_id` null, `qb_skip_sync = true` |
 | proposal | `1b064211-fa9b-4d82-b18a-35f8554aa16f` · status **`Draft`**, WTCs unlocked · total **$2,720** |
 

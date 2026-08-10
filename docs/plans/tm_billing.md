@@ -219,6 +219,24 @@ One row per work day, matching a row on the paper (§0.13):
 
 **Three fixed rate slots [LOCKED].** The paper has a REG/OT pair, P7 carries exactly three rates, and straight / time-and-a-half / double-time is the universal split. **Named limit:** a fourth class needs DDL — and `proposal_wtc.prevailing_wage`, `pw_rate`, `pw_ot_rate` already exist, so a prevailing-wage T&M job would not fit (O2).
 
+**`work_date` is a Postgres `date`, so it must never be written with `toISOString()` [LOCKED — added 2026-08-10].** A T&M line is date-stamped by nature, which puts this build directly in the path of the bug fixed on main in `c648dc3` (`docs/handoffs/SC_Handoff_v178.txt`): `invoices.sent_at` is a `date`, every send path wrote `new Date().toISOString()`, and Postgres cast that UTC instant to the UTC date — so anything sent after 5pm Pacific was stamped **tomorrow** and dropped out of the date filter, in Sales Command and in QuickBooks. Twelve invoices had to be repaired in both systems.
+
+Rules for every date this plan writes:
+
+| field | type | write it with |
+|---|---|---|
+| `invoice_lines.work_date` | `date` | `tod()` from `src/lib/utils.js`, or the operator's typed wall-clock date |
+| day counts between dates | — | `dayDiff()` from `src/lib/utils.js` — **not** `new Date() - new Date(str)` |
+| `invoices.due_date`, `sent_at` | `date` | already on `tod()` post-`c648dc3`; do not reintroduce `toISOString()` |
+| any `timestamptz` | `timestamptz` | `toISOString()` is correct — leave it alone |
+
+There is no browser locale inside an edge function, so a date written server-side needs an explicit zone: `toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })` — see `supabase/functions/follow-up-reminders/index.ts:38`.
+
+**Check the column type before writing any date field**, rather than assuming:
+```
+supabase db query --linked "select column_name, data_type from information_schema.columns where table_name='invoice_lines';"
+```
+
 **`amount` is stored, not derived [LOCKED].** It is a billed figure and must not move if a rate is later edited on the proposal.
 
 **Known gap [DERIVED]:** no check constraint ties `amount` to `hours × rate`. §4.3's live total against the paper is the only cross-check, and it depends on a person comparing two numbers.
@@ -377,24 +395,60 @@ The earlier plan called this "a data step." It is not. It is three irreversible 
 1. **Create a new job** in the app with a name containing **"TEST"** — e.g. `TEST — T&M Billing`. This is not a convention invented here: `ProposalDetail.jsx:812` already keys its QuickBooks skip on exactly `job_name.toLowerCase().includes("test")` [run-verified].
 2. Point it at a customer **not linked to QuickBooks** (`call_log.qb_customer_id` null), and set `call_log.qb_skip_sync = true` as a second belt.
 3. **Create a proposal on it** with one normal priced WTC and three rate-card WTCs mirroring P7's $105 / $125 / $150.
-4. **Set it Sold with the notification trigger disabled for that statement only:**
+4. **Insert the proposal directly at `status = 'Sold'`. No trigger disable is needed.**
 
-```sql
-BEGIN;
-ALTER TABLE public.proposals DISABLE TRIGGER trg_notify_proposal_approved;
-UPDATE public.proposals SET status = 'Sold' WHERE id = '<test-proposal-id>';
-ALTER TABLE public.proposals ENABLE TRIGGER trg_notify_proposal_approved;
-COMMIT;
-```
+   *Corrected 2026-08-10 during execution.* This step previously called for
+   `ALTER TABLE ... DISABLE TRIGGER` around an `UPDATE`. That is unnecessary and
+   riskier than the alternative. Every side-effect trigger on `proposals` is
+   **`AFTER UPDATE`** [run-verified via `pg_get_triggerdef`]:
 
-Run as one transaction so the trigger cannot be left disabled. **Verify it is re-enabled** before moving on:
-```sql
-select tgenabled from pg_trigger where tgname = 'trg_notify_proposal_approved';  -- expect 'O'
-```
+   | trigger | timing | fires on a fresh INSERT? |
+   |---|---|---|
+   | `trg_notify_proposal_approved` | `AFTER UPDATE OF status` | **no** |
+   | `trg_sync_job_amount` | `AFTER UPDATE OF total` | **no** |
+   | `trg_proposals_track_local_edits` | `BEFORE UPDATE OF intro` | **no** |
+   | `trg_proposals_updated_at` | `BEFORE UPDATE` | **no** |
+   | `trg_proposals_set_signing_token_expires_at` | `BEFORE INSERT OR UPDATE OF signing_token` | yes — sets token expiry, which is wanted |
 
-**Why disable rather than rely on the guards:** `notify_proposal_approved` only skips archive proposals (§0.12), and an archive proposal has no WTCs — so it cannot carry a rate card. Disabling for one statement is the only path that sends no email. The window is seconds, on a single-operator system.
+   A fixture created from scratch never passes through an `UPDATE`, so nothing to
+   suppress: no approval email, no QuickBooks job, and no window in which a
+   notification trigger is disabled cluster-wide. Disabling a trigger on a shared
+   production table — even for seconds — is a worse tool than simply not
+   triggering it.
 
 5. Bill the test job. Enter `CCF_000982`'s two day rows. Confirm **$6,765**.
+
+### 8.1a The fixture as built [run-verified 2026-08-10]
+
+Created by `scripts/tm_fixture.sql` (one transaction, no trigger disabled):
+
+| | |
+|---|---|
+| job | `call_log.id = 3810` · `99001 - TEST — T&M Billing` · stage `Sold` |
+| customer | `TEST TEST` (`115932bd-…`) — `qb_customer_id` null, `qb_skip_sync = true` |
+| proposal | `1b064211-fa9b-4d82-b18a-35f8554aa16f` · status `Sold` · total **$2,720** |
+
+WTCs (all locked, snapshots written):
+
+| work type | hours | rate | line total | role in the test |
+|---|---|---|---|---|
+| Specialty | 40 | $58.50 | **$2,340** | the fixed-price line — bills by percent |
+| T&M | 1 | $105.00 | **$105** | straight-time rate card |
+| T&M | 1 | $125.00 | **$125** | time-and-a-half rate card |
+| T&M | 1 | $150.00 | **$150** | double-time rate card |
+
+**Rates are carried as `burden_rate` with `markup_pct = 0`**, not as P7's marked-up
+values. P7 hits $105 via `56.50 × 1.8584`, which lands on $105.00 only because P7
+was quoted inside the closed exact-penny window (`calc.js:29-33`). A fixture created
+today rounds UP, so the same markup would print **$126**, not $125. Rate-as-burden
+gives exact figures independent of the pricing era — and `rate_amount` (§2.1)
+replaces this scaffolding at step 3 anyway.
+
+**Teardown** — `scripts/tm_fixture_teardown.sql`. Run it when the build is done;
+the fixture is disposable and nothing should be built to depend on it.
+
+**P7 confirmed untouched** after the insert: still `Sent`, still `$28,379.64`,
+`updated_at` unchanged at `2026-08-06 14:01:36`.
 
 ### 8.2 P7 gets marked Sold when it is actually sold
 

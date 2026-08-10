@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { selectableWorkTypes } from "../lib/workTypes";
 import { fetchAll } from "../lib/supabaseHelpers";
-import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice as calcWtcTotal, roundPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
+import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice as calcWtcTotal, calcProposalTotal, roundPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 import { saveCatalogRow, catalogErrorMessage } from "../lib/materialsCatalog";
 import Checkbox from "../components/Checkbox";
@@ -2241,7 +2241,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     if (proposalId) {
       const exact = await resolveExact(); // write-time era (review #1), not the possibly-unloaded render value
       const { data: allWtcs } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", proposalId);
-      const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcTotal(w, undefined, exact), 0);
+      const proposalTotal = calcProposalTotal(allWtcs, undefined, exact); // excludes rate cards (F44)
       await supabase.from("proposals").update({ total: proposalTotal }).eq("id", proposalId);
     }
     setSaved(true);
@@ -2268,7 +2268,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     if (proposalId) {
       const { data } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", proposalId);
       allWtcs = data || [];
-      const proposalTotal = allWtcs.reduce((sum, w) => sum + calcWtcTotal(w, undefined, exact), 0);
+      const proposalTotal = calcProposalTotal(allWtcs, undefined, exact); // excludes rate cards (F44)
       await supabase.from("proposals").update({ total: proposalTotal }).eq("id", proposalId);
     }
     if (wtcId) {

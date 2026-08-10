@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fmt$, fmt$c } from "../lib/utils";
-import { calcWtcPrice, usesExactPricing } from "../lib/calc";
+import { calcWtcPrice, calcProposalTotal, usesExactPricing } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 
 function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove }) {
@@ -186,7 +186,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
   // the era's rounding per work type) — never a hand-rolled raw sum here. This
   // line printing its own un-rounded total, while the invoice billed the rounded
   // one, is what made customers pay cents short and triggered the 6/26 work.
-  const proposalPrice = wtcs.reduce((s, w) => s + calcWtcPrice(w, undefined, exactPricing), 0);
+  const proposalPrice = calcProposalTotal(wtcs, undefined, exactPricing); // excludes rate cards (F44)
 
   // Combine all Sales SOWs
   const combinedSOW = wtcs

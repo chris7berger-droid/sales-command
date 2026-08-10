@@ -200,20 +200,25 @@ FILES TO KNOW
 
 GIT STATE
 ---------
-  sales-command       main @ c648dc3 — pushed, Vercel production Ready.
-                      Branch `fix/invoice-sent-date-tz` still exists local + remote (not
-                      deleted, unlike v177's practice — delete it when convenient).
+  sales-command       main @ c648dc3 (code) + aecd83e (docs) — pushed, Vercel production Ready.
+                      Branch `fix/invoice-sent-date-tz` DELETED local + remote after merge,
+                      per v177's practice.
   PARALLEL WORK       Chris opened with "watch out for other work that is happening here right
                       now." This terminal sits in /Users/chrisberger/sales-command on
                       `feat/tm-tickets`, which was NOT touched: the entire fix was done in a
                       throwaway worktree cut from origin/main, then removed. `feat/tm-tickets`
                       still has 1 local commit unpushed (d8dddba, the O11 split) belonging to
                       another session — left alone deliberately, NOT pushed.
-                      Seven worktrees are parked; three show phantom `supabase/.temp` deletions
-                      that are gitignore noise, not work (POINTERS #3).
+                      SIX worktrees parked (was seven). The phantom `supabase/.temp` deletions
+                      are fixed on all branches — see ADDENDUM A2; POINTERS #3 is CLOSED.
   command-suite-db    untouched. No migration this session.
   Backlog             One Completed Log entry (2026-08-07). No new open rows.
-  Memory              unchanged.
+  Memory              A date-column rule was saved by the feat/tm-tickets session, not this one.
+  CROSS-TERMINAL      feat/tm-tickets (T&M billing, Chris's other session) pulled origin/main in;
+                      docs/BACKLOG.md merged CLEAN, no conflict. That session locked tod()/dayDiff()
+                      as a constraint in docs/plans/tm_billing.md §3.1 before writing any T&M code,
+                      because the T&M line carries a Postgres `date` column. Nothing of theirs is
+                      on main; nothing of this session's is on their branch.
 
 
 ===========================================================
@@ -273,10 +278,11 @@ A2. THE `supabase/.temp` NOISE WAS NOT WHERE I SAID IT WAS. I recommended
     history rewrite, matching what main already did. All three working trees now clean. The two
     with upstreams were pushed; feat/deposit-checkbox-fill has no upstream so it is local-only.
 
-    SIDE FIND, NEEDS CHRIS: **feat/deposit-checkbox-fill is 0 commits ahead of origin/main** —
-    it is fully merged and has no upstream. It is a leftover branch + worktree, not live work.
-    Left in place because deleting parked work is Chris's call, not mine. Deleting it and its
-    worktree would take the count from seven to six.
+    SIDE FIND — RESOLVED: **feat/deposit-checkbox-fill was 0 commits ahead of origin/main** —
+    fully merged, no upstream, no remote counterpart. A leftover branch + worktree, not live
+    work. Chris said delete it; verified first that the only commit not in main was the .temp
+    untrack above and that `git diff origin/main...branch` excluding supabase/.temp was EMPTY,
+    then removed the worktree and deleted the branch. Seven worktrees are now six.
 
 POINTERS ADDED
   5. RECORD A SEND INSTANT, NOT A SEND DATE. The 15 unresolvable invoices exist because nothing

@@ -395,7 +395,43 @@ The earlier plan called this "a data step." It is not. It is three irreversible 
 1. **Create a new job** in the app with a name containing **"TEST"** — e.g. `TEST — T&M Billing`. This is not a convention invented here: `ProposalDetail.jsx:812` already keys its QuickBooks skip on exactly `job_name.toLowerCase().includes("test")` [run-verified].
 2. Point it at a customer **not linked to QuickBooks** (`call_log.qb_customer_id` null), and set `call_log.qb_skip_sync = true` as a second belt.
 3. **Create a proposal on it** with one normal priced WTC and three rate-card WTCs mirroring P7's $105 / $125 / $150.
-4. **Insert the proposal directly at `status = 'Sold'`. No trigger disable is needed.**
+4. **Create the fixture at `Draft`. Flip it to `Sold` only when you need to invoice.**
+
+   *Corrected twice, 2026-08-10. Both corrections are recorded because the second
+   one undoes half of the first.*
+
+   **First pass — insert straight at `Sold` to dodge the notification trigger.**
+   True as far as it went: every side-effect trigger on `proposals` is
+   `AFTER UPDATE`, so a row INSERTED at Sold fires none of them.
+
+   **What that missed: `Sold` is read-only.** `WTCCalculator.jsx` passes
+   `onChange={proposalSold ? undefined : …}`, so a Sold proposal cannot be edited
+   — and the rate cards have to be authored through that exact editor. The fixture
+   was created in a state where the feature being tested could not be used
+   without pulling the proposal back. Caught by Chris on first contact with the UI.
+
+   **The procedure that actually works:**
+
+   1. Create the job and proposal at **`Draft`**, WTCs unlocked. Editable.
+   2. Author the rate cards through the real UI — which is the point of a fixture.
+   3. Lock the WTCs and flip to `Sold` when step 4 needs an invoiceable proposal
+      (`Invoices.jsx:71` lists Sold only).
+
+   **Step 3's flip is safe without disabling anything, but for a specific reason
+   worth stating:** `notify_proposal_approved` posts to the `proposal-approved`
+   edge function, which resolves the rep via `resolveRepForProposal`
+   (`_shared/repNotify.ts:50-51`) and returns `job_has_no_sales_rep` **before
+   sending anything** when `call_log.sales_name` is blank. The fixture's
+   `sales_name` is deliberately **null** [run-verified], so no email can be sent.
+
+   Keep it null. That is the mechanism, not luck — set a rep on this job and the
+   flip starts emailing. Belt and braces alongside it: the job name contains
+   `TEST` (skips QuickBooks at `ProposalDetail.jsx:812`) and `qb_skip_sync` is on.
+
+   Going the other way — `Sold → Draft` — is always safe: the trigger function
+   returns early unless `NEW.status IN ('Sold','Signed')`.
+
+   ~~Insert the proposal directly at `status = 'Sold'`. No trigger disable is needed.~~
 
    *Corrected 2026-08-10 during execution.* This step previously called for
    `ALTER TABLE ... DISABLE TRIGGER` around an `UPDATE`. That is unnecessary and
@@ -420,15 +456,15 @@ The earlier plan called this "a data step." It is not. It is three irreversible 
 
 ### 8.1a The fixture as built [run-verified 2026-08-10]
 
-Created by `scripts/tm_fixture.sql` (one transaction, no trigger disabled):
+Created by `scripts/tm_fixture.sql`, then returned to Draft by `scripts/tm_fixture_unlock.sql`:
 
 | | |
 |---|---|
-| job | `call_log.id = 3810` · `99001 - TEST — T&M Billing` · stage `Sold` |
+| job | `call_log.id = 3810` · `99001 - TEST — T&M Billing` · stage `Has Bid` · **`sales_name` null — keep it that way (§8.1 step 4)** |
 | customer | `TEST TEST` (`115932bd-…`) — `qb_customer_id` null, `qb_skip_sync = true` |
-| proposal | `1b064211-fa9b-4d82-b18a-35f8554aa16f` · status `Sold` · total **$2,720** |
+| proposal | `1b064211-fa9b-4d82-b18a-35f8554aa16f` · status **`Draft`**, WTCs unlocked · total **$2,720** |
 
-WTCs (all locked, snapshots written):
+WTCs (unlocked — they are authored through the UI at step 3, then locked before step 4 needs an invoiceable proposal):
 
 | work type | hours | rate | line total | role in the test |
 |---|---|---|---|---|

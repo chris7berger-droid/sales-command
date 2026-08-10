@@ -45,6 +45,7 @@ function WorkTypesSection() {
   const [saving, setSaving]         = useState(false);
   const [deleteId, setDeleteId]     = useState(null);
   const [removeError, setRemoveError] = useState(null);
+  const [saveError, setSaveError]   = useState(null);
 
   useEffect(() => { load(); }, []);
 
@@ -63,29 +64,45 @@ function WorkTypesSection() {
     setLoading(false);
   }
 
-  const startNew  = () => setEditing({ isNew: true, name: "", cost_code: "", sales_sow: "" });
-  const startEdit = (wt) => setEditing({ ...wt });
-  const cancel    = () => setEditing(null);
+  const startNew  = () => { setSaveError(null); setEditing({ isNew: true, name: "", cost_code: "", sales_sow: "" }); };
+  const startEdit = (wt) => { setSaveError(null); setEditing({ ...wt }); };
+  const cancel    = () => { setSaveError(null); setEditing(null); };
 
   async function save() {
     if (!editing.name.trim()) return;
     setSaving(true);
-    if (editing.isNew) {
-      await supabase.from("work_types").insert({
-        name: editing.name.trim(),
-        cost_code: editing.cost_code.trim(),
-        sales_sow: editing.sales_sow.trim() || null,
-        tenant_id: tenantId,
-        active: true,
-      });
-    } else {
-      await supabase.from("work_types").update({
-        name: editing.name.trim(),
-        cost_code: editing.cost_code.trim(),
-        sales_sow: editing.sales_sow.trim() || null,
-      }).eq("id", editing.id);
+    setSaveError(null);
+    // A new work type MUST carry the tenant_id — the INSERT RLS policy checks
+    // tenant_id = get_user_tenant_id(), so an insert with a null tenant is
+    // rejected. Don't let it fail silently: without this guard a failed
+    // tenant_config load closes the form and shows nothing, which reads as
+    // "I can't add a work type."
+    if (editing.isNew && !tenantId) {
+      setSaving(false);
+      setSaveError("Couldn't determine your company — reload the page and try again.");
+      return;
     }
+    // .select() so an RLS block or constraint violation comes back as an error
+    // (or zero rows) instead of a silent no-op — same pattern as remove().
+    const { data, error } = editing.isNew
+      ? await supabase.from("work_types").insert({
+          name: editing.name.trim(),
+          cost_code: editing.cost_code.trim(),
+          sales_sow: editing.sales_sow.trim() || null,
+          tenant_id: tenantId,
+          active: true,
+        }).select("id")
+      : await supabase.from("work_types").update({
+          name: editing.name.trim(),
+          cost_code: editing.cost_code.trim(),
+          sales_sow: editing.sales_sow.trim() || null,
+        }).eq("id", editing.id).select("id");
     setSaving(false);
+    if (error) { setSaveError(error.message); return; }
+    if (!data?.length) {
+      setSaveError("Nothing was saved — your account may not have permission to manage work types.");
+      return;
+    }
     setEditing(null);
     load();
   }
@@ -130,7 +147,7 @@ function WorkTypesSection() {
       {/* Existing rows */}
       {workTypes.map(wt =>
         editing && !editing.isNew && editing.id === wt.id ? (
-          <EditRow key={wt.id} editing={editing} setEditing={setEditing} onSave={save} onCancel={cancel} saving={saving} inputStyle={inputStyle} />
+          <EditRow key={wt.id} editing={editing} setEditing={setEditing} onSave={save} onCancel={cancel} saving={saving} saveError={saveError} inputStyle={inputStyle} />
         ) : (
           <div key={wt.id} style={rowStyle}>
             <span style={{ fontSize: 13, fontFamily: F.ui, color: C.textBody, display: "flex", alignItems: "center", gap: 10 }}>
@@ -150,7 +167,7 @@ function WorkTypesSection() {
 
       {/* New row form */}
       {editing?.isNew && (
-        <EditRow editing={editing} setEditing={setEditing} onSave={save} onCancel={cancel} saving={saving} inputStyle={inputStyle} />
+        <EditRow editing={editing} setEditing={setEditing} onSave={save} onCancel={cancel} saving={saving} saveError={saveError} inputStyle={inputStyle} />
       )}
 
       {!workTypes.length && !editing && (
@@ -175,7 +192,7 @@ function WorkTypesSection() {
   );
 }
 
-function EditRow({ editing, setEditing, onSave, onCancel, saving, inputStyle }) {
+function EditRow({ editing, setEditing, onSave, onCancel, saving, saveError, inputStyle }) {
   const set = (k, v) => setEditing(e => ({ ...e, [k]: v }));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "14px 16px", borderRadius: 8, background: C.linenCard, border: `1px solid ${C.tealBorder}` }}>
@@ -209,6 +226,11 @@ function EditRow({ editing, setEditing, onSave, onCancel, saving, inputStyle }) 
           placeholder="Default scope of work text for proposals (optional)"
         />
       </div>
+      {saveError && (
+        <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textBody, background: C.linenDeep, border: `1px solid ${C.borderStrong}`, borderLeft: `3px solid ${C.red}`, borderRadius: 8, padding: "10px 14px", lineHeight: 1.5 }}>
+          {saveError}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8 }}>
         <Btn sz="sm" onClick={onSave} disabled={saving || !editing.name.trim()}>
           {saving ? "Saving…" : "Save"}

@@ -1,0 +1,73 @@
+SC_Handoff_v180 — T&M Material cost code: catalog row, Settings add fix, rate-card gate
+========================================================================================
+Date: 2026-08-10
+Repo/branch: sales-command @ main — all work MERGED + PUSHED (Vercel auto-deploys)
+Paired repo: command-suite-db — none (one prod data write via db query, see below)
+Prior: v179 (T&M tickets plan/build). Mode: /fix — three in-flow fixes, no plan.
+Gates: n/a (single-file /fix edits, build-verified each)
+Prod DATA writes: YES — one work_types INSERT. See PROD DATA WRITES.
+
+
+███ WHAT SHIPPED ███████████████████████████████████████████████████████████████
+
+Context: On the T&M invoice for job 7215/STY 4 (invoice id 10158, $6,765), material
+had no home and got attributed to the "Specialty" work type. Chris wanted a proper
+"T&M Material" cost code. That surfaced two code bugs along the way.
+
+  1. eaec04d — Settings → Work Types "Add/Edit" fail-silent fix
+     WorkTypesSection.save() (src/pages/Settings.jsx) swallowed every insert/update
+     error — a blocked add closed the form and showed nothing, reading as "I can't
+     add a work type." Now .select()s the write (like remove() already did), guards
+     a null tenant_id, and renders any error in the EditRow. CLAUDE.md rule #6.
+
+  2. b07ed83 — "T&M Material" no longer trips the rate-card panel
+     WTCCalculator.jsx handleWorkTypeChange decided the hourly rate-card panel with
+     /t\s*&\s*m/i.test(name) — i.e. any name CONTAINING "T&M". "T&M Material" matched,
+     so it demanded a rate class / rate-per-hour. Anchored to /^\s*t\s*&\s*m\s*$/i —
+     only a name that IS "T&M" (the labor rate card) triggers it. Every downstream
+     surface already keys off the stored is_rate_card flag, so this was the only site.
+
+
+███ PROD DATA WRITES ███████████████████████████████████████████████████████████
+
+  - INSERT into work_types (via `supabase db query --linked` from command-suite-db):
+      id 123 · name "T&M Material" · cost_code "0927.5" · tenant_id 246f6551 (HDSP)
+      · active true · sort_order 0
+    Matches the cost code Chris created in QuickBooks (0927.5). Shows in proposal
+    work-type pickers and Settings → Work Types ("Custom") immediately, no deploy.
+
+
+███ VERIFICATION ██████████████████████████████████████████████████████████████
+
+  - Both fixes: `npx vite build` clean.
+  - Settings add: re-open Settings → Work Types → + Add Work Type; a failed add now
+    shows a red error line instead of vanishing.
+  - Rate-card gate: re-pick "T&M Material" in the WTC dropdown → rate-card panel
+    disappears, normal Labor/Materials tabs return.
+  - CAVEAT: a WTC already SAVED as "T&M Material" while flagged a rate card keeps
+    is_rate_card=true until the work type is re-selected (deliberate rename-safety
+    split). Re-pick to clear. The one in Chris's screenshot was unsaved.
+
+
+███ NOT TOUCHED / OPEN █████████████████████████████████████████████████████████
+
+  - Editable material line ON the T&M invoice screen itself (independent of proposal
+    WTC cards): NOT built. Offered as a real feature; Chris deferred. The current
+    path is: add a "T&M Material" WTC card to the proposal, then bill it by % on the
+    invoice — carries 0927.5 into QB instead of Specialty.
+  - v179's DO-THIS-NEXT list (feat/tm-tickets merge, nte_amount grant, qb-sync-invoice
+    deploy) is SEPARATE from this session and was already on main when I started —
+    this /fix work sat on top of main, unrelated. Confirm v179's checklist status
+    independently; I did not touch it.
+
+
+███ FILES TO KNOW ██████████████████████████████████████████████████████████████
+
+  - src/pages/Settings.jsx — WorkTypesSection (add/edit/remove work types), EditRow
+  - src/pages/WTCCalculator.jsx:~2095 — handleWorkTypeChange rate-card panel toggle
+  - src/lib/workTypes.js — selectableWorkTypes (tenant-owned + active only)
+
+
+Git state: main @ b07ed83, pushed. No open branches from this session
+(fix/worktype-add-silent-fail, fix/tm-material-not-rate-card both merged; can be
+deleted at leisure).

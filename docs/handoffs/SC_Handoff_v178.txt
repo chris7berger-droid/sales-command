@@ -153,12 +153,10 @@ PROD DATA WRITES MADE THIS SESSION
 
 NOT TOUCHED
 -----------
-- HISTORICAL MIS-STAMPED INVOICES. Any invoice sent after 5pm Pacific before today is still a
-  day late in both SC and QB, and there is NO way to detect them: the DB stores only the date,
-  not the instant of sending, so a genuine Aug-8 send is indistinguishable from a mis-stamped
-  Aug-7 one. A query for future-dated rows found only tonight's two (that check only works on
-  the current day). Flagged to Chris, who did not ask for a sweep. If a specific past invoice
-  looks wrong, it can be checked one-off against QB.
+- HISTORICAL MIS-STAMPED INVOICES — SWEPT 2026-08-07, see ADDENDUM below. (This section
+  originally read "there is NO way to detect them." That was wrong; `invoices.created_at` is a
+  timestamptz and is a usable witness. Corrected in the addendum, left here so the reasoning
+  error is visible rather than quietly overwritten.)
 - The import-path date normalizers — see D4.
 - `docs/BACKLOG.md` active table: no new rows. Nothing here is deferred; the whole defect is
   closed. One Completed Log entry added.
@@ -216,3 +214,78 @@ GIT STATE
   command-suite-db    untouched. No migration this session.
   Backlog             One Completed Log entry (2026-08-07). No new open rows.
   Memory              unchanged.
+
+
+===========================================================
+ADDENDUM 2026-08-07 — the two "not touched" items, both closed
+===========================================================
+Chris, on reading the close-out: "Both of these sound like issues that should be fixed."
+
+A1. THE HISTORICAL MIS-STAMPS WERE DETECTABLE. I called them undetectable. That was wrong, and
+    the correction is worth more than the fix. `invoices.sent_at` is a date and carries no time —
+    but `invoices.created_at` is a **timestamptz**, and 112 of 127 sent invoices (88%) were
+    created and sent in the same sitting. That makes created_at a usable witness for the send
+    instant on the large majority of rows.
+
+    THE DETECTOR (conservative — only fires where the witness is trustworthy):
+      sent_at = (created_at at time zone 'UTC')::date            -- created + sent same session
+      AND (created_at at time zone 'America/Los_Angeles')::date
+          < (created_at at time zone 'UTC')::date                -- instant fell in the bad window
+    The second line is the bug's exact signature: the UTC date is a day ahead of the Pacific
+    date precisely when the instant lands between 5pm Pacific and midnight. Postgres handles
+    PDT/PST, so the boundary is correctly 5pm in summer and 4pm in winter without special-casing.
+
+    RESULT: 12 invoices, from four evening billing runs — Jun 5 (10073-10076), Jun 29
+    (10097, 10098), Jul 1 (10102), Jul 13 (10119-10123). Every one created between 17:02 and
+    17:42 Pacific. A tight cluster right at the boundary is itself evidence the detector is
+    picking up the real mechanism and not noise.
+
+    INDEPENDENT CORROBORATION, TWICE:
+      - QB `private_memo` on 10097 reads "VOIDED/PULLED BACK 6/29/2026, 5:31:23 PM" while its
+        QB txn_date said 6/30. A human-written timestamp inside QuickBooks, disagreeing with
+        QuickBooks' own date field, in exactly the predicted direction.
+      - The 4 invoices that DO have a real `invoice_recipients.sent_at` timestamptz
+        (10051, 10088, 10089, 10124) all agree with their stored date — the detector correctly
+        does NOT flag them.
+
+    REPAIRED: all 12 in Supabase (`sent_at` set to the Pacific date of created_at). 9 of them in
+    QuickBooks. The other 3 (10097, 10098, 10102) are voided $0 test invoices — deliberately not
+    touched in QB; editing a voided transaction is pointless and the SC-side value is cosmetic.
+    NO MONTH BOUNDARIES WERE CROSSED by any of the 12 (Jun 5→6, Jun 29→30, Jul 1→2, Jul 13→14),
+    so no QB reporting period moved and no P&L or A/R aging total changed. That was checked
+    BEFORE writing, and it is the reason this was safe to do without an accountant in the loop.
+    Post-repair detector re-run: 0 remaining.
+
+    RESIDUAL, GENUINELY UNKNOWN: 15 invoices where `sent_at` differs from created_at's UTC date
+    — i.e. created one day, sent another. The witness doesn't apply and nothing else records the
+    send instant. Any of them sent after 5pm is still a day late. This is the honest floor of
+    what's knowable from current data. The durable fix is to record a real send TIMESTAMP, not
+    just a date — see POINTERS #5.
+
+A2. THE `supabase/.temp` NOISE WAS NOT WHERE I SAID IT WAS. I recommended
+    `git rm -r --cached supabase/.temp` on main. On main that is a **no-op** — main dropped
+    those files back in `b112470` (migration consolidation) and tracks zero of them. The noise
+    lives on three parked branches that point at commits PREDATING b112470 and still track 7
+    files each: feat/deposit-checkbox-fill, feat/inquiry-modal-redesign,
+    feat/inquiry-wizard-drop-step-one. The CLI rewrites the files on disk, so each worktree
+    permanently showed phantom ` D` deletions.
+    FIXED with one commit per branch (`git rm -r --cached supabase/.temp`) — no rebase, no
+    history rewrite, matching what main already did. All three working trees now clean. The two
+    with upstreams were pushed; feat/deposit-checkbox-fill has no upstream so it is local-only.
+
+    SIDE FIND, NEEDS CHRIS: **feat/deposit-checkbox-fill is 0 commits ahead of origin/main** —
+    it is fully merged and has no upstream. It is a leftover branch + worktree, not live work.
+    Left in place because deleting parked work is Chris's call, not mine. Deleting it and its
+    worktree would take the count from seven to six.
+
+POINTERS ADDED
+  5. RECORD A SEND INSTANT, NOT A SEND DATE. The 15 unresolvable invoices exist because nothing
+     durably stores WHEN an invoice was sent — `sent_at` is a date, and `invoice_recipients.sent_at`
+     (a timestamptz, the right shape) is populated on only 4 of 127. Either backfill that path so
+     every send writes it, or add `invoices.sent_instant timestamptz`. Until then this class of
+     question stays unanswerable after the fact. Migration lives in command-suite-db.
+  6. THE GENERAL LESSON, AND IT IS THE POINT OF THIS ADDENDUM: "undetectable" was a conclusion
+     reached from ONE column instead of from the schema. `created_at` was sitting right there,
+     already in a query result printed earlier in the same session. Before declaring data
+     unrecoverable, enumerate every timestamptz on the table and every related table — a date
+     column loses information, but the rows around it usually haven't.

@@ -43,7 +43,8 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
   const [proposals, setProposals] = useState([]);
   const [search, setSearch] = useState("");
   const [selProposal, setSelProposal] = useState(null);
-  const [wtcs, setWtcs] = useState([]);
+  const [wtcs, setWtcs] = useState([]);            // billable by PERCENT — rate cards excluded (§2.5)
+  const [rateCards, setRateCards] = useState([]);  // the proposal's hourly rates, for T&M day rows (§4.2)
   const [billingPcts, setBillingPcts] = useState({});
   const [existingLines, setExistingLines] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -170,7 +171,12 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
         ),
     ]);
 
-    setWtcs(wtcData || []);
+    // Rate cards are hidden from the percentage list (plan §2.5). An hourly rate
+    // has no fixed price to take a percentage OF — billing one at 100% would bill
+    // a single hour and then cap the line forever. They are kept, not discarded:
+    // step 4's day rows prefill their rates from here.
+    setWtcs((wtcData || []).filter(w => !w.is_rate_card));
+    setRateCards((wtcData || []).filter(w => w.is_rate_card));
     setExistingLines(linesData || []);
 
     const workTypeNames = (wtcData || []).map(w => w.work_types?.name).filter(Boolean).join(", ");

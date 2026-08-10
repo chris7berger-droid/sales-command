@@ -550,7 +550,7 @@ export default function PublicSigningPage() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.gray200}` }}>
                 {/* F44: a rate card shows its hourly T&M rate, not a fixed line total, and adds $0 to the Proposal Total below. */}
                 <div style={{ fontSize: 12, fontWeight: 600, color: T.gray500 }}>Work Type {i + 1}{w.work_type_name ? ` — ${w.work_type_name}` : ""}{w.is_rate_card ? " — T&M Rate" : " Total"}</div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: T.green }}>{w.is_rate_card ? `${rateCardLabel(w)} · billed as incurred` : fmt(w.locked_line_total ?? 0)}</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T.green }}>{w.is_rate_card ? rateCardLabel(w) : fmt(w.locked_line_total ?? 0)}</div>
               </div>
             )}
           </div>

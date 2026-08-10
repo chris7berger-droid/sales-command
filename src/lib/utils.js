@@ -9,7 +9,7 @@ export const fmt$c = v =>
 // on customer-facing surfaces (PDF + signing page). Cents shown only when the
 // rate has them. Pure formatting — safe to import on the public signing page
 // (no pricing/cost logic, per Audit H6).
-export const RATE_CLASS_LABEL = { regular: "Regular", ot: "Overtime (1.5×)", dt: "Double time (2×)" };
+export const RATE_CLASS_LABEL = { regular: "Regular", ot: "Overtime", dt: "Double time" };
 export const rateCardLabel = w => {
   const amt = Number(w?.rate_amount || 0);
   const money = "$" + amt.toLocaleString("en-US", { minimumFractionDigits: amt % 1 ? 2 : 0, maximumFractionDigits: 2 });

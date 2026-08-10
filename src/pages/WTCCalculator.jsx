@@ -372,8 +372,15 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
           </div>
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 20px", alignItems: "end" }}>
+      <div style={{ display: "grid", gridTemplateColumns: data.is_rate_card ? "1fr 1fr" : "1fr 1fr 1fr", gap: "0 20px", alignItems: "end" }}>
         <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" error={rateMissing} readOnly={pwRateLocked} />
+        {/* OT is meaningless on a rate card. It only ever multiplies ot_hours,
+            which is zero here, and overtime is expressed by having a SECOND rate
+            card set to Time and a half — that is what rate_class is for. Burden
+            Rate stays visible because it still drives what this card contributes
+            to the proposal total; hiding a field that moves money is the mistake
+            the round-2 audit caught. It goes when F44 lands. */}
+        {!data.is_rate_card && (
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <Label>{pw ? "PW OT Rate" : "OT Burden Rate"}</Label>
@@ -402,6 +409,7 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
               onBlur={e => { e.target.style.borderColor = pwRateLocked ? "transparent" : (rateMissing ? T.red : T.gray200); }} />
           </div>
         </div>
+        )}
         <Field label="Tax Rate" value={data.tax_rate} onChange={set("tax_rate")} suffix="%" type="number" />
       </div>
       {rateMissing && (

@@ -224,7 +224,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         // so it cannot distinguish them — a mixed invoice carries both under one
         // figure. One extra embed on a query that already runs, not a second
         // round-trip.
-        supabase.from("invoices").select("id, status, amount, job_name, voided_at, void_reason, retention_release_of, invoice_lines(amount, reg_hours, ot_hours, dt_hours, proposal_wtc:proposal_wtc_id(is_rate_card, rate_class, rate_amount))").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
+        supabase.from("invoices").select("id, status, amount, job_name, voided_at, void_reason, retention_release_of, invoice_lines(amount, reg_hours, reg_rate, ot_hours, ot_rate, dt_hours, dt_rate, proposal_wtc:proposal_wtc_id(is_rate_card))").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
       ]);
       setLinkedProposals(props || []);
       setLinkedInvoices(invs || []);
@@ -917,10 +917,23 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           ot:  h.ot  + (parseFloat(l.ot_hours)  || 0),
           dt:  h.dt  + (parseFloat(l.dt_hours)  || 0),
         }), { reg: 0, ot: 0, dt: 0 });
-        const tmRates = [...new Map(
-          tmLines.map(l => l.proposal_wtc).filter(c => c && parseFloat(c.rate_amount) > 0)
-            .map(c => [c.rate_class, parseFloat(c.rate_amount)])
-        ).entries()];
+        // Rates come from the ROWS, not from the rate card the rows point at.
+        // Every day row anchors to the straight-time card (§4.2), so reading the
+        // card gave "$105 per hr" next to "18 OT hrs" — implying overtime was
+        // billed at $105 when it was billed at $125. The row carries what was
+        // actually charged, including any rate edited at billing time.
+        const rateOf = (hKey, rKey) => {
+          const used = [...new Set(tmLines
+            .filter(l => (parseFloat(l[hKey]) || 0) > 0)
+            .map(l => parseFloat(l[rKey]) || 0)
+            .filter(v => v > 0))];
+          return used.length ? used : null;   // more than one = the rate changed mid-period
+        };
+        const tmRates = [
+          ["regular", rateOf("reg_hours", "reg_rate")],
+          ["ot",      rateOf("ot_hours",  "ot_rate")],
+          ["dt",      rateOf("dt_hours",  "dt_rate")],
+        ].filter(([, v]) => v);
 
         const billed = historical + billedSC - tmBilled;
         const remaining = sold - billed;
@@ -946,9 +959,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                   <div style={cellLabel}>T&amp;M</div>
                   <div style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui, marginTop: 2 }}>
                     {tmRates.length > 0
-                      ? ["regular", "ot", "dt"]
-                          .map(cls => { const hit = tmRates.find(([k]) => k === cls); return hit ? fmt$(hit[1]) : null; })
-                          .filter(Boolean).join(" / ") + " per hr"
+                      ? tmRates.map(([, vals]) => vals.map(v => fmt$(v)).join("/")).join(" / ") + " per hr"
                       : "billed hourly"}
                     {(tmHours.reg + tmHours.ot + tmHours.dt) > 0 && (
                       <span style={{ color: C.textFaint }}>

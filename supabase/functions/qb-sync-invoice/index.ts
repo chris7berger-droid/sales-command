@@ -242,7 +242,20 @@ serve(async (req) => {
     // ── Normal invoice assembly (lines + discount + negative retention) ──
     if (lines && lines.length > 0) {
       for (const line of lines) {
-        const workTypeName = line.proposal_wtc?.work_types?.name || "Services";
+        // Prefer the line's own description when it has one. A week of T&M day
+        // rows all share the work type "T&M", so keying on the work type alone
+        // pushed five identical "T&M" lines into QuickBooks and the bookkeeper
+        // could not tell which day was which. The day row's description carries
+        // date · crew · area.
+        //
+        // Fallback order is deliberate: archive lines write NO description and
+        // have no work type, so they must still land on "Services" exactly as
+        // before. Existing pay-app and percent lines also have no description
+        // today, so their QuickBooks text is unchanged on the next full-replace
+        // sync — this only adds text where there was none.
+        const workTypeName = line.description
+          || line.proposal_wtc?.work_types?.name
+          || "Services";
         qbLines.push({
           DetailType: "SalesItemLineDetail",
           Amount: line.amount || 0,

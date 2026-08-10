@@ -43,7 +43,8 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
   const [proposals, setProposals] = useState([]);
   const [search, setSearch] = useState("");
   const [selProposal, setSelProposal] = useState(null);
-  const [wtcs, setWtcs] = useState([]);
+  const [wtcs, setWtcs] = useState([]);            // billable by PERCENT — rate cards excluded (§2.5)
+  const [rateCards, setRateCards] = useState([]);  // the proposal's hourly rates, for T&M day rows (§4.2)
   const [billingPcts, setBillingPcts] = useState({});
   const [existingLines, setExistingLines] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -55,7 +56,48 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
   const [archiveBilled, setArchiveBilled] = useState(0);
   const [roundInvoice, setRoundInvoice] = useState(true);
   const [retentionPct, setRetentionPct] = useState("");
+  const [dayRows, setDayRows] = useState([]);      // T&M — one row per work day (§4.2)
+  const [nteAmount, setNteAmount] = useState("");  // weekly not-to-exceed (§4.5)
   const money = roundInvoice ? fmt$ : fmt$c;
+
+  // ── T&M day rows ──────────────────────────────────────────────────────────
+  // One row per work day, mirroring a row on the signed paper T&M Authorization:
+  // Date | Employee Count | Area | Hours REG/OT/DT | Rate | Amount.
+  //
+  // Rates PREFILL from the proposal's rate cards by class and stay editable per
+  // row (plan §4.2). An edited rate never writes back to the proposal — the
+  // proposal is the agreement, the row is what was actually billed.
+  const rateFor = cls => {
+    const card = rateCards.find(c => c.rate_class === cls);
+    return card ? (parseFloat(card.rate_amount) || 0) : 0;
+  };
+  const blankDayRow = () => ({
+    // uid, not an index: rows are added and removed, and React needs a key that
+    // survives a splice. Date.now() collides when two rows are added in the same
+    // millisecond, so add a counter.
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    work_date: tod(),   // `date` column — wall-clock, never toISOString() (§3.1)
+    crew_count: "",
+    area: "",
+    reg_hours: "", reg_rate: rateFor("regular"),
+    ot_hours: "",  ot_rate:  rateFor("ot"),
+    dt_hours: "",  dt_rate:  rateFor("dt"),
+  });
+  const dayRowAmount = r => {
+    const n = v => parseFloat(v) || 0;
+    const raw = n(r.reg_hours) * n(r.reg_rate)
+              + n(r.ot_hours)  * n(r.ot_rate)
+              + n(r.dt_hours)  * n(r.dt_rate);
+    return Math.round(raw * 100) / 100;   // cent-round each row, then sum rows
+  };
+  const tmTotal = dayRows.reduce((s, r) => s + dayRowAmount(r), 0);
+  const hasRateCards = rateCards.length > 0;
+  // A rate card edited away from the proposal's figure is flagged in the UI so
+  // the office can see the row diverged before it goes out.
+  const rateDiverged = r =>
+    (parseFloat(r.reg_hours) > 0 && parseFloat(r.reg_rate) !== rateFor("regular")) ||
+    (parseFloat(r.ot_hours)  > 0 && parseFloat(r.ot_rate)  !== rateFor("ot")) ||
+    (parseFloat(r.dt_hours)  > 0 && parseFloat(r.dt_rate)  !== rateFor("dt"));
 
   const tenantCfgRef = useRef(null);
 
@@ -170,17 +212,51 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
         ),
     ]);
 
-    setWtcs(wtcData || []);
+    // Rate cards are hidden from the percentage list (plan §2.5). An hourly rate
+    // has no fixed price to take a percentage OF — billing one at 100% would bill
+    // a single hour and then cap the line forever. They are kept, not discarded:
+    // step 4's day rows prefill their rates from here.
+    setWtcs((wtcData || []).filter(w => !w.is_rate_card));
+    setRateCards((wtcData || []).filter(w => w.is_rate_card));
     setExistingLines(linesData || []);
 
-    const workTypeNames = (wtcData || []).map(w => w.work_types?.name).filter(Boolean).join(", ");
+    // Dedupe: three rate cards all carry the work type "T&M", so the raw join
+    // produced "Specialty, T&M, T&M, T&M" in customer-facing copy.
+    const workTypeNames = [...new Set((wtcData || []).map(w => w.work_types?.name).filter(Boolean))].join(", ");
     if (cfg.default_invoice_intro) setIntro(applySub(cfg.default_invoice_intro, workTypeNames));
-    if (cfg.default_invoice_description) setDescription(applySub(cfg.default_invoice_description, workTypeNames));
+
+    // Work Description prints on the invoice above the Amount Due. When the
+    // proposal carries rate cards, seed it with the approved rates broken out —
+    // a GC reviewing a T&M invoice wants to see the rate it is being charged at
+    // stated on the invoice, not only implied by the line amounts. Editable; this
+    // is a starting point, not a lock.
+    const cards = (wtcData || []).filter(w => w.is_rate_card && parseFloat(w.rate_amount) > 0);
+    const CLASS_LABEL = { regular: "Straight time", ot: "Time and a half", dt: "Double time" };
+    const CLASS_ORDER = ["regular", "ot", "dt"];
+    const rateBlock = cards.length
+      ? "Time & materials billed at the approved rates:\n" +
+        CLASS_ORDER
+          .map(cls => cards.find(c => c.rate_class === cls))
+          .filter(Boolean)
+          .map(c => `  ${CLASS_LABEL[c.rate_class]} — ${fmt$c(parseFloat(c.rate_amount) || 0)} per hour`)
+          .join("\n")
+      : "";
+    const tenantDefault = cfg.default_invoice_description
+      ? applySub(cfg.default_invoice_description, workTypeNames)
+      : "";
+    // Both when both exist — the tenant's standing wording still applies to the
+    // fixed-price half of a mixed invoice.
+    const seeded = [tenantDefault, rateBlock].filter(Boolean).join("\n\n");
+    if (seeded) setDescription(seeded);
 
     // Init billing pcts to 0
     const pcts = {};
     (wtcData || []).forEach(w => { pcts[w.id] = ""; });
     setBillingPcts(pcts);
+    // Reset T&M state per proposal — a day row prefilled from the PREVIOUS
+    // proposal's rate cards would carry the wrong rate into this one.
+    setDayRows([]);
+    setNteAmount("");
     setStep(2);
   }
 
@@ -205,8 +281,12 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
     return Math.round(raw * 100) / 100;
   }
 
-  const invoiceTotal = wtcs.reduce((sum, w) => sum + getLineAmount(w), 0);
+  // Header MUST equal the sum of its own lines. Percent lines and T&M day rows
+  // both count — before §4.4 this summed percent lines only, so a mixed invoice
+  // would have written a header that disagreed with the lines under it.
+  const invoiceTotal = wtcs.reduce((sum, w) => sum + getLineAmount(w), 0) + tmTotal;
   const hasAnyPct = Object.values(billingPcts).some(v => parseFloat(v) > 0);
+  const hasAnyDayRow = dayRows.some(r => dayRowAmount(r) > 0);
 
   function validatePcts() {
     for (const w of wtcs) {
@@ -214,7 +294,22 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
       if (pct < 0) return "Billing % cannot be negative";
       if (pct > getRemainingPct(w.id)) return `${w.work_types?.name || "WTC"} exceeds remaining % (${getRemainingPct(w.id)}% left)`;
     }
-    if (!hasAnyPct) return "Enter a billing % for at least one work type";
+    for (const r of dayRows) {
+      const n = v => parseFloat(v) || 0;
+      if (n(r.reg_hours) < 0 || n(r.ot_hours) < 0 || n(r.dt_hours) < 0) return "Hours cannot be negative";
+      const anyHours = n(r.reg_hours) + n(r.ot_hours) + n(r.dt_hours) > 0;
+      if (anyHours && !r.work_date) return "Every T&M row needs a work date";
+      if (anyHours && dayRowAmount(r) <= 0) return "A T&M row has hours but no rate — set the rate or remove the row";
+    }
+    // An invoice needs billable content, not specifically a PERCENTAGE. A week of
+    // T&M day rows carries no percentage at all, so the old
+    // "Enter a billing % for at least one work type" rejected every T&M invoice
+    // outright — nothing could be billed for hourly work (§0.3, round-2 finding E).
+    if (!hasAnyPct && !hasAnyDayRow) {
+      return hasRateCards
+        ? "Add a T&M day row, or enter a billing % for a work type"
+        : "Enter a billing % for at least one work type";
+    }
     return null;
   }
 
@@ -278,6 +373,9 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
         show_cents: !roundInvoice,
         retention_pct: retPct,
         retention_amount: retAmt,
+        // Weekly not-to-exceed (§4.5). Null means the GC gave no cap, and the
+        // invoice says "No cap — billed as incurred" rather than staying silent.
+        nte_amount: nteAmount === "" ? null : (parseFloat(String(nteAmount).replace(/[^0-9.\-]/g, "")) || null),
       }])
       .select()
       .single();
@@ -301,6 +399,49 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
           billing_pct: parseFloat(billingPcts[w.id]),
           amount: getLineAmount(w), // already cent-rounded (§3.2.1)
         }));
+
+      // T&M day rows — one invoice line per work day (§3.1/§4.2).
+      //
+      // billing_pct is NULL, so getBilledPct sums 0 for these and a day row never
+      // consumes the rate card's percentage (§0.2). proposal_wtc_id POINTS AT the
+      // rate card it was priced from: that is what stops a T&M-only invoice being
+      // misread as an archive invoice (isArchiveInvoice tests for the ABSENCE of a
+      // WTC), and it gives QuickBooks and the dashboards a work type for free.
+      //
+      // Convention for a mixed-class day: point at the `regular` card. The OT and
+      // DT rates ride on the row itself, so nothing is lost by the row belonging
+      // to one card.
+      const anchorCard =
+        rateCards.find(c => c.rate_class === "regular") ||
+        rateCards.find(c => c.rate_class === "ot") ||
+        rateCards[0] || null;
+      const tmLines = dayRows
+        .filter(r => dayRowAmount(r) > 0)
+        .map(r => {
+          const n = v => (v === "" || v == null ? null : parseFloat(v) || 0);
+          const bits = [
+            r.work_date ? fmtD(r.work_date) : null,
+            r.crew_count ? `${r.crew_count} crew` : null,
+            r.area || null,
+          ].filter(Boolean);
+          return {
+            invoice_id: inv.id,
+            proposal_wtc_id: anchorCard ? anchorCard.id : null,
+            billing_pct: null,
+            amount: dayRowAmount(r),
+            // Carries the line on surfaces that have no day-row rendering yet —
+            // notably QuickBooks, which otherwise labels every row "T&M" (§5.3).
+            description: bits.length ? `T&M — ${bits.join(" · ")}` : "T&M",
+            work_date: r.work_date || null,
+            crew_count: r.crew_count === "" ? null : (parseInt(r.crew_count, 10) || null),
+            area: (r.area || "").trim() || null,
+            reg_hours: n(r.reg_hours), reg_rate: n(r.reg_rate),
+            ot_hours:  n(r.ot_hours),  ot_rate:  n(r.ot_rate),
+            dt_hours:  n(r.dt_hours),  dt_rate:  n(r.dt_rate),
+          };
+        });
+      lines.push(...tmLines);
+
       if (lines.length > 0) {
         const { error: lineErr } = await supabase.from("invoice_lines").insert(lines);
         if (lineErr) { setError(lineErr.message); setSaving(false); return; }
@@ -509,6 +650,115 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
               })}
             </div>}
 
+            {/* ── T&M day rows — the signed paper, typed in (§4.2) ───────────
+                Shown whenever the proposal carries rate cards. Sits alongside the
+                percentage list, because job 7215's normal week is a material line
+                billed by percent PLUS a week of hours. */}
+            {!selProposal.is_archive_proposal && hasRateCards && (
+              <div style={{ marginTop: 14, background: C.linenDeep, borderRadius: 10, padding: 16, border: `1px solid ${C.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: C.textHead, fontFamily: F.display }}>T&amp;M — hours worked</div>
+                  <span style={{ background: C.dark, color: C.teal, padding: "2px 8px", borderRadius: 6, fontWeight: 800, fontSize: 11, fontFamily: F.display }}>
+                    {rateCards.length} rate card{rateCards.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginBottom: 12 }}>
+                  {["regular", "ot", "dt"].map(cls => rateFor(cls) > 0
+                    ? `${{ regular: "Straight", ot: "1.5×", dt: "2×" }[cls]} ${fmt$c(rateFor(cls))}/hr`
+                    : null).filter(Boolean).join("  ·  ") || "No rates set on the proposal's rate cards"}
+                </div>
+
+                {dayRows.map((r, i) => {
+                  const amt = dayRowAmount(r);
+                  const upd = patch => setDayRows(rows => rows.map((x, j) => j === i ? { ...x, ...patch } : x));
+                  const hoursField = (cls, hKey, rKey) => (
+                    <div>
+                      <div style={{ ...labelStyle, marginBottom: 4 }}>{cls}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                        <input type="number" min="0" step="0.5" value={r[hKey]} placeholder="hrs"
+                          onChange={e => upd({ [hKey]: e.target.value })} style={inputStyle} />
+                        <input type="number" min="0" step="0.01" value={r[rKey]} placeholder="rate"
+                          onChange={e => upd({ [rKey]: e.target.value })}
+                          title="Prefilled from the proposal's rate card. Editing it here does not change the proposal."
+                          style={{ ...inputStyle, color: parseFloat(r[hKey]) > 0 && parseFloat(r[rKey]) !== rateFor({ REG: "regular", OT: "ot", DT: "dt" }[cls]) ? C.amber : undefined }} />
+                      </div>
+                    </div>
+                  );
+                  return (
+                    <div key={r.id} style={{ background: C.linenCard, borderRadius: 8, padding: 12, marginBottom: 10, border: `1px solid ${C.border}` }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "150px 90px 1fr", gap: 10, marginBottom: 10 }}>
+                        <div>
+                          <div style={{ ...labelStyle, marginBottom: 4 }}>Date</div>
+                          <input type="date" value={r.work_date || ""} onChange={e => upd({ work_date: e.target.value })}
+                            onClick={e => e.target.showPicker?.()} style={{ ...inputStyle, cursor: "pointer" }} />
+                        </div>
+                        <div>
+                          <div style={{ ...labelStyle, marginBottom: 4 }}>Crew</div>
+                          <input type="number" min="0" step="1" value={r.crew_count} placeholder="#"
+                            onChange={e => upd({ crew_count: e.target.value })} style={inputStyle} />
+                        </div>
+                        <div>
+                          <div style={{ ...labelStyle, marginBottom: 4 }}>Area worked</div>
+                          <input value={r.area} placeholder="e.g. FSA Priority Areas"
+                            onChange={e => upd({ area: e.target.value })} style={inputStyle} />
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                        {hoursField("REG", "reg_hours", "reg_rate")}
+                        {hoursField("OT",  "ot_hours",  "ot_rate")}
+                        {hoursField("DT",  "dt_hours",  "dt_rate")}
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+                        <button onClick={() => setDayRows(rows => rows.filter((_, j) => j !== i))}
+                          style={{ background: "none", border: "none", color: C.textFaint, fontSize: 11, fontWeight: 700, fontFamily: F.display, cursor: "pointer", padding: 0 }}>
+                          ✕ Remove day
+                        </button>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          {rateDiverged(r) && (
+                            <span title="A rate on this row differs from the proposal's rate card."
+                              style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, fontFamily: F.ui }}>rate edited</span>
+                          )}
+                          <div style={{ fontSize: 14, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{fmt$c(amt)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                  <button onClick={() => setDayRows(rows => [...rows, blankDayRow()])}
+                    style={{ background: C.dark, border: `1px solid ${C.darkBorder}`, borderRadius: 6, padding: "8px 14px", color: C.teal, fontSize: 11, fontWeight: 700, fontFamily: F.display, cursor: "pointer" }}>
+                    + Add day
+                  </button>
+                  {dayRows.length > 0 && (
+                    <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>
+                      T&amp;M total: <span style={{ color: C.textHead, fontWeight: 800, fontSize: 15, fontFamily: F.display }}>{fmt$c(tmTotal)}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Weekly not-to-exceed (§4.5). Advisory — warns, never blocks. */}
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}`, display: "grid", gridTemplateColumns: "200px 1fr", gap: 12, alignItems: "center" }}>
+                  <div>
+                    <div style={{ ...labelStyle, marginBottom: 4 }}>Not to exceed (this week)</div>
+                    <div style={{ position: "relative" }}>
+                      <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: C.textFaint, fontSize: 13 }}>$</span>
+                      <input value={nteAmount} onChange={e => setNteAmount(e.target.value)} placeholder="No cap"
+                        style={{ ...inputStyle, paddingLeft: 24 }} />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textFaint, paddingTop: 14 }}>
+                    {(() => {
+                      const cap = parseFloat(String(nteAmount).replace(/[^0-9.\-]/g, "")) || 0;
+                      if (!cap) return "No cap given — the invoice will say so.";
+                      if (tmTotal > cap) return <span style={{ color: C.amber, fontWeight: 700 }}>⚠ T&amp;M is {fmt$c(tmTotal - cap)} over the cap. You can still send it.</span>;
+                      return <span style={{ color: C.green, fontWeight: 700 }}>{fmt$c(cap - tmTotal)} left under the cap.</span>;
+                    })()}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Due date + Retention */}
             <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
@@ -561,7 +811,16 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 {error && <div style={{ color: C.red, fontSize: 12, fontFamily: F.ui, maxWidth: 200 }}>{error}</div>}
-                <Btn onClick={handleCreate} disabled={saving || (selProposal.is_archive_proposal ? !(parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) > 0) : !hasAnyPct)}>
+                {/* THIRD copy of the "needs a percentage" gate. §4.4 fixed
+                    validatePcts and invoiceTotal and missed this one, so a valid
+                    T&M invoice rendered a correct $6,765 total under a button
+                    that could not be pressed. A day row is billable content just
+                    like a percentage — same condition as validatePcts. */}
+                {/* Due date is required for every invoice kind — handleCreate has
+                    blocked on it all along, but the BUTTON did not, so the only
+                    way to discover it was to press and read an error. A field
+                    marked * should disable the submit, not ambush it. */}
+                <Btn onClick={handleCreate} disabled={saving || !dueDate || (selProposal.is_archive_proposal ? !(parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) > 0) : (!hasAnyPct && !hasAnyDayRow))}>
                   {saving ? "Creating…" : "Create Invoice"}
                 </Btn>
               </div>
@@ -936,14 +1195,22 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
                         ? (sov.line_code ? `${sov.line_code} — ${sov.description}` : sov.description)
                         : isArchiveLine
                           ? (archiveCtx.workTypes || "—")
+                          : (wtc?.is_rate_card && l.description) ? l.description
                           : (wtc?.work_types?.name || l.description || "—");
                       const wtcNum = wtc ? wtcIndex[wtc.id] : null;
                       const wtcCell = wtcNum ? `WTC ${wtcNum}` : "—";
+                      // A T&M line's "full value" IS its own amount — there is no
+                      // larger figure it represents a slice of. Falling through to
+                      // calcWtcPrice would print the rate card's hourly figure
+                      // ($105) as the line's value next to a $4,460 amount.
+                      const isTM = !!wtc?.is_rate_card;
                       const rowTotal = isSov
                         ? (parseFloat(sov.scheduled_value) || 0)
                         : isArchiveLine
                           ? archiveCtx.sold
-                          : (wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(invoice.proposals)) : 0);
+                          : isTM
+                            ? (parseFloat(l.amount) || 0)
+                            : (wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(invoice.proposals)) : 0);
                       const billingPct = isArchiveLine
                         ? (archiveCtx.sold > 0 ? ((parseFloat(l.amount) || 0) / archiveCtx.sold) * 100 : 0)
                         : (parseFloat(l.billing_pct) || 0);
@@ -952,7 +1219,11 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
                           <td style={{ padding: "10px 12px", fontWeight: 700, whiteSpace: "nowrap" }}>{wtcCell}</td>
                           <td style={{ padding: "10px 12px", fontWeight: 600 }}>{lineLabel}</td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(rowTotal)}</td>
-                          <td style={{ padding: "10px 12px", textAlign: "right" }}>{fmtPct(billingPct)}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right" }}>{isTM
+                            ? ([l.reg_hours > 0 ? `${l.reg_hours} reg` : null,
+                                l.ot_hours  > 0 ? `${l.ot_hours} OT`   : null,
+                                l.dt_hours  > 0 ? `${l.dt_hours} DT`   : null].filter(Boolean).join(" · ") || "hrs")
+                            : fmtPct(billingPct)}</td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{money(l.amount)}</td>
                         </tr>
                       );
@@ -1805,6 +2076,19 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       if (l.billing_schedule_line_id) {
         return { id: l.id, billing_pct: l.billing_pct, amount: parseFloat(l.amount) || 0 };
       }
+      // T&M day rows: the dollars come from hours × rate stored ON THE ROW, not
+      // from the work type. The line DOES carry a proposal_wtc (its rate card,
+      // §4.2), so without this branch it falls through to the recompute below —
+      // where pct is 0 because a day row has no percentage, and a $6,765 line is
+      // silently rewritten to $0.00, the header follows it, and QuickBooks is
+      // full-replace synced with the wrong figure.
+      //
+      // Preserve is the ONLY correct behaviour here; there is nothing to recompute
+      // from, because the hours live on the row. Fourth occurrence of the
+      // calcWtcPrice → 0 mechanism (archive 14000c5, pay-app 33c385e, and this).
+      if (l.proposal_wtc?.is_rate_card) {
+        return { id: l.id, billing_pct: null, amount: parseFloat(l.amount) || 0 };
+      }
       const wtc = l.proposal_wtc;
       const wtcTotal = wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(inv.proposals)) : 0;
       const pct = parseFloat(editPcts[l.id]) || 0;
@@ -2130,16 +2414,42 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           is_deposit: inv.is_deposit,  // ...including its deposit mark — without this a pulled-back
                                        // deposit returns as a plain invoice and the job silently
                                        // drops it from the deposit total
+          // nte_amount deliberately NOT carried: the cap describes a week of T&M
+          // hours, and those lines do not come across (see the filter below). A
+          // replacement holding a cap with no hours under it states a limit on
+          // nothing. It is re-entered with the re-transcribed rows.
         }]).select().single();
         if (newErr) { alert(`Replacement invoice insert failed: ${newErr.message}`); setSaving(false); return; }
 
-        if (lines && lines.length > 0) {
-          const newLines = lines.map(l => ({
+        // T&M lines do NOT come across — not the rows, not the dollars.
+        //
+        // A day row is a TRANSCRIPTION of a signed paper ticket. If an invoice is
+        // being voided, the correctness of that transcription is exactly what may
+        // be in question, and carrying it forward copies a previous reading of the
+        // paper instead of re-reading the paper. Worse, a T&M line's hours are
+        // preserve-only once billed, so a carried-over wrong figure could not be
+        // corrected — you would void again into another copy of the same error.
+        //
+        // An earlier version of this copied them, on the assumption that voids are
+        // usually for reasons unrelated to the lines. There is no evidence for that
+        // assumption, and prefilling money data on a guess is the wrong default.
+        //
+        // Percent / SOV / archive lines still copy: those are derived from the work
+        // type or the billing schedule and cannot be independently wrong.
+        const carriedLines = (lines || []).filter(l => !l.proposal_wtc?.is_rate_card);
+        if (carriedLines.length > 0) {
+          const newLines = carriedLines.map(l => ({
             invoice_id: nextId,
             proposal_wtc_id: l.proposal_wtc_id || null,
             billing_schedule_line_id: l.billing_schedule_line_id || null,
             billing_pct: l.billing_pct,
             amount: l.amount,
+            // `description` was being dropped here before T&M existed — a
+            // pre-existing gap, fixed while in the file. The nine day columns are
+            // deliberately NOT listed: no carried line can have them (rate-card
+            // lines are filtered out above), so copying them would be dead code
+            // implying a behaviour that does not happen.
+            description: l.description || null,
           }));
           const { error: linesErr } = await supabase.from("invoice_lines").insert(newLines);
           if (linesErr) { alert(`Replacement invoice lines failed: ${linesErr.message}`); setSaving(false); return; }
@@ -2361,15 +2671,23 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                   const sov = l.billing_schedule_line;
                   const isSov = !wtc && sov;
                   const isArchiveLine = !wtc && !sov;
+                  // A T&M row's description carries the date/crew/area; the work
+                  // type is just "T&M" on every one of them. Prefer the detail.
                   const lineLabel = isSov
                     ? (sov.line_code ? `${sov.line_code} — ${sov.description}` : sov.description)
+                    : (wtc?.is_rate_card && l.description) ? l.description
                     : (wtc?.work_types?.name || l.description || (isArchiveLine ? "Archive Invoice" : "—"));
                   const wtcNum = wtc ? wtcIndex[wtc.id] : null;
                   const wtcCell = wtcNum ? `WTC ${wtcNum}` : "—";
                   const storedAmt = parseFloat(l.amount) || 0;
-                  const rowTotal = isSov ? (parseFloat(sov.scheduled_value) || 0) : (wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(inv.proposals)) : (isArchiveLine ? (editing ? (parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : storedAmt) : 0));
+                  // T&M day row: its value is its own amount, and it is NOT edited
+                  // by percentage — the hours live on the row. editAmt must equal
+                  // the stored amount or the editor would display $0 against a line
+                  // it is about to preserve (see the preserve branch in handleSaveEdit).
+                  const isTM = !!wtc?.is_rate_card;
+                  const rowTotal = isSov ? (parseFloat(sov.scheduled_value) || 0) : isTM ? storedAmt : (wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(inv.proposals)) : (isArchiveLine ? (editing ? (parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : storedAmt) : 0));
                   const editPct = parseFloat(editPcts[l.id]) || 0;
-                  const editAmt = isArchiveLine ? rowTotal : rowTotal * (editPct / 100);
+                  const editAmt = (isArchiveLine || isTM) ? rowTotal : rowTotal * (editPct / 100);
                   return (
                     <tr key={l.id} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? C.linenLight : C.linen }}>
                       <td style={{ padding: "12px 15px", fontWeight: 700, color: C.textHead, whiteSpace: "nowrap" }}>{wtcCell}</td>
@@ -2378,6 +2696,16 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                       <td style={{ padding: "12px 15px" }}>
                         {isArchiveLine ? (
                           <span style={{ color: C.textFaint, fontSize: 12, fontFamily: F.ui }}>—</span>
+                        ) : isTM ? (
+                          // A day row has no percentage. Show the hours instead —
+                          // rendering `l.billing_pct` here would print "null%".
+                          <span style={{ color: C.textFaint, fontSize: 12, fontFamily: F.ui, whiteSpace: "nowrap" }}>
+                            {[
+                              l.reg_hours > 0 ? `${l.reg_hours} reg` : null,
+                              l.ot_hours  > 0 ? `${l.ot_hours} OT`   : null,
+                              l.dt_hours  > 0 ? `${l.dt_hours} DT`   : null,
+                            ].filter(Boolean).join(" · ") || "hrs"}
+                          </span>
                         ) : editing ? (
                           <input type="number" min="0" max="100" step="1" value={editPcts[l.id] || ""} onChange={e => setEditPcts(prev => ({ ...prev, [l.id]: e.target.value }))} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, width: 70, padding: "4px 8px", fontSize: 12, textAlign: "right", ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
                         ) : (

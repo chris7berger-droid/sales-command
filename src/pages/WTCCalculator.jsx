@@ -330,8 +330,57 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
         </select>
         {!selectedWorkTypeId && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required</div>}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0 20px", alignItems: "end" }}>
+
+      {/* Rate card — T&M work types author a RATE, not a price (plan §2.2).
+          Shown ALONGSIDE the pricing fields below, not instead of them: those
+          keep saving exactly as they do today, so a rate card still computes to
+          its hourly figure and still counts toward the proposal total, identical
+          to production. Making it stop counting is backlog F44. */}
+      {data.is_rate_card && (
+        <div style={{ marginBottom: 14, padding: "12px 14px", background: T.greenLight, border: `1.5px solid ${T.green}`, borderRadius: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.gray700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>
+            Rate Card — billed by the hour
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px", alignItems: "end" }}>
+            <div style={{ marginBottom: 14 }}>
+              <Label>Rate Class</Label>
+              <select
+                value={data.rate_class || ""}
+                onChange={e => onChange({ ...data, rate_class: e.target.value })}
+                style={{ width: "100%", border: `1.5px solid ${data.rate_class ? T.gray200 : T.red}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: data.rate_class ? T.gray900 : T.gray400, background: T.white, outline: "none", fontFamily: "inherit" }}
+              >
+                <option value="" disabled>Select a rate class…</option>
+                <option value="regular">Regular / straight time</option>
+                <option value="ot">Time and a half</option>
+                <option value="dt">Double time</option>
+              </select>
+              {!data.rate_class && <div style={{ fontSize: 11, color: T.red, marginTop: 3, fontWeight: 600 }}>Required for a rate card</div>}
+            </div>
+            <Field
+              label="Rate (per hour)"
+              value={data.rate_amount || 0}
+              onChange={v => onChange({ ...data, rate_amount: parseFloat(v) || 0 })}
+              prefix="$"
+              type="number"
+              error={!(parseFloat(data.rate_amount) > 0)}
+              errorMsg="Required for a rate card"
+            />
+          </div>
+          <div style={{ fontSize: 11, color: T.gray500, lineHeight: 1.5 }}>
+            This rate fills the hours typed on a T&amp;M invoice. It does not bill on its own —
+            rate cards are hidden from the invoice percentage list.
+          </div>
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: data.is_rate_card ? "1fr" : "1fr 1fr 1fr", gap: "0 20px", alignItems: "end" }}>
         <Field label={pw ? "PW Rate" : "Burden Rate"} value={rateVal} onChange={setBurden} prefix="$" type="number" error={rateMissing} readOnly={pwRateLocked} />
+        {/* OT is meaningless on a rate card. It only ever multiplies ot_hours,
+            which is zero here, and overtime is expressed by having a SECOND rate
+            card set to Time and a half — that is what rate_class is for. Burden
+            Rate stays visible because it still drives what this card contributes
+            to the proposal total; hiding a field that moves money is the mistake
+            the round-2 audit caught. It goes when F44 lands. */}
+        {!data.is_rate_card && (
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <Label>{pw ? "PW OT Rate" : "OT Burden Rate"}</Label>
@@ -360,7 +409,15 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
               onBlur={e => { e.target.style.borderColor = pwRateLocked ? "transparent" : (rateMissing ? T.red : T.gray200); }} />
           </div>
         </div>
-        <Field label="Tax Rate" value={data.tax_rate} onChange={set("tax_rate")} suffix="%" type="number" />
+        )}
+        {/* Tax Rate is meaningless on a rate card too, and for a stronger reason
+            than OT: calcWtcPrice never reads wtc.tax_rate at all. It only seeds
+            the tax on new MATERIAL rows (calcMaterialRow reads item.tax), and a
+            rate card has no materials. Hiding it therefore hides nothing that can
+            move a dollar — unlike Burden Rate, which stays. */}
+        {!data.is_rate_card && (
+          <Field label="Tax Rate" value={data.tax_rate} onChange={set("tax_rate")} suffix="%" type="number" />
+        )}
       </div>
       {rateMissing && (
         <div style={{ marginTop: -6, marginBottom: 12 }}>
@@ -1807,7 +1864,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   // Frozen at mount — the work type this WTC arrived with stays listed even if
   // it's a legacy system default, so an existing selection never disappears.
   const [wtIdAtOpen] = useState(workTypeId ?? null);
-  const [bidding,  setBidding]  = useState({ burden_rate: DEFAULTS.default_burden_rate, ot_burden_rate: DEFAULTS.default_ot_burden_rate, tax_rate: DEFAULTS.default_tax_rate, prevailing_wage: false, ot_overridden: false, start_date: "", end_date: "" });
+  const [bidding,  setBidding]  = useState({ burden_rate: DEFAULTS.default_burden_rate, ot_burden_rate: DEFAULTS.default_ot_burden_rate, tax_rate: DEFAULTS.default_tax_rate, prevailing_wage: false, ot_overridden: false, start_date: "", end_date: "", is_rate_card: false, rate_class: "", rate_amount: 0 });
   const [labor,    setLabor]    = useState({ regular_hours: 0, ot_hours: 0, markup_pct: 0 });
   const [materials,setMaterials]= useState([]);
   const [sow,      setSow]      = useState({ size: 0, unit: "SQFT", sales_sow: "", field_sow: [] });
@@ -1899,6 +1956,9 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
         pw_rate:         data.pw_rate         ?? 0,
         pw_ot_rate:      data.pw_ot_rate      ?? 0,
         pw_ot_overridden: false,
+        is_rate_card:    data.is_rate_card    ?? false,
+        rate_class:      data.rate_class      ?? "",
+        rate_amount:     data.rate_amount     ?? 0,
       });
       setLabor({
         regular_hours: data.regular_hours ?? 0,
@@ -2022,6 +2082,23 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const handleWorkTypeChange = async (newWorkTypeId) => {
     setSelectedWorkTypeId(newWorkTypeId);
     setSaved(false);
+    // A T&M work type authors a RATE, not a price (plan §2.2). Picking it turns
+    // the rate-card panel on; picking anything else turns it off, so a work type
+    // switched away from T&M cannot leave a stale rate behind.
+    //
+    // Note this keys the PANEL off the work type's name, while everything
+    // downstream keys off the stored `is_rate_card` flag (plan L10). That split
+    // is deliberate: work_types rows are user-editable, so a rename must never
+    // silently change how an existing rate card BEHAVES — only whether the panel
+    // is offered on a new one.
+    setBidding(b => {
+      const picked = workTypes.find(w => String(w.id) === String(newWorkTypeId));
+      const isTM = /t\s*&\s*m/i.test(picked?.name || "");
+      if (isTM === !!b.is_rate_card) return b;
+      return isTM
+        ? { ...b, is_rate_card: true }
+        : { ...b, is_rate_card: false, rate_class: "", rate_amount: 0 };
+    });
     // CO inheritance: pull burden_rate from parent's matching work_type WTC.
     if (!wtcId && parentProposalWtcs?.length) {
       const match = parentProposalWtcs.find(w => String(w.work_type_id) === String(newWorkTypeId));
@@ -2135,6 +2212,13 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       end_date:        bidding.end_date || null,
       dates_tbd:       bidding.dates_tbd ?? false,   // S2: persist the per-WTC TBD state (L2 round-trip)
       locked:          locked,
+      // Rate card (plan §2.1). rate_amount is stored EXPLICITLY — it is never
+      // inferred from regular_hours x burden_rate, which only happens to equal
+      // the rate because of how P7 was typed in. rate_class is CHECKed in the
+      // DB against regular|ot|dt, so an empty string must go down as NULL.
+      is_rate_card:    !!bidding.is_rate_card,
+      rate_class:      bidding.is_rate_card ? (bidding.rate_class || null) : null,
+      rate_amount:     bidding.is_rate_card ? (parseFloat(bidding.rate_amount) || 0) : null,
     };
     if (wtcId) {
       await supabase.from("proposal_wtc").update(payload).eq("id", wtcId);

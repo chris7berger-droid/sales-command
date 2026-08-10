@@ -1694,6 +1694,11 @@ function ArchiveProposalPanel({ p, setP, money, linkedInvoices = [] }) {
   const [tagged, setTagged] = useState([]);
 
   const historical = parseFloat(p.historical_billed_amount) || 0;
+  // No T&M split needed here, unlike CallLogDetail. `linkedInvoices` is loaded
+  // with .eq("proposal_id", p.id) at :109 — scoped to THIS proposal, not the job
+  // — so an archive proposal's list can only contain its own invoices, and T&M
+  // lines live on invoices belonging to a different (live) proposal. Checked
+  // 2026-08-10 after a code review flagged this as job-wide; it is not.
   const billedSC = sumContractBilled(linkedInvoices);
   const totalBilled = historical + billedSC;
   const remaining = (parseFloat(p.total) || 0) - totalBilled;

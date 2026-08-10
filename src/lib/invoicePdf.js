@@ -268,18 +268,33 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     const wtc = l.proposal_wtc;
     const sov = l.billing_schedule_line;
     const isSov = !wtc && sov;
+    // T&M day row. This renderer has no caller that reaches it today (see the
+    // note below), but the branch goes in NOW rather than as a warning for
+    // later: without it, wiring the future caller silently prints $105 as the
+    // value of a $4,460 line and "0%" where the hours belong. The shape is a
+    // copy of the one already live in Invoices.jsx and PublicInvoicePage.jsx.
+    const isTM = !!wtc?.is_rate_card;
     const lineLabel = isSov
       ? (sov.line_code ? `${sov.line_code} — ${sov.description || ""}` : (sov.description || "—"))
+      : isTM ? (l.description || "T&M")
       : (wtc?.work_types?.name || l.description || "—");
     // `proposal` carries the pricing era (created_at/pricing_anchor_at) so a WTC
     // line honors exact-vs-ceil. NOTE: the only caller today (PayAppDetailModal)
-    // passes pay-app invoices whose lines are SOV (isSov), so this branch is
+    // passes pay-app invoices whose lines are SOV (isSov), so the WTC branch is
     // currently unreached — it's wired for a future regular-invoice PDF caller
     // per plan §3.6. SOV rowAmount comes straight from scheduled_value.
     const rowAmount = isSov
       ? (parseFloat(sov.scheduled_value) || 0)
+      : isTM ? (parseFloat(l.amount) || 0)   // its own amount; nothing larger to be a slice of
       : (wtc ? calcWtcPrice(wtc, undefined, usesExactPricing(proposal)) : 0);
+    // A day row has no percentage — show the hours, which is what the column
+    // means for this line kind.
     const billingPct = l.billing_pct ?? 0;
+    const pctText = isTM
+      ? ([l.reg_hours > 0 ? `${l.reg_hours} reg` : null,
+          l.ot_hours  > 0 ? `${l.ot_hours} OT`   : null,
+          l.dt_hours  > 0 ? `${l.dt_hours} DT`   : null].filter(Boolean).join(" · ") || "hrs")
+      : `${billingPct}%`;
     const lineTotal  = l.amount ?? 0;
 
     // Wrap long description labels against the width available before the amount col.
@@ -304,7 +319,7 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     doc.text(fmt$(rowAmount), colAmtX, y, { align: "right" });
 
     // Billing %
-    doc.text(`${billingPct}%`, colPctX, y, { align: "right" });
+    doc.text(pctText, colPctX, y, { align: "right" });
 
     // Line total (bold)
     doc.setFont("helvetica", "bold");

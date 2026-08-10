@@ -786,7 +786,12 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 {error && <div style={{ color: C.red, fontSize: 12, fontFamily: F.ui, maxWidth: 200 }}>{error}</div>}
-                <Btn onClick={handleCreate} disabled={saving || (selProposal.is_archive_proposal ? !(parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) > 0) : !hasAnyPct)}>
+                {/* THIRD copy of the "needs a percentage" gate. §4.4 fixed
+                    validatePcts and invoiceTotal and missed this one, so a valid
+                    T&M invoice rendered a correct $6,765 total under a button
+                    that could not be pressed. A day row is billable content just
+                    like a percentage — same condition as validatePcts. */}
+                <Btn onClick={handleCreate} disabled={saving || (selProposal.is_archive_proposal ? !(parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) > 0) : (!hasAnyPct && !hasAnyDayRow))}>
                   {saving ? "Creating…" : "Create Invoice"}
                 </Btn>
               </div>

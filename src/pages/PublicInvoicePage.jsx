@@ -55,8 +55,16 @@ export default function PublicInvoicePage() {
       // the customer's browser: our cost basis and our margin, on an invoice.
       //
       // Same class as audit finding H6, which is why PublicSigningPage was moved
-      // behind an RPC and told not to import calc helpers. This page still reads
-      // through PostgREST, so the allow-list IS the boundary here.
+      // behind an RPC and told not to import calc helpers.
+      //
+      // BUT THIS ALLOW-LIST IS NOT THE SECURITY BOUNDARY — corrected 2026-08-10
+      // by security review. proposal_wtc carries a TABLE-level anon SELECT grant,
+      // so a link holder can query burden_rate / markup_pct / pw_rate / materials
+      // / discount straight from PostgREST regardless of what this page selects.
+      // The real boundary is the DB grant plus RLS. This change removes the cost
+      // basis from the DOM, which is worth doing, but the direct-query path is
+      // still open and predates this build — see backlog S13, which hardens
+      // proposal_wtc the way invoices is hardened.
       //
       // calcWtcPrice needs the pricing inputs to compute a percent line's full
       // value, so those cannot simply be dropped — but the invoice already stores

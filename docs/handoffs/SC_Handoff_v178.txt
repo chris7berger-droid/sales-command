@@ -290,6 +290,7 @@ POINTERS ADDED
      (a timestamptz, the right shape) is populated on only 4 of 127. Either backfill that path so
      every send writes it, or add `invoices.sent_instant timestamptz`. Until then this class of
      question stays unanswerable after the fact. Migration lives in command-suite-db.
+     FILED 2026-08-07 as **B68** (T3, Sev 4 · Like 3 · Eff half-day) — see docs/BACKLOG.md.
   6. THE GENERAL LESSON, AND IT IS THE POINT OF THIS ADDENDUM: "undetectable" was a conclusion
      reached from ONE column instead of from the schema. `created_at` was sitting right there,
      already in a query result printed earlier in the same session. Before declaring data

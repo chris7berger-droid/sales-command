@@ -183,8 +183,21 @@ export function calcWtcPrice(wtc, markup_override_pct, exact = false) {
   return roundPrice(labor.total + mats + trav - (wtc.discount || 0), exact);
 }
 
+// Canonical contract value of a proposal. Rate-card (T&M) WTCs contribute $0:
+// they are an hourly rate sheet, not committed work, so they carry no fixed
+// contract dollars and must never inflate a proposal/contract total (F44). T&M
+// is billed as-incurred via day rows, tracked separately from contract value.
+// This is the ONE fixed-total primitive — route every "sum the WTCs into a
+// proposal/contract total" site through it, never a hand-rolled reduce, so the
+// rate-card exclusion cannot drift between screens. NOTE: this is a *display/
+// total* primitive; it is NOT `calcWtcPrice` (the per-line BILLING primitive),
+// which must stay rate-card-agnostic — zeroing that one is the archive/pay-app
+// invoice-zeroing trap (Data Integrity Rule #6).
 export function calcProposalTotal(wtcs, markup_override_pct, exact = false) {
-  return (wtcs || []).reduce((sum, w) => sum + calcWtcPrice(w, markup_override_pct, exact), 0);
+  return (wtcs || []).reduce(
+    (sum, w) => sum + (w?.is_rate_card ? 0 : calcWtcPrice(w, markup_override_pct, exact)),
+    0
+  );
 }
 
 // ── Contract billed-to-date ─────────────────────────────────────────────

@@ -526,9 +526,7 @@ function Screen3({ targets, setTarget, sourceWtcs, sourceTotal, sp, expandedWtcs
 
       {/* Per-sister pricing cards */}
       {targets.map((t, idx) => {
-        const sisterTotal = (sourceWtcs || []).reduce(
-          (sum, w) => sum + calcWtcPrice(w, parseFloat(t.markup_override_pct) || 0, exact), 0
-        );
+        const sisterTotal = calcProposalTotal(sourceWtcs, parseFloat(t.markup_override_pct) || 0, exact); // excludes rate cards (F44)
         const delta = sisterTotal - sourceTotal;
         const expanded = expandedWtcs[idx];
         const overrideVal = t.markup_override_pct;
@@ -631,9 +629,7 @@ function Screen4({ targets, sp, sourceWtcs, sourceTotal, displayLabel, saving, e
       {/* Sister cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginBottom: 20 }}>
         {targets.map((t, idx) => {
-          const sisterTotal = (sourceWtcs || []).reduce(
-            (sum, w) => sum + calcWtcPrice(w, parseFloat(t.markup_override_pct) || 0, exact), 0
-          );
+          const sisterTotal = calcProposalTotal(sourceWtcs, parseFloat(t.markup_override_pct) || 0, exact); // excludes rate cards (F44)
           const contacts = contactsByCustomer[t.customer_id] || [];
           const signer = contacts.find(c => c.id === t.primary_contact_id);
           const overridePp = t.markup_override_pct != null ? (t.markup_override_pct >= 0 ? `+${t.markup_override_pct}` : `${t.markup_override_pct}`) : "+0";

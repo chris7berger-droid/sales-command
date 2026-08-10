@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
-import { fmt$, fmt$c } from "../lib/utils";
-import { calcWtcPrice, usesExactPricing } from "../lib/calc";
+import { fmt$, fmt$c, rateCardLabel } from "../lib/utils";
+import { calcWtcPrice, calcProposalTotal, usesExactPricing } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 
 function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove }) {
@@ -186,7 +186,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
   // the era's rounding per work type) — never a hand-rolled raw sum here. This
   // line printing its own un-rounded total, while the invoice billed the rounded
   // one, is what made customers pay cents short and triggered the 6/26 work.
-  const proposalPrice = wtcs.reduce((s, w) => s + calcWtcPrice(w, undefined, exactPricing), 0);
+  const proposalPrice = calcProposalTotal(wtcs, undefined, exactPricing); // excludes rate cards (F44)
 
   // Combine all Sales SOWs
   const combinedSOW = wtcs
@@ -370,8 +370,9 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
                         </div>
                         {arr.length > 1 && (
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, padding: "8px 18px", background: "rgba(48,207,172,0.08)", borderRadius: 6, border: "1px solid rgba(48,207,172,0.25)" }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: "#4a4238", letterSpacing: "0.06em", textTransform: "uppercase" }}>Work Type {i + 1}{wtc.work_types?.name ? ` — ${wtc.work_types.name}` : ""} Total</div>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: "#1c1814" }}>{money(wtcTotal)}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#4a4238", letterSpacing: "0.06em", textTransform: "uppercase" }}>Work Type {i + 1}{wtc.work_types?.name ? ` — ${wtc.work_types.name}` : ""}{wtc.is_rate_card ? " — T&M Rate" : " Total"}</div>
+                            {/* F44: a rate card prints its hourly rate, not a fixed line total, and adds $0 to the Proposal Total. */}
+                            <div style={{ fontSize: wtc.is_rate_card ? 14 : 16, fontWeight: 800, color: "#1c1814" }}>{wtc.is_rate_card ? rateCardLabel(wtc) : money(wtcTotal)}</div>
                           </div>
                         )}
                       </div>

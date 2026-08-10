@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { selectableWorkTypes } from "../lib/workTypes";
 import { fetchAll } from "../lib/supabaseHelpers";
-import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice as calcWtcTotal, roundPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
+import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice as calcWtcTotal, calcProposalTotal, roundPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 import { saveCatalogRow, catalogErrorMessage } from "../lib/materialsCatalog";
 import Checkbox from "../components/Checkbox";
@@ -332,10 +332,11 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
       </div>
 
       {/* Rate card — T&M work types author a RATE, not a price (plan §2.2).
-          Shown ALONGSIDE the pricing fields below, not instead of them: those
-          keep saving exactly as they do today, so a rate card still computes to
-          its hourly figure and still counts toward the proposal total, identical
-          to production. Making it stop counting is backlog F44. */}
+          As of F44 a rate card contributes $0 to every proposal/contract total
+          (calcProposalTotal excludes is_rate_card) and renders as an hourly rate
+          on the proposal, PDF, and signing page. The pricing fields below still
+          save as before (burden_rate no longer moves money on a rate card, so
+          it is now vestigial here — a follow-up UI cleanup may hide it). */}
       {data.is_rate_card && (
         <div style={{ marginBottom: 14, padding: "12px 14px", background: T.greenLight, border: `1.5px solid ${T.green}`, borderRadius: 8 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.gray700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>
@@ -2241,7 +2242,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     if (proposalId) {
       const exact = await resolveExact(); // write-time era (review #1), not the possibly-unloaded render value
       const { data: allWtcs } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", proposalId);
-      const proposalTotal = (allWtcs || []).reduce((sum, w) => sum + calcWtcTotal(w, undefined, exact), 0);
+      const proposalTotal = calcProposalTotal(allWtcs, undefined, exact); // excludes rate cards (F44)
       await supabase.from("proposals").update({ total: proposalTotal }).eq("id", proposalId);
     }
     setSaved(true);
@@ -2268,7 +2269,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     if (proposalId) {
       const { data } = await supabase.from("proposal_wtc").select("*").eq("proposal_id", proposalId);
       allWtcs = data || [];
-      const proposalTotal = allWtcs.reduce((sum, w) => sum + calcWtcTotal(w, undefined, exact), 0);
+      const proposalTotal = calcProposalTotal(allWtcs, undefined, exact); // excludes rate cards (F44)
       await supabase.from("proposals").update({ total: proposalTotal }).eq("id", proposalId);
     }
     if (wtcId) {

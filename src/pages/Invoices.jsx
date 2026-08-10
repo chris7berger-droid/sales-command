@@ -220,9 +220,34 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
     setRateCards((wtcData || []).filter(w => w.is_rate_card));
     setExistingLines(linesData || []);
 
-    const workTypeNames = (wtcData || []).map(w => w.work_types?.name).filter(Boolean).join(", ");
+    // Dedupe: three rate cards all carry the work type "T&M", so the raw join
+    // produced "Specialty, T&M, T&M, T&M" in customer-facing copy.
+    const workTypeNames = [...new Set((wtcData || []).map(w => w.work_types?.name).filter(Boolean))].join(", ");
     if (cfg.default_invoice_intro) setIntro(applySub(cfg.default_invoice_intro, workTypeNames));
-    if (cfg.default_invoice_description) setDescription(applySub(cfg.default_invoice_description, workTypeNames));
+
+    // Work Description prints on the invoice above the Amount Due. When the
+    // proposal carries rate cards, seed it with the approved rates broken out —
+    // a GC reviewing a T&M invoice wants to see the rate it is being charged at
+    // stated on the invoice, not only implied by the line amounts. Editable; this
+    // is a starting point, not a lock.
+    const cards = (wtcData || []).filter(w => w.is_rate_card && parseFloat(w.rate_amount) > 0);
+    const CLASS_LABEL = { regular: "Straight time", ot: "Time and a half", dt: "Double time" };
+    const CLASS_ORDER = ["regular", "ot", "dt"];
+    const rateBlock = cards.length
+      ? "Time & materials billed at the approved rates:\n" +
+        CLASS_ORDER
+          .map(cls => cards.find(c => c.rate_class === cls))
+          .filter(Boolean)
+          .map(c => `  ${CLASS_LABEL[c.rate_class]} — ${fmt$c(parseFloat(c.rate_amount) || 0)} per hour`)
+          .join("\n")
+      : "";
+    const tenantDefault = cfg.default_invoice_description
+      ? applySub(cfg.default_invoice_description, workTypeNames)
+      : "";
+    // Both when both exist — the tenant's standing wording still applies to the
+    // fixed-price half of a mixed invoice.
+    const seeded = [tenantDefault, rateBlock].filter(Boolean).join("\n\n");
+    if (seeded) setDescription(seeded);
 
     // Init billing pcts to 0
     const pcts = {};

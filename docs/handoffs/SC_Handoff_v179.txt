@@ -1,0 +1,296 @@
+SC_Handoff_v179 — T&M billing: the signed paper ticket, typed onto an invoice
+=============================================================================
+Date: 2026-08-10
+Repo/branch: sales-command @ feat/tm-tickets (32cdb41) — PUSHED, **NOT MERGED**
+Paired repo: command-suite-db — one migration MERGED + LIVE (8b62568), one
+  authored + rehearsed + **NOT PUSHED** on fix/invoices-anon-nte-amount (0d1b93e)
+Prior: v178 (sent_at date bug). Mode: plan → build, 7 steps.
+Gates: buildvsplan 0/0 · code-review 0 blockers · security-review 0 exploitable
+Prod DATA writes: YES — see PROD DATA WRITES. Includes a repair to a REAL customer
+  job whose number was hijacked by a test fixture. Read that section.
+
+
+███ DO THIS NEXT — IN THIS ORDER ███████████████████████████████████████████████
+
+Steps 1–3 MUST happen in this order. Reversing 1 and 3 breaks EVERY customer
+invoice link (not just T&M ones) in the window between.
+
+  [ ] 1. command-suite-db: merge fix/invoices-anon-nte-amount → main, then
+         `npm run db:push`
+         WHY FIRST: PublicInvoicePage.jsx selects invoices.nte_amount. `invoices`
+         is a grant-hardened table (anon has NO table-level SELECT; each visible
+         column is granted one at a time), so the new column is invisible to anon
+         until this grant lands. PostgREST fails the WHOLE query on one denied
+         column → every invoice link 42501s.
+         Already done: rehearsed clean, rollback authored, safety + collision +
+         invoice-lock gates all pass.
+
+  [ ] 2. sales-command: deploy the edge function
+         `supabase functions deploy qb-sync-invoice --no-verify-jwt`
+         WHY: it now prefers line.description so a week of T&M day rows syncs as
+         distinct lines instead of five identical "T&M" rows.
+         Until deployed, T&M invoices sync with the old labels. Dollars are
+         correct either way — this is labelling only.
+
+  [ ] 3. sales-command: merge feat/tm-tickets → main (Vercel auto-deploys)
+
+  [ ] 4. POST-PUSH HOUSEKEEPING for the nte_amount grant — three things, together.
+         Skipping these leaves the rehearsal gate stale, which is the exact
+         failure fixed on 2026-08-07 (O11).
+           a) delete `public.invoices.nte_amount` from
+              command-suite-db/scripts/rehearse/anon_hardened_pending.txt
+              (it does NOT clear itself — no --pre check queries prod)
+           b) refresh supabase/baseline/prod_public_schema.sql
+              (`supabase db dump --linked -f …`) and RE-ADD the hand-edited
+              `REVOKE SELECT ON TABLE "public"."invoices" FROM "anon";` before the
+              invoices column grants — no dump emits an absence
+           c) bump the counts the change moved: EXPECT_COLUMN_GRANTS in
+              scripts/rehearse.sh and REHEARSE_EXPECT_INVOICES_ANON_COLS in
+              scripts/rehearse/lib.sh
+         Verify with `./scripts/rehearse.sh --against-prod` → must be green.
+
+  [ ] 5. Smoke on PROD after merge: open a customer invoice link (any invoice,
+         not only T&M). If it says "Invoice not found", step 1 did not land.
+
+  [ ] 6. Tear down the test fixture when finished with it:
+         `supabase db query --linked -f scripts/tm_fixture_teardown.sql`
+         Removes job 999 + its proposal, WTCs and invoices. Guarded — asserts
+         call_log.id 3810 and refuses if job_number 999 resolves anywhere else.
+         Do this BEFORE F44 so that work isn't reasoning about test data.
+
+  [ ] 7. F44 (now T1) in a separate fix terminal. See NEXT SESSION POINTERS.
+
+
+SESSION SUMMARY
+───────────────
+Sales Command could only invoice a proposal as a PERCENTAGE of a fixed price.
+T&M has no fixed price — only a rate — so there was nothing to take a percentage
+of. Proposal 7215 P7 encodes $105/$125/$150 per hour as work types with
+regular_hours = 1, which makes a $105/hr rate look like a $105 line item. That
+line could produce exactly $105 of invoicing, for the life of the job.
+
+HDSP already solves this on paper: the T&M Authorization is filled out in the
+field, priced, signed by the GC's superintendent, and turned in. This build makes
+that paper billable — one invoice line per work day, carrying date, crew size,
+area, and hours split by rate class.
+
+Planning ran two adversarial rounds and one model replacement:
+  round 1  T&M ticket as its own object (3 tables, 12 policies, own routes)
+           → 23 findings, 1 Critical. Model replaced.
+  round 2  the invoice line IS the ticket
+           → 14 findings, 0 Critical. −39%. Model validated.
+  v3       billing half only; rate-card exclusion split to F44.
+The design question was settled by DELETING the ticket object, not by defending
+it. What remained was concentrated in one mechanism, which became its own job.
+
+
+CHANGES SHIPPED
+───────────────
+DB (command-suite-db, LIVE): 20260810120000 — 13 additive columns, no tables, no
+  policies, no triggers, no function replacements. All nullable, no backfill.
+    proposal_wtc   is_rate_card, rate_class (CHECK regular|ot|dt), rate_amount
+    invoice_lines  work_date, crew_count, area, reg/ot/dt _hours and _rate
+    invoices       nte_amount
+DB (command-suite-db, NOT PUSHED): 20260810160000 — GRANT SELECT(nte_amount) on
+  invoices TO anon. See DO THIS NEXT step 1.
+
+WTCCalculator.jsx  Picking a T&M work type reveals a Rate Card panel (class +
+  $/hr). OT and Tax Rate hidden on a rate card — OT is expressed by having a
+  SECOND card, and tax only ever seeds material rows. Burden Rate deliberately
+  STAYS: it still drives what the card contributes to the proposal total, and
+  hiding a live money field is the mistake the audit caught.
+
+Invoices.jsx  Rate cards filtered out of the percentage list. New T&M day-row
+  form with live total. Weekly not-to-exceed. Work Description seeds with the
+  approved rates. Three separate copies of the "needs a billing %" rule fixed.
+  Preserve branch so editing can't zero a T&M line. Void-and-replace no longer
+  carries T&M lines at all.
+
+PublicInvoicePage.jsx  Day breakdown under each T&M line. NTE prints either way.
+  Line select narrowed from proposal_wtc(*) to an allow-list; calc helpers
+  removed; percent lines read locked_line_total instead of recomputing.
+
+CallLogDetail.jsx  Job Totals rebuilt as ONE ledger:
+  Contract + T&M billed = Job value; Billed / Remaining on contract / % Invoiced.
+
+qb-sync-invoice  Prefers line.description. NOT DEPLOYED.
+invoicePdf.js    T&M branch added (unreached today — see DECISIONS).
+
+
+DECISIONS
+─────────
+1. THE INVOICE LINE IS THE TICKET. No ticket object. Round 1 built one; it
+   generated 3 tables, 12 policies, its own routes, and the plurality of the
+   findings. Deleting it dropped the count 39% and dissolved the Critical.
+
+2. RATE CARDS STILL COUNT TOWARD PROPOSAL TOTALS. Deliberate scope boundary.
+   P7 still reads $28,379.64 including $380 of phantom hours — identical to
+   production today. That is F44, now T1. See NEXT SESSION POINTERS.
+
+3. NOT-TO-EXCEED IS PER INVOICE (per week), not per job. A GC may impose a cap
+   partway through; billing is weekly, so the week is where the call is made.
+   A job-level ceiling was considered and rejected — no live use for it.
+
+4. RETENTION IS ALL-OR-NOTHING on an invoice, hours included. Chris: some
+   customers do hold retention on T&M. Retaining on contract work only is not
+   expressible and was NOT filed — no customer needs it.
+
+5. VOID-AND-REPLACE DROPS T&M LINES ENTIRELY — rows and dollars.
+   This REVERSES what the round-2 audit asked for (it wanted the day fields
+   carried forward). Reason: a day row is a TRANSCRIPTION of a signed paper. If
+   an invoice is being voided, the correctness of that transcription is exactly
+   what may be in question — reissuing should mean re-reading the paper, not
+   copying a previous reading. Compounding it: a T&M line's hours are
+   preserve-only once billed, so a carried-over wrong figure could not be
+   corrected. Percent/SOV/archive lines still copy: derived, cannot be
+   independently wrong.
+
+6. JOB TOTALS IS ONE LEDGER, NOT TWO BOXES. First build put a T&M row beside the
+   contract figures and read "BILLED $0" directly above "BILLED $6,765".
+   Design research: every construction job summary surveyed uses one running
+   ledger (original + approved changes = revised value, then billed against it) —
+   G702, Mastt, Foundation, Procore. Billed T&M hours grow the job's value
+   exactly as an approved change order does. Two boxes would still need two
+   "Billed" labels — the collision moves rather than resolves.
+
+7. FIXTURE NUMBERED BELOW THE LIVE SEQUENCE. Learned the hard way — see PROD
+   DATA WRITES.
+
+8. THE PDF BRANCH WENT IN THOUGH NOTHING REACHES IT. invoicePdf.js has no
+   regular-invoice caller today. The branch was added anyway rather than filed as
+   a warning, because wiring the future caller would otherwise inherit a renderer
+   that prints $105 as the value of a $4,460 line.
+
+
+VERIFICATION
+────────────
+buildvsplan     0 Tier-1, 0 Tier-2. All 13 columns probed live. Confirmed: no
+                fourth copy of the percentage gate; the edit-path preserve branch
+                fires; the two halves of the job ledger use token-for-token
+                identical filters; work_date written with tod(), never
+                toISOString().
+code-review     0 ship-blockers. 3 residuals filed as F46 — closed the same day
+                (1 fixed, 1 verified absent, 1 folded into F44).
+security-review 0 exploitable-today introduced. Verified against live prod:
+                invoice_lines and proposal_wtc are RLS-scoped to the invoice's own
+                viewing_token; no cross-customer walk.
+Smoke (Chris)   Ticket CCF_000982 entered as two day rows → $6,765 exactly
+                matching Paul's handwritten total. Edit + save with no changes →
+                still $6,765 (confirmed in the DB, billing_pct still NULL, not
+                zeroed). Mixed invoice: Specialty 100% + both day rows = $9,105,
+                less 5% retention = $8,650. Job screen ledger correct.
+NOT TESTED      Void-and-reissue of a T&M invoice. Voiding requires sending, and
+                the fixture cannot send. Recorded as untested, NOT assumed working.
+
+
+PROD DATA WRITES MADE THIS SESSION
+──────────────────────────────────
+1. FIXTURE CREATED: call_log 3810, proposal 1b064211-fa9b-4d82-b18a-35f8554aa16f,
+   4 proposal_wtc rows, invoices 10155 (deleted) + 10156. Customer "TEST TEST",
+   no QuickBooks link, qb_skip_sync on, sales_name deliberately NULL.
+   Teardown: scripts/tm_fixture_teardown.sql
+
+2. **A REAL CUSTOMER JOB WAS RENUMBERED — AND WHY.**
+   The fixture was created as job 99001, chosen because a high number "looks
+   obviously fake". NewInquiryWizard.jsx:97-99 mints a new job as
+   max(job_number) + 1, so 99001 became the maximum and the next REAL job was
+   created as 99002 instead of 10232.
+       call_log 3811 — Prism Realty Corp, "Roof top crack repair parapet walls"
+       99002 → 10232 (display_job_number updated to match)
+   That job had a proposal but no invoices and nothing sent to Schedule, so there
+   were no stored job-number strings to chase. Next new job is 10233.
+   IF THAT JOB WAS QUOTED OR DISCUSSED AS 99002 WITH THE CUSTOMER, IT IS NOW 10232.
+   Fixture moved to 999. Rule recorded in the fixture scripts and plan §8.1:
+   a test job must be numbered BELOW the live sequence, never above it.
+
+3. Fixture proposal moved Draft → Sold via SQL (NOT the app button — that would
+   have created an undeletable QuickBooks customer). Safe because
+   resolveRepForProposal returns job_has_no_sales_rep before sending when
+   call_log.sales_name is blank. KEEP THAT FIELD NULL on job 999.
+
+4. P7 (job 7215) VERIFIED UNTOUCHED: still Sent, still $28,379.64, updated_at
+   still 2026-08-06.
+
+
+NOT TOUCHED
+───────────
+- P7 / job 7215. Real T&M billing on it begins after it is sold in the ordinary
+  course. Do NOT press Mark Sold to unblock anything — it creates a QuickBooks
+  customer the app cannot delete, fires an unsendable email to the sales rep, and
+  flips the customer's live link to "Proposal Accepted".
+- proposals.total, the proposal PDF, and the signing page — all F44.
+- SalesDash / Home billing goals: T&M revenue does not count toward them (O4,
+  out of scope either way).
+
+
+NEXT SESSION POINTERS
+─────────────────────
+F44 — T1 — RAISED FROM T2 THIS SESSION. Rate cards should not count as contract
+  dollars. The "not urgent, harms nothing" rationale EXPIRED: the new Job Totals
+  ledger turns the $380 into an actionable figure. Observed on job 999 with the
+  material fully billed:
+      Contract $2,720 ($2,340 material + $380 phantom) · Contract billed $2,340
+      Remaining on contract $380 (nothing — it IS the three rate cards)
+      % Invoiced 96% (should be 100%)
+  "Remaining $380" invites billing $380 that does not exist.
+  TRAPS, all verified this session:
+    · proposals.total has THREE writers — ProposalDetail.jsx:341,
+      WTCCalculator.jsx:2161, :2188 — all unfiltered reduces.
+    · calcProposalTotal (calc.js:186) has exactly ONE caller, so seven of eight
+      sum-sites hand-roll their own reduce. Fixing "the aggregator" is not enough.
+    · WTCCalculator.handleSave writes regular_hours/markup_pct/burden_rate
+      unconditionally — hiding the inputs does not neutralise calcWtcPrice.
+    · The signing page needs get_public_proposal_view REPLACED (SECURITY DEFINER;
+      CREATE OR REPLACE resets SECURITY DEFINER and SET search_path unless
+      restated) to carry is_rate_card / rate_amount / rate_class.
+    · DO NOT half-fix it on the job screen — two screens disagreeing is worse
+      than one consistent wrong number, and ProposalPDFModal.jsx:189 computes its
+      own total, so the customer-facing work is COUPLED, not deferrable.
+  Also fold in F46 item 3: a CHECK/trigger reconciling invoice_lines.amount
+  against hours × rate (F44 is already opening a migration).
+
+F45 — T2 — Revise an invoice in place instead of void-and-renumber. GCs want the
+  original number kept. syncedLock (Invoices.jsx:1996) locks dollar fields once an
+  invoice has a qb_invoice_id, so void is the only remaining move. QuickBooks
+  itself reactivates a voided invoice cleanly when you edit and save it, so the
+  fix is to reactivate the SAME record, not spawn a successor. qb-sync-invoice
+  already supports update in place (isUpdate :147, applied :381) — the capability
+  exists and is unreachable from the UI. Whatever Revise unlocks must PRESERVE,
+  not recompute: there are now four preserve branches in handleSaveEdit.
+
+S13 — T2 — proposal_wtc carries a TABLE-level anon SELECT grant, so an
+  invoice-link holder can query burden_rate / markup_pct / pw_rate / materials /
+  discount directly from PostgREST. This build removed those from the DOM; it did
+  NOT close the hole — the client was never the boundary. Pre-existing. Harden it
+  the way invoices is hardened. Sequencing trap: the rehearsal gate currently
+  assumes invoices is the ONLY hardened table
+  (anon_hardened_allowlist.txt:4) — widen that first or the gate fails on drift.
+
+F46 — CLOSED same day. Kept in the log because item 2 is a false positive worth
+  not re-raising: ProposalDetail's archive card is NOT job-wide; linkedInvoices is
+  loaded .eq("proposal_id", p.id) at :109.
+
+
+FILES TO KNOW
+─────────────
+docs/plans/tm_billing.md        the plan. §8 = fixture procedure, §13 = F44 stub
+docs/plans/tm_tickets.md        superseded pointer (v1/v2 history)
+scripts/tm_fixture*.sql         create / unlock / reset / teardown
+src/pages/Invoices.jsx          day-row form, preserve branch, void-and-replace
+src/components/CallLogDetail.jsx  the one-ledger Job Totals
+src/pages/PublicInvoicePage.jsx   customer view + the allow-list correction
+src/pages/WTCCalculator.jsx     rate-card panel
+command-suite-db/supabase/migrations/20260810120000_*  the 13 columns (LIVE)
+command-suite-db/supabase/migrations/20260810160000_*  nte grant (NOT PUSHED)
+
+
+GIT STATE
+─────────
+sales-command      feat/tm-tickets @ 32cdb41 — pushed, NOT merged, clean tree
+                   ~25 commits ahead of main; main last at aecd83e (v178)
+command-suite-db   main @ 9a2baf8 (Migration A merged + pushed + LIVE)
+                   fix/invoices-anon-nte-amount @ 0d1b93e — pushed, NOT merged,
+                   migration NOT applied
+Also merged to command-suite-db main earlier this session: the O11 rehearsal-gate
+fix (9c396d8) — baseline re-dumped, --against-prod now runs on every rehearsal,
+and a permanent canary proves the gate can still fail.

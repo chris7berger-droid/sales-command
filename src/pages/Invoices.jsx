@@ -791,7 +791,11 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
                     T&M invoice rendered a correct $6,765 total under a button
                     that could not be pressed. A day row is billable content just
                     like a percentage — same condition as validatePcts. */}
-                <Btn onClick={handleCreate} disabled={saving || (selProposal.is_archive_proposal ? !(parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) > 0) : (!hasAnyPct && !hasAnyDayRow))}>
+                {/* Due date is required for every invoice kind — handleCreate has
+                    blocked on it all along, but the BUTTON did not, so the only
+                    way to discover it was to press and read an error. A field
+                    marked * should disable the submit, not ambush it. */}
+                <Btn onClick={handleCreate} disabled={saving || !dueDate || (selProposal.is_archive_proposal ? !(parseFloat(String(archiveAmount).replace(/[^0-9.\-]/g, "")) > 0) : (!hasAnyPct && !hasAnyDayRow))}>
                   {saving ? "Creating…" : "Create Invoice"}
                 </Btn>
               </div>

@@ -219,7 +219,12 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
       }
       const [{ data: props }, { data: invs }] = await Promise.all([
         supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, cloned_from_proposal_id, is_archive_proposal, customer_id, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
-        supabase.from("invoices").select("id, status, amount, job_name, voided_at, void_reason, retention_release_of").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
+        // Lines are embedded so T&M dollars can be told apart from contract
+        // dollars. sumContractBilled works on INVOICES and sums invoice.amount,
+        // so it cannot distinguish them — a mixed invoice carries both under one
+        // figure. One extra embed on a query that already runs, not a second
+        // round-trip.
+        supabase.from("invoices").select("id, status, amount, job_name, voided_at, void_reason, retention_release_of, invoice_lines(amount, reg_hours, ot_hours, dt_hours, proposal_wtc:proposal_wtc_id(is_rate_card, rate_class, rate_amount))").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
       ]);
       setLinkedProposals(props || []);
       setLinkedInvoices(invs || []);
@@ -895,7 +900,29 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         const historical = linkedProposals.filter(p => p.status === "Sold")
           .reduce((s, p) => s + (parseFloat(p.historical_billed_amount) || 0), 0);
         const billedSC = sumContractBilled(linkedInvoices);
-        const billed = historical + billedSC;
+
+        // T&M is NOT contract work. It has no scheduled value to bill down, so
+        // leaving its dollars in `billed` pushes Remaining negative — about $6,765
+        // further off per week on job 7215. Split it out and give it its own row
+        // instead of bending a box that assumes a fixed contract.
+        //
+        // Computed off the same live-invoice rule sumContractBilled uses (skip
+        // voided, deleted, retention-release) so the two halves cannot disagree.
+        const tmLines = (linkedInvoices || [])
+          .filter(i => i && !i.voided_at && !i.deleted_at && !i.retention_release_of)
+          .flatMap(i => (i.invoice_lines || []).filter(l => l.proposal_wtc?.is_rate_card));
+        const tmBilled = tmLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
+        const tmHours = tmLines.reduce((h, l) => ({
+          reg: h.reg + (parseFloat(l.reg_hours) || 0),
+          ot:  h.ot  + (parseFloat(l.ot_hours)  || 0),
+          dt:  h.dt  + (parseFloat(l.dt_hours)  || 0),
+        }), { reg: 0, ot: 0, dt: 0 });
+        const tmRates = [...new Map(
+          tmLines.map(l => l.proposal_wtc).filter(c => c && parseFloat(c.rate_amount) > 0)
+            .map(c => [c.rate_class, parseFloat(c.rate_amount)])
+        ).entries()];
+
+        const billed = historical + billedSC - tmBilled;
         const remaining = sold - billed;
         const pct = sold > 0 ? Math.round((billed / sold) * 100) : 0;
         const cellLabel = { fontSize: 10.5, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 };
@@ -909,6 +936,37 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
               <div><div style={cellLabel}>Remaining</div><div style={cellValue}>{fmt$(remaining)}</div></div>
               <div><div style={cellLabel}>% Invoiced</div><div style={cellValue}>{pct}%</div></div>
             </div>
+
+            {/* T&M — its own row, beside the contract figures rather than inside
+                them. Sold/Billed/Remaining above describe fixed-price work only;
+                these dollars have no scheduled value to count down. */}
+            {(tmBilled > 0 || tmRates.length > 0) && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center" }}>
+                <div>
+                  <div style={cellLabel}>T&amp;M</div>
+                  <div style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui, marginTop: 2 }}>
+                    {tmRates.length > 0
+                      ? ["regular", "ot", "dt"]
+                          .map(cls => { const hit = tmRates.find(([k]) => k === cls); return hit ? fmt$(hit[1]) : null; })
+                          .filter(Boolean).join(" / ") + " per hr"
+                      : "billed hourly"}
+                    {(tmHours.reg + tmHours.ot + tmHours.dt) > 0 && (
+                      <span style={{ color: C.textFaint }}>
+                        {"  ·  "}
+                        {[tmHours.reg > 0 ? `${tmHours.reg} reg` : null,
+                          tmHours.ot  > 0 ? `${tmHours.ot} OT`   : null,
+                          tmHours.dt  > 0 ? `${tmHours.dt} DT`   : null].filter(Boolean).join(" · ")}
+                        {" hrs"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={cellLabel}>Billed</div>
+                  <div style={cellValue}>{fmt$(tmBilled)}</div>
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}

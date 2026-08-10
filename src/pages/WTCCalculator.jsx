@@ -2094,7 +2094,10 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     // is offered on a new one.
     setBidding(b => {
       const picked = workTypes.find(w => String(w.id) === String(newWorkTypeId));
-      const isTM = /t\s*&\s*m/i.test(picked?.name || "");
+      // Anchor to the whole name being "T&M": only the labor rate card triggers
+      // the hourly-rate panel. "T&M Material" (and any other T&M-prefixed work
+      // type) is a normal priced WTC, not a rate card.
+      const isTM = /^\s*t\s*&\s*m\s*$/i.test(picked?.name || "");
       if (isTM === !!b.is_rate_card) return b;
       return isTM
         ? { ...b, is_rate_card: true }

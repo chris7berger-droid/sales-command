@@ -332,10 +332,11 @@ function BiddingTab({ data, onChange, workTypes, selectedWorkTypeId, onWorkTypeC
       </div>
 
       {/* Rate card — T&M work types author a RATE, not a price (plan §2.2).
-          Shown ALONGSIDE the pricing fields below, not instead of them: those
-          keep saving exactly as they do today, so a rate card still computes to
-          its hourly figure and still counts toward the proposal total, identical
-          to production. Making it stop counting is backlog F44. */}
+          As of F44 a rate card contributes $0 to every proposal/contract total
+          (calcProposalTotal excludes is_rate_card) and renders as an hourly rate
+          on the proposal, PDF, and signing page. The pricing fields below still
+          save as before (burden_rate no longer moves money on a rate card, so
+          it is now vestigial here — a follow-up UI cleanup may hide it). */}
       {data.is_rate_card && (
         <div style={{ marginBottom: 14, padding: "12px 14px", background: T.greenLight, border: `1.5px solid ${T.green}`, borderRadius: 8 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.gray700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>

@@ -4,7 +4,7 @@ Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from c
 
 **Type:** feature
 
-**Status:** PLANNED + ROUND-1 AUDIT RESPONSE APPLIED (2026-08-11) — ready for re-audit. Round-1 (4H/9M/12L, pattern: premise-vs-data-reality) folded in; the one decision (A1) ratified by Chris as **drop Zone 1a**.
+**Status:** PLANNED + ROUND-1 & ROUND-2 AUDIT RESPONSES APPLIED (2026-08-11) — ready for round-3 re-audit. Round-1 (premise-vs-data-reality) and round-2 (fix-pair-interaction: 3 regressions + 14 findings) folded in. Decisions ratified by Chris: A1 = drop Zone 1a; N1 = archive last-touch from archive `raw_data` date; N5 = gone-quiet = newest proposal `created_at`.
 
 **Intent:** Convert the Sales Command home screen into a follow-up screen: **Wants Bid due-date alerts**, a manual schedule-runway bar that flips the screen into outbound mode, an outbound worklist (dormant customers + gone-quiet bids) with outcome logging, and a cross-screen "You have N alerts → Take Action" banner. (The old system's *New Inquiry claim alerts* are intentionally NOT carried over — Amendment A1.) Reference screenshots: `docs/plans/assets/` (committed b3c98b9).
 
@@ -143,27 +143,31 @@ The screen's job is **"keep the crews busy two weeks from now."** It decides wha
 
 Three stacked zones on Home, ordered by urgency, plus a cross-screen banner and a compressed stats footer. New query logic centralizes in one module; zone cards/modals live in `components/followup/` per the V52 "pages = list views, details/modals in components/" rule.
 
-> **Round-1 audit folded in.** Zone 1a (claim) is gone per Amendment A1; the remaining design incorporates findings B1, D1, E1, F1, G1, H1, I1, J1 and the cheap K/ADJ items inline (tagged where they land).
+> **Round-1 + round-2 audits folded in.** Zone 1a (claim) is gone per Amendment A1. Round-1 (B1, C1, D1, E1, F1, G1, H1, I1, J1 + K/ADJ) and round-2 (RG1–RG3 regressions + N1–N14) are incorporated inline, tagged where they land. Round-2 theme was *fix-pair-interaction* — pass-1 fixes that were individually right but broke in combination (see RG1/RG2/RG3 in §2.7/§2.1).
 
 ### 2.1 Data layer — `src/lib/followUp.js` [NEW]
 
-One canonical query module (extend-canonical, don't twin). Exports:
+> **Round-2 rewrite (RG3).** The pass-1 "footer reuses the provider's data" was unbuildable — the provider only held rep-scoped Wants-Bid rows, but the footer needs full pipeline counts + billings %. Restructured to a **single shared snapshot**.
 
-- `fetchBidDueAlerts({ displayName, isRep })` → `stage='Wants Bid'` AND `bid_due` not null AND `bid_due <= tod()`. Rep-scoped by `sales_name === displayName` when `isRep`; Admin/Manager see all. **Ordering (J1):** due-today/overdue sort so **today pins above older stale rows** — order by `bid_due desc` within the ≤-today set is wrong; use "most-recently-due first" so a bid due *today* is never buried under a bid that went stale weeks ago. Spell the comparator in the build.
-- `fetchAlertCount({ displayName, isRep })` → `bidDueAlerts.length` (drives the banner + footer badge). Single fetch reused by the provider (no separate count query).
-- `fetchDormantCustomers()` → **effective customers** whose work is historically sold (**`call_log.stage='Sold'` OR a non-deleted Sold proposal** — D1) with **no `call_log.created_at` within `DORMANT_MONTHS` (=6)**, excluding any customer with an `outreach_log` row in the last `RECONTACT_DAYS` (=14). Returns `{ customerId, name, lastTouch, lastJob, phone }`. Use the effective-customer reconciliation from `CallLog.jsx:100`.
-- `fetchGoneQuietBids()` → `stage='Has Bid'`, no Sold proposal on job, stale by **bid inactivity** (not raw `updated_at` — K3), older than `GONE_QUIET_DAYS` (proposal 30, **[DESIGN-OPEN]**). Same recent-outreach exclusion, **keyed on `customer_id`** (see I1).
-- `logOutcome({ source, outcome, note, customerId, callLogId, loggedBy })` → inserts one `outreach_log` row; **always writes `customer_id`** even for a gone-quiet bid (I1), so both Zone-3 exclusions key on `customer_id` and a worked bid can't reappear in the dormant list. **Verify the insert returned a row** (RLS silent-no-op rule); caller refetches so the target drops off.
+followUp.js issues **exactly ONE `call_log` `fetchAll` and ONE `proposals` `fetchAll`** per load and derives every list from that snapshot **in memory** — bid-due alerts, dormant, gone-quiet, AND the footer. This kills the K1 fan-out (honest pre-fix count was ~6 fetches, `call_log` 3×) and gives the footer real data. The provider (§2.5) holds the snapshot; `refresh()` re-pulls both.
 
-**Cross-cutting (audit):**
-- **Error vs empty (ADJ1/H1):** every loader must distinguish a fetch *error* from *no rows* — `fetchAll` returns `[]` on error, which would paint a false "All clear." Each Zone 2/3 fetch is **fail-soft**: `try/catch → console.warn → explicit error/empty state`, never a silent green. This also gives a **degrade path if the preview deploys before the migrations land** (H1): a `relation "outreach_log" does not exist` must NOT crash Home (the post-auth landing) to the ErrorBoundary — Zone 2/3 catch and render empty.
-- **Ordering + pagination (K9/K10):** `fetchDormantCustomers`/`fetchGoneQuietBids` MUST pass an explicit `.order()` to `fetchAll` — unordered `.range()` pagination dups/skips past 1000 rows. Exclusion-window comparisons use ISO timestamp math against `outreach_log.created_at`, not `tod()` date-string compares (off at day boundaries).
-- All reads via `fetchAll` (pagination-safe). Thresholds are named consts at the top of the file (one place to tune; §4 keeps automation out).
+Derived selectors (pure, over the snapshot):
+- `bidDueAlerts({ displayName, isRep })` → `stage='Wants Bid'`, `bid_due` not null, `bid_due <= tod()`; rep-scoped by `sales_name === displayName` when `isRep`. **Order (RG2): `bid_due DESC, id DESC`** — most-recently-due first, so a bid due *today* sits above older stale ones (`id DESC` breaks ties — N10). Cap 10 + expander at the UI (§2.2).
+- `alertCount` → `bidDueAlerts.length` (banner + footer badge).
+- `dormantCustomers()` → **effective customers** whose work is historically sold (`call_log.stage='Sold'` OR a non-deleted Sold proposal — D1) with **no real touch within `DORMANT_MONTHS` (=6)**, minus anyone excluded by the recent-outreach rule below.
+  - **Last-touch — N1 + N6 (Chris ratified Option 1, 2026-08-11):** touch date comes from a **touch-map keyed on BOTH `call_log.customer_id` AND each proposal's effective customer** (`CallLog.jsx:100` reconciliation) — so a Sold proposal on *another GC's* job still counts as a touch for that customer (N6, avoids false dormancy). ⚠️ For **archive-lineage** rows (`call_log.archive_record_id` not null), `call_log.created_at` is the **import date, not a real touch** (N1) — the whole historical book would read "touched today" and Zone 3 would ship empty for 6 months. Derive last-touch from the **archive record's real date in `raw_data`** (`archive_record_id → archive_records.raw_data`; candidate fields `job/Bid Due Date` / a sold date — **exact field confirmed at build against live `raw_data`**). Non-archive rows fall back to `created_at`.
+- `goneQuietBids()` → `stage='Has Bid'`, no Sold proposal on the job, stale by **last bid activity older than `GONE_QUIET_DAYS` (=30)**. **Signal — N5 (Chris ratified Option a):** newest **non-deleted proposal `created_at`** on the job, fallback `bid_due`, fallback `call_log.created_at`. No schema change (no `stage_changed_at`). Recent-outreach exclusion keyed on `customer_id` (I1).
+- `logOutcome({ source, outcome, note, customerId, callLogId, loggedBy })` → inserts one `outreach_log` row; **always writes `customer_id`** (I1). **App-side integrity (RG1):** enforce "at least one FK present" *in this function*, NOT via a DB CHECK (see §2.7 RG1 — a CHECK beside SET NULL FKs re-breaks delete). **Verify the insert returned a row** (RLS silent no-op).
+
+**Cross-cutting:**
+- **Recent-outreach exclusion — N8 supersede + N11:** exclusion is computed from the **latest `outreach_log` row per customer** (supersede: latest outcome wins — a `Reached — interested` un-suppresses an earlier mis-tapped `Bad number`), applied as a **server-side `gte(created_at, cutoff)` filter** so the append-only table doesn't get fully loaded on every Home render (N11). Terminal outcomes (`Bad number`) carry a longer suppression window than soft ones (`Left message`) — per-outcome (K4), always reversible by a newer row (N8, replaces "permanent erase").
+- **Error vs empty — N7 (resolves the H1↔ADJ1 contradiction):** loaders return a **three-state** result — `data` / `empty` / `error` — and never collapse error into empty (`fetchAll` returns `[]` on error → false "All clear"). A real error → non-blocking **"couldn't load — retry"**; a missing relation (Postgres **`42P01`**, preview-before-migration) → muted **"not provisioned yet"** note, not a crash.
+- **Pagination — N10/K10:** `fetchAll` accepts a **single** order column, so "explicit order" still dups on `created_at` ties (likely right after bulk imports) — order by **`id`** (or extend `fetchAll` to compound-order). All reads via `fetchAll` (pagination-safe). Thresholds are named consts at the top of the file.
 
 ### 2.2 Zone 1 — Alerts (`components/followup/AlertCard.jsx` [NEW] + Home)
 
 - **Bid-due alerts only** (Zone 1a dropped — Amendment A1). One group: **Bid due reached** (from `fetchBidDueAlerts`).
-- **Display cap (J1):** **10 total**, single **"+N more ▾"** expander revealing the rest inline. (The sketch's per-group ambiguity is resolved: one list, one cap, one expander — the 155-wall anti-pattern the cap exists to prevent.) **Due-today pins above older stale** rows.
+- **Display cap (J1):** **10 total**, single **"+N more ▾"** expander revealing the rest inline. (One list, one cap, one expander — the 155-wall anti-pattern the cap exists to prevent.) Ordered `bid_due DESC, id DESC` per §2.1 (RG2) — **due-today pins above older stale** rows.
 - Card = `AlertCard`: job number + customer + job name + one-line urgency reason (screenshot 2 copy), action **Update** → `navigate('/calllog/'+id)` → opens `CallLogDetail`, where the rep moves stage / pushes `bid_due` / adds a note and saves (`CallLogDetail.jsx:347-367`). Route verified real (audit passed `/calllog/:id`).
 - **Loading state (K14):** while the provider fetch is in flight, render a loading placeholder — **do not flash a false green "All clear."** Empty (loaded, zero rows): "All clear — no bids due."
 - **Return path (K11):** the Update round-trip should return the rep to Home, not strand them on `/calllog`. Spec `navigate(-1)` or nav state so N alerts ≠ N manual back-navigations.
@@ -173,8 +177,11 @@ One canonical query module (extend-canonical, don't twin). Exports:
 
 - Reads `schedule_runway_weeks` + `schedule_runway_note` via **`useTenantConfig()`** (K6) — not a bare `getTenantConfig()` — so the admin edit re-renders through the provider instead of writing around it.
 - Colored bar rule (locked): **weeks ≥ 3 → green · weeks === 2 → yellow · weeks < 2 → red.** Reuse `C.green / C.amber / C.red`. Note beneath; if `schedule_runway_updated_at` present, "updated {fmtD}".
-- ⚠️ **Unset state (E1):** day one `schedule_runway_weeks` is **NULL**, and `null < 2 === true` in JS — plus `config.js:28` merges `{...DEFAULTS, ...data}`, so an explicit DB `null` **overrides** any DEFAULT (the planned DEFAULTS entry does nothing). Without a guard the first morning renders **RED with Zone 3 alarmed**. Spec an explicit **`weeks == null` → neutral "Runway not set — [set it]" state, Zone 3 collapsed.** Guard `Number("") → 0` in the editor so a cleared field doesn't save 0-as-red.
-- **Admin/Manager:** inline editor → `updateTenantConfig({ schedule_runway_weeks, schedule_runway_note, schedule_runway_updated_at: now })` then provider refresh. **Sales:** read-only (`["Admin","Manager"].includes(displayRole)`). Note: the *client* gate is UI-only — the real write guard is the tenant_config UPDATE policy (see §2.7 / ADJ2).
+- ⚠️ **Unset state (E1):** day one `schedule_runway_weeks` is **NULL**, and `null < 2 === true` in JS — plus `config.js:28` merges `{...DEFAULTS, ...data}`, so an explicit DB `null` **overrides** any DEFAULT (the planned DEFAULTS entry does nothing). Without a guard the first morning renders **RED with Zone 3 alarmed**. Spec an explicit **`weeks == null` → neutral "Runway not set — [set it]" state, Zone 3 collapsed.**
+- **Loading state (N14):** while `useTenantConfig()` is still resolving, render a loading placeholder — **do not flash "Runway not set"** before the value arrives.
+- **Admin/Manager:** inline editor → `updateTenantConfig({ schedule_runway_weeks, schedule_runway_note, schedule_runway_updated_at: now })` then provider refresh. **Sales:** read-only (`["Admin","Manager"].includes(displayRole)`).
+  - **Clearing the field (N13):** an emptied number input saves **`null`** (back to unset), not `0` — guard `Number("") → 0` explicitly; the editor distinguishes "cleared → null" from "typed 0 → red".
+  - Note: the *client* gate is UI-only — the real write guard is the tenant_config UPDATE policy (see §2.7 / N2).
 - **This zone's color is the mode switch:** `runwayColor` (green|yellow|red|**unset**) lifts into Home state, driving Zone 3 expansion. Green/unset = Zone 3 collapsed/muted; yellow/red = expanded. This is the "flip."
 
 ### 2.4 Zone 3 — Outbound worklist (`components/followup/OutboundCard.jsx` + `LogOutcomeModal.jsx` [NEW])
@@ -183,33 +190,41 @@ One canonical query module (extend-canonical, don't twin). Exports:
 - **Expansion tied to runway color** (§2.3): green/unset → single collapsed summary line ("N warm leads waiting — expand"); yellow/red → fully expanded, dominates the screen.
 - Card = `OutboundCard`: customer name, last touch, last job, phone (`tel:`), **"Log outcome"**.
 - **Log outcome** → `LogOutcomeModal`: outcome (`Left message` · `Reached — interested` · `Reached — not now` · `Bad number`) + optional note → `logOutcome(...)`. On success the target drops off (recent-outreach exclusion, keyed on `customer_id` — I1); `logged_by` records who called.
-- **Outcome suppression (K4):** a `Bad number` target should not resurface every `RECONTACT_DAYS` forever — suppress terminal outcomes longer (or permanently) vs a soft `Left message`. Spec per-outcome suppression, not a flat 14-day treadmill.
-- Empty (loaded): "No outbound targets — pipeline's warm." Error: explicit, not empty (ADJ1).
+- **Outcome suppression + recovery (K4 + N8):** per-outcome suppression window — terminal `Bad number` suppresses longer than a soft `Left message` — but **never permanently and never irreversibly.** Because UPDATE/DELETE are omitted on `outreach_log` (G1), recovery is a **supersede rule**: the **latest** outcome per customer wins, so one mis-tapped `Bad number` is undone by logging a newer outcome (a correcting row un-suppresses). No row is ever the last word by accident (N8).
+- **Loading state (N14):** render a loading placeholder while the snapshot resolves — don't flash the empty state.
+- Empty (loaded): "No outbound targets — pipeline's warm." **Error (N7):** distinct **"couldn't load — retry"** state (≠ empty); `42P01` → muted "not provisioned yet" during the preview-before-migration window.
 
 ### 2.5 Cross-screen banner (`components/followup/AlertsBanner.jsx` [NEW] + AppShell) + `AlertsProvider`
 
-- **`AlertsProvider`** (`src/lib/alerts.jsx` [NEW]) mounts beside `TenantConfigProvider` (`App.jsx:213`) — **outside `<BrowserRouter>`, so it uses NO router hooks** (B1). Fetches `fetchBidDueAlerts` once, exposes `{ count, bidDueAlerts, loading, error, refresh }`. Home consumes the list (no second fetch); the banner consumes `count`.
-- **Refresh ownership (B1 — the dead-gate fix):** the Update path is `AlertCard → /calllog/:id → CallLogDetail save → CallLog.jsx onSaved (:155)`. Wire **`CallLog.jsx` `onSaved` → `useAlerts().refresh()`** (add `CallLog.jsx` to §3) so a cleared bid actually leaves Zone 1 and the banner. `refresh()` is a plain provider fn (no router dep); it is called from the **component layer**, never from inside `followUp.js`.
-- Banner = slim strip (screenshot 3, **but recolored to `C.*` tokens — K12/§ style rule**; the screenshot is the old white banner and violates no-white-bg). Mounts in `AppShell` above children (`App.jsx:330`), shown only when `count > 0 && active !== "home"`. Banner self-exclusion verified sound (no leak to public pages).
+- **`AlertsProvider`** (`src/lib/alerts.jsx` [NEW]) mounts beside `TenantConfigProvider` (`App.jsx:213`) — **outside `<BrowserRouter>`, so it uses NO router hooks** (B1). It **owns the shared snapshot** (§2.1 — one `call_log` + one `proposals` `fetchAll`) and exposes `{ count, bidDueAlerts, dormant, goneQuiet, footerStats, loading, error, refresh }`. Home + footer consume the snapshot (no second fetch); the banner consumes `count`.
+- **Refresh coverage (B1 + N4 — the dead-gate fix, widened):** a Wants-Bid alert clears when the job's stage moves — which happens on **more paths than the Update button**. Round-2 (N4) found `refresh()` covered only one of four stage-write paths and missed the most common (sending a bid). Cover all:
+  - `CallLog.jsx onSaved (:155)` — the Update path (deep-link `/calllog/:id` and list-selection share this render block; verified).
+  - `ProposalPDFModal.jsx:154` (send bid → Has Bid — the *normal* way a rep clears a Wants-Bid alert), `ProposalDetail.jsx:813` (Sold), `:779` (Parked), `:579` (pull-back → *creates* an alert).
+  - **Simpler mop-up (N12):** rather than chase every write site, have the provider **`refresh()` on Home mount and on `visibilitychange`** (tab refocus) — this also fixes the **day-rollover** gap (an overnight tab never shows a bid that came due at midnight). Keep the explicit `refresh()` calls for instant feedback; the mount/visibility refetch is the backstop. `refresh()` is a plain provider fn (no router dep), called from the component layer, never inside `followUp.js`.
+- Banner = slim strip (screenshot 3, **recolored to `C.*` tokens — K12**; the screenshot is the old white banner and violates no-white-bg). Mounts in `AppShell` above children (`App.jsx:330`), shown only when `count > 0 && active !== "home"`. Self-exclusion verified sound (no leak to public pages).
 - **Layout stability (K13):** banner is **sticky with reserved height**, not an async pop-in that shifts every screen's layout when `count` resolves.
 
 ### 2.6 Stats footer strip (Home)
 
 - The big stat cards, pipeline bar, and goal scorecards (`Home.jsx:187-233`) **compress to one slim footer row**: pipeline stage counts + monthly-billings %.
 - **All-roles goals line (K2 — Amendment K2):** Sales Dash is Admin/Manager-only (`App.jsx:40`), so the footer must carry the compact goals line (billings % + pipeline) **for every role** — reps keep their number. Full drill-downs stay on Sales Dash.
-- **No fetch fan-out (K1):** reuse the provider's data + the existing `sc`/`billing` computation (`Home.jsx:149`/`:137`); do NOT re-issue the heavy legacy `call_log`/`proposals` fetches on top of the provider + Zone 2/3 queries (would fetch `call_log` 4–5× per load). Consolidate.
-- **Snapshot coherence (K5):** footer counts derive from the same provider snapshot as Zone 1, so a claim/update refresh updates both together (document as load-time snapshot if a delta is acceptable).
+- **Fed from the shared snapshot (RG3/K1):** pipeline counts + billings % compute **in memory** from the provider's single `call_log` + `proposals` snapshot (§2.1) — the same `sc`/`billing` logic (`Home.jsx:149`/`:137`), no extra fetch. Pass-1's "reuse the provider's data" was wrong because the provider then held only rep-scoped bid-due rows (RG3); the snapshot now carries the full data the footer needs.
+- **Snapshot coherence (K5):** footer + Zone 1 derive from the same snapshot, so any `refresh()` updates both together.
 
 ### 2.7 DB changes — authored in `command-suite-db` (named only, not written here)
 
-- **Migration A — runway fields + write guard:** `ALTER TABLE tenant_config ADD COLUMN schedule_runway_weeks int, ADD COLUMN schedule_runway_note text, ADD COLUMN schedule_runway_updated_at timestamptz;` **+ (ADJ2) a role-restricted UPDATE policy** — today any authenticated rep can write `tenant_config` (runway *and* goals) from the console; the client gate is UI-only. Add the policy here (Migration A is the natural home).
+- **Migration A — runway fields + write guard:**
+  - `ALTER TABLE tenant_config ADD COLUMN schedule_runway_weeks int, ADD COLUMN schedule_runway_note text, ADD COLUMN schedule_runway_updated_at timestamptz;` (additive).
+  - **Role-restricted UPDATE — N2 (the ADJ2 fix, corrected):** prod already has a permissive `tenant_config_update FOR UPDATE TO authenticated` policy, and **policies OR together** — so merely *adding* a role-restricted policy restricts nothing (pass-1's spec was a no-op). Must **`DROP POLICY tenant_config_update` and recreate** it with `USING (id = get_user_tenant_id() AND is_admin_or_manager())` — the helper already exists (`delete_customer:117`), **no new mechanism**.
+  - ⚠️ **NON-ADDITIVE / touches live prod before merge — N3:** replacing the UPDATE policy alters the **Settings save path for existing users the moment it pushes** (migrations land ahead of the app merge). **Before pushing, verify current `tenant_config` writers are Admin/Manager in practice** (Settings save is already role-gated in the UI — confirm no Sales-role save path exists). Rehearse this one especially; it's the only change here that mutates existing prod behavior.
 - **Migration B — outreach log:** `CREATE TABLE outreach_log (id uuid pk, tenant_id uuid NOT NULL DEFAULT get_user_tenant_id() FK tenant_config, customer_id uuid NULL, call_log_id uuid NULL, source text CHECK (source IN ('dormant','gone_quiet')), outcome text, note text, logged_by text, created_at timestamptz DEFAULT now());`
-  - **FK delete behavior (C1 — the breaks-prod finding):** both FKs must be **`ON DELETE SET NULL`** (`customer_id → customers`, `call_log_id → call_log`). Default `NO ACTION` means one logged call makes a customer **undeletable** (the `delete_customer` RPC's HAS_CHILDREN preflight doesn't know the table), **aborts `merge_customers`**, and **blocks `call_log` deletes** (`CallLogDetail.jsx:320`, `ImportToLiveWizard.jsx:395`). **Also add `outreach_log` to the repoint list in `merge_customers`** so merges move its rows. Review both against `delete_customer`/`merge_customers` in `command-suite-db`.
-  - **Write-time integrity (I1):** `CHECK (customer_id IS NOT NULL OR call_log_id IS NOT NULL)` — compatible with the SET NULL above (a later delete can null one FK; the check is write-time only).
-  - **RLS — enumerate all four, don't hand-wave "4 standard" (G1):** `SELECT`/`INSERT`/`UPDATE`/`DELETE` per the **`invoice_recipients` precedent**. **INSERT and UPDATE must carry an explicit `WITH CHECK (tenant_id = get_user_tenant_id())`** — the column DEFAULT alone does NOT stop an explicit wrong-tenant payload. **Recommend OMITTING UPDATE/DELETE** entirely: corrections should be a new correcting row, not an edit — otherwise a rep can rewrite/delete another rep's logged outcomes, gaming the "who's making calls" visibility the table exists for. (Cross-tenant capped Med at 1 tenant, but the cross-app/shared-DB angle makes the delete-behavior finding the top schema item.)
-  - **Indexes (K8):** `(customer_id)`, `(call_log_id)`, and a **`(tenant_id, created_at)` composite** (matches the `customer_contacts`/`invoice_recipients` precedent — a bare `(tenant_id)` index breaks it).
-  - **PowerSync (verified clear):** sync rules enumerate tables explicitly, so `outreach_log` is invisible to Field — both migrations are additive-safe cross-app.
-- Rehearse before push (shared-DB discipline). Both migrations must land **before** the build's Zone 2/3 wiring works end-to-end; §2.1's fail-soft loaders cover the preview-before-migration window (H1).
+  - **FK delete behavior (C1):** both FKs **`ON DELETE SET NULL`** (`customer_id → customers`, `call_log_id → call_log`). Default `NO ACTION` makes a logged customer **undeletable**, **aborts `merge_customers`**, and **blocks `call_log` deletes** (`CallLogDetail.jsx:320`, `ImportToLiveWizard.jsx:395`). (Verified round 2: `delete_customer`'s preflight can't see `outreach_log`, so SET NULL is the correct half.)
+  - ⚠️ **NO CHECK constraint — RG1 (the regression that re-broke C1):** a `CHECK (customer_id IS NOT NULL OR call_log_id IS NOT NULL)` **cancels the SET NULL fix.** `ON DELETE SET NULL` executes as an UPDATE on the outreach row, and CHECKs fire on that update: delete the job → row becomes `(customer, NULL)`; later delete the customer → SET NULL tries `(NULL, NULL)` → **check violation (raw `23514`) aborts the customer delete** — the exact undeletable bug returns, now as an unstructured error the UI can't branch on. **Rule: never a plain CHECK beside SET NULL FKs.** Enforce "at least one FK" **app-side in `logOutcome()`** (§2.1) — it always writes `customer_id` anyway — or a `BEFORE INSERT` trigger. **Migration B ships without the CHECK.**
+  - **RLS — enumerate all four (G1):** `SELECT`/`INSERT`/`UPDATE`/`DELETE` per the `invoice_recipients` precedent. INSERT/UPDATE carry explicit `WITH CHECK (tenant_id = get_user_tenant_id())` (the DEFAULT alone doesn't stop a wrong-tenant payload). **OMIT UPDATE/DELETE** — corrections are a new superseding row (§2.4 N8), not an edit; this also stops a rep rewriting another's outcomes.
+  - **`merge_customers` repoint — C1 + N9:** add `outreach_log` to the repoint list. ⚠️ Postgres has no `ALTER FUNCTION … ADD`, so this is a **full `CREATE OR REPLACE FUNCTION merge_customers`** — base it on the **canonical current body (`20260520100009`)**, not a fresh draft (the B19 rewrite already lost guardrails once by re-authoring from scratch).
+  - **Indexes (K8):** `(customer_id)`, `(call_log_id)`, `(tenant_id, created_at)` composite (bare `(tenant_id)` breaks the `customer_contacts`/`invoice_recipients` precedent).
+  - **PowerSync (verified clear):** sync rules enumerate tables explicitly — `outreach_log` invisible to Field; **Migration B is additive-safe cross-app** (Migration A's policy swap is the non-additive one — see N3).
+- Rehearse before push (shared-DB discipline). Both migrations land **before** the app merges; §2.1's three-state loaders cover the preview-before-migration window (`42P01` → "not provisioned yet", H1/N7).
 
 ---
 
@@ -218,8 +233,10 @@ One canonical query module (extend-canonical, don't twin). Exports:
 **This repo (`sales-command`, branch `feat/home-follow-up-screen`):**
 - `src/pages/Home.jsx` — **rewrite**: three zones (bid-due Alerts / RunwayBar / Outbound) + compressed all-roles footer; consume `AlertsProvider` for the Zone 1 list; hold `runwayColor` (incl. `unset`) driving Zone 3 expansion. Remove big stat/goal blocks; no fetch fan-out (K1).
 - `src/App.jsx` — mount `AlertsProvider` (beside `TenantConfigProvider`, `:213`, **outside the router**); render `AlertsBanner` in `AppShell` above `{children}` (`:330`), sticky + reserved height.
-- `src/pages/CallLog.jsx` — **[EDIT, added per B1]** `onSaved` (`:155`) also calls `useAlerts().refresh()` so a bid-due Update clears the alert + banner. Also spec the return-to-Home path (K11).
-- `src/lib/followUp.js` — **[NEW]** `fetchBidDueAlerts` / `fetchAlertCount` / `fetchDormantCustomers` / `fetchGoneQuietBids` / `logOutcome` + named thresholds. (No `claimInquiry` — Zone 1a dropped.) All loaders fail-soft + explicitly ordered.
+- `src/pages/CallLog.jsx` — **[EDIT, B1]** `onSaved` (`:155`) calls `useAlerts().refresh()`; return-to-Home path (K11).
+- `src/components/ProposalPDFModal.jsx` — **[EDIT, N4]** on send-bid stage write (`:154`) call `refresh()`.
+- `src/components/ProposalDetail.jsx` — **[EDIT, N4]** on stage writes (`:813` Sold, `:779` Parked, `:579` pull-back) call `refresh()`. (Home-mount + `visibilitychange` refetch in the provider is the backstop that mops most of this up — N12.)
+- `src/lib/followUp.js` — **[NEW]** shared-snapshot loader (ONE `call_log` + ONE `proposals` `fetchAll`) + pure selectors `bidDueAlerts` / `dormantCustomers` / `goneQuietBids` / `footerStats` + `logOutcome` (app-side at-least-one-FK check) + named thresholds. Three-state (data/empty/error) loaders, ordered by `id`.
 - `src/lib/alerts.jsx` — **[NEW]** `AlertsProvider` + `useAlerts()` (router-hook-free).
 - `src/lib/config.js` — add `schedule_runway_weeks / schedule_runway_note / schedule_runway_updated_at` to `DEFAULTS` (`:3-14`). ⚠️ note E1: a DB `null` overrides DEFAULTS via the `{...DEFAULTS, ...data}` merge — the unset-state guard lives in `RunwayBar`, not here.
 - `src/components/followup/AlertCard.jsx` — **[NEW]** (bid-due only; phone-responsive)
@@ -229,9 +246,11 @@ One canonical query module (extend-canonical, don't twin). Exports:
 - `src/components/followup/AlertsBanner.jsx` — **[NEW]**
 
 **`command-suite-db` (named only — separate authoring session, flag Chris before touching):**
-- Migration A (tenant_config runway columns **+ role-restricted UPDATE policy**, ADJ2) + Migration B (`outreach_log` table + `ON DELETE SET NULL` FKs + at-least-one-FK CHECK + 4 enumerated RLS policies + composite index). Review against `delete_customer`/`merge_customers` (C1). Rehearse, then push.
+- **Migration A** — tenant_config runway columns (additive) **+ DROP/recreate `tenant_config_update` with `is_admin_or_manager()`** (N2; non-additive, changes prod Settings save — verify writers are Admin/Manager first, N3).
+- **Migration B** — `outreach_log` table + `ON DELETE SET NULL` FKs + **NO CHECK** (RG1; at-least-one-FK enforced app-side) + 4 enumerated RLS policies (omit UPDATE/DELETE) + composite index + **`CREATE OR REPLACE merge_customers` from canonical base `20260520100009`** (N9).
+- Rehearse both; push.
 
-**Not touched (deliberate):** `src/components/NewInquiryWizard.jsx` — intake keeps its **mandatory** rep step (Amendment A1); we do NOT make it optional. `SalesDash.jsx` (keeps full stats), `CallLogDetail.jsx` (reused as-is for the Update action), `Team.jsx`.
+**Not touched (deliberate):** `src/components/NewInquiryWizard.jsx` — intake keeps its **mandatory** rep step (Amendment A1); we do NOT make it optional. `SalesDash.jsx` (keeps full stats), `CallLogDetail.jsx` (reused as-is for the Update action), `Team.jsx`. **`ImportToLiveWizard.jsx` — not modified**, but its `created_at`-at-import behavior is the reason dormant last-touch reads from archive `raw_data` (N1).
 
 ---
 
@@ -243,6 +262,7 @@ One canonical query module (extend-canonical, don't twin). Exports:
 - **Configurable thresholds via Settings UI** — `DORMANT_MONTHS`, `RECONTACT_DAYS`, `GONE_QUIET_DAYS` are named consts in `followUp.js` for v1; no admin UI to tune them yet.
 - **follow_up-date alerts** — the current banner also counted `follow_up === tod()`; the v1 Zone 1 scope is bid-due only. Follow-up-date alerts are not carried into v1 (revisit if Chris wants them back).
 - **Zone 1a "Needs claiming" / claim workflow** — dropped for v1 (Amendment A1). Intake always assigns a rep, so there is nothing to claim. **Trigger to revisit:** an ownerless lead source (public web lead form, shared `info@` inbox) that creates New Inquiries with `sales_name` null — then a claim queue earns its place and intake would legitimately allow nulls.
+- **Never-imported archive records (N1 boundary):** dormant/outbound only surfaces customers who exist as `call_log`/`customers` rows — i.e. archive records **already pulled to Live**. Archive records still sitting in the History Locker (never imported) create no rows and **do not appear** in Zone 3. Importing is the on-ramp; a "call your un-imported book" surface is out of scope for v1.
 
 ---
 
@@ -252,14 +272,14 @@ Connective piece, moderate size — mostly wiring existing truth into one surfac
 
 | Chunk | Est |
 |---|---|
-| Migrations A+B in `command-suite-db` (runway + outreach_log w/ SET NULL FKs, RLS, `delete_customer`/`merge_customers` review, rehearse, push) | ~1h |
-| `followUp.js` queries (bid-due, dormant w/ effective-customer + Sold-stage, gone-quiet by bid-inactivity, logOutcome) + fail-soft + ordering | ~1.5h |
-| `AlertsProvider` (router-free) + banner (sticky) + `CallLog.jsx` refresh wire | ~1h |
-| Home rewrite: 3 zones + all-roles footer + runway unset-state | ~2.5h |
-| Zone cards + LogOutcomeModal + RunwayBar editor (useTenantConfig) | ~1.5h |
-| Smoke on preview (bid-due update clears alert+banner; log outcome shrinks list; runway flip; delete/merge still work) | ~0.5h |
+| Migrations A+B in `command-suite-db` (runway cols + policy DROP/recreate, outreach_log w/ SET NULL FKs + NO CHECK, RLS, `merge_customers` CREATE OR REPLACE from canonical base, rehearse, push) | ~1.5h |
+| `followUp.js` shared-snapshot loader + selectors (bid-due, dormant w/ archive-date touch-map, gone-quiet by proposal date, logOutcome + app-side FK check) + three-state error + ordering | ~2h |
+| `AlertsProvider` (router-free, holds snapshot, mount + visibilitychange refetch) + banner (sticky) + refresh wires (CallLog, ProposalPDFModal, ProposalDetail) | ~1.5h |
+| Home rewrite: 3 zones + all-roles footer + runway unset/loading states | ~2.5h |
+| Zone cards + LogOutcomeModal (supersede) + RunwayBar editor (useTenantConfig, null-on-clear) | ~1.5h |
+| Smoke on preview (bid-due update+send clears alert+banner; dormant shows archive book w/ real dates; log outcome shrinks list + supersede recovers; runway flip; delete/merge still work) | ~0.5h |
 
-**~8h build**, roughly one focused build session after the migrations land. Zone 1a's removal offsets the extra audit-driven rigor (fail-soft, SET NULL FK review, unset-state) — net ≈ flat. Build in `build` mode (opus 4.8, medium) — migrations are the only hard dependency and gate Zones 2/3.
+**~9.5h build**, roughly one full focused build session after the migrations land. Round-2 rigor (shared snapshot, archive-date touch-map, wider refresh coverage, policy DROP/recreate) added ~1.5h over the pass-1 estimate — worth it: RG1/RG3/N1 were all "ships broken" otherwise. Build in `build` mode (opus 4.8, medium) — migrations gate Zones 2/3.
 
 > ERD note: this loop (#45) stays **open** past this plan pass. Point-at = "open Home on preview, see three zones working" — closes at the built, smoke-verified screen, not here.
 

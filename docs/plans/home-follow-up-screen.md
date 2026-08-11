@@ -4,9 +4,9 @@ Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from c
 
 **Type:** feature
 
-**Status:** IDEATED (2026-08-11) — structure locked with Chris, ready for plan pass.
+**Status:** PLANNED + ROUND-1 AUDIT RESPONSE APPLIED (2026-08-11) — ready for re-audit. Round-1 (4H/9M/12L, pattern: premise-vs-data-reality) folded in; the one decision (A1) ratified by Chris as **drop Zone 1a**.
 
-**Intent:** Convert the Sales Command home screen into a follow-up screen, integrating the old system's follow-up/alert features (New Inquiry claim alerts, Wants Bid due-date alerts, "You have N alerts → Take Action" banner). Reference screenshots: `docs/plans/assets/` (committed b3c98b9).
+**Intent:** Convert the Sales Command home screen into a follow-up screen: **Wants Bid due-date alerts**, a manual schedule-runway bar that flips the screen into outbound mode, an outbound worklist (dormant customers + gone-quiet bids) with outcome logging, and a cross-screen "You have N alerts → Take Action" banner. (The old system's *New Inquiry claim alerts* are intentionally NOT carried over — Amendment A1.) Reference screenshots: `docs/plans/assets/` (committed b3c98b9).
 
 ---
 
@@ -40,6 +40,25 @@ activity.
 4. **Old Home stats compress to a footer strip** — one slim row (pipeline counts + monthly
    billings %); big cards go, Sales Dash carries full stats.
 
+### Amendments (post round-1 audit, 2026-08-11 — Chris ratified)
+
+> Locked decisions above are preserved verbatim. These amendments supersede where noted.
+
+- **Amendment A1 — Zone 1a "Needs claiming" is DROPPED for v1.** [LOCKED — Chris, 2026-08-11]
+  The claim feature assumed unassigned New Inquiries exist. They don't: the New Inquiry
+  wizard makes the sales-rep step **mandatory** (`NewInquiryWizard.jsx:236`) and writes the
+  raw value (`:378`), so every inquiry is born assigned — `fetchClaimAlerts` would return ~0
+  rows forever. Chris's call (verbatim intent): *don't make the rep optional to feed a widget;
+  assigning at intake is better hygiene.* **Zone 1 is now bid-due alerts only.** This moots the
+  §0.3 "unassigned trap," removes `claimInquiry`, and touches nothing in intake. Revisit only
+  if an **ownerless lead source** is added later (web lead form / shared `info@` inbox that
+  drops into New Inquiry with no rep) — see §4.
+- **Amendment K2 — footer goals line is visible to ALL roles.** [LOCKED — Chris, 2026-08-11]
+  Decision #4's "Sales Dash carries full stats" is Admin/Manager-only (`App.jsx:40`), so reps
+  would lose their goal number entirely — not "relocated." The footer strip therefore keeps a
+  **compact goals line (monthly-billings % + pipeline) rendered for every role**, so reps keep
+  their number. Full drill-down stats still live on Sales Dash for Admin/Manager.
+
 ---
 
 ## §0 Baseline (observed current state) — read-verified 2026-08-11
@@ -71,9 +90,9 @@ Every authenticated route into Home, per design-baseline discipline (grep across
 ### 0.3 call_log stage + sales-rep assignment — how "unassigned" looks in data
 
 - Stages: `STAGES = ["New Inquiry", "Wants Bid", "Has Bid", "Sold", "Lost"]` (`src/lib/mockData.js:1`).
-- Rep assignment lives in **`call_log.sales_name`** (text, matches `team_members.name` — not an FK). Written as `form.sales_name || null` (`CallLogDetail.jsx:359`); the New Inquiry wizard sets `sales_name: data.salesName` which can be blank → **null** (`NewInquiryWizard.jsx:378`).
-- **"Unassigned" = `sales_name IS NULL` (or empty string).** Reassignment precedent: `Team.jsx:247-273` selects inactive-rep jobs and `.update({ sales_name: assignTo })`.
-- ⚠️ **CRITICAL CONSTRAINT:** Home's current rep filter (`Home.jsx:108`) keeps only `sales_name === displayName`. Unassigned New Inquiries (`sales_name` null) would therefore be **invisible to a rep** under the existing query. Zone 1's "needs claiming" list MUST be a **separate, tenant-wide (un-rep-filtered) query**, or it shows nothing for the people who most need to claim.
+- Rep assignment lives in **`call_log.sales_name`** (text, matches `team_members.name` — not an FK). Written as `form.sales_name || null` in the detail editor (`CallLogDetail.jsx:359`).
+- ⚠️ **CORRECTED (round-1 audit A1):** the New Inquiry wizard makes the sales-rep step **mandatory** — `validateStep` blocks a blank (`NewInquiryWizard.jsx:236`, `case "salesRep": if (!data.salesName) …`) and the insert writes the raw value with no `|| null` (`:378`). So **new inquiries are never born unassigned**; `sales_name IS NULL` effectively does not occur on the intake path. The earlier premise ("unassigned New Inquiries need claiming") was wrong. **Zone 1a is dropped — see Amendment A1.** The rep-filter "trap" (`Home.jsx:108`) is therefore moot; it never needed defending because there is no claim query.
+- (Retained for context) Reassignment precedent, if ever needed: `Team.jsx:247-273` selects inactive-rep jobs and `.update({ sales_name: assignTo })` — note it checks `error` only, **no row-count verify**, so it is NOT a safe pattern to mirror for RLS-sensitive writes.
 
 ### 0.4 bid_due semantics
 
@@ -91,8 +110,8 @@ Every authenticated route into Home, per design-baseline discipline (grep across
 ### 0.6 Outbound-query source fields
 
 - **`customers`**: `id, name, phone, email, contact_phone, contact_email, created_at, …` (CLAUDE.md ref; phone rendered `Customers.jsx:566,607`). `call_log.customer_id` FKs `customers.id` (`NewInquiryWizard.jsx:150-154`).
-- **Dormant customers** (source #1): customer with ≥1 historical **Sold** proposal AND **no `call_log` row `created_at` within 6 months** (hardcoded v1). Join path: `proposals.status='Sold'` → `proposals.call_log_id` → `call_log.customer_id` → `customers`. "Last touch"/"last job" from most-recent `call_log` for that customer.
-- **Gone-quiet bids** (source #2): `call_log.stage='Has Bid'` with **no Sold proposal** on that job, **stale** by `call_log.updated_at` (auto-trigger timestamptz). Staleness threshold is **[DESIGN-OPEN]** (proposal: 30 days) — see §2.
+- **Dormant customers** (source #1): customer whose work is **historically sold** AND has **no `call_log` row `created_at` within 6 months** (hardcoded v1). ⚠️ **CORRECTED (round-1 audit D1):** "sold in the past" must NOT key on `proposals.status='Sold'` alone — **archive-imported jobs create `call_log` rows with `stage='Sold'` and NO proposal** (`ImportToLiveWizard.jsx:497`), which is exactly HDSP's historical book and the feature's primary target. Qualifier = **`call_log.stage='Sold'` OR a non-deleted Sold proposal (`deleted_at IS NULL`)**. Use the **effective-customer pattern** (`CallLog.jsx:100`, which already reconciles `call_log.customer_id` vs `proposals.customer_id` now that the latter exists). "Last touch"/"last job" from the most-recent `call_log` for that customer.
+- **Gone-quiet bids** (source #2): `call_log.stage='Has Bid'` with **no Sold proposal** on that job, **stale**. ⚠️ **CAVEAT (round-1 audit K3):** `call_log.updated_at` is **any-write** (bumped by the auto-trigger on *any* edit — e.g. a bulk rep reassignment via `Team.jsx:271` would reset the whole tenant's gone-quiet list for 30 days). Prefer a staleness signal that reflects *bid inactivity* — `bid_due` age, or time since the row entered Has Bid — over raw `updated_at`. Threshold **[DESIGN-OPEN]** (proposal: 30 days) — see §2.4.
 - Both zones use `fetchAll` (`src/lib/supabaseHelpers.js`) to bypass the 1000-row PostgREST cap.
 
 ### 0.7 Outcome write-back has no home yet
@@ -102,8 +121,9 @@ Every authenticated route into Home, per design-baseline discipline (grep across
 ### 0.8 Cross-screen banner mount point
 
 - `AppShell` (`App.jsx:268`) wraps every authed route; children render at `App.jsx:330-331` inside `data-app-content` (`<ErrorBoundary>{children}</ErrorBoundary>`). The slim banner mounts here, **above** children, shown when `count > 0 && active !== "home"` (`active = sectionFromPath(location.pathname)`, `App.jsx:271`). Home *is* the alert screen, so it self-excludes.
-- AppShell fetches no data today. The banner's alert count must come from a **shared source** so Home and the banner don't double-fetch or drift — see AlertsProvider in §2.4.
-- Provider precedent: `TenantConfigProvider` already wraps the app (`App.jsx:213`).
+- AppShell fetches no data today. The banner's alert count must come from a **shared source** so Home and the banner don't double-fetch or drift — see AlertsProvider in §2.5.
+- Provider precedent: `TenantConfigProvider` already wraps the app (`App.jsx:213`). ⚠️ **CONSTRAINT (round-1 audit B1):** `:213` is **outside** `<BrowserRouter>` (`:215`). So `AlertsProvider` (mounted there) and any code it calls **must not use router hooks** (`useNavigate`/`useLocation`) — it's a data-only provider. The banner, which needs `location`, lives inside `AppShell` (inside the router, `:330`) and reads `count` from the provider via context. `refresh()` is likewise plain (no router dependency), invoked by the component layer (see §2.5).
+- ⚠️ **CAVEAT (round-1 audit ADJ1):** `fetchAll` (`supabaseHelpers.js`) destructures `{ data }` and returns `[]` on any RLS/filter error — **a failed fetch is indistinguishable from "no rows."** On an alert surface that reads as a false "All clear." Zone 1/2/3 loaders must distinguish *error* from *empty* (surface a load error, don't paint the empty state) — see §2.1.
 
 ### 0.9 Reusable pieces already present
 
@@ -123,79 +143,95 @@ The screen's job is **"keep the crews busy two weeks from now."** It decides wha
 
 Three stacked zones on Home, ordered by urgency, plus a cross-screen banner and a compressed stats footer. New query logic centralizes in one module; zone cards/modals live in `components/followup/` per the V52 "pages = list views, details/modals in components/" rule.
 
+> **Round-1 audit folded in.** Zone 1a (claim) is gone per Amendment A1; the remaining design incorporates findings B1, D1, E1, F1, G1, H1, I1, J1 and the cheap K/ADJ items inline (tagged where they land).
+
 ### 2.1 Data layer — `src/lib/followUp.js` [NEW]
 
 One canonical query module (extend-canonical, don't twin). Exports:
 
-- `fetchClaimAlerts()` → New Inquiry, `sales_name` null/empty, **tenant-wide** (never rep-filtered — see §0.3). `select id, display_job_number, customer_name, job_name, jobsite_address, created_at`, order `created_at asc` (oldest first). Returns all; caller caps display.
-- `fetchBidDueAlerts({ displayName, isRep })` → `stage='Wants Bid'` AND `bid_due <= tod()` AND `bid_due not null`. Rep-scoped by `sales_name === displayName` when `isRep` (these are *your* bids to defend); Admin/Manager see all. Order `bid_due asc`.
-- `fetchAlertCount({ displayName, isRep })` → `claimAlerts.length + bidDueAlerts.length` (drives the banner + footer badge). Single fetch reused by the provider.
-- `fetchDormantCustomers()` → customers with a historical Sold proposal and no `call_log.created_at` within 6 months (`DORMANT_MONTHS = 6`, hardcoded const). Returns `{ customer, lastTouch, lastJob, phone }`, excluding any customer with an `outreach_log` row in the last `RECONTACT_DAYS` (proposal: 14).
-- `fetchGoneQuietBids()` → `stage='Has Bid'`, no Sold proposal on job, `updated_at` older than `GONE_QUIET_DAYS` (proposal: 30, **[DESIGN-OPEN]**). Same recent-outreach exclusion.
-- `logOutcome({ source, outcome, note, customerId, callLogId, loggedBy })` → inserts `outreach_log` row; **verify insert succeeded** (RLS silent-no-op rule), then caller refetches so the worked target drops off.
-- `claimInquiry({ id, displayName })` → `update call_log set sales_name = displayName where id`; **verify the update returned the row** (RLS can silently no-op), refresh on success. Mirrors `Team.jsx:273`.
+- `fetchBidDueAlerts({ displayName, isRep })` → `stage='Wants Bid'` AND `bid_due` not null AND `bid_due <= tod()`. Rep-scoped by `sales_name === displayName` when `isRep`; Admin/Manager see all. **Ordering (J1):** due-today/overdue sort so **today pins above older stale rows** — order by `bid_due desc` within the ≤-today set is wrong; use "most-recently-due first" so a bid due *today* is never buried under a bid that went stale weeks ago. Spell the comparator in the build.
+- `fetchAlertCount({ displayName, isRep })` → `bidDueAlerts.length` (drives the banner + footer badge). Single fetch reused by the provider (no separate count query).
+- `fetchDormantCustomers()` → **effective customers** whose work is historically sold (**`call_log.stage='Sold'` OR a non-deleted Sold proposal** — D1) with **no `call_log.created_at` within `DORMANT_MONTHS` (=6)**, excluding any customer with an `outreach_log` row in the last `RECONTACT_DAYS` (=14). Returns `{ customerId, name, lastTouch, lastJob, phone }`. Use the effective-customer reconciliation from `CallLog.jsx:100`.
+- `fetchGoneQuietBids()` → `stage='Has Bid'`, no Sold proposal on job, stale by **bid inactivity** (not raw `updated_at` — K3), older than `GONE_QUIET_DAYS` (proposal 30, **[DESIGN-OPEN]**). Same recent-outreach exclusion, **keyed on `customer_id`** (see I1).
+- `logOutcome({ source, outcome, note, customerId, callLogId, loggedBy })` → inserts one `outreach_log` row; **always writes `customer_id`** even for a gone-quiet bid (I1), so both Zone-3 exclusions key on `customer_id` and a worked bid can't reappear in the dormant list. **Verify the insert returned a row** (RLS silent-no-op rule); caller refetches so the target drops off.
 
-All reads via `fetchAll` (pagination-safe). Thresholds are named consts at the top of the file (one place to tune; §4 keeps automation out).
+**Cross-cutting (audit):**
+- **Error vs empty (ADJ1/H1):** every loader must distinguish a fetch *error* from *no rows* — `fetchAll` returns `[]` on error, which would paint a false "All clear." Each Zone 2/3 fetch is **fail-soft**: `try/catch → console.warn → explicit error/empty state`, never a silent green. This also gives a **degrade path if the preview deploys before the migrations land** (H1): a `relation "outreach_log" does not exist` must NOT crash Home (the post-auth landing) to the ErrorBoundary — Zone 2/3 catch and render empty.
+- **Ordering + pagination (K9/K10):** `fetchDormantCustomers`/`fetchGoneQuietBids` MUST pass an explicit `.order()` to `fetchAll` — unordered `.range()` pagination dups/skips past 1000 rows. Exclusion-window comparisons use ISO timestamp math against `outreach_log.created_at`, not `tod()` date-string compares (off at day boundaries).
+- All reads via `fetchAll` (pagination-safe). Thresholds are named consts at the top of the file (one place to tune; §4 keeps automation out).
 
 ### 2.2 Zone 1 — Alerts (`components/followup/AlertCard.jsx` [NEW] + Home)
 
-- Two labeled groups: **Needs claiming** (from `fetchClaimAlerts`) and **Bid due reached** (from `fetchBidDueAlerts`), oldest-first.
-- **Display cap:** top 10 per the locked decision (the old system's 155-wall trained people to ignore it) with a **"+N more"** expander that reveals the rest inline. Screenshot 2 is the anti-pattern reference.
-- Card = `AlertCard`: job number + customer + job name + a one-line urgency reason (matching screenshot 2 copy), plus the action:
-  - **Claim** (needs-claiming) → `claimInquiry()` → row animates out, count decrements. No navigation.
-  - **Update** (bid-due) → `navigate('/calllog/'+id)` → opens `CallLogDetail`, where the rep already can move stage / push `bid_due` / add a note and save (`CallLogDetail.jsx:347-367`). No new edit surface needed — reuse the job-detail home.
-- Empty state: "All clear — nothing to claim, no bids due." (green check, not a blank).
+- **Bid-due alerts only** (Zone 1a dropped — Amendment A1). One group: **Bid due reached** (from `fetchBidDueAlerts`).
+- **Display cap (J1):** **10 total**, single **"+N more ▾"** expander revealing the rest inline. (The sketch's per-group ambiguity is resolved: one list, one cap, one expander — the 155-wall anti-pattern the cap exists to prevent.) **Due-today pins above older stale** rows.
+- Card = `AlertCard`: job number + customer + job name + one-line urgency reason (screenshot 2 copy), action **Update** → `navigate('/calllog/'+id)` → opens `CallLogDetail`, where the rep moves stage / pushes `bid_due` / adds a note and saves (`CallLogDetail.jsx:347-367`). Route verified real (audit passed `/calllog/:id`).
+- **Loading state (K14):** while the provider fetch is in flight, render a loading placeholder — **do not flash a false green "All clear."** Empty (loaded, zero rows): "All clear — no bids due."
+- **Return path (K11):** the Update round-trip should return the rep to Home, not strand them on `/calllog`. Spec `navigate(-1)` or nav state so N alerts ≠ N manual back-navigations.
+- **Responsive (K15):** `AlertCard` must lay out at phone width — reps are the daily users.
 
 ### 2.3 Zone 2 — Schedule runway (`components/followup/RunwayBar.jsx` [NEW])
 
-- Reads `schedule_runway_weeks` + `schedule_runway_note` from `getTenantConfig()`.
-- Colored bar rule (locked): **weeks ≥ 3 → green · weeks === 2 → yellow · weeks < 2 → red.** Reuse `C.green / C.amber / C.red`. Note rendered beneath; if `schedule_runway_updated_at` present, show "updated {fmtD}".
-- **Admin/Manager:** inline editor — number input + one-line note → `updateTenantConfig({ schedule_runway_weeks, schedule_runway_note, schedule_runway_updated_at: now })`. **Sales:** read-only (gated by `["Admin","Manager"].includes(displayRole)`).
-- **This zone's color is the mode switch:** `runwayColor` (green|yellow|red) is lifted into Home state and passed to Zone 3 to control expansion (§2.4). Green = Zone 3 collapsed/muted; yellow/red = Zone 3 expanded and emphasized. This is the "flip" Chris is fired up about.
+- Reads `schedule_runway_weeks` + `schedule_runway_note` via **`useTenantConfig()`** (K6) — not a bare `getTenantConfig()` — so the admin edit re-renders through the provider instead of writing around it.
+- Colored bar rule (locked): **weeks ≥ 3 → green · weeks === 2 → yellow · weeks < 2 → red.** Reuse `C.green / C.amber / C.red`. Note beneath; if `schedule_runway_updated_at` present, "updated {fmtD}".
+- ⚠️ **Unset state (E1):** day one `schedule_runway_weeks` is **NULL**, and `null < 2 === true` in JS — plus `config.js:28` merges `{...DEFAULTS, ...data}`, so an explicit DB `null` **overrides** any DEFAULT (the planned DEFAULTS entry does nothing). Without a guard the first morning renders **RED with Zone 3 alarmed**. Spec an explicit **`weeks == null` → neutral "Runway not set — [set it]" state, Zone 3 collapsed.** Guard `Number("") → 0` in the editor so a cleared field doesn't save 0-as-red.
+- **Admin/Manager:** inline editor → `updateTenantConfig({ schedule_runway_weeks, schedule_runway_note, schedule_runway_updated_at: now })` then provider refresh. **Sales:** read-only (`["Admin","Manager"].includes(displayRole)`). Note: the *client* gate is UI-only — the real write guard is the tenant_config UPDATE policy (see §2.7 / ADJ2).
+- **This zone's color is the mode switch:** `runwayColor` (green|yellow|red|**unset**) lifts into Home state, driving Zone 3 expansion. Green/unset = Zone 3 collapsed/muted; yellow/red = expanded. This is the "flip."
 
 ### 2.4 Zone 3 — Outbound worklist (`components/followup/OutboundCard.jsx` + `LogOutcomeModal.jsx` [NEW])
 
-- Two sourced lists: **Dormant customers** (`fetchDormantCustomers`) and **Gone-quiet bids** (`fetchGoneQuietBids`).
-- **Expansion tied to runway color** (§2.3): green → render as a single collapsed summary line ("N warm leads waiting — expand"); yellow/red → fully expanded, this zone visually dominates the screen.
-- Card = `OutboundCard`: customer name, last touch date, last job, phone (tap-to-call `tel:`), and a **"Log outcome"** action.
-- **Log outcome** → `LogOutcomeModal`: pick an outcome (`Left message` · `Reached — interested` · `Reached — not now` · `Bad number`) + optional note → `logOutcome(...)`. On success the target drops off the list (recent-outreach exclusion) so the worklist shrinks as it's worked; `logged_by` records who called.
-- Empty state when nothing dormant/quiet: "No outbound targets — pipeline's warm."
+- Two sourced lists: **Dormant customers** (`fetchDormantCustomers`) + **Gone-quiet bids** (`fetchGoneQuietBids`).
+- **Expansion tied to runway color** (§2.3): green/unset → single collapsed summary line ("N warm leads waiting — expand"); yellow/red → fully expanded, dominates the screen.
+- Card = `OutboundCard`: customer name, last touch, last job, phone (`tel:`), **"Log outcome"**.
+- **Log outcome** → `LogOutcomeModal`: outcome (`Left message` · `Reached — interested` · `Reached — not now` · `Bad number`) + optional note → `logOutcome(...)`. On success the target drops off (recent-outreach exclusion, keyed on `customer_id` — I1); `logged_by` records who called.
+- **Outcome suppression (K4):** a `Bad number` target should not resurface every `RECONTACT_DAYS` forever — suppress terminal outcomes longer (or permanently) vs a soft `Left message`. Spec per-outcome suppression, not a flat 14-day treadmill.
+- Empty (loaded): "No outbound targets — pipeline's warm." Error: explicit, not empty (ADJ1).
 
-### 2.5 Cross-screen banner (`components/followup/AlertsBanner.jsx` [NEW] + AppShell)
+### 2.5 Cross-screen banner (`components/followup/AlertsBanner.jsx` [NEW] + AppShell) + `AlertsProvider`
 
-- Slim green strip mirroring screenshot 3: **"You have N alerts → Take Action"**, links to `/home`.
-- Mounts in `AppShell` above children (`App.jsx:330`), shown only when `count > 0 && active !== "home"`.
-- Count from an **`AlertsProvider`** (`src/lib/alerts.jsx` [NEW]) mounted beside `TenantConfigProvider` (`App.jsx:213`): fetches `fetchAlertCount` once, exposes `{ count, claimAlerts, bidDueAlerts, refresh }`. Home consumes the full lists (no second fetch); the banner consumes `count`; `claimInquiry`/`CallLogDetail` save call `refresh()`. Single source, no drift.
+- **`AlertsProvider`** (`src/lib/alerts.jsx` [NEW]) mounts beside `TenantConfigProvider` (`App.jsx:213`) — **outside `<BrowserRouter>`, so it uses NO router hooks** (B1). Fetches `fetchBidDueAlerts` once, exposes `{ count, bidDueAlerts, loading, error, refresh }`. Home consumes the list (no second fetch); the banner consumes `count`.
+- **Refresh ownership (B1 — the dead-gate fix):** the Update path is `AlertCard → /calllog/:id → CallLogDetail save → CallLog.jsx onSaved (:155)`. Wire **`CallLog.jsx` `onSaved` → `useAlerts().refresh()`** (add `CallLog.jsx` to §3) so a cleared bid actually leaves Zone 1 and the banner. `refresh()` is a plain provider fn (no router dep); it is called from the **component layer**, never from inside `followUp.js`.
+- Banner = slim strip (screenshot 3, **but recolored to `C.*` tokens — K12/§ style rule**; the screenshot is the old white banner and violates no-white-bg). Mounts in `AppShell` above children (`App.jsx:330`), shown only when `count > 0 && active !== "home"`. Banner self-exclusion verified sound (no leak to public pages).
+- **Layout stability (K13):** banner is **sticky with reserved height**, not an async pop-in that shifts every screen's layout when `count` resolves.
 
 ### 2.6 Stats footer strip (Home)
 
-- The big stat cards, pipeline bar, and goal scorecards (`Home.jsx:187-233`) **compress to one slim footer row**: pipeline stage counts + monthly-billings % (reuse `StatCard`/`SectionHeader`, keep the existing `sc`/`billing` computation from `:149`/`:137`). Full stats remain on **Sales Dash** — nothing lost, just relocated per locked decision #4.
+- The big stat cards, pipeline bar, and goal scorecards (`Home.jsx:187-233`) **compress to one slim footer row**: pipeline stage counts + monthly-billings %.
+- **All-roles goals line (K2 — Amendment K2):** Sales Dash is Admin/Manager-only (`App.jsx:40`), so the footer must carry the compact goals line (billings % + pipeline) **for every role** — reps keep their number. Full drill-downs stay on Sales Dash.
+- **No fetch fan-out (K1):** reuse the provider's data + the existing `sc`/`billing` computation (`Home.jsx:149`/`:137`); do NOT re-issue the heavy legacy `call_log`/`proposals` fetches on top of the provider + Zone 2/3 queries (would fetch `call_log` 4–5× per load). Consolidate.
+- **Snapshot coherence (K5):** footer counts derive from the same provider snapshot as Zone 1, so a claim/update refresh updates both together (document as load-time snapshot if a delta is acceptable).
 
 ### 2.7 DB changes — authored in `command-suite-db` (named only, not written here)
 
-- **Migration A — runway fields:** `ALTER TABLE tenant_config ADD COLUMN schedule_runway_weeks int, ADD COLUMN schedule_runway_note text, ADD COLUMN schedule_runway_updated_at timestamptz;`
-- **Migration B — outreach log:** `CREATE TABLE outreach_log (id uuid pk, tenant_id uuid NOT NULL DEFAULT get_user_tenant_id() FK tenant_config, customer_id uuid NULL FK customers, call_log_id uuid NULL FK call_log, source text CHECK (source IN ('dormant','gone_quiet')), outcome text, note text, logged_by text, created_at timestamptz DEFAULT now());` with the **4 standard RLS policies + tenant_id default + indexes** on `(customer_id)`, `(call_log_id)`, `(created_at)` per the RLS+tenant_id pattern. Rehearse before push (shared-DB discipline). Both migrations must land **before** the build's Zone 2/3 wiring works end-to-end.
+- **Migration A — runway fields + write guard:** `ALTER TABLE tenant_config ADD COLUMN schedule_runway_weeks int, ADD COLUMN schedule_runway_note text, ADD COLUMN schedule_runway_updated_at timestamptz;` **+ (ADJ2) a role-restricted UPDATE policy** — today any authenticated rep can write `tenant_config` (runway *and* goals) from the console; the client gate is UI-only. Add the policy here (Migration A is the natural home).
+- **Migration B — outreach log:** `CREATE TABLE outreach_log (id uuid pk, tenant_id uuid NOT NULL DEFAULT get_user_tenant_id() FK tenant_config, customer_id uuid NULL, call_log_id uuid NULL, source text CHECK (source IN ('dormant','gone_quiet')), outcome text, note text, logged_by text, created_at timestamptz DEFAULT now());`
+  - **FK delete behavior (C1 — the breaks-prod finding):** both FKs must be **`ON DELETE SET NULL`** (`customer_id → customers`, `call_log_id → call_log`). Default `NO ACTION` means one logged call makes a customer **undeletable** (the `delete_customer` RPC's HAS_CHILDREN preflight doesn't know the table), **aborts `merge_customers`**, and **blocks `call_log` deletes** (`CallLogDetail.jsx:320`, `ImportToLiveWizard.jsx:395`). **Also add `outreach_log` to the repoint list in `merge_customers`** so merges move its rows. Review both against `delete_customer`/`merge_customers` in `command-suite-db`.
+  - **Write-time integrity (I1):** `CHECK (customer_id IS NOT NULL OR call_log_id IS NOT NULL)` — compatible with the SET NULL above (a later delete can null one FK; the check is write-time only).
+  - **RLS — enumerate all four, don't hand-wave "4 standard" (G1):** `SELECT`/`INSERT`/`UPDATE`/`DELETE` per the **`invoice_recipients` precedent**. **INSERT and UPDATE must carry an explicit `WITH CHECK (tenant_id = get_user_tenant_id())`** — the column DEFAULT alone does NOT stop an explicit wrong-tenant payload. **Recommend OMITTING UPDATE/DELETE** entirely: corrections should be a new correcting row, not an edit — otherwise a rep can rewrite/delete another rep's logged outcomes, gaming the "who's making calls" visibility the table exists for. (Cross-tenant capped Med at 1 tenant, but the cross-app/shared-DB angle makes the delete-behavior finding the top schema item.)
+  - **Indexes (K8):** `(customer_id)`, `(call_log_id)`, and a **`(tenant_id, created_at)` composite** (matches the `customer_contacts`/`invoice_recipients` precedent — a bare `(tenant_id)` index breaks it).
+  - **PowerSync (verified clear):** sync rules enumerate tables explicitly, so `outreach_log` is invisible to Field — both migrations are additive-safe cross-app.
+- Rehearse before push (shared-DB discipline). Both migrations must land **before** the build's Zone 2/3 wiring works end-to-end; §2.1's fail-soft loaders cover the preview-before-migration window (H1).
 
 ---
 
 ## §3 Files to touch
 
 **This repo (`sales-command`, branch `feat/home-follow-up-screen`):**
-- `src/pages/Home.jsx` — **rewrite**: three zones (Alerts / RunwayBar / Outbound) + compressed footer; consume `AlertsProvider` for Zone 1 lists; hold `runwayColor` state driving Zone 3 expansion. Remove big stat/goal blocks.
-- `src/App.jsx` — mount `AlertsProvider` (beside `TenantConfigProvider`, `:213`); render `AlertsBanner` in `AppShell` above `{children}` (`:330`).
-- `src/lib/followUp.js` — **[NEW]** all zone queries + `claimInquiry`/`logOutcome` + named thresholds.
-- `src/lib/alerts.jsx` — **[NEW]** `AlertsProvider` + `useAlerts()` hook.
-- `src/lib/config.js` — add `schedule_runway_weeks / schedule_runway_note / schedule_runway_updated_at` to `DEFAULTS` (`:3-14`).
-- `src/components/followup/AlertCard.jsx` — **[NEW]**
-- `src/components/followup/RunwayBar.jsx` — **[NEW]** (includes admin inline editor)
+- `src/pages/Home.jsx` — **rewrite**: three zones (bid-due Alerts / RunwayBar / Outbound) + compressed all-roles footer; consume `AlertsProvider` for the Zone 1 list; hold `runwayColor` (incl. `unset`) driving Zone 3 expansion. Remove big stat/goal blocks; no fetch fan-out (K1).
+- `src/App.jsx` — mount `AlertsProvider` (beside `TenantConfigProvider`, `:213`, **outside the router**); render `AlertsBanner` in `AppShell` above `{children}` (`:330`), sticky + reserved height.
+- `src/pages/CallLog.jsx` — **[EDIT, added per B1]** `onSaved` (`:155`) also calls `useAlerts().refresh()` so a bid-due Update clears the alert + banner. Also spec the return-to-Home path (K11).
+- `src/lib/followUp.js` — **[NEW]** `fetchBidDueAlerts` / `fetchAlertCount` / `fetchDormantCustomers` / `fetchGoneQuietBids` / `logOutcome` + named thresholds. (No `claimInquiry` — Zone 1a dropped.) All loaders fail-soft + explicitly ordered.
+- `src/lib/alerts.jsx` — **[NEW]** `AlertsProvider` + `useAlerts()` (router-hook-free).
+- `src/lib/config.js` — add `schedule_runway_weeks / schedule_runway_note / schedule_runway_updated_at` to `DEFAULTS` (`:3-14`). ⚠️ note E1: a DB `null` overrides DEFAULTS via the `{...DEFAULTS, ...data}` merge — the unset-state guard lives in `RunwayBar`, not here.
+- `src/components/followup/AlertCard.jsx` — **[NEW]** (bid-due only; phone-responsive)
+- `src/components/followup/RunwayBar.jsx` — **[NEW]** (admin inline editor via `useTenantConfig()`; unset-state guard)
 - `src/components/followup/OutboundCard.jsx` — **[NEW]**
 - `src/components/followup/LogOutcomeModal.jsx` — **[NEW]**
 - `src/components/followup/AlertsBanner.jsx` — **[NEW]**
 
 **`command-suite-db` (named only — separate authoring session, flag Chris before touching):**
-- Migration A (tenant_config runway columns) + Migration B (`outreach_log` table + RLS). Rehearse, then push.
+- Migration A (tenant_config runway columns **+ role-restricted UPDATE policy**, ADJ2) + Migration B (`outreach_log` table + `ON DELETE SET NULL` FKs + at-least-one-FK CHECK + 4 enumerated RLS policies + composite index). Review against `delete_customer`/`merge_customers` (C1). Rehearse, then push.
 
-**Not touched:** `SalesDash.jsx` (keeps full stats), `CallLogDetail.jsx` (reused as-is for the Update action), `Team.jsx`.
+**Not touched (deliberate):** `src/components/NewInquiryWizard.jsx` — intake keeps its **mandatory** rep step (Amendment A1); we do NOT make it optional. `SalesDash.jsx` (keeps full stats), `CallLogDetail.jsx` (reused as-is for the Update action), `Team.jsx`.
 
 ---
 
@@ -205,7 +241,8 @@ All reads via `fetchAll` (pagination-safe). Thresholds are named consts at the t
 - **Sold-job neighbors / referrals** (outbound source #3) — fuzzier; deferred. Zone 3 ships with sources #1 (dormant) + #2 (gone-quiet) only. (Locked.)
 - **"Who's calling" reporting/analytics** — `outreach_log` captures `logged_by` + outcomes now, but a manager reporting view is a later feature; not built here.
 - **Configurable thresholds via Settings UI** — `DORMANT_MONTHS`, `RECONTACT_DAYS`, `GONE_QUIET_DAYS` are named consts in `followUp.js` for v1; no admin UI to tune them yet.
-- **follow_up-date alerts** — the current banner also counted `follow_up === tod()`; the locked Zone 1 scope is claim + bid-due only. Follow-up-date alerts are not carried into v1 (revisit if Chris wants them back).
+- **follow_up-date alerts** — the current banner also counted `follow_up === tod()`; the v1 Zone 1 scope is bid-due only. Follow-up-date alerts are not carried into v1 (revisit if Chris wants them back).
+- **Zone 1a "Needs claiming" / claim workflow** — dropped for v1 (Amendment A1). Intake always assigns a rep, so there is nothing to claim. **Trigger to revisit:** an ownerless lead source (public web lead form, shared `info@` inbox) that creates New Inquiries with `sales_name` null — then a claim queue earns its place and intake would legitimately allow nulls.
 
 ---
 
@@ -215,14 +252,14 @@ Connective piece, moderate size — mostly wiring existing truth into one surfac
 
 | Chunk | Est |
 |---|---|
-| Migrations A+B in `command-suite-db` (author, rehearse, push) | ~0.5h |
-| `followUp.js` queries + claim/logOutcome + thresholds | ~1.5h |
-| `AlertsProvider` + banner in AppShell | ~1h |
-| Home rewrite: 3 zones + footer strip | ~2.5h |
-| Zone cards + LogOutcomeModal + RunwayBar editor | ~1.5h |
-| Smoke on preview (three zones working, claim/log write-backs verified) | ~0.5h |
+| Migrations A+B in `command-suite-db` (runway + outreach_log w/ SET NULL FKs, RLS, `delete_customer`/`merge_customers` review, rehearse, push) | ~1h |
+| `followUp.js` queries (bid-due, dormant w/ effective-customer + Sold-stage, gone-quiet by bid-inactivity, logOutcome) + fail-soft + ordering | ~1.5h |
+| `AlertsProvider` (router-free) + banner (sticky) + `CallLog.jsx` refresh wire | ~1h |
+| Home rewrite: 3 zones + all-roles footer + runway unset-state | ~2.5h |
+| Zone cards + LogOutcomeModal + RunwayBar editor (useTenantConfig) | ~1.5h |
+| Smoke on preview (bid-due update clears alert+banner; log outcome shrinks list; runway flip; delete/merge still work) | ~0.5h |
 
-**~7–8h build**, i.e. roughly one focused build session after the migrations land. Build in `build` mode (opus 4.8, medium) — migrations are the only hard dependency and gate Zones 2/3.
+**~8h build**, roughly one focused build session after the migrations land. Zone 1a's removal offsets the extra audit-driven rigor (fail-soft, SET NULL FK review, unset-state) — net ≈ flat. Build in `build` mode (opus 4.8, medium) — migrations are the only hard dependency and gate Zones 2/3.
 
 > ERD note: this loop (#45) stays **open** past this plan pass. Point-at = "open Home on preview, see three zones working" — closes at the built, smoke-verified screen, not here.
 
@@ -237,16 +274,15 @@ Reference screenshots: `docs/plans/assets/` — (1) current stats Home, (2) old-
 ```
 ┌─ GREETING (kept: "Good morning, Chris" + date) ──────────────┐
 │                                                              │
-│ ── ZONE 1 · ALERTS ─────────────────────────────────────────│
-│   NEEDS CLAIMING (n)                                         │
-│   ▸ [AlertCard] 7082 · CSI Construction · Les Schwab   [Claim]│
-│   BID DUE REACHED (n)                                        │
-│   ▸ [AlertCard] 5183 · Reyman · UNR Main Station     [Update]│
-│   + 6 more ▾                                                 │
+│ ── ZONE 1 · ALERTS · BID DUE REACHED (n) ───────────────────│
+│   ▸ [AlertCard] 5183 · Reyman · UNR Main Station     [Update]│  ← due-today pinned on top
+│   ▸ [AlertCard] 5184 · Clark Const · UNR Gateway     [Update]│
+│   + 6 more ▾                                                 │  ← ONE cap (10), ONE expander
+│   (Zone 1a "Needs claiming" removed — Amendment A1)          │
 │                                                              │
 │ ── ZONE 2 · SCHEDULE RUNWAY ────────────────────────────────│
 │   Weeks of booked crew work ahead:  ▓▓▓▓▓░░░  2  (yellow)    │
-│   "note…"                              [edit ✎ admin only]   │
+│   "note…"                              [edit ✎ admin only]   │  ← unset → "Runway not set — [set it]"
 │                                                              │
 │ ── ZONE 3 · OUTBOUND  (expands when runway yellow/red) ──────│
 │   DORMANT CUSTOMERS                                          │
@@ -254,7 +290,7 @@ Reference screenshots: `docs/plans/assets/` — (1) current stats Home, (2) old-
 │   GONE-QUIET BIDS                                            │
 │   ▸ [OutboundCard] 6095 · TEST · last touch …   [Log outcome]│
 │                                                              │
-│ ── FOOTER · slim stats strip (pipeline counts · billings %) ─│
+│ ── FOOTER · slim stats strip · ALL ROLES (pipeline · bill %) │  ← reps keep their number (K2)
 └──────────────────────────────────────────────────────────────┘
 ```
 

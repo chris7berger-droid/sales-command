@@ -1979,6 +1979,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
   const actions = statusActions[inv.status] || [];
   const canPullBack = inv.status !== "New" && inv.status !== "Paid";
+  // A T&M invoice carries day-row lines (hours × rate on a rate card). Those hours
+  // can't be edited once billed, so Pull Back deletes it and you rebuild from
+  // scratch instead of carrying uneditable rows forward (Chris 2026-08-11).
+  const isTMInvoice = (lines || []).some(l => l.proposal_wtc?.is_rate_card);
   const isNew = inv.status === "New";
   // In-place edit is exposed for New AND for the unpaid Sent-family so an operator can
   // add a late PO (into description/intro) to an already-sent, QB-synced invoice WITHOUT
@@ -2265,6 +2269,28 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   }
 
   async function handlePullBack() {
+    // T&M: no carry-forward. Day-row hours are uneditable once billed, so Pull
+    // Back deletes the invoice and you recreate it from scratch (the create screen
+    // is the only place day-rows can be entered). Regular invoices keep the
+    // carry-forward reissue below. (Chris 2026-08-11.)
+    if (isTMInvoice) {
+      if (inv.qb_invoice_id) {
+        // Synced → void in QB (reason required) + soft-delete. The void modal
+        // shows the "recreate from scratch" note for T&M.
+        setShowVoidModal("delete");
+        return;
+      }
+      if (!confirm(`Pull back deletes T&M Invoice #${inv.id}. To send a corrected one, you'll recreate it from scratch. Delete it now?`)) return;
+      try {
+        await supabase.functions.invoke("deactivate-payment-link", { body: { invoiceId: inv.id } });
+      } catch (e) {
+        console.warn("Payment link deactivation failed on T&M pull-back (non-blocking):", e);
+      }
+      const { error } = await supabase.from("invoices").update({ deleted_at: new Date().toISOString(), stripe_payment_link_id: null }).eq("id", inv.id);
+      if (error) { alert(error.message); return; }
+      onDeleted && onDeleted();
+      return;
+    }
     if (inv.qb_invoice_id) {
       setShowVoidModal("pullback");
       return;
@@ -3061,6 +3087,12 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                 : " Pulling back this invoice will void it in QuickBooks and reset it to draft in Sales Command. The QB record will remain as a $0.00 voided entry for compliance."}
             </div>
 
+            {showVoidModal === "delete" && isTMInvoice && (
+              <div style={{ background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.45)", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12.5, color: "#92400e", fontFamily: F.ui, lineHeight: 1.5 }}>
+                This is a <strong>T&amp;M invoice</strong> — its day-row hours can't be edited after billing. To send a corrected invoice, <strong>recreate it from scratch</strong> after this is deleted.
+              </div>
+            )}
+
             <div style={{ background: C.linenDeep, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: C.textFaint, fontFamily: F.ui, lineHeight: 1.5 }}>
               A timestamped note with your reason will be recorded on the QuickBooks invoice before it is voided. This is required for accounting compliance.
             </div>
@@ -3214,7 +3246,7 @@ export default function Invoices({ setSubPage, teamMember }) {
     teamMember={teamMember}
     onBack={() => { navigate("/invoices"); load(); }}
     onUpdated={async () => { const data = await load(); const fresh = (data || []).find(i => i.id === sel.id); if (fresh) setSel(fresh); }}
-    onDeleted={() => { navigate("/invoices"); load(); }}
+    onDeleted={() => { setFilters(f => ({ ...f, invoiceNumber: "" })); navigate("/invoices"); load(); }}
     onNavigateJob={id => navigate(`/calllog/${id}`)}
     onNavigateProposal={id => navigate(`/proposals/${id}`)}
     onNavigateInvoice={id => { navigate(`/invoices/${id}`); load(); }}

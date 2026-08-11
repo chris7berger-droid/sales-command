@@ -3246,7 +3246,7 @@ export default function Invoices({ setSubPage, teamMember }) {
     teamMember={teamMember}
     onBack={() => { navigate("/invoices"); load(); }}
     onUpdated={async () => { const data = await load(); const fresh = (data || []).find(i => i.id === sel.id); if (fresh) setSel(fresh); }}
-    onDeleted={() => { navigate("/invoices"); load(); }}
+    onDeleted={() => { setFilters(f => ({ ...f, invoiceNumber: "" })); navigate("/invoices"); load(); }}
     onNavigateJob={id => navigate(`/calllog/${id}`)}
     onNavigateProposal={id => navigate(`/proposals/${id}`)}
     onNavigateInvoice={id => { navigate(`/invoices/${id}`); load(); }}

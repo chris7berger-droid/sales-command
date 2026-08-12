@@ -6,6 +6,7 @@ import { fmt$, fmt$c, fmtD, rateCardLabel } from "../lib/utils";
 import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice, calcProposalTotal, calcWtcBreakdown, calcBidStamp, usesExactPricing, sumContractBilled } from "../lib/calc";
 import { PROP_C } from "../lib/mockData";
 import { getTenantConfig } from "../lib/config";
+import { useAlerts } from "../lib/alerts";
 import WTCCalculator from "../pages/WTCCalculator";
 import Btn from "./Btn";
 import Pill from "./Pill";
@@ -53,6 +54,7 @@ function buildSpecConfirmValidation(wtcList) {
 
 function ProposalDetail({ p: pInit, onBack, onDeleted, teamMember, onNavigateJob, onNavigateInvoice }) {
   const [p, setP] = useState(pInit);
+  const { refresh: refreshAlerts } = useAlerts();
   const money = p.call_log?.show_cents ? fmt$c : fmt$;
   const [showWTC, setShowWTC] = useState(false);
 const [activeWtcId, setActiveWtcId] = useState(null);
@@ -578,6 +580,7 @@ async function deletePropAttachment(fullName) {
     if (p.call_log_id) {
       const { error: clErr } = await supabase.from("call_log").update({ stage: "Wants Bid" }).eq("id", p.call_log_id);
       if (clErr) { alert("Pull back failed resetting job stage: " + clErr.message); return; }
+      refreshAlerts(); // pull-back re-creates a Wants-Bid alert (N4)
     }
     const { data } = await supabase.from("proposals").select("*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, is_change_order, co_number, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip))").eq("id", p.id).single();
     if (data) setP(data);
@@ -777,6 +780,7 @@ async function deletePropAttachment(fullName) {
       // Update call_log stage to Parked
       if (p.call_log_id) {
         await supabase.from("call_log").update({ stage: "Parked" }).eq("id", p.call_log_id);
+        refreshAlerts(); // N4
       }
 
       setShowSendReview(false);
@@ -811,6 +815,7 @@ async function deletePropAttachment(fullName) {
     }).eq("id", p.id);
     if (p.call_log_id && !inSisterCohort) {
       await supabase.from("call_log").update({ stage: "Sold" }).eq("id", p.call_log_id);
+      refreshAlerts(); // N4
       const isTest = (p.call_log?.job_name || "").toLowerCase().includes("test");
       !isTest && supabase.functions.invoke("qb-create-job", { body: { callLogId: p.call_log_id, proposalId: p.id } })
         .catch(() => {});

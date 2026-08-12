@@ -12,6 +12,7 @@ import Btn from "../components/Btn";
 import CallLogDetail from "../components/CallLogDetail";
 import FilterBar from "../components/FilterBar";
 import NewInquiryWizard from "../components/NewInquiryWizard";
+import { useAlerts } from "../lib/alerts";
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function CallLog({ teamMember, setSubPage }) {
@@ -19,6 +20,7 @@ export default function CallLog({ teamMember, setSubPage }) {
   const location = useLocation();
   const { id: routeJobId } = useParams();
   const navState = location.state || {};
+  const { refresh: refreshAlerts } = useAlerts();
   const [rows, setRows]           = useState([]);
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -151,8 +153,8 @@ export default function CallLog({ teamMember, setSubPage }) {
           job={selJob}
           teamMembers={team}
           workTypes={workTypes}
-          onBack={() => navigate("/calllog")}
-          onSaved={() => { navigate("/calllog"); load(); }}
+          onBack={() => navigate(navState.from === "/home" ? "/home" : "/calllog")}
+          onSaved={() => { refreshAlerts(); navigate(navState.from === "/home" ? "/home" : "/calllog"); load(); }}
           onJobRefresh={() => load()}
           onDeleted={() => { navigate("/calllog"); load(); }}
           teamMember={teamMember}

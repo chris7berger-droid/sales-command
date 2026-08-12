@@ -1457,6 +1457,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [attachLabel, setAttachLabel] = useState(DEFAULT_ATTACHMENT_LABEL); // pre-fills "Release Waiver"; cleared after each add so extra files can be untitled
   const [editingAttachId, setEditingAttachId] = useState(null); // row being re-labeled
   const [attachLabelDraft, setAttachLabelDraft] = useState("");
+  const [attachDragActive, setAttachDragActive] = useState(false); // drag-over highlight for the drop zone
   const [customerContacts, setCustomerContacts] = useState([]);
   const [custInfo, setCustInfo] = useState({ id: null, name: "", billingEmail: "", billingName: "", billingContactId: null });
   const [editingRecipient, setEditingRecipient] = useState(null);
@@ -2915,14 +2916,28 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           })}
 
           {attachments.length < MAX_INVOICE_ATTACHMENTS && (
-            <div style={{ marginTop: attachments.length ? 8 : 0, padding: "10px 12px", background: C.linenDeep, border: `1px solid ${C.borderStrong}`, borderRadius: 8 }}>
+            <div
+              onDragOver={e => { e.preventDefault(); if (!uploadingAttachment) setAttachDragActive(true); }}
+              onDragLeave={e => { e.preventDefault(); setAttachDragActive(false); }}
+              onDrop={e => {
+                e.preventDefault();
+                setAttachDragActive(false);
+                if (uploadingAttachment) return;
+                const f = e.dataTransfer?.files?.[0];
+                if (f) handleUploadAttachment(f, attachLabel).then(ok => { if (ok) setAttachLabel(""); });
+              }}
+              style={{ marginTop: attachments.length ? 8 : 0, padding: "10px 12px", background: attachDragActive ? C.linen : C.linenDeep, border: `1px ${attachDragActive ? "dashed" : "solid"} ${attachDragActive ? C.teal : C.borderStrong}`, borderRadius: 8, transition: "background 120ms, border-color 120ms" }}
+            >
               <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
                 <input value={attachLabel} onChange={e => setAttachLabel(e.target.value)} placeholder="Label (optional)" style={{ flex: 1, minWidth: 140, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linen, color: C.textBody, WebkitAppearance: "none" }} />
               </div>
-              <label style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: C.dark, background: C.teal, borderRadius: 6, padding: "6px 14px", cursor: uploadingAttachment ? "wait" : "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-                {uploadingAttachment ? "Uploading…" : "+ Add Attachment"}
-                <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; handleUploadAttachment(f, attachLabel).then(ok => { if (ok) setAttachLabel(""); }); }} style={{ display: "none" }} disabled={uploadingAttachment} />
-              </label>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <label style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: C.dark, background: C.teal, borderRadius: 6, padding: "6px 14px", cursor: uploadingAttachment ? "wait" : "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                  {uploadingAttachment ? "Uploading…" : "+ Add Attachment"}
+                  <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; handleUploadAttachment(f, attachLabel).then(ok => { if (ok) setAttachLabel(""); }); }} style={{ display: "none" }} disabled={uploadingAttachment} />
+                </label>
+                <span style={{ fontSize: 11, color: C.textMuted, fontFamily: F.ui }}>{attachDragActive ? "Drop to upload" : "or drag & drop a file here"}</span>
+              </div>
             </div>
           )}
           {attachError && <div style={{ fontSize: 11.5, color: C.red || "#e53935", fontFamily: F.ui, marginTop: 8 }}>{attachError}</div>}

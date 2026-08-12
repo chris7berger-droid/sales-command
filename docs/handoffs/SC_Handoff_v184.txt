@@ -1,0 +1,86 @@
+SC_Handoff_v184 — Home → Follow-Up Screen: IDEATE session (engagement vision locked, scope ratified, NO build)
+=========================================================================================================
+Date: 2026-08-12
+Repo/branch: sales-command @ feat/home-follow-up-screen — clean, committed + PUSHED (729afb6). NOT merged.
+Prior: v183 (engine built + buildvsplan passed; Chris rejected the UI as "a boring list", asked for a redesign).
+Mode: IDEATE (opus 4.8, xhigh). Design-only — NOTHING was built or changed in app code this session.
+ERD Loop #45: STILL OPEN (design agreed; screen not built/accepted yet).
+
+
+███ WHAT THIS SESSION DID ████████████████████████████████████████████████████████████████
+
+Ran a full ideate on the Home redesign and banked it. The output is ONE keystone doc:
+    docs/HOME_ENGAGEMENT_VISION.md  ← read this first; it is the source of truth for the redesign.
+
+Also saved to Claude auto-memory (project_home_engagement_vision) so it loads every future session,
+and pointed /resume at this stream (active-work.txt updated + pushed — /resume lands here on any machine).
+
+
+███ THE VISION IN ONE BREATH █████████████████████████████████████████████████████████████
+
+Chris flagged his statement as one of the most important he's made for this app (captured verbatim in
+the doc). Core: the Home screen must DRIVE estimators to the work the BUSINESS needs, not their default
+habits — and it must feel "like a video game, obvious and easy," engaging not stressing/boring/isolating.
+
+ONE screen for everyone (business-need driven, not roles). Breathes top→bottom:
+  1. YOU (hero) — a win that reads their month; effort on a bad month, results on a good one. Always #1.
+  2. YOUR MONEY — month progress bar + moving pace marker + clickable donut (work type / big-vs-small /
+     booked-vs-remaining). Gaps spoken as opportunity, never deficit.
+  3. THE BUSINESS IN THE OPEN — crew runway (everyone sees, manager enters) + shared $100K goal
+     thermometer (no ranking). Runway slides up + turns tension-color when critical; hero stays put.
+  4. YOUR BOOK — tappable, dollars-forward pipeline scoreboard; drill straight into each stage.
+  5. WHAT YOU OWE — follow-ups = self-set dates + bids due (NO auto call-backs); celebrates when clear.
+  6. WHERE TO HUNT — opportunity finder (serves one + Refresh through 10 pre-built angles, shows its
+     work) + existing dormant/gone-quiet call lists, spiced with a dollar number.
+
+
+███ SCOPE — RATIFIED BY CHRIS (the important part for the build) ██████████████████████████
+
+Close-out = ONE contained build session that RESKINS Home + adds read-only selectors + 2 charts.
+  * ZERO new migrations. Reuse ALL existing DB. Engine (followUp.js/alerts.jsx, snapshot loader,
+    dormant/quiet lists, suppression, follow-up + bid-due logic) is REUSED AS-IS — do NOT rebuild it.
+  * Runway uses the single schedule_runway_weeks number already pushed (verified: migration added only
+    schedule_runway_weeks int + _note + _updated_at — no per-week/crew columns).
+  * SHIPS NOW: hero win · money bar+pace+work-type donut · runway bar (one number) · shared-goal
+    thermometer · scoreboard strip w/ drill-in · follow-ups+bids-due · dormant/quiet lists + served
+    opportunity using 3–4 angles that run on our own tables.
+  * DEFERRED (needs new data/plumbing, NOT close-out): QB "$ last yr vs this yr" spice + QB-dependent
+    angles (#4 rich, #6) · the full 10 angles (ship 3–4) · per-week crew counts + who's-available +
+    the 72h/30% critical math (Schedule Command AUTO-FEEDS this later — manual build now = throwaway).
+
+
+███ CARRY-OUTS (separate from this build) ████████████████████████████████████████████████
+
+  * Cash flow forecast → belongs in AR Command, not this screen (do not build here).
+  * "Those numbers can't be right" on the current Sales Dashboard (cash flow / analytics) — a BUG to
+    verify + log to BACKLOG. Not yet logged.
+  * SalesDash is legacy (only cash flow + analytics were ever used). Migrate/retire later; don't prop up.
+
+
+███ GIT STATE ████████████████████████████████████████████████████████████████████████████
+
+  sales-command: feat/home-follow-up-screen @ 729afb6 — clean, pushed. NOT merged to main.
+    (this session added only docs/HOME_ENGAGEMENT_VISION.md + this handoff; NO app code touched.)
+  command-suite-db: unchanged. Migrations from v183 already live in prod.
+  ~/.claude-commands: active-work.txt → this stream, pushed.
+  ERD Loop #45: OPEN.
+
+
+███ NEXT SESSION █████████████████████████████████████████████████████████████████████████
+
+  1. Run /decide in PLAN mode (opus 4.8, xhigh). The plan pass turns HOME_ENGAGEMENT_VISION.md into the
+     exact Home changes: which parts of Home.jsx, which new read-only selectors over the existing
+     snapshot, which components under components/followup/*. Size it for ONE build session = the
+     "SHIPS NOW" column only.
+  2. Then a BUILD session on that plan. Reskin only — reuse the engine. No migrations.
+  3. Then /buildvsplan → /code-review → /security-review → smoke → merge (Vercel auto-deploys on merge;
+     migrations already live, so merge = app catches up to schema).
+  4. Close ERD Loop #45 only after Chris accepts the screen + smoke passes.
+
+
+███ FILES TO KNOW ████████████████████████████████████████████████████████████████████████
+
+  Vision (READ FIRST): docs/HOME_ENGAGEMENT_VISION.md
+  Frozen plan (has 2 corrections superseded by v183): docs/plans/home-follow-up-screen.md
+  Engine (reuse as-is): src/lib/followUp.js, src/lib/alerts.jsx, src/lib/config.js
+  Reskin target: src/pages/Home.jsx, src/components/followup/*

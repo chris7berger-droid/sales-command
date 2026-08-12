@@ -21,6 +21,14 @@ export function runwayColor(weeks) {
 }
 const COLOR = { green: C.green, yellow: C.amber, red: C.red, unset: C.textFaint };
 
+// The runway's job is to tell the rep what to DO, not just show a number.
+function runwayMessage(color, weeks) {
+  if (color === "unset") return "Set your runway to turn on the outbound list.";
+  if (color === "green") return `Crews booked ${weeks} weeks out — you're covered.`;
+  if (color === "yellow") return "Crews thin in 2 weeks — start calling.";
+  return weeks <= 0 ? "No booked work ahead — call today." : `Crews thin in ${weeks} week${weeks === 1 ? "" : "s"} — start calling.`;
+}
+
 export default function RunwayBar({ canManage }) {
   const cfg = useTenantConfig();
   const weeks = cfg.schedule_runway_weeks ?? null;
@@ -98,13 +106,19 @@ export default function RunwayBar({ canManage }) {
         </div>
       ) : (
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ flex: 1, height: 8, borderRadius: 6, background: C.linenDeep, overflow: "hidden" }}>
-              <div style={{ width: `${pct}%`, height: "100%", background: COLOR[color] }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6, minWidth: 92 }}>
+              <span style={{ fontSize: 40, fontWeight: 800, color: COLOR[color], fontFamily: F.display, lineHeight: 1 }}>{weeks}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.08em" }}>{weeks === 1 ? "week" : "weeks"}</span>
             </div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: COLOR[color], fontFamily: F.display, lineHeight: 1, minWidth: 28, textAlign: "right" }}>{weeks}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ height: 10, borderRadius: 6, background: C.linenDeep, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: COLOR[color] }} />
+              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: COLOR[color], fontFamily: F.ui, marginTop: 8 }}>{runwayMessage(color, weeks)}</div>
+            </div>
           </div>
-          {note && <div style={{ fontSize: 12.5, color: C.textMuted, fontFamily: F.body, marginTop: 8 }}>{note}</div>}
+          {note && <div style={{ fontSize: 12.5, color: C.textMuted, fontFamily: F.body, marginTop: 10 }}>{note}</div>}
           {cfg.schedule_runway_updated_at && (
             <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>updated {fmtD(cfg.schedule_runway_updated_at)}</div>
           )}

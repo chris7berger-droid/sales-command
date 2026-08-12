@@ -1,34 +1,31 @@
-// Zone 3 outbound worklist card (docs/plans/home-follow-up-screen.md §2.4).
-// Dormant customer or gone-quiet bid. Phone is a tel: link. Presentational —
-// Home opens the LogOutcomeModal via onLog.
+// Compact outbound row (docs/plans/home-follow-up-screen.md §2.4).
+// The hero action in the action-first layout: who to call. One dense line —
+// name, why they're here (last job / gone quiet), a tap-to-call phone, and Log.
 import { C, F } from "../../lib/tokens";
 import { fmtD } from "../../lib/utils";
 import Btn from "../Btn";
 
 export default function OutboundCard({ item, onLog }) {
+  const reason = item.source === "gone_quiet" ? "gone quiet since" : "last job";
   return (
     <div style={{
-      display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12,
-      background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10,
-      padding: "12px 16px", boxShadow: "0 1px 4px rgba(28,24,20,0.05)",
+      display: "flex", alignItems: "center", gap: 12,
+      background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderLeft: `3px solid ${C.teal}`,
+      borderRadius: 8, padding: "8px 12px",
     }}>
-      <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.02em" }}>
-          {item.jobNumber ? `${item.jobNumber} · ` : ""}{item.name || "—"}
-        </div>
-        <div style={{ fontSize: 12, color: C.textMuted, fontFamily: F.body, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {item.lastJob || "—"}
-        </div>
-        <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>
-          Last touch {item.lastTouch ? fmtD(item.lastTouch) : "never"}
-        </div>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 8, overflow: "hidden" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "55%" }}>
+          {item.name || "—"}
+        </span>
+        <span style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {reason} {item.lastTouch ? fmtD(item.lastTouch) : "never"}
+        </span>
       </div>
       {item.phone && (
-        <a href={`tel:${item.phone}`} style={{ fontSize: 12.5, fontWeight: 700, color: C.tealDark, fontFamily: F.ui, textDecoration: "none", whiteSpace: "nowrap" }}>
-          ☎ {item.phone}
-        </a>
+        <a href={`tel:${item.phone}`} onClick={e => e.stopPropagation()} title={item.phone}
+           style={{ fontSize: 13, color: C.tealDark, fontFamily: F.ui, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>☎</a>
       )}
-      <Btn v="secondary" sz="sm" onClick={() => onLog?.(item)}>Log outcome</Btn>
+      <Btn v="secondary" sz="sm" onClick={() => onLog?.(item)}>Log</Btn>
     </div>
   );
 }

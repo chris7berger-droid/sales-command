@@ -1161,8 +1161,13 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
                       {/* job_id carries the whole display string ("6897 - Plenium
                           Builders Virginia Palmer Elementary - Polish"). A field
                           labeled Job # prints the number, not the job name — the
-                          name wrapped to two ragged lines under the label. */}
-                      <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{String(invoice.job_id).split(" - ")[0]}</div>
+                          name wrapped to two ragged lines under the label. The
+                          proposal number (P7) is appended so the same job's
+                          separate proposals read distinctly (e.g. "7215 P7"). */}
+                      <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>
+                        {String(invoice.job_id).split(" - ")[0]}
+                        {invoice.proposals?.proposal_number ? ` P${invoice.proposals.proposal_number}` : ""}
+                      </div>
                     </>
                   )}
                   {invoice.due_date && (
@@ -1580,7 +1585,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   async function reloadInv() {
     const { data: refreshed } = await supabase
       .from("invoices")
-      .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
+      .select(`*, proposals(call_log_id, proposal_number, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
       .eq("id", inv.id)
       .maybeSingle();
     if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
@@ -1751,7 +1756,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       // recent QB link/unlink action — list-cached props can be stale.
       const { data: freshInv } = await supabase
         .from("invoices")
-        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, customer_id, customers(billing_email, billing_name, contact_email, email, first_name, last_name, name)))`)
+        .select(`*, proposals(call_log_id, proposal_number, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, customer_id, customers(billing_email, billing_name, contact_email, email, first_name, last_name, name)))`)
         .eq("id", inv.id)
         .maybeSingle();
       if (freshInv) setInv(prev => ({ ...prev, ...freshInv }));
@@ -1951,7 +1956,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
       const { data: refreshed } = await supabase
         .from("invoices")
-        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
+        .select(`*, proposals(call_log_id, proposal_number, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
         .eq("id", inv.id)
         .maybeSingle();
       if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
@@ -3029,7 +3034,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             setSyncReLink(false);
             const { data: refreshed } = await supabase
               .from("invoices")
-              .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
+              .select(`*, proposals(call_log_id, proposal_number, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
               .eq("id", inv.id)
               .maybeSingle();
             if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
@@ -3157,7 +3162,7 @@ export default function Invoices({ setSubPage, teamMember }) {
   const load = async () => {
     const data = await fetchAll(
       "invoices",
-      `*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`,
+      `*, proposals(call_log_id, proposal_number, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`,
       { filters: [["is", "deleted_at", null]], order: { column: "sent_at", ascending: false } }
     );
     setInvoices(data);
@@ -3188,7 +3193,7 @@ export default function Invoices({ setSubPage, teamMember }) {
     (async () => {
       const { data } = await supabase
         .from("invoices")
-        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
+        .select(`*, proposals(call_log_id, proposal_number, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
         .eq("id", routeInvoiceId)
         .is("deleted_at", null)
         .maybeSingle();

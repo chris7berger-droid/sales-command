@@ -97,3 +97,25 @@ the rep's proposals already in the snapshot.
 
 **Layout intent:** full-width bar under the hero, big and legible; donut to the side; the "move"
 sentence in plain language beneath the bar. Video-game bold — one glance tells them where they stand.
+
+---
+
+## Box 3 — THE BUSINESS, IN THE OPEN (shared) [LOCKED — Chris, 2026-08-13]
+
+**Role:** #3, under the money bar. Not personal — everyone sees the same thing. Two elements.
+
+**Crew runway [LOCKED — reuse existing]:** the weeks-of-booked-work bar already built (`RunwayBar`,
+reads `tenant_config.schedule_runway_weeks`; Admin/Manager enters, all see). This redesign **relocates
+it here** and keeps its behavior:
+- Color by threshold (calm when booked out → warning color when thin), as today.
+- **Critical slide-up [LOCKED]:** when runway goes critical it slides up **above the money bar** and
+  turns its hot/tension color — a nudge, NOT a takeover. The YOU box (#1) never moves.
+
+**Shared goal thermometer [LOCKED]:** the whole team's progress toward the company goal. One rope,
+**no ranking, no leaderboard** (natural competition self-surfaces privately).
+- Tracks **the month [LOCKED — A]:** everyone's money **sold this month** vs the **un-split** company
+  goal (`tenant_config.monthly_billing_goal`). Same monthly clock as the personal money bar.
+
+**Layout intent:** shared row under the personal money bar — runway on one side, thermometer on the
+other (or stacked on narrow screens). Calm by default; the runway is the only element that moves
+(slides up) and only when critical.

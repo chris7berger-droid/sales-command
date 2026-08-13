@@ -140,3 +140,23 @@ open **their own** filtered pile. Verify the exact stage label strings match `ca
 
 **Layout intent:** one calm horizontal strip of three money tiles; big dollar number, small count
 beneath, whole tile tappable. Reads "here's where my money's parked," tap to go work it.
+
+---
+
+## Box 5 — WHAT YOU OWE (follow-ups) [LOCKED — Chris, 2026-08-13]
+
+**Role:** #5, under the scoreboard. A short, finite, **checkable** list — only the things the rep
+committed to. Clearing it is visible proof of effort.
+
+**What counts as owed [LOCKED — as-is]:** two sources, one combined list, scoped to this rep:
+1. **Bids due** — already built (`bidDueAlerts`, Wants Bid with `bid_due <= today`).
+2. **Self-set follow-up dates** — the existing **"Follow-Up Date"** field reps set per job
+   (`CallLogDetail.jsx:619-620`, `call_log.follow_up`). Newly **surfaced** on Home. Zero DB — the
+   column exists; just add `follow_up` to the `loadSnapshot` call_log select and filter
+   `follow_up <= today` (same overdue-accumulates rule as bids-due).
+   - No auto call-backs — only dates the rep chose themselves.
+
+**Celebrate when clear [LOCKED]:** empty list → a win, not a blank: *"all caught up — go hunt."*
+
+**Layout intent:** compact checkable list of cards, oldest/most-overdue first; each links into the
+job. When empty, the whole box becomes the celebration state (hands them off to Box 6).

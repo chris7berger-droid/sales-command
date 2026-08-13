@@ -119,3 +119,24 @@ it here** and keeps its behavior:
 **Layout intent:** shared row under the personal money bar — runway on one side, thermometer on the
 other (or stacked on narrow screens). Calm by default; the runway is the only element that moves
 (slides up) and only when critical.
+
+---
+
+## Box 4 — YOUR BOOK (scoreboard / the doorway) [LOCKED — Chris, 2026-08-13]
+
+**Role:** #4, under the shared row. Personal — the rep's own pipeline as **money, not a table.** A
+calm, dollars-forward strip: three stages side by side, each with a **dollar total + a count.**
+
+**The three stages [LOCKED]:** **Wants Bid → Has Bid → Sold.** Show all three; **all tappable**
+(option A). Sold reads as a trophy *and* links to review what closed.
+
+**Tap to drill [DERIVED — wiring confirmed]:** each stage taps straight into that pile. Target
+exists with zero new wiring — `CallLog.jsx:29` already reads `navState.stageFilter`, and CallLog has
+a `sales` filter, so we navigate with `{ state: { stageFilter: "<stage>", sales: <thisRep> } }` to
+open **their own** filtered pile. Verify the exact stage label strings match `call_log.stage`.
+
+**Data:** the rep's own proposals/pipeline already in the snapshot, summed to $ + count per stage
+(scoped by `call_log.sales_name`).
+
+**Layout intent:** one calm horizontal strip of three money tiles; big dollar number, small count
+beneath, whole tile tappable. Reads "here's where my money's parked," tap to go work it.

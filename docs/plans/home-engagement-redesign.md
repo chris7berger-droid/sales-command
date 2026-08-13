@@ -61,3 +61,39 @@ record types (best-ever, streaks) are deferred spice, not v1.
 
 **Layout intent:** full-width top block, one oversized bold line in the display font, generous
 padding, clear separation from the money bar below.
+
+---
+
+## Box 2 — THE MONEY BAR (personal, carries the pressure) [LOCKED — Chris, 2026-08-13]
+
+**Role:** #2, directly under the YOU box. This is where all pace/urgency lives (the YOU box stays a
+pure confidence hit). A single progress bar for the logged-in estimator's month.
+
+**What it measures [LOCKED]:** **money SOLD this month** by this rep (their Sold proposals, current
+month) — bookings, not billings. Chris's call: use the existing Settings goal number as the target,
+but the bar fills on money *sold*, not invoiced.
+- Caveat [DERIVED]: proposals have no `sold_at`; "sold this month" keys on proposal `created_at`
+  (or `call_log.updated_at`). Verify at build; a job sold this month but created last month is the
+  edge case.
+
+**The goal number [LOCKED — split]:** company goal ÷ active estimators = each rep's personal target.
+- Source: `tenant_config.monthly_billing_goal` (Admin/Manager sets it in Settings — already exists).
+- Headcount: count of **active** `team_members` in an estimator/Sales-Rep role (one small read;
+  pattern already used in `ImportToLiveWizard.jsx:219`). No new table, no migration.
+- [DESIGN-OPEN, minor]: exact role value(s) that count as "estimator" for the split — confirm at
+  build against the real `team_members.role` values.
+
+**The pace marker [LOCKED]:** a line showing where they *should* be by today = target × (fraction of
+the month elapsed), straight-line. As the month runs out and a gap opens, the marker slides right and
+its color warms (calm → hot). Managed monthly — a slow week isn't a visible failure as long as the
+month can still average out.
+
+**The gap is always a move, never a scold [LOCKED]:** e.g. *"$30K to go — one good job, or 6 quiet
+bids you already have out."* Spoken as opportunity + the next action.
+
+**The donut [LOCKED]:** one circle beside the bar, **tap to switch** between three read-only views —
+default **booked vs. left to go**, then **work type**, then **big vs. small jobs**. All derive from
+the rep's proposals already in the snapshot.
+
+**Layout intent:** full-width bar under the hero, big and legible; donut to the side; the "move"
+sentence in plain language beneath the bar. Video-game bold — one glance tells them where they stand.

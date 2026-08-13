@@ -212,5 +212,106 @@ the dormant/quiet lists sit calmer beneath it.
 **Build scope reminder:** reskin + read-only selectors + two charts (donut + thermometer). Zero
 migrations, zero backend. New reads are all trivial column adds on existing tables
 (`follow_up`, `viewed_at`/`sent_at`) + one small active-estimator count from `team_members`.
-Next step: **plan is complete → build session** against this doc (buildvsplan + preview smoke before
-merge). ERD Loop #45 stays open until the screen is accepted + smoke-verified.
+Next step: **plan is complete → audit (separate terminal) → build session** against this doc
+(buildvsplan + preview smoke before merge). ERD Loop #45 stays open until the screen is accepted +
+smoke-verified.
+
+---
+
+## Audit manifest
+
+_Generated 2026-08-13 (round 1). Consumed by `/runaudit` to size the adversarial audit pass. This
+plan has NOT been audited yet — the audit runs in a separate terminal._
+
+### Bottom line (plain English)
+A presentation reskin of the Home screen — six stacked boxes over an engine that already ships.
+**No migrations, no backend, no new architecture.** The risk is not schema or blast radius; it's
+**derivation correctness** hiding under "zero-DB": per-estimator scoping done by name-matching,
+"money sold this month" keyed on a proxy date, a goal split by a live headcount, and four
+opportunity angles that must actually be computable from the snapshot as written. The audit's job is
+to prove those derivations hold and that nothing labeled "trivial column add" secretly needs a
+migration.
+
+### Round
+- Plan type: feature (presentation reskin)
+- Current round: 1 (first audit — no prior rounds)
+- Plan revision under audit: `c32a4ab` (Box 6 + assembled order — plan complete)
+- Findings trend: n/a (round 1). Establish the baseline; expect a **premise-vs-data-reality**
+  pattern (does the snapshot really carry what each box claims).
+
+### Deployment context
+- **Live tenants**: 1 — HDSP only. Sales + Field share Supabase project `pbgvgjjuhnpsumnowuym`.
+- **Prod / staging / dev**: Home is the live-prod post-auth landing (salescommand.app); ships to a
+  Vercel preview branch first, never straight to prod.
+- **Blocking feature flags**: none.
+- **Concurrency profile**: ≤5 users, single tenant. Multi-user race findings cap at Low.
+- **Design-baseline note**: this plan reskins `src/pages/Home.jsx` **as it exists today** (143 lines;
+  the RunwayBar is currently the top element). Audit must verify entry points against the real file,
+  not the vision doc.
+
+### Time budget + finding cap
+- **Time budget**: ~600 min (est. ~10h build — 6 boxes + finder + 2 charts + small derivations).
+- **Finding cap**: 35 findings (nominal — reskin surface is narrower than the sibling engine plan).
+  Synthesis should lead with the top ~5.
+
+### Surface
+- Plan doc: `docs/plans/home-engagement-redesign.md` (~180 lines).
+- Sections: 9 (Data-on-hand + Box 1–6 + Assembled order + this manifest).
+- [LOCKED] decisions: 6 (one per box, all Chris-ratified 2026-08-13).
+- [DERIVED] items to verify: sold-this-month proxy date; drill-in stage labels; team_members estimator
+  role value.
+- [DESIGN-OPEN] items: 2 minor — exact estimator role string for the goal split; exact stage label
+  strings for scoreboard drill-in.
+- Companion inputs (not under audit, but the source of truth): `docs/HOME_ENGAGEMENT_VISION.md`
+  (ratified vision), `docs/plans/home-follow-up-screen.md` (FROZEN engine plan).
+
+### Known weak points (round-1 focus)
+1. **Name-match scoping.** Per-rep everything (hero, money bar, book, finder) filters on
+   `call_log.sales_name === displayName`. `displayName` = `teamMember?.name` (`App.jsx:210`).
+   Verify these are the *same* string space — a mismatch silently zeroes every personal box.
+2. **"Money sold this month" proxy.** Proposals have no `sold_at`; the plan keys on `created_at`
+   (or `call_log.updated_at`). Confirm the chosen proxy is defensible and consistent across the
+   money bar + thermometer + hero.
+3. **"Zero-DB" claim.** Three "trivial column adds" (`follow_up`, `viewed_at`/`sent_at` on
+   proposals) and one headcount read (`team_members` active estimators). Verify each column truly
+   **exists** (no migration hiding) and the estimator role value is real.
+4. **Goal split integrity.** company `monthly_billing_goal` ÷ active estimators — verify divide-by-
+   zero / single-user / role-mislabel behavior, and that it's a *billing* goal repurposed as a
+   *sold* target per Chris's ratified call (not silently mixing the two).
+5. **Finder buildability.** The 4 v1 angles (#1/#3/#5/#2) must be computable from the snapshot;
+   **#2 "Almost Yes"** specifically needs `viewed_at`/`sent_at` added to the proposals select.
+   Verify each angle's data is present and the auto-rank/serve-one has something to rank.
+6. **Scope creep.** Confirm the two charts (donut + thermometer) and read-only selectors stay
+   client-side — no new endpoint, job, or table sneaks in under "reskin."
+
+### Cross-system reach
+- `command-suite-db` — only to confirm columns exist (`call_log.follow_up`, proposal
+  `viewed_at`/`sent_at`, `team_members.role`/`active`). No schema *change* is in scope; a finding
+  that one is needed is a scope-breaker worth flagging High.
+- Shared project `pbgvgjjuhnpsumnowuym` — reads only; no policy or write-path change.
+
+### Irreversibility
+- None. No migrations, no backfill, no public-API change. Fully reversible (branch + preview).
+
+### Open questions
+- Exact `team_members.role` value(s) that count as "estimator" for the goal split.
+- Exact `call_log.stage` label strings for the scoreboard drill-in nav state.
+
+### Suggested attack angles (3)
+1. **Per-rep derivation correctness** — Boxes 1/2/4. Reading: `src/lib/followUp.js`,
+   `src/pages/Home.jsx`, `src/App.jsx:210` (displayName), proposal `created_at` proxy. Pressure:
+   does per-rep money-sold-this-month compute right? Is `sales_name` vs `displayName` the same space?
+   Best-month edge cases (first month, ties, zero history)?
+2. **"Zero-DB" + reuse fidelity** — Boxes 2/3/5. Reading: snapshot select in `followUp.js`,
+   `CallLogDetail.jsx:619` (`follow_up`), `Settings.jsx:682` (goals), `team_members` usage
+   (`ImportToLiveWizard.jsx:219`), `RunwayBar`. Pressure: are all column adds truly non-migration?
+   Goal-split headcount source solid? RunwayBar relocate + critical slide-up + company thermometer
+   sum buildable as written?
+3. **Finder buildability + scope discipline** — Box 6 + overall. Reading: `followUp.js`
+   dormant/goneQuiet, `ProposalDetail.jsx:1377` (`viewed_at`), `CallLog.jsx:29` (drill target).
+   Pressure: are the 4 angles computable from the snapshot? Does #2 need a column add? Do the 2
+   charts / selectors stay client-side, or does anything drag in new architecture? Verify the reskin
+   attaches to the *current* Home.jsx entry points.
+
+### Suggested agent count: 3
+

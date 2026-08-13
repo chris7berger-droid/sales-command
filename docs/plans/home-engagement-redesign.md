@@ -160,3 +160,57 @@ committed to. Clearing it is visible proof of effort.
 
 **Layout intent:** compact checkable list of cards, oldest/most-overdue first; each links into the
 job. When empty, the whole box becomes the celebration state (hands them off to Box 6).
+
+---
+
+## Box 6 — WHERE TO HUNT (opportunity finder + call lists) [LOCKED — Chris, 2026-08-13]
+
+**Role:** #6, bottom of the screen. Turns the screen from *here's your number* into *here's your
+move.* Two parts.
+
+**The opportunity finder ("coach, not scoreboard") [LOCKED — mechanics per vision]:**
+- **Serves ONE** automatically — the strongest auto-ranked pick — so even an unmotivated rep is
+  handed a move without going looking.
+- **Refresh** names its criteria each time and serves the next angle.
+- **Non-destructive** — step back / pin, so they can return to the best they've seen. (Session-local
+  state, no DB.)
+- **Shows its work** — every nudge states its reason ("because you sold them $40K last year and
+  nothing this year").
+- **Tap → drops into that call, pre-spiced.**
+
+**Angles shipping in v1 [LOCKED — 4, all zero-QB, data available today]:**
+1. **#1 Biggest Bid Hanging** — largest quiet bid (sent, stale, not won). From `goneQuiet` + `total`.
+2. **#3 Quick Win** — smallest/oldest quiet bid; easy roll-start.
+3. **#5 You're Their Guy** — customer this rep has done the most jobs with, gone quiet.
+4. **#2 Almost Yes** — a bid they *opened but never signed*. Uses existing view tracking
+   (`viewed_at`, seen in `ProposalDetail.jsx:1377`) — add `viewed_at`/`sent_at` to the snapshot
+   proposals select (zero DB; columns exist).
+
+**Deferred angles (need data/QB, grow later):** #4 rich cold-customer $ + #6 down-from-last-year
+(QuickBooks); #9 play-to-your-strength (needs work_type); #10 neighborhood run (needs customer
+city/zip — add columns later); #7 chase-a-whale, #8 new-blood held for the next batch. Reserve:
+Follow-Up Due Today, Streak Saver.
+
+**Under the finder [LOCKED — reuse existing]:** the built dormant + gone-quiet call lists, each
+**tagged with a dollar number** so a call feels like chasing money.
+
+**Layout intent:** the served card is the hero of this box (big, one clear move, a Refresh control);
+the dormant/quiet lists sit calmer beneath it.
+
+---
+
+## Assembled order (top → bottom)
+
+1. **YOU** (personal win) — never displaced.
+2. **Money bar** (personal; carries all pace/pressure) + donut.
+3. **Business, in the open** (shared: crew runway + goal thermometer) — runway slides up above #2
+   only when critical.
+4. **Your book** (personal scoreboard: Wants Bid → Has Bid → Sold, tap to drill).
+5. **What you owe** (bids due + self-set follow-ups; celebrates when clear).
+6. **Where to hunt** (opportunity finder + dormant/quiet lists).
+
+**Build scope reminder:** reskin + read-only selectors + two charts (donut + thermometer). Zero
+migrations, zero backend. New reads are all trivial column adds on existing tables
+(`follow_up`, `viewed_at`/`sent_at`) + one small active-estimator count from `team_members`.
+Next step: **plan is complete → build session** against this doc (buildvsplan + preview smoke before
+merge). ERD Loop #45 stays open until the screen is accepted + smoke-verified.

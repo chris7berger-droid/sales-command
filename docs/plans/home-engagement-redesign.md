@@ -242,7 +242,7 @@ because the migration + settings write-path is genuinely new surface.
 ### Round
 - Plan type: feature (presentation reskin + one small config migration)
 - Current round: **1 (revised 2026-08-15)** — the 2026-08-13 manifest was a draft; **no audit ran.**
-- Plan revision under audit: `edb7bce` (2026-08-15 amendment parts 1+2 — visual target, mockup
+- Plan revision under audit: `e6ef4b1` (2026-08-15 amendment parts 1+2 — visual target, mockup
   decisions, and the two now-specified states).
 - Findings trend: n/a (no audit executed). Expect a **premise-vs-data-reality** pattern plus a new
   **cross-repo-ordering / write-path-gating** cluster from the migration.

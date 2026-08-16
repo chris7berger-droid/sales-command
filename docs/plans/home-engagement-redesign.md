@@ -4,7 +4,9 @@ Confidence tags: **[LOCKED]** = Chris-ratified · **[DERIVED]** = inferred from 
 
 **Type:** feature (presentation redesign)
 
-**Status:** 🟡 IN PLANNING — building the build spec one box at a time, committed as each locks.
+**Status:** 🟡 IN PLANNING — 6 boxes locked 2026-08-13; **amended 2026-08-15** with the visual
+target (approved mockup) + 4 decisions. See the **2026-08-15 amendment** at the bottom — it is the
+newest source of truth where it touches Box 3, Box 5, layout, and migrations.
 
 **What this is:** the *reskin* of Home into the shape in `docs/HOME_ENGAGEMENT_VISION.md`. It is NOT
 the engine — the engine (snapshot loader, dormant/gone-quiet lists, follow-up + bid-due logic) shipped
@@ -12,8 +14,10 @@ per `docs/plans/home-follow-up-screen.md` (FROZEN) and is reused as-is. This doc
 presentation of `src/pages/Home.jsx` + `src/components/followup/*` only.
 
 **Scope guardrails (from the ratified vision):** ships the "now" column only — reskin + read-only
-selectors + two charts. **Zero new migrations, zero backend, zero new architecture.** Everything reads
-tables the snapshot already fetches.
+selectors + two charts. Originally **zero migrations** — **amended 2026-08-15:** exactly **one small
+migration** now in scope (two per-customer runway-threshold columns on `tenant_config`; see the
+amendment). Everything else still reads tables the snapshot already fetches; no backend, no new
+architecture.
 
 **Pointers:**
 - North-star + verbatim intent: `docs/HOME_ENGAGEMENT_VISION.md`
@@ -314,4 +318,59 @@ migration.
    attaches to the *current* Home.jsx entry points.
 
 ### Suggested agent count: 3
+
+---
+
+## 2026-08-15 amendment — visual target locked + mockup decisions [LOCKED — Chris]
+
+_Appended, not overwritten. Where this touches Box 3 / Box 5 / layout / migrations, THIS is newest._
+
+**Visual target [LOCKED].** The approved mockup (started in Claude Design, finished in ChatGPT) is
+now the reference the build matches. Saved in-repo at `docs/home-engagement-mockup-v1.png`; the seed
+that produced it is `docs/home-engagement-claude-design-seed.md`.
+- **TRANSLATE, do not drop-in.** The mockup's code/colors are off-brand ChatGPT tokens — remap every
+  color to `src/lib/tokens.js` (its `#008678` teal → our `#30cfac`, its purple/orange → our `C.purple`
+  / `C.amber`) and honor the hard style rules: **no white backgrounds; teal buttons get BLACK text**
+  (the mockup's teal "Call Dana Kessler" button uses white — fix on build).
+
+**Box 3 amendment — crew runway is a 3-state, per-customer indicator [LOCKED].** Supersedes the
+single "critical slide-up" note.
+- **Three states only:** 🟢 green (calm, in place) · 🟡 amber (warm color, in place — no slide) ·
+  🔴 red (warm/tension color **and slides up above the money bar**; the YOU hero never moves).
+- **Thresholds are PER-CUSTOMER, set in Settings — not hardcoded.** They vary by trade/company.
+- **HDSP defaults:** green **≥3 weeks** · amber **2 to under 3 weeks** · red **under 2 weeks**
+  (anchors: 3→green, 2→amber, 1→red).
+
+**Migration correction [LOCKED — amends the "zero migrations" guardrail].** Storing the two
+per-customer thresholds adds **two small columns to `tenant_config`** (e.g. `runway_amber_weeks`,
+`runway_red_weeks`) → **one small migration in `command-suite-db`**. This is the ONLY migration. The
+runway *number* itself (`schedule_runway_weeks`) already exists. All three values (the number + both
+thresholds) are entered by **Admin/Manager in Settings**. v1 stays manual entry; Schedule Command
+auto-feeding the number is still deferred.
+
+**Box 5 amendment — full-width; no 7th box [LOCKED].** "What You Owe" runs **full-width.** The
+mockup's added **"AT A GLANCE"** box is **CUT** — it was space-filler that repeated the hero + money
+bar. (It was never one of the locked 6; we simply do not adopt it.)
+
+**Layout principle — applies screen-wide [LOCKED].** The durable fix for our recurring "full-width
+row with a hollow middle" problem — so we stop shipping flat *without* adding clutter:
+1. **Anchor both edges.** Label/number hard-left, secondary data (amount, due date, chip, donut)
+   hard-right — a wide row's open middle then reads as intentional breathing, not an unfinished gap.
+2. **Pair, don't pad.** Go 2-up only when there's a *real* companion (money bar + donut). Otherwise
+   full-width + lever 1. **Never bolt on a recap module just to fill pixels** (that's what At-a-Glance
+   was). A calm, breathing screen *wants* some open center; *unanchored* empty is the only enemy.
+
+**Hero image rotation [LOCKED — easy].** The top-right hero image rotates **deterministically by
+week-of-year** (same image for everyone that week, changes on its own, no backend, no randomness — an
+array + a date-derived index). Ship a curated set of **~12–20 SELF-HOSTED, licensed images** (bundled
+or a Supabase bucket) — **not** the mockup's Unsplash hotlink. Daily variant is trivial if wanted;
+weekly is the call. Time-of-day tie-in (sunrise in the AM) is deferred spice.
+
+**Settings scope added [LOCKED].** Two new Settings inputs (Admin/Manager only): **runway amber
+threshold** + **runway red threshold**, per-customer, beside the existing runway-weeks number.
+
+**⚠ Audit manifest is now stale.** The round-1 manifest above still says "zero migrations" and
+predates this amendment. Before `/runaudit`, **re-generate the manifest** (`/auditcriteria`) so it
+reflects: (a) one small threshold-columns migration is IN scope, (b) the committed mockup is the
+visual target, (c) Settings gains two threshold inputs. Do not run the round-1 manifest as-is.
 

@@ -289,7 +289,8 @@ because the migration + settings write-path is genuinely new surface.
 - New Settings inputs (2) + role-gated write path.
 - 3-state runway derivation (threshold compare → green/amber/red + slide-up).
 - Hero image weekly rotation (deterministic date-indexed selector over a self-hosted set).
-- Snapshot selector adds (from round 1): `follow_up`, `viewed_at`/`sent_at`.
+- Snapshot selector adds: `follow_up`, `viewed_at`/`sent_at` (round 1) + **`proposal_wtc.work_type_id`
+  + `work_types(name)`** for the donut's work-type view (amendment part 3; columns exist, zero-DB).
 - Palette translation (mockup → `tokens.js`) — fidelity risk, not a code mechanism.
 
 ### Cross-system reach
@@ -343,8 +344,11 @@ NEW with the amendment:
    correct at boundaries (exactly 2 wk = amber, not red)?
 3. **"Zero-DB" reuse fidelity + scope discipline** — Boxes 2/3/5 + assembled order. Reading: snapshot
    select in `followUp.js`, `CallLogDetail.jsx:619` (`follow_up`), `ProposalDetail.jsx:1377`
-   (`viewed_at`), `team_members` usage (`ImportToLiveWizard.jsx:219`). Pressure: are the *remaining*
-   "trivial column adds" truly non-migration (columns exist)? Do the 2 charts + selectors stay
+   (`viewed_at`), `team_members` usage (`ImportToLiveWizard.jsx:219`), the `loadSnapshot`
+   `proposal_wtc` select. Pressure: are the *remaining* "trivial column adds" truly non-migration
+   (columns exist)? **Specifically the donut work-type view (amendment part 3) needs
+   `proposal_wtc.work_type_id` + `work_types(name)` added to the select — verify it's a pure select
+   add, not a join that changes row shape or a migration.** Do the 2 charts + selectors stay
    client-side — nothing else drags in a second migration or endpoint under "reskin"?
 4. **Visual-target translation fidelity + layout** — the mockup-to-code risk. Reading:
    `docs/home-engagement-mockup-v1.png`, `src/lib/tokens.js`, `CLAUDE.md` style rules, current
@@ -464,4 +468,50 @@ Green (healthy) is the mockup's version. The two tension states, and the exact m
     pointing at the finder / opportunity below.
 - **Thermometer is independent.** The company-goal thermometer beside the runway tracks the monthly
   goal and does **not** change color or position with runway state. Only the runway element moves.
+
+---
+
+## 2026-08-15 amendment (part 3) — the money donut, 3 tap-views spec [LOCKED — Chris]
+
+_Box 2 already locked the donut concept + the 3 view names + tap-to-switch. This is the build spec:
+derivation per view, cycle behavior, thresholds, empty states, and the one data dependency._
+
+**Placement + interaction.**
+- Beside the money bar (Box 2), ring + legend to its right, a tap affordance beneath (mockup's
+  `TAP · <view>`).
+- Tapping the donut (or its label) **cycles the 3 views in fixed order, wrapping:**
+  **Booked-vs-left → Work type → Big-vs-small → (back to Booked).** The label beneath names the
+  **current** view + a subtle "tap" hint.
+- **Session-local only** — no persistence; resets to the default (Booked-vs-left) on reload.
+- **Read-only glance, not a doorway** — the donut never drills in (drill-in lives in the Box 4
+  scoreboard). All views scoped to this rep via `sales_name`, off proposals already in the snapshot
+  except where a field-add is noted.
+
+**View 1 — Booked vs. left to go (default).** Two slices: money **sold this month** vs **remaining to
+personal target** (target = company goal ÷ active estimators — the same number the bar uses). If sold
+≥ target, ring is full with a subtle "over" treatment (thin overflow arc / `112%`), **never a broken
+>100% ring.** Legend: `Booked $X (n%)` / `Left to go $Y (n%)`.
+
+**View 2 — Work type.** Sold-this-month $ split by work type (concrete prep, coatings, etc.); slices
+= each work type's summed $. Legend lists the top ~5 with `$ · %`, tail collapsed into **"Other."**
+- **Data dependency [DERIVED — verify/add at build]:** needs `proposal_wtc.work_type_id` +
+  `work_types(name)` in the snapshot select. Today `loadSnapshot` pulls `proposal_wtc(end_date)`
+  **only**, so this is a **trivial select add** (columns exist, zero-DB) — but it IS a real add the
+  build must not miss. This is the one spot the "all views derive from the snapshot as-is" claim in
+  Box 2 is not literally true yet.
+
+**View 3 — Big vs. small jobs.** Sold-this-month $ split into **Large vs. Small** by a size line.
+- v1 threshold = a **fixed default of $50K** (`Large ≥ $50K` / `Small < $50K`). Legend:
+  `Large $X (n%)` / `Small $Y (n%)`.
+- Making the threshold a **per-customer Setting is deferred** (NOT v1 — flagged so it doesn't grow
+  scope). Ship the fixed $50K line first; tune later only if HDSP asks.
+
+**Empty / edge states [LOCKED].**
+- **$0 sold this month** → calm empty ring + *"nothing booked yet"* (matches the effort-hero tone, no
+  error). View 1 still shows the full target as "left to go."
+- **Single-slice** (all one work type, or all large) → full ring + one legend row. Never a broken chart.
+
+**Color [LOCKED].** `tokens.js` only — teal family for the primary/booked slice, `C.linenDeep` (muted)
+for "left / Other," and the accent set (`C.amber`, `C.purple`, `C.tealDark`) for multi-slice views.
+No new colors, no white.
 

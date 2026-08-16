@@ -542,16 +542,20 @@ A per-week strip needs per-week crew data (deferred to Schedule Command — visi
   - **Removes the two Settings threshold inputs** (part 1's "Settings scope added"); Settings now gains
     **one** input: the crew-booked %.
 - **5-band scale [LOCKED — Chris]:** `<30 crit · 30–50 thin · 50–70 filling · 70–90 good · 90+ ideal`.
-- **Color ramp [PROPOSED — Chris to eyeball, finalize in-browser per UI-first-class]:** a warm→cool
-  heat ramp (warmer = worse), all from `tokens.js` + 2 new tokens:
+- **Color ramp [LOCKED — Chris 2026-08-15; final hue tuning in-browser per UI-first-class]:** a
+  warm→cool heat ramp (warmer = worse), all from `tokens.js` + **2 new tokens** (`C.critical`,
+  `C.orange`; `tealDeep`/`teal` already exist). **No green** — Chris cut it because green reads
+  "you can coast." The top two bands are **deep→bright teal**, reserving the **brightest** teal for the
+  peak to match how the app already uses bright teal to highlight performance (so 90% feels like the
+  payoff, and 70–90 reads "great, but there's a brighter level above you"):
 
-  | Band | Crew booked | Reads as | Proposed color | Token |
+  | Band | Crew booked | Reads as | Color | Token |
   |---|---|---|---|---|
   | 1 | <30% | **Critical** (slides up) | rust-red | **new** `C.critical` `#c0392b` (distinct from error `C.red #e53935`, per audit C1) |
   | 2 | 30–50% | Thin | orange | **new** `C.orange` `#e67e22` |
   | 3 | 50–70% | Filling | gold | `C.amber` `#f9a825` |
-  | 4 | 70–90% | Good | green | `C.green` `#43a047` |
-  | 5 | 90%+ | Ideal | brand teal | `C.teal` `#30cfac` |
+  | 4 | 70–90% | Good, keep climbing | **deep teal** | `C.tealDeep` `#0d5c4d` |
+  | 5 | 90%+ | Ideal / peak | **bright teal** | `C.teal` `#30cfac` |
 
   - **C1 resolved:** the error red `#e53935` is NOT used; band 1 gets its own `C.critical` rust tone,
     and inside a 5-step ramp it reads "worst," not "broken."

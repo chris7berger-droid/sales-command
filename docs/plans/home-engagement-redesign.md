@@ -242,7 +242,8 @@ because the migration + settings write-path is genuinely new surface.
 ### Round
 - Plan type: feature (presentation reskin + one small config migration)
 - Current round: **1 (revised 2026-08-15)** — the 2026-08-13 manifest was a draft; **no audit ran.**
-- Plan revision under audit: `2e76e9b` (2026-08-15 amendment — visual target + mockup decisions).
+- Plan revision under audit: `edb7bce` (2026-08-15 amendment parts 1+2 — visual target, mockup
+  decisions, and the two now-specified states).
 - Findings trend: n/a (no audit executed). Expect a **premise-vs-data-reality** pattern plus a new
   **cross-repo-ordering / write-path-gating** cluster from the migration.
 
@@ -267,8 +268,8 @@ because the migration + settings write-path is genuinely new surface.
 - Plan doc: `docs/plans/home-engagement-redesign.md` (~380 lines).
 - Sections: 10 (Data-on-hand + Box 1–6 + Assembled order + 2026-08-15 amendment + this manifest).
 - [LOCKED] decisions: ~13 (6 boxes + 7 amendment items, all Chris-ratified).
-- [DESIGN-OPEN] items: 3 — estimator role string; scoreboard stage-label strings; **effort-state hero
-  + amber/critical runway visuals not yet drawn.**
+- [DESIGN-OPEN] items: 2 — estimator role string; scoreboard stage-label strings. (The effort-state
+  hero + amber/red runway states are now **specified** in amendment part 2 — no longer open.)
 - [OPEN] items: 0.
 - Baseline (§0-equivalent): "Data on hand … verified 2026-08-13" — read-verified current state with
   `file:line` evidence (`loadSnapshot()` in `followUp.js`). Should be retitled `§0 Baseline` for
@@ -317,9 +318,12 @@ NEW with the amendment:
    white-text teal button, purple/orange). Risk it ships those colors / white button text, breaking
    brand rules (no white bg; teal buttons = black text). Needs an explicit "translated to `tokens.js`"
    check, not eyeballing.
-10. **Undrawn states.** The mockup shows only the good-month hero + healthy runway. The **$0
-   effort-state hero** and the **amber/red runway** states aren't drawn — build produces them from the
-   spec, so they're the most likely to come out flat/wrong.
+10. **Now-specified states — verify buildability, not existence.** The $0 effort-state hero and the
+   amber/red runway states are now spec'd (amendment part 2). Pressure shifts: is the runway state
+   machine correct at the **exact boundaries** (weeks = red_weeks, = amber_weeks), does the null →
+   default (amber=3/red=2) fallback hold, and does the red **slide-up reorder** (not overlay) leave
+   the YOU hero fixed? Confirm the effort hero never renders `$0` and the empty-everything fallback
+   fires.
 
 ### Open questions
 - Count: 4. Highest-pressure: (a) exact `team_members.role` value(s) counting as "estimator";
@@ -345,9 +349,10 @@ NEW with the amendment:
 4. **Visual-target translation fidelity + layout** — the mockup-to-code risk. Reading:
    `docs/home-engagement-mockup-v1.png`, `src/lib/tokens.js`, `CLAUDE.md` style rules, current
    `src/pages/Home.jsx`. Pressure: does the plan force a **`tokens.js` remap** (no ChatGPT colors, no
-   white bg, teal buttons = black text)? Are the **undrawn states** (effort-state hero, amber/red
-   runway) specified enough to build without going flat? Is the **anchor-both-edges / pair-don't-pad**
-   rule concrete enough to apply? Hero rotation self-hosted + licensed (not the Unsplash hotlink)?
+   white bg, teal buttons = black text)? Do the **now-specified states** (effort hero, amber/red
+   runway — amendment part 2) hold at the boundary + null-default cases, and does the red slide-up
+   reorder leave the hero fixed? Is the **anchor-both-edges / pair-don't-pad** rule concrete enough to
+   apply? Hero rotation self-hosted + licensed (not the Unsplash hotlink)?
 
 ### Suggested agent count: 4
 
@@ -406,8 +411,57 @@ weekly is the call. Time-of-day tie-in (sunrise in the AM) is deferred spice.
 **Settings scope added [LOCKED].** Two new Settings inputs (Admin/Manager only): **runway amber
 threshold** + **runway red threshold**, per-customer, beside the existing runway-weeks number.
 
-**⚠ Audit manifest is now stale.** The round-1 manifest above still says "zero migrations" and
-predates this amendment. Before `/runaudit`, **re-generate the manifest** (`/auditcriteria`) so it
-reflects: (a) one small threshold-columns migration is IN scope, (b) the committed mockup is the
-visual target, (c) Settings gains two threshold inputs. Do not run the round-1 manifest as-is.
+**✅ Audit manifest refreshed 2026-08-15** (`55fe8c5`, round 1 revised, 4 agents) — reflects the one
+migration, the mockup as visual target, and the Settings threshold inputs.
+
+---
+
+## 2026-08-15 amendment (part 2) — the two undrawn states, now specified [LOCKED — Chris]
+
+_The mockup drew only the good-month hero + the healthy (green) runway. These are the other states,
+specified so the build has a complete picture and doesn't improvise them flat. Refines Box 1 + Box 3._
+
+### Box 1 — the $0 "effort" hero state [LOCKED]
+The data was already locked in Box 1 (effort = calls logged + bids out); this is the **visual**.
+- **Same box, same shape, same spot.** Identical layout to the results hero — full-width top block,
+  same oversized display-font line, same breathing room, same rotating image. The box **never changes
+  shape between states**, so a slow month never reads as "a different, sadder screen."
+- **Hero number = the effort metric, given the same visual weight as the $ number.** Lead with the
+  purest effort signal as the big display-font number: **calls logged this month** (e.g. big
+  `18 calls`), with a warm teal label (`logged this month`), then a second line carrying the bids:
+  *"5 bids out — you're doing the work, it's coming."*
+- **Warm palette, not a warning.** Uses the same positive linen/teal treatment as the results state.
+  Effort is not a bad state — **no red, no amber, and the string `$0` never renders.**
+- **No pace/pressure here** (that lives in the money bar). Pure confidence hit, per the locked
+  switch rule: any sale this month → results; only a literal $0-sold month → this effort state.
+- **Badge:** none by default. Only show a positive momentum badge if a *real* record exists (e.g. a
+  logged-calls streak) — never a placeholder.
+- **Empty-everything fallback [LOCKED]:** brand-new rep / $0 sold + 0 calls + 0 bids → a first-move
+  line, never blank, never `$0`: *"Fresh month — your first move sets the tone."*
+
+### Box 3 — the amber + red (critical) runway states [LOCKED]
+Green (healthy) is the mockup's version. The two tension states, and the exact machine:
+- **State machine (per-customer thresholds; HDSP amber_weeks=3, red_weeks=2):**
+  - `weeks ≥ runway_amber_weeks` → 🟢 **green**, in place.
+  - `runway_red_weeks ≤ weeks < runway_amber_weeks` → 🟡 **amber**, in place.
+  - `weeks < runway_red_weeks` → 🔴 **red (critical)**, **slides up**.
+  - Column semantics [LOCKED, resolves the null-default weak point]: `runway_amber_weeks` = the floor
+    at/above which it's green; `runway_red_weeks` = the floor below which it's red. **If either is
+    null/unset, fall back to app defaults (amber=3, red=2)** so the indicator always works and Settings
+    shows those defaults pre-filled. Never let a null compare produce a false red or a crash.
+- **🟡 Amber — "getting thin," a nudge in place (does NOT move):**
+  - Bar fill + the big week number turn **amber (`C.amber`)**; the top-right pill flips `healthy` →
+    `getting thin`.
+  - Copy warms but stays forward/opportunity, never alarm: *"2.5 weeks booked — time to fill the
+    calendar."*
+- **🔴 Red — "needs work now," slides up, still a nudge not a takeover:**
+  - The runway module **slides up into the #2 slot, above the money bar**, pushing the money bar down.
+    The **YOU hero (#1) never moves.** Smooth slide transition (not a pop); it slides back to its
+    normal slot when weeks recover to ≥ `runway_red_weeks`.
+  - It **reorders, it does not cover or shrink** other boxes — no modal, no overlay.
+  - Bar fill + number turn **red (`C.red`)**; pill flips to `needs work now`.
+  - Copy direct but action-framed, never doom: *"1.5 weeks left — this is the one to chase today,"*
+    pointing at the finder / opportunity below.
+- **Thermometer is independent.** The company-goal thermometer beside the runway tracks the monthly
+  goal and does **not** change color or position with runway state. Only the runway element moves.
 

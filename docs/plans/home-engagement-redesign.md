@@ -13,11 +13,12 @@ the engine — the engine (snapshot loader, dormant/gone-quiet lists, follow-up 
 per `docs/plans/home-follow-up-screen.md` (FROZEN) and is reused as-is. This doc governs the
 presentation of `src/pages/Home.jsx` + `src/components/followup/*` only.
 
-**Scope guardrails (from the ratified vision):** ships the "now" column only — reskin + read-only
-selectors + two charts. Originally **zero migrations** — **amended 2026-08-15:** exactly **one small
-migration** now in scope (two per-customer runway-threshold columns on `tenant_config`; see the
-amendment). Everything else still reads tables the snapshot already fetches; no backend, no new
-architecture.
+**Scope guardrails (from the ratified vision):** ships the "now" column only. **Zero migrations**
+(the %-runway that briefly added one is DEFERRED — see amendment part 5). Honest effort note: this is
+a reskin PLUS two genuinely-new pieces the build must not treat as free — **per-rep-scoped selector
+variants** (dormant/goneQuiet must be filtered to the logged-in rep; only bid-due alerts were rep-aware
+before) and **two hand-built SVG charts** (money donut + goal thermometer, no chart library). No
+backend, no new architecture, no migration.
 
 **Pointers:**
 - North-star + verbatim intent: `docs/HOME_ENGAGEMENT_VISION.md`
@@ -35,8 +36,9 @@ architecture.
   best-month comparisons are free. Fields: `status`, `total`, `created_at`, `call_log_id`,
   `customer_id`, `proposal_wtc(end_date)`.
 - `outreach_log` (last 180d) → **calls-this-month** per rep, by `outcome` / `created_at`.
-- Caveat [DERIVED]: proposals have no `sold_at` — "sold this month" keys on proposal `created_at`
-  (or `call_log.updated_at`), not the moment it flipped to Sold. Acceptable for v1; note in build.
+- Caveat [DERIVED]: proposals have no `sold_at` — "sold this month" keys on proposal **`created_at`**
+  (the single basis locked in part 5 §C; NOT `call_log.updated_at`), not the moment it flipped to Sold.
+  Acceptable for v1.
 
 ---
 
@@ -77,7 +79,7 @@ pure confidence hit). A single progress bar for the logged-in estimator's month.
 month) — bookings, not billings. Chris's call: use the existing Settings goal number as the target,
 but the bar fills on money *sold*, not invoiced.
 - Caveat [DERIVED]: proposals have no `sold_at`; "sold this month" keys on proposal `created_at`
-  (or `call_log.updated_at`). Verify at build; a job sold this month but created last month is the
+  (single basis, part 5 §C). Verify at build; a job sold this month but created last month is the
   edge case.
 
 **The goal number [LOCKED — split]:** company goal ÷ active estimators = each rep's personal target.
@@ -108,12 +110,14 @@ sentence in plain language beneath the bar. Video-game bold — one glance tells
 
 **Role:** #3, under the money bar. Not personal — everyone sees the same thing. Two elements.
 
-**Crew runway [LOCKED — reuse existing]:** the weeks-of-booked-work bar already built (`RunwayBar`,
-reads `tenant_config.schedule_runway_weeks`; Admin/Manager enters, all see). This redesign **relocates
-it here** and keeps its behavior:
-- Color by threshold (calm when booked out → warning color when thin), as today.
-- **Critical slide-up [LOCKED]:** when runway goes critical it slides up **above the money bar** and
-  turns its hot/tension color — a nudge, NOT a takeover. The YOU box (#1) never moves.
+**Crew runway [LOCKED — reuse existing, AS-IS]:** the weeks-of-booked-work bar already built
+(`RunwayBar`, reads `tenant_config.schedule_runway_weeks`; Admin/Manager enters, all see). This
+redesign **relocates it here unchanged** — it already works and is exactly what the approved mockup
+shows. Keep its existing weeks value, its existing color logic, its editor.
+- **⚠ DEFERRED to its own loop (amendment part 5, Option A — Chris 2026-08-15):** the %-of-crew-booked
+  rewrite, the 5-band color ramp, and the **critical slide-up** are all a *separate future project* —
+  NOT this build. For THIS build the runway is the existing weeks bar, in place, no slide-up, no
+  rewrite. (The slide-up idea is parked with the %-model.)
 
 **Shared goal thermometer [LOCKED]:** the whole team's progress toward the company goal. One rope,
 **no ranking, no leaderboard** (natural competition self-surfaces privately).
@@ -121,8 +125,8 @@ it here** and keeps its behavior:
   goal (`tenant_config.monthly_billing_goal`). Same monthly clock as the personal money bar.
 
 **Layout intent:** shared row under the personal money bar — runway on one side, thermometer on the
-other (or stacked on narrow screens). Calm by default; the runway is the only element that moves
-(slides up) and only when critical.
+other (or stacked on narrow screens). Calm and static (the slide-up motion is deferred with the
+%-model — see part 5).
 
 ---
 
@@ -237,13 +241,17 @@ genuinely-new pieces are right — the rewritten runway gauge and the honest adm
 exist yet) are flagged. If round 2 comes back small, it's build-ready.
 
 ### Round
-- Plan type: feature (presentation reskin + one small config migration)
-- Current round: **2**
-- Plan revision under audit: `83b6d45` (amendment part 4 + locked runway color ramp — round-1 response).
-- Findings trend: round 1 (5H/6M/4L) → round 2 (?). **Expect a DROP** — the reuse-premise theme's
-  biggest drivers (the false zero-DB donut View 2, the 2-column threshold migration, the weeks
-  int/fraction conflict) were removed. **If round 2 does NOT drop, that's a plateau/scope-creep signal**
-  — present scope-cut, not more mechanism.
+- Plan type: feature (presentation reskin — now **zero migrations** again after the Option-A cut)
+- **Round 2 EXECUTED + responded** (2026-08-15). Pattern: amendment-not-integrated — 19 caused-by
+  (7H/9M/3L); count GREW 15→19 → **scope-cut fired.** **Chris ratified Option A** (amendment part 5):
+  ship the existing weeks runway; **DEFER the %-runway** to its own loop. That dissolved 10 findings
+  (B1–B7, C1, C3, C5) + the only migration. Remaining live findings (REG-1/2, F1, N1, N2, C6, C7, K1,
+  REG-3/4) are corrected in part 5.
+- Plan revision (round-2 response): commit tagged `Plan revision pass 2`.
+- **Round 3 = OPTIONAL, verification-only.** Round 2 proved round-1 fixes can be logically wrong, so a
+  small round-3 (1–2 agents) confirming part-5's fixes actually took is cheap insurance — OR go to
+  build and let `/buildvsplan` + `/code-review` catch fix errors. Chris's call. Do NOT re-audit the
+  deferred %-runway.
 
 ### Prior rounds
 - Round 1: `67fab47` · 0C/5H/6M/4L · pattern: reuse-premise-mismatch
@@ -393,6 +401,11 @@ that produced it is `docs/home-engagement-claude-design-seed.md`.
   / `C.amber`) and honor the hard style rules: **no white backgrounds; teal buttons get BLACK text**
   (the mockup's teal "Call Dana Kessler" button uses white — fix on build).
 
+> ⚠ **ENTIRE runway block below (parts 1 & 2 runway + the migration + the Settings threshold inputs)
+> is DEFERRED to its own loop — see amendment part 5 (Option A, Chris 2026-08-15). NOT this build.**
+> This build ships the existing weeks `RunwayBar` unchanged. Read the rest of part 1/2 runway as the
+> parked spec for the future %-runway project.
+
 **Box 3 amendment — crew runway is a 3-state, per-customer indicator [LOCKED].** Supersedes the
 single "critical slide-up" note.
 - **Three states only:** 🟢 green (calm, in place) · 🟡 amber (warm color, in place — no slide) ·
@@ -457,7 +470,7 @@ The data was already locked in Box 1 (effort = calls logged + bids out); this is
 - **Empty-everything fallback [LOCKED]:** brand-new rep / $0 sold + 0 calls + 0 bids → a first-move
   line, never blank, never `$0`: *"Fresh month — your first move sets the tone."*
 
-### Box 3 — the amber + red (critical) runway states [LOCKED]
+### Box 3 — the amber + red (critical) runway states [LOCKED] — ⚠ DEFERRED (part 5, Option A; parked spec for the future %-runway loop, NOT this build)
 Green (healthy) is the mockup's version. The two tension states, and the exact machine:
 - **State machine (per-customer thresholds; HDSP amber_weeks=3, red_weeks=2):**
   - `weeks ≥ runway_amber_weeks` → 🟢 **green**, in place.
@@ -493,9 +506,10 @@ derivation per view, cycle behavior, thresholds, empty states, and the one data 
 **Placement + interaction.**
 - Beside the money bar (Box 2), ring + legend to its right, a tap affordance beneath (mockup's
   `TAP · <view>`).
-- Tapping the donut (or its label) **cycles the 3 views in fixed order, wrapping:**
-  **Booked-vs-left → Work type → Big-vs-small → (back to Booked).** The label beneath names the
-  **current** view + a subtle "tap" hint.
+- **⚠ SUPERSEDED by amendment part 4 §B: View 2 "Work type" is DEFERRED to v1.1.** The donut ships
+  **2 views**, cycling: **Booked-vs-left → Big-vs-small → (back to Booked).** (The 3-view text below in
+  this part 3 is the parked v1.1 spec — do NOT build the work-type view now.) The label beneath names
+  the **current** view + a subtle "tap" hint.
 - **Session-local only** — no persistence; resets to the default (Booked-vs-left) on reload.
 - **Read-only glance, not a doorway** — the donut never drills in (drill-in lives in the Box 4
   scoreboard). All views scoped to this rep via `sales_name`, off proposals already in the snapshot
@@ -537,7 +551,7 @@ _Response to the round-1 audit (rev `26327b8`, pattern: reuse-premise-mismatch �
 3 clean). Two ratified changes + a fix ledger. **Revise against cited `file:line`, not prose** (audit's
 own rule). No build/migration/deploy — commit and send to round 2._
 
-### A. Runway pivots from "weeks" to "% of crew booked" [LOCKED — supersedes amendment parts 1 & 2 runway content + part 1 migration]
+### A. Runway pivots from "weeks" to "% of crew booked" — ⚠ DEFERRED to its own loop (part 5, Option A — Chris 2026-08-15; NOT this build)
 Chris's call: the runway is a **rough morale/urgency gauge**, and % of crew booked is the true signal.
 A per-week strip needs per-week crew data (deferred to Schedule Command — vision lines 135–140), and
 **Chris enters this by hand**, so v1 is **one manually-entered number: `schedule_crew_booked_pct`
@@ -626,4 +640,86 @@ honest. **Dissolves audit L2** (View 2 slice palette moot) and drops the `propos
   `proposal_recipients` join.
 - **CLEAN — do NOT re-chase:** role-gating on Settings inputs (real DB policy + `canManage`), anon /
   shared-DB exposure (explicit column list, not in PowerSync publication), pagination (`.range()`).
+
+---
+
+## 2026-08-15 amendment (part 5) — round-2 audit response [LOCKED — Chris]
+
+_Response to round-2 audit (rev `83b6d45`, pattern: amendment-not-integrated — 19 caused-by, scope-cut
+fired). **Chris ratified Option A: ship now with the existing weeks runway; defer the %-runway.** This
+part integrates inline (marks the superseded runway sections above) rather than append-and-leave —
+that append habit was the round-2 pattern. **This is now the newest source of truth.**_
+
+### A. Runway — SHIP THE EXISTING WEEKS BAR AS-IS [LOCKED — Option A]
+- Box 3 relocates `src/components/followup/RunwayBar.jsx` **unchanged** — existing `schedule_runway_weeks`
+  value, existing color logic, existing editor. No rewrite, no slide-up, no new column, **zero migrations.**
+- **DEFERRED to its own future loop** (dissolves round-2 findings B1–B7, C1, C3, C5): the whole
+  %-of-crew-booked model — `schedule_crew_booked_pct` column + migration, `bandOf()` 5-band scale, the
+  `C.critical`/`C.orange` tokens, slide-up + hysteresis, the % Settings input. Parked as amendment
+  parts 1/2/4-§A (now banner-marked DEFERRED). When picked up, it gets its own plan + audit.
+- **Result:** back to the original zero-migration scope; the build matches the approved mockup (which
+  shows the weeks runway).
+
+### B. Broken round-1 fixes — CORRECT regardless of the runway (personal boxes)
+- **REG-1 / orphan Sold proposals [LOCKED — fix].** A Sold proposal with null `call_log_id`
+  (`followUp.js:183`) has no key into the `call_log_id → sales_name` map, so `customer_id` fallback
+  recovers a *customer*, not a *rep*. **Fix: orphan Sold proposals are unattributable to a rep →
+  EXCLUDE them from every per-rep figure (hero, money bar, Sold tile).** They still count in the
+  company thermometer/footer (which sums all proposals). Do not pretend a rep owns them.
+- **REG-2 / goal-split divisor [LOCKED — fix].** Do NOT reuse `SalesDash.jsx:93`'s set — verified it is
+  `["Sales Rep","Admin","Manager"]` (includes non-selling admins → understates targets, the exact bug).
+  **Fix: divisor = count of DISTINCT active people who actually carry jobs (appear in
+  `call_log.sales_name`)** — by construction the SAME population the numerator sums over, so per-rep
+  targets always sum to the company goal. (Sidesteps the role-string question entirely; confirm the
+  `sales_name` population at build.)
+
+### C. Other live findings folded in (personal boxes + charts + doc hygiene)
+- **F1 / one "sold this month" basis [LOCKED]:** the single basis is **`proposals.created_at`**, used
+  identically by hero + money bar + thermometer. `footerStats` (`followUp.js:254`) keys on WTC
+  `end_date` because it is a **different metric (billings %, not bookings-sold)** — keep them distinct,
+  never cross-compare. (Fixes the "two $ figures disagree" risk by naming the basis + separating the
+  billings metric.)
+- **N1 / A2 nav-seed [LOCKED]:** seed `CallLog.jsx:31` `filters.sales` from **`teamMember.name`**, not
+  the raw `displayName` (which can be an email fallback → matches zero `salesOptions` → tile ≠ list).
+  If name is absent, leave the seed empty (no-op) rather than seeding an email.
+- **N2 / footer scope [LOCKED — resolve contradiction]:** `footerStats` + the thermometer are
+  **company-wide / un-split** (NOT rep-scoped). Only hero, money bar, scoreboard, and finder are
+  rep-scoped. Correct the amendment-part-4 A1 wording that implied `footerStats` gets a rep variant —
+  it does not (it sums pre-scope and can't be filtered post-hoc).
+- **C6 / best-month badge [LOCKED]:** apply the L1 guard at the source (Box 1) — badge requires **≥1
+  non-zero prior month** AND **strictly-greater**, so it doesn't trip on a rep's first-ever sale.
+- **C7 / teal button text [LOCKED — build-checklist line]:** the mockup's teal "Call Dana Kessler"
+  button uses white text; per `CLAUDE.md` style rule #2 **teal buttons get BLACK text (`C.dark`)** —
+  a hard build check, not a loose note.
+- **K1 / calls-this-month [DERIVED — note]:** add `logged_by` to the outreach select; `logged_by` can
+  be a free-text displayName that diverges from `sales_name` on a null-name rep — count by the same
+  identity the rest of the rep-scoping uses, not raw `logged_by`.
+
+### D. REG-3 — layout token scale (concrete values, was only a principle) [LOCKED]
+Add to `src/lib/tokens.js` so "anchor both edges" + the same-weight effort hero are enforceable, not
+aspirational:
+- **Surface map:** page bg → `C.linen`; every card/box → `C.linenCard`; inset wells (bar tracks, donut
+  hole, input fields) → `C.linenDeep`; dark accents (dollar badges, dark chips) → `C.dark`. **No white
+  anywhere.**
+- **Spacing scale (px):** `4 · 8 · 12 · 16 · 24 · 32 · 48` (card padding = 24, box gap = 16, section gap
+  = 32).
+- **Radius scale (px):** `8` (chips/badges) · `12` (cards) · `18` (hero/feature).
+- **Font-size scale (px):** hero number 56 · box number/`$` 40 · sub-headline 20 · body 14 · label 11
+  (uppercase, `letter-spacing 0.1em`). Hero results-`$` and effort-number use the **same 56** (the
+  "same weight" rule). Fonts per `F` (display = Barlow Condensed for numbers, body = Barlow, ui = Inter).
+
+### E. REG-4 — SVG chart geometry (concrete, was absent) [LOCKED]
+Both charts are hand-rolled SVG (no chart lib). Numbers the build uses:
+- **Donut:** `viewBox 0 0 100 100`, radius `r = 42`, `stroke-width 16`, fill from top (`transform:
+  rotate(-90deg)`). Circumference `C = 2πr ≈ 263.9`; each slice = `stroke-dasharray: (pct/100·C) (C)`,
+  offsets accumulated. **Overflow (>100%, View 1 over-target):** cap the ring at full + a thin inner
+  overflow arc, never a broken >100% ring. **Single slice:** one full ring. **Empty ($0):** muted full
+  ring in `C.linenDeep`. Track ring = `C.linenDeep`; slices from the ramp/booked teal.
+- **Thermometer:** horizontal rounded bar, height `12`, radius `6`, track `C.linenDeep`, fill width =
+  `pct%` in teal, `pct` label right-anchored (the anchor-both-edges rule).
+
+### F. Doc hygiene [LOCKED]
+Superseded runway sections above now carry inline `⚠ DEFERRED` / `⚠ SUPERSEDED` banners (Box 3 slide-up,
+donut cycle, amendment parts 1/2/4-§A, top scope box). A builder reading top→bottom can no longer ship a
+parked spec. **Build order of truth: part 5 > part 4 > parts 1–3 > original boxes.**
 

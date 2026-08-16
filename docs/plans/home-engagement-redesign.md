@@ -241,11 +241,15 @@ because the migration + settings write-path is genuinely new surface.
 
 ### Round
 - Plan type: feature (presentation reskin + one small config migration)
-- Current round: **1 (revised 2026-08-15)** — the 2026-08-13 manifest was a draft; **no audit ran.**
-- Plan revision under audit: `26327b8` (2026-08-15 amendment parts 1+2+3 — visual target, mockup
-  decisions, the two now-specified states, and the donut 3 tap-views spec).
-- Findings trend: n/a (no audit executed). Expect a **premise-vs-data-reality** pattern plus a new
-  **cross-repo-ordering / write-path-gating** cluster from the migration.
+- **Round 1 EXECUTED + responded** (2026-08-15). Report pattern: reuse-premise-mismatch — 5H themes /
+  6M / 4L / 3 clean. Response = **amendment part 4** (runway %-model pivot + View 2 defer + fix ledger).
+- **⚠ This manifest is now stale for round 2** — scope changed materially: migration shrank **2 cols →
+  1** (`schedule_crew_booked_pct`), the two Settings threshold inputs became **one**, donut View 2 +
+  its `work_type` select-add are **gone**, and the runway is a **rewrite** (not reuse). **Re-run
+  `/auditcriteria` before round-2 `/runaudit`.**
+- Plan revision (round-1 response): commit noted in `Plan revision pass 1` (see git log).
+- Findings trend: round 1 (5H/6M/4L) → round 2 (?). Expect the reuse-premise theme to *shrink* (the
+  %-pivot + View 2 defer remove its biggest drivers); watch for new issues in the RunwayBar rewrite.
 
 ### Deployment context
 - **Live tenants**: 1 — HDSP only. Sales + Field share Supabase project `pbgvgjjuhnpsumnowuym`.
@@ -514,4 +518,98 @@ personal target** (target = company goal ÷ active estimators — the same numbe
 **Color [LOCKED].** `tokens.js` only — teal family for the primary/booked slice, `C.linenDeep` (muted)
 for "left / Other," and the accent set (`C.amber`, `C.purple`, `C.tealDark`) for multi-slice views.
 No new colors, no white.
+
+---
+
+## 2026-08-15 amendment (part 4) — audit round-1 response + runway %-model pivot [LOCKED — Chris]
+
+_Response to the round-1 audit (rev `26327b8`, pattern: reuse-premise-mismatch — 5H themes / 6M / 4L /
+3 clean). Two ratified changes + a fix ledger. **Revise against cited `file:line`, not prose** (audit's
+own rule). No build/migration/deploy — commit and send to round 2._
+
+### A. Runway pivots from "weeks" to "% of crew booked" [LOCKED — supersedes amendment parts 1 & 2 runway content + part 1 migration]
+Chris's call: the runway is a **rough morale/urgency gauge**, and % of crew booked is the true signal.
+A per-week strip needs per-week crew data (deferred to Schedule Command — vision lines 135–140), and
+**Chris enters this by hand**, so v1 is **one manually-entered number: `schedule_crew_booked_pct`
+(0–100).**
+- **This simplifies, per "collapse to the simplest model, findings dissolve":**
+  - Migration shrinks from **two per-customer threshold columns → one column** (`schedule_crew_booked_pct`,
+    `int` 0–100, nullable). The existing `schedule_runway_weeks int` is **left in place but retired**
+    from the color logic (optionally shown as a secondary note).
+  - **Moots audit B1 entirely** (the int-vs-fractional-weeks conflict is gone — % is a clean 0–100 int).
+  - **Removes the per-customer null-default threshold problem** — the 5 bands are **fixed app
+    constants**, not per-customer columns (a normalized % means the same for every trade/company).
+  - **Removes the two Settings threshold inputs** (part 1's "Settings scope added"); Settings now gains
+    **one** input: the crew-booked %.
+- **5-band scale [LOCKED — Chris]:** `<30 crit · 30–50 thin · 50–70 filling · 70–90 good · 90+ ideal`.
+- **Color ramp [PROPOSED — Chris to eyeball, finalize in-browser per UI-first-class]:** a warm→cool
+  heat ramp (warmer = worse), all from `tokens.js` + 2 new tokens:
+
+  | Band | Crew booked | Reads as | Proposed color | Token |
+  |---|---|---|---|---|
+  | 1 | <30% | **Critical** (slides up) | rust-red | **new** `C.critical` `#c0392b` (distinct from error `C.red #e53935`, per audit C1) |
+  | 2 | 30–50% | Thin | orange | **new** `C.orange` `#e67e22` |
+  | 3 | 50–70% | Filling | gold | `C.amber` `#f9a825` |
+  | 4 | 70–90% | Good | green | `C.green` `#43a047` |
+  | 5 | 90%+ | Ideal | brand teal | `C.teal` `#30cfac` |
+
+  - **C1 resolved:** the error red `#e53935` is NOT used; band 1 gets its own `C.critical` rust tone,
+    and inside a 5-step ramp it reads "worst," not "broken."
+  - **Slide-up [LOCKED]:** triggers **only at band 1 (<30%)** — the module slides into slot #2 above the
+    money bar (hero #1 never moves); bands 2–5 stay in place. Recovery/hysteresis: slides back only once
+    it clears back to band 2 (≥30%), so it can't oscillate at the boundary.
+- **RunwayBar is a REWRITE, not reuse [per audit B1]:** `src/components/followup/RunwayBar.jsx`
+  currently hardcodes `runwayColor(weeks)` (`weeks===2` equality, `:16-21`) + weeks editor + weeks copy.
+  Rewrite: read `schedule_crew_booked_pct`, 5-band `bandOf(pct)` function, % editor input (0–100 guard),
+  % headline + message copy. **Reuse the component's good patterns as-is:** null→"unset" short-circuit,
+  cleared≠0 distinction, `canManage` gating, inline editor, `updateTenantConfig` row-count verify.
+
+### B. Donut View 2 "by work type" — DEFERRED to v1.1 [LOCKED — Chris ratified]
+Ship the donut with **2 views: Booked-vs-left → Big-vs-small (wrapping).** Removes the only
+un-derivable view (needs full `proposal_wtc` financials + `calcWtcPrice()`), keeps the reskin scope
+honest. **Dissolves audit L2** (View 2 slice palette moot) and drops the `proposal_wtc.work_type_id`
++ `work_types(name)` select-add from scope. Amendment part 3's View 2 spec is **parked for v1.1**.
+
+### C. Audit fix ledger (all CAUSED-BY; re-read each cite before writing build code)
+- **A1 — kill the false "reads-what-snapshot-fetches / reuse-as-is" framing.** Per-rep scoping is
+  **new code**: only `bidDueAlerts` is rep-aware; `dormant`/`goneQuiet`/`footerStats` are company-wide
+  (`alerts.jsx:58-60`). Proposals carry no `sales_name` → build a `call_log_id → sales_name` map from
+  `snap.callLog` and filter through it; write explicit rep-scoped variants of those three. Finder #2
+  "opened" = `viewed_at` on **`proposal_recipients`, not proposals** — add it as an **embedded array**
+  (`proposals!...(sent_at, viewed_at)`), never a flattening join (double-counts $ — audit L3), derive
+  `recipients.some(r => r.viewed_at)`.
+- **A2 — Box 4 "zero new wiring" is wrong.** `CallLog.jsx:31` inits `filters.sales:""` and never reads
+  `navState.sales`; tapping "$312K Sold" opens the **company-wide** Sold list (tile total ≠ list total).
+  Fix: seed `sales: navState.sales || ""` in the `useState` initializer, and verify the passed string
+  matches a `salesOptions` value or the filter silently matches nothing.
+- **C1 — resolved** via the runway ramp above (distinct `C.critical`, error red reserved).
+- **D1 — hero images are a `[BLOCKED]` pre-build gate.** `public/` + `src/assets/` hold only
+  logos/favicons. Before build: source + license ~12–20 images → **bundled `src/assets/hero/`**
+  (preferred over a bucket, which would need a public-read policy) → index `images[weekOfYear %
+  images.length]`. No Unsplash hotlink ships.
+- **E1 — goal-split populations must match.** Divisor = estimator-only role set — reuse
+  `SalesDash.jsx:93`'s exact set; ensure the numerator's `sales_name` space is the same (an unfiltered
+  dropdown lets an Admin be a `sales_name`), or per-rep targets won't sum to the company goal.
+- **E2 — divide-by-zero guard:** `goal ÷ Math.max(count, 1)` (a role-string typo → 0 → `Infinity`
+  breaks the bar + donut View 1).
+- **F1 — one "sold this month" basis.** `created_at` false-negatives a job created last month / sold
+  this month; `footerStats` keys month on WTC `end_date` (a third basis) → two $ figures can disagree.
+  Pick ONE basis and use it in hero + money bar + thermometer consistently.
+- **K1 — calls-this-month isn't free:** snapshot select (`followUp.js:107`) omits `logged_by`; add it,
+  and note `logged_by` (free-text displayName) can diverge from `sales_name` on a null-name rep.
+- **G1 — orphan Sold proposals** (null `call_log_id`) silently drop from every rep's scoreboard/hero;
+  apply the shipped selectors' `customer_id` fallback.
+- **H1 — no chart lib:** donut + thermometer are hand-rolled SVG. Add an SVG primitive spec
+  (radius / stroke / overflow-arc geometry) or explicitly flag "two charts" as beyond pure reskin.
+- **I1 — migration hygiene:** ordered deploy checklist (push migration + verify ledger → THEN deploy
+  Home), a paired `_revert_` twin file, a `rehearse.sh` call-out, and the column type pinned (`int`).
+- **J1 — design-token scale:** add a per-surface white→linen map (which card → `C.linenCard` / `linen`
+  / `linenDeep` / `dark`) + a spacing/radius/font-size scale in `tokens.js` to enforce "anchor both
+  edges" and the same-weight effort hero, or boxes drift flat.
+- **L1 — best-month badge:** require ≥1 **non-zero** prior month and **strictly-greater** (trips on any
+  first sale otherwise; ties undefined).
+- **L2 — dissolved** (View 2 deferred). **L3 — backlog:** mandate embedded-array form for any future
+  `proposal_recipients` join.
+- **CLEAN — do NOT re-chase:** role-gating on Settings inputs (real DB policy + `canManage`), anon /
+  shared-DB exposure (explicit column list, not in PowerSync publication), pagination (`.range()`).
 

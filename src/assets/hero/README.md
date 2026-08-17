@@ -1,9 +1,13 @@
 # Home hero images — sourcing spec
 
-These are the rotating photos in the **top-right of the Home engagement screen**
-(`src/pages/Home.jsx`). One image shows per week; it changes on its own by
-week-of-year. Plan: `docs/plans/home-engagement-redesign.md` (hero rotation) +
-this build's `[BLOCKED]` gate — the screen can't ship its hero until these exist.
+**STATUS (2026-08-17):** v1 ships a **single static image** — `hero-01.jpg` is in place
+(the sunrise-mountains shot from the approved mockup). The weekly **rotation** + the
+full **~20-image set** are deferred to **backlog F50**. The spec below is the target for
+F50; nothing is blocking the build now.
+
+These are the photos in the **top-right of the Home engagement screen**
+(`src/pages/Home.jsx`). In F50 one shows per week, changing on its own by week-of-year.
+Plan: `docs/plans/home-engagement-redesign.md` (hero image / part 1 + part 4 §D1).
 
 ## What to gather
 
@@ -29,8 +33,8 @@ this build's `[BLOCKED]` gate — the screen can't ship its hero until these exi
 ## Provenance (optional log)
 
 ```
-hero-01.jpg — <source URL>
-hero-02.jpg — <source URL>
+hero-01.jpg — https://images.unsplash.com/photo-1464822759023-fed622ff2c3b (Unsplash License, free commercial, no attribution) — the mockup's sunrise-mountains shot
+hero-02.jpg — <source URL>   ← F50
 ...
 ```
 

@@ -299,7 +299,7 @@ unmissably marked so a top-down builder can't ship parked spec.
 - Embedded `proposal_recipients(sent_at, viewed_at)` relation; `logged_by` add.
 - Hand-rolled SVG donut (2 views) + thermometer — geometry specified (part 5 §E).
 - Token scale + surface map (part 5 §D).
-- Hero image weekly rotation over a bundled set — **[BLOCKED]** gate.
+- Hero image: single static bundled `hero-01.jpg` (gate RESOLVED; rotation + ~20 set deferred to F50).
 - **NO new column, NO new brand tokens this build** (deferred to F49).
 
 ### Cross-system reach
@@ -400,11 +400,13 @@ row with a hollow middle" problem — so we stop shipping flat *without* adding 
    full-width + lever 1. **Never bolt on a recap module just to fill pixels** (that's what At-a-Glance
    was). A calm, breathing screen *wants* some open center; *unanchored* empty is the only enemy.
 
-**Hero image rotation [LOCKED — easy].** The top-right hero image rotates **deterministically by
-week-of-year** (same image for everyone that week, changes on its own, no backend, no randomness — an
-array + a date-derived index). Ship a curated set of **~12–20 SELF-HOSTED, licensed images** (bundled
-or a Supabase bucket) — **not** the mockup's Unsplash hotlink. Daily variant is trivial if wanted;
-weekly is the call. Time-of-day tie-in (sunrise in the AM) is deferred spice.
+**Hero image [LOCKED — v1 = single static image; rotation DEFERRED per Chris 2026-08-17].** v1 ships
+**ONE bundled, licensed image**: `src/assets/hero/hero-01.jpg` (the sunrise-mountains shot from the
+approved mockup; Unsplash, free-commercial, no attribution; downloaded + committed locally, **not**
+hotlinked — resolves the D1 gate). Import it directly; no rotation logic in v1.
+- **DEFERRED to backlog F50:** the weekly `weekOfYear % n` rotation + curating the full ~20-image set.
+  When picked up, the helper reads `src/assets/hero/hero-01…NN` per the folder `README.md`. (Weekly vs
+  daily, time-of-day tie-in — all part of F50.)
 
 **Settings scope added [LOCKED].** Two new Settings inputs (Admin/Manager only): **runway amber
 threshold** + **runway red threshold**, per-customer, beside the existing runway-weeks number.
@@ -422,7 +424,7 @@ specified so the build has a complete picture and doesn't improvise them flat. R
 ### Box 1 — the $0 "effort" hero state [LOCKED]
 The data was already locked in Box 1 (effort = calls logged + bids out); this is the **visual**.
 - **Same box, same shape, same spot.** Identical layout to the results hero — full-width top block,
-  same oversized display-font line, same breathing room, same rotating image. The box **never changes
+  same oversized display-font line, same breathing room, same (static v1) hero image. The box **never changes
   shape between states**, so a slow month never reads as "a different, sadder screen."
 - **Hero number = the effort metric, given the same visual weight as the $ number.** Lead with the
   purest effort signal as the big display-font number: **calls logged this month** (e.g. big
@@ -579,10 +581,9 @@ honest. **Dissolves audit L2** (View 2 slice palette moot) and drops the `propos
   Fix: seed `sales: navState.sales || ""` in the `useState` initializer, and verify the passed string
   matches a `salesOptions` value or the filter silently matches nothing.
 - **C1 — resolved** via the runway ramp above (distinct `C.critical`, error red reserved).
-- **D1 — hero images are a `[BLOCKED]` pre-build gate.** `public/` + `src/assets/` hold only
-  logos/favicons. Before build: source + license ~12–20 images → **bundled `src/assets/hero/`**
-  (preferred over a bucket, which would need a public-read policy) → index `images[weekOfYear %
-  images.length]`. No Unsplash hotlink ships.
+- **D1 — hero image gate: RESOLVED (2026-08-17).** v1 ships **one** bundled licensed image
+  `src/assets/hero/hero-01.jpg` (downloaded + committed, not hotlinked). The ~12–20 curated set +
+  `weekOfYear % n` rotation are **deferred to backlog F50** — no longer a build blocker.
 - **E1 — goal-split populations must match.** Divisor = estimator-only role set — reuse
   `SalesDash.jsx:93`'s exact set; ensure the numerator's `sales_name` space is the same (an unfiltered
   dropdown lets an Admin be a `sales_name`), or per-rep targets won't sum to the company goal.

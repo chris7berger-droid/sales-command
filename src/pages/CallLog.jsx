@@ -28,7 +28,9 @@ export default function CallLog({ teamMember, setSubPage }) {
   const [loading, setLoading]     = useState(true);
   const [filter, setFilter]       = useState(navState.stageFilter || "All");
   const [q, setQ]                 = useState("");
-  const [filters, setFilters]     = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
+  // Seed `sales` from nav-state so a Home "Your Book" tile tap opens THIS rep's
+  // own filtered pile, not the company-wide stage list (engagement redesign N1/A2).
+  const [filters, setFilters]     = useState({ sales: navState.sales || "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
   const [showModal, setShowModal] = useState(false);
   const [coParent, setCoParent]   = useState(null);
   const [selJob, setSelJob]       = useState(null);

@@ -6,6 +6,9 @@ export default function Btn({ children, onClick, v = "primary", sz = "md", disab
     secondary: { background: "transparent", color: C.tealDark,  border: `1.5px solid ${C.teal}` },
     ghost:     { background: "transparent", color: C.textMuted, border: `1.5px solid ${C.borderStrong}` },
     dark:      { background: C.dark,        color: C.teal,      border: "none" },
+    // Teal-background CTA: pops on a dark panel. Text is BLACK per CLAUDE.md rule #2
+    // (teal buttons get black text, never white).
+    teal:      { background: C.teal,        color: C.dark,      border: "none" },
   }[v];
 
   const size = {

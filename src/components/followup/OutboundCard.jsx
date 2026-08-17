@@ -2,7 +2,7 @@
 // The hero action in the action-first layout: who to call. One dense line —
 // name, why they're here (last job / gone quiet), a tap-to-call phone, and Log.
 import { C, F } from "../../lib/tokens";
-import { fmtD } from "../../lib/utils";
+import { fmtD, fmt$ } from "../../lib/utils";
 import Btn from "../Btn";
 
 export default function OutboundCard({ item, onLog }) {
@@ -21,6 +21,11 @@ export default function OutboundCard({ item, onLog }) {
           {reason} {item.lastTouch ? fmtD(item.lastTouch) : "never"}
         </span>
       </div>
+      {item.value > 0 && (
+        <span style={{ background: C.dark, color: C.teal, fontSize: 12, fontWeight: 700, fontFamily: F.ui, borderRadius: 6, padding: "3px 10px", whiteSpace: "nowrap" }}>
+          {fmt$(item.value)}
+        </span>
+      )}
       {item.phone && (
         <a href={`tel:${item.phone}`} onClick={e => e.stopPropagation()} title={item.phone}
            style={{ fontSize: 13, color: C.tealDark, fontFamily: F.ui, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>☎</a>

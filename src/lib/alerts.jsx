@@ -63,12 +63,13 @@ export function AlertsProvider({ displayName = "", displayRole = "", children })
 
   const value = useMemo(() => ({
     ...derived,
+    snapshot, // raw shared snapshot — Home derives its own rep-scoped engagement figures
     loading,
     error,
     hasSnapshot: !!snapshot,
     firstLoadError: !!error && !snapshot, // the only state that warrants a blocking "couldn't load — retry"
     refresh,
-  }), [derived, loading, error, snapshot, refresh]);
+  }), [derived, snapshot, loading, error, refresh]);
 
   return <AlertsContext.Provider value={value}>{children}</AlertsContext.Provider>;
 }

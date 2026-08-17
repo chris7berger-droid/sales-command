@@ -73,14 +73,21 @@ function emptySnap(status, error) {
 // ── The one shared snapshot ─────────────────────────────────────────────────
 export async function loadSnapshot() {
   // 1. call_log — the pipeline spine (footer + all three zones derive from it).
+  //    `follow_up` (self-set follow-up date) surfaces on the Home "What You Owe"
+  //    box (engagement redesign Box 5) — the column already exists, so this is a
+  //    read-only select add, zero DB.
   const cl = await pagedSelect(supabase, "call_log",
-    "id, stage, sales_name, customer_id, bid_due, created_at, updated_at, archive_record_id, display_job_number, customer_name, job_name",
+    "id, stage, sales_name, customer_id, bid_due, follow_up, created_at, updated_at, archive_record_id, display_job_number, customer_name, job_name",
     { order: "id" });
   if (cl.error) return emptySnap("error", cl.error);
 
   // 2. proposals — union select so the footer's billings % has total + end_date.
+  //    `proposal_recipients(sent_at, viewed_at)` is an EMBEDDED array (a shape
+  //    change, not a flat column) — used by the "Almost Yes" hunt angle to find
+  //    bids a customer opened but never signed. Never a flattening join (that
+  //    double-counts $ across recipients — audit L3). Columns already exist.
   const pr = await pagedSelect(supabase, "proposals",
-    "id, call_log_id, customer_id, status, created_at, total, proposal_wtc(end_date)",
+    "id, call_log_id, customer_id, status, created_at, total, proposal_wtc(end_date), proposal_recipients(sent_at, viewed_at)",
     { order: "id", filters: [["is", "deleted_at", null]] });
   if (pr.error) return emptySnap("error", pr.error);
 
@@ -104,8 +111,12 @@ export async function loadSnapshot() {
   //    wide window (=180d, not 14d) so the supersede rule sees older Bad-number
   //    rows before filtering (the N8↔N11 trap). A missing relation (42P01,
   //    preview-before-migration) is "not provisioned yet", not an error.
+  //    `logged_by` (free-text displayName of who logged the call) is added for
+  //    the Home hero's calls-this-month effort metric — it can diverge from
+  //    `sales_name` on a null-name rep, so per-rep counts key on the same
+  //    identity the rest of the rep-scoping uses (see homeEngagement).
   const ol = await pagedSelect(supabase, "outreach_log",
-    "id, customer_id, call_log_id, outcome, created_at",
+    "id, customer_id, call_log_id, outcome, logged_by, created_at",
     { order: "id", filters: [["gte", "created_at", daysAgo(MAX_SUPPRESSION_DAYS)]] });
   let outreach = [];
   if (ol.error) {
@@ -172,21 +183,33 @@ export function bidDueAlerts(snap, { displayName, isRep } = {}) {
 export function alertCount(snap, opts) { return bidDueAlerts(snap, opts).length; }
 
 // Zone 3a: dormant customers — historically sold, no real touch in DORMANT_MONTHS.
-export function dormantCustomers(snap) {
+// `repName` (optional) scopes to customers whose most-recent job this rep carried
+// — the Home engagement hunt lists are personal (A1: rep-scoping is new code,
+// not a free reuse). `value` = the customer's historical sold $ (the dollar tag
+// that makes a call feel like chasing money, Box 6).
+export function dormantCustomers(snap, { repName } = {}) {
   const touch = buildTouchMap(snap);
   const cutoff = monthsAgo(DORMANT_MONTHS);
   const suppressed = suppressedCustomerIds(snap.outreach);
   const jobCustomer = new Map(snap.callLog.map(c => [c.id, c.customer_id]));
 
   const sold = new Set(); // eligibility: historically sold (D1)
+  const soldValue = new Map(); // customer_id -> historical sold $
   for (const cl of snap.callLog) if (cl.stage === "Sold" && cl.customer_id) sold.add(cl.customer_id);
-  for (const p of snap.proposals) if (p.status === "Sold") { const eff = p.customer_id || jobCustomer.get(p.call_log_id); if (eff) sold.add(eff); }
+  for (const p of snap.proposals) if (p.status === "Sold") {
+    const eff = p.customer_id || jobCustomer.get(p.call_log_id);
+    if (eff) { sold.add(eff); soldValue.set(eff, (soldValue.get(eff) || 0) + (p.total || 0)); }
+  }
 
   const cxById = new Map(snap.customers.map(c => [c.id, c]));
-  const lastJob = new Map(); // most recent call_log per customer, for display
+  const lastJob = new Map(); // most recent call_log per customer, for display + rep attribution
+  const jobCount = new Map(); // customer_id -> # of THIS rep's jobs (You're Their Guy ranking)
   for (const cl of snap.callLog) {
     const cur = lastJob.get(cl.customer_id);
     if (!cur || (cl.created_at || "") > (cur.created_at || "")) lastJob.set(cl.customer_id, cl);
+    // scope the count to this rep when scoping — "customer this REP has done the most
+    // jobs with" must not inflate from other reps' jobs on the same customer.
+    if (cl.customer_id && (!repName || cl.sales_name === repName)) jobCount.set(cl.customer_id, (jobCount.get(cl.customer_id) || 0) + 1);
   }
 
   const out = [];
@@ -197,10 +220,12 @@ export function dormantCustomers(snap) {
     const cx = cxById.get(cid);
     if (!cx) continue;
     const job = lastJob.get(cid);
+    if (repName && job?.sales_name !== repName) continue; // personal scope
     out.push({
       source: "dormant", customerId: cid, callLogId: job?.id || null,
       name: cx.name, phone: cx.phone || cx.contact_phone || null,
       lastTouch: last, lastJob: job?.job_name || job?.display_job_number || null,
+      value: soldValue.get(cid) || 0, jobCount: jobCount.get(cid) || 0,
     });
   }
   out.sort((a, b) => ((a.lastTouch || "") < (b.lastTouch || "") ? -1 : 1)); // most-dormant first
@@ -208,7 +233,10 @@ export function dormantCustomers(snap) {
 }
 
 // Zone 3b: gone-quiet bids — Has Bid, no Sold proposal, stale by last bid activity.
-export function goneQuietBids(snap) {
+// `repName` (optional) scopes to this rep's own jobs. `value` = the bid $ (sum of
+// the job's proposal totals) and `opened` = a recipient opened but never signed
+// (the "Almost Yes" hunt angle, via embedded proposal_recipients.viewed_at).
+export function goneQuietBids(snap, { repName } = {}) {
   const cutoff = daysAgo(GONE_QUIET_DAYS);
   const suppressed = suppressedCustomerIds(snap.outreach);
 
@@ -224,16 +252,22 @@ export function goneQuietBids(snap) {
   const out = [];
   for (const cl of snap.callLog) {
     if (cl.stage !== "Has Bid" || soldJobs.has(cl.id)) continue;
+    if (repName && cl.sales_name !== repName) continue; // personal scope
+    const jobProps = propsByJob.get(cl.id) || [];
     // last bid activity: newest non-deleted proposal created_at, fallback bid_due, fallback call_log.created_at (N5)
-    const newestProp = (propsByJob.get(cl.id) || []).map(p => day(p.created_at)).filter(Boolean).sort().pop();
+    const newestProp = jobProps.map(p => day(p.created_at)).filter(Boolean).sort().pop();
     const signal = newestProp || cl.bid_due || day(cl.created_at);
     if (signal && signal >= cutoff) continue; // recent → not gone quiet
     if (cl.customer_id && suppressed.has(cl.customer_id)) continue;
     const cx = cxById.get(cl.customer_id);
+    const value = jobProps.reduce((s, p) => s + (p.total || 0), 0);
+    // opened-but-never-signed: any recipient with a viewed_at (embedded array, never flattened)
+    const opened = jobProps.some(p => (p.proposal_recipients || []).some(r => r.viewed_at));
     out.push({
       source: "gone_quiet", customerId: cl.customer_id || null, callLogId: cl.id,
       name: cl.customer_name || cx?.name || "—", phone: cx?.phone || cx?.contact_phone || null,
       lastTouch: signal || null, lastJob: cl.job_name || cl.display_job_number || null, jobNumber: cl.display_job_number || null,
+      value, opened,
     });
   }
   out.sort((a, b) => ((a.lastTouch || "") < (b.lastTouch || "") ? -1 : 1));
@@ -254,6 +288,118 @@ export function footerStats(snap, { monthlyGoal } = {}) {
   const monthBill = snap.proposals.filter(p => p.status === "Sold" && endDate(p)?.startsWith(month)).reduce((s, p) => s + (p.total || 0), 0);
   const billingsPct = monthlyGoal ? Math.round((monthBill / monthlyGoal) * 100) : 0;
   return { stageCounts, monthBill, billingsPct };
+}
+
+// ── Home engagement redesign selectors (home-engagement-redesign.md part 5) ──
+//
+// The single "sold this month" basis is `proposals.created_at` (part 5 §C),
+// used identically by the hero, the money bar, the donut, and the company
+// thermometer. `footerStats` above keys the month on WTC `end_date` because it
+// is a DIFFERENT metric (billings %, not bookings-sold) — the two are kept
+// distinct and never cross-compared.
+
+export const LARGE_JOB = 50000; // donut View 2 size line (fixed $50K default, part 3)
+const SCOREBOARD_STAGES = ["Wants Bid", "Has Bid", "Sold"]; // Box 4, in order
+
+// Divisor N for the goal split: DISTINCT active reps who carry jobs (appear in
+// call_log.sales_name) — the SAME population the sold-$ numerator sums over, so
+// per-rep targets sum to the company goal (REG-2). NOT a team_members role query.
+export function activeRepCount(snap) {
+  const reps = new Set();
+  for (const c of snap.callLog) if (c.sales_name) reps.add(c.sales_name);
+  return reps.size;
+}
+
+// All personal + company figures for the six Home boxes, for ONE rep (repName).
+// Orphan Sold proposals (null call_log_id → no rep) are EXCLUDED from every
+// per-rep figure but KEPT in the company thermometer (REG-1 / G1).
+export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
+  const month = tod().slice(0, 7);
+  const jobSalesName = new Map(snap.callLog.map(c => [c.id, c.sales_name]));
+
+  // proposal totals grouped by job (for the Wants Bid / Has Bid $ tiles)
+  const propsByJob = new Map();
+  for (const p of snap.proposals) {
+    if (!propsByJob.has(p.call_log_id)) propsByJob.set(p.call_log_id, []);
+    propsByJob.get(p.call_log_id).push(p);
+  }
+
+  // ── Sold this month (single basis: proposals.created_at) ──
+  const soldThisMonth = snap.proposals.filter(p => p.status === "Sold" && day(p.created_at)?.startsWith(month));
+  const companySold = soldThisMonth.reduce((s, p) => s + (p.total || 0), 0); // incl. orphans → thermometer
+
+  // rep's sold-this-month proposals (orphans excluded — no call_log_id → no rep)
+  const repSoldProps = soldThisMonth.filter(p => jobSalesName.get(p.call_log_id) === repName && repName);
+  const repSold = repSoldProps.reduce((s, p) => s + (p.total || 0), 0);
+  const repSoldCount = repSoldProps.length;
+
+  // ── Best-month badge: ≥1 non-zero prior month AND strictly greater (C6/L1) ──
+  const byMonth = new Map();
+  for (const p of snap.proposals) {
+    if (p.status !== "Sold" || jobSalesName.get(p.call_log_id) !== repName || !repName) continue;
+    const m = day(p.created_at)?.slice(0, 7);
+    if (m) byMonth.set(m, (byMonth.get(m) || 0) + (p.total || 0));
+  }
+  const priors = [...byMonth].filter(([m]) => m < month).map(([, v]) => v);
+  const bestMonth = priors.some(v => v > 0) && repSold > Math.max(0, ...priors);
+
+  // ── Effort metrics (calls logged + bids currently out, this rep) ──
+  const callsThisMonth = snap.outreach.filter(o => o.logged_by === repName && repName && day(o.created_at)?.startsWith(month)).length;
+  const bidsOut = snap.callLog.filter(c => c.sales_name === repName && repName && c.stage === "Has Bid").length;
+
+  // hero state switch: any sale → results; else effort; else fresh-month
+  const heroState = repSold > 0 ? "results" : (callsThisMonth > 0 || bidsOut > 0) ? "effort" : "fresh";
+
+  // ── Goal split → personal target ──
+  const N = activeRepCount(snap);
+  const target = monthlyGoal / Math.max(N, 1); // E2 divide-by-zero guard
+
+  // ── Pace marker: where they should be by today, straight-line ──
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const monthFrac = now.getDate() / daysInMonth;
+  const behind = repSold < target * monthFrac;
+  const gap = Math.max(0, target - repSold);
+
+  // ── Scoreboard (Box 4): rep's pipeline as money, per stage ──
+  const scoreboard = {};
+  for (const stage of SCOREBOARD_STAGES) {
+    if (stage === "Sold") { scoreboard.Sold = { amount: repSold, count: repSoldCount }; continue; }
+    const jobs = snap.callLog.filter(c => c.sales_name === repName && repName && c.stage === stage);
+    const amount = jobs.reduce((s, j) => s + (propsByJob.get(j.id) || []).reduce((t, p) => t + (p.total || 0), 0), 0);
+    scoreboard[stage] = { amount, count: jobs.length };
+  }
+
+  // ── Donut data (2 views: booked-vs-left → big-vs-small) ──
+  const large = repSoldProps.filter(p => (p.total || 0) >= LARGE_JOB).reduce((s, p) => s + (p.total || 0), 0);
+  const small = repSold - large;
+
+  return {
+    repName, target, goalDivisor: N,
+    hero: { state: heroState, sold: repSold, bestMonth, callsThisMonth, bidsOut, soldCount: repSoldCount },
+    bar: { sold: repSold, target, pacePct: Math.round(monthFrac * 100), behind, gap },
+    donut: { booked: repSold, left: Math.max(0, target - repSold), over: repSold > target, large, small },
+    scoreboard,
+    thermometer: { sold: companySold, goal: monthlyGoal, pct: monthlyGoal ? Math.round((companySold / monthlyGoal) * 100) : 0 },
+  };
+}
+
+// Box 5 "What You Owe": bids due + self-set follow-up dates, this rep, one list.
+// Oldest / most-overdue first. A job that is both a due bid and has a follow-up
+// shows once (the bid wins).
+export function owedItems(snap, { repName } = {}) {
+  const today = tod();
+  const bids = bidDueAlerts(snap, { displayName: repName, isRep: !!repName }).map(b => ({
+    kind: "bid", id: b.id, title: b.jobNumber || "—", sub: b.customer || "", date: b.bidDue,
+  }));
+  const seen = new Set(bids.map(b => b.id));
+  let fu = snap.callLog.filter(r => r.follow_up && r.follow_up <= today && !seen.has(r.id));
+  if (repName) fu = fu.filter(r => r.sales_name === repName);
+  const followups = fu.map(r => ({
+    kind: "followup", id: r.id, title: r.display_job_number || r.job_name || "—",
+    sub: r.customer_name || "", date: r.follow_up,
+  }));
+  return [...bids, ...followups].sort((a, b) => ((a.date || "") < (b.date || "") ? -1 : 1));
 }
 
 // ── Write: log an outbound outcome ──────────────────────────────────────────

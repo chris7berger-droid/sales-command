@@ -30,6 +30,20 @@ export const F = {
   ui:      "'Inter', system-ui, sans-serif",
 };
 
+// Home Engagement layout scales (plan §D — home-engagement-redesign.md part 5).
+// Concrete values so "anchor both edges" + the same-weight effort hero are
+// enforceable, not aspirational. NO new brand colors this build (C.critical /
+// C.orange are deferred with the %-runway, backlog F49).
+//
+// Surface map (which surface uses which existing color — no white anywhere):
+//   page background      → C.linen
+//   every card / box     → C.linenCard
+//   inset wells          → C.linenDeep  (bar tracks, donut hole, input fields)
+//   dark accents         → C.dark       (dollar badges, dark chips, hero panel)
+export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, xxxl: 48 }; // px spacing
+export const R  = { chip: 8, card: 12, hero: 18 };                            // px radius
+export const FS = { hero: 56, boxNum: 40, sub: 20, body: 14, label: 11 };     // px font-size
+
 export const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Barlow:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
   *{box-sizing:border-box;margin:0;padding:0}

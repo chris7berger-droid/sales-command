@@ -215,19 +215,20 @@ the dormant/quiet lists sit calmer beneath it.
 
 1. **YOU** (personal win) — never displaced.
 2. **Money bar** (personal; carries all pace/pressure) + donut.
-3. **Business, in the open** (shared: crew runway + goal thermometer) — runway slides up above #2
-   only when critical.
+3. **Business, in the open** (shared: crew runway + goal thermometer) — runway is the **existing weeks
+   bar, static** (the slide-up is deferred with the %-runway; see part 5 §A).
 4. **Your book** (personal scoreboard: Wants Bid → Has Bid → Sold, tap to drill).
 5. **What you owe** (bids due + self-set follow-ups; celebrates when clear).
 6. **Where to hunt** (opportunity finder + dormant/quiet lists).
 
-**Build scope reminder:** reskin + read-only selectors + two charts (donut + thermometer). Zero
-migrations, zero backend. New reads are all trivial column adds on existing tables
-(`follow_up`, `viewed_at`/`sent_at`) + a distinct-`call_log.sales_name` rep count for the goal split
-(NOT a `team_members` role query — see Box 2 / part 5 §B).
-Next step: **plan is complete → audit (separate terminal) → build session** against this doc
-(buildvsplan + preview smoke before merge). ERD Loop #45 stays open until the screen is accepted +
-smoke-verified.
+**Build scope reminder (honest — see top scope box + part 5):** **zero migrations, no backend.** But
+NOT all "trivial": beyond the read-only column adds (`follow_up`, `viewed_at` via an **embedded
+`proposal_recipients` relation** — a shape change, not a flat column — `logged_by`, + a
+distinct-`call_log.sales_name` rep count for the goal split), the build also writes **net-new per-rep
+scoped selector variants** and **two hand-built SVG charts** (donut + thermometer). The weeks
+`RunwayBar` is reused **as-is**.
+Next step: **audits complete (R1–R3, converged) → build session** against this doc (buildvsplan +
+preview smoke before merge). ERD Loop #45 stays open until the screen is accepted + smoke-verified.
 
 ---
 

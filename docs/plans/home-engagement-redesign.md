@@ -82,12 +82,16 @@ but the bar fills on money *sold*, not invoiced.
   (single basis, part 5 §C). Verify at build; a job sold this month but created last month is the
   edge case.
 
-**The goal number [LOCKED — split]:** company goal ÷ active estimators = each rep's personal target.
+**The goal number [LOCKED — split; corrected by part 5 §B / R2 round-3]:** company goal ÷ N = each
+rep's personal target.
 - Source: `tenant_config.monthly_billing_goal` (Admin/Manager sets it in Settings — already exists).
-- Headcount: count of **active** `team_members` in an estimator/Sales-Rep role (one small read;
-  pattern already used in `ImportToLiveWizard.jsx:219`). No new table, no migration.
-- [DESIGN-OPEN, minor]: exact role value(s) that count as "estimator" for the split — confirm at
-  build against the real `team_members.role` values.
+- **Divisor `N` = count of DISTINCT active reps who carry jobs (appear in `call_log.sales_name`)** —
+  the SAME population the numerator (sold $ by `sales_name`) sums over, and the same space `bidDueAlerts`
+  scopes by. This guarantees per-rep targets sum to the company goal. **Do NOT query
+  `team_members` by role** (that set includes non-selling Admin/Manager — the REG-2 bug). No new table,
+  no migration.
+- **Arithmetic [LOCKED — R3]:** the `goal ÷ N` tile is assigned to **ALL N** distinct-`sales_name`
+  reps, **including $0-sold reps who carry jobs** — otherwise Σ(per-rep targets) < company goal.
 
 **The pace marker [LOCKED]:** a line showing where they *should* be by today = target × (fraction of
 the month elapsed), straight-line. As the month runs out and a gap opens, the marker slides right and
@@ -219,7 +223,8 @@ the dormant/quiet lists sit calmer beneath it.
 
 **Build scope reminder:** reskin + read-only selectors + two charts (donut + thermometer). Zero
 migrations, zero backend. New reads are all trivial column adds on existing tables
-(`follow_up`, `viewed_at`/`sent_at`) + one small active-estimator count from `team_members`.
+(`follow_up`, `viewed_at`/`sent_at`) + a distinct-`call_log.sales_name` rep count for the goal split
+(NOT a `team_members` role query — see Box 2 / part 5 §B).
 Next step: **plan is complete → audit (separate terminal) → build session** against this doc
 (buildvsplan + preview smoke before merge). ERD Loop #45 stays open until the screen is accepted +
 smoke-verified.
@@ -241,11 +246,15 @@ wrong), and that a builder can't accidentally build the parked runway version. T
 
 ### Round
 - Plan type: feature (presentation reskin — **zero migrations**; %-runway deferred to backlog F49).
-- Current round: **3 (verify-only)**.
-- Plan revision under audit: `182e7dc` (amendment part 5 — Option A response + fix corrections).
-- Findings trend: round 1 (15) → round 2 (19, GREW → scope-cut) → round 3 (expect **near-zero** —
-  confirmation pass, not a sweep). Any HIGH here = a part-5 fix that didn't take (same failure mode as
-  round 2).
+- **Round 3 EXECUTED + responded** (2026-08-17). 3 caused-by (2H/1M) — **84% drop 19→3, converged.**
+  Pattern: amendment-not-integrated (recurring, now narrowed to Box 2). All 3 were integration misses of
+  part-5's goal-split fix; **corrected in revision pass 3** (R1: Box 2 body + lines 227/479 now say
+  divisor = distinct `call_log.sales_name`; R2: N1 nav-seed rewired via a hoisted `repName` prop from
+  `App.jsx`; R3: `goal ÷ N` assigned to ALL N reps incl. $0-sold).
+- Findings trend: round 1 (15) → round 2 (19) → round 3 (3) — converging, no plateau.
+- **Recommendation (audit + planning agree): NO round 4.** The 3 fixes are doc-integration + one wiring
+  cite — **verify at build via `/buildvsplan`** (grep the plan for the killed patterns: "active
+  estimators" / `team_members` role query / `teamMember.name` seed). Build-ready after this pass.
 
 ### Prior rounds
 - Round 1: `67fab47` · 5H/6M/4L · reuse-premise-mismatch
@@ -307,8 +316,10 @@ unmissably marked so a top-down builder can't ship parked spec.
    that per-rep targets sum to the company goal.
 3. **F1 single basis.** Verify `proposals.created_at` is the sole "sold this month" basis in hero + bar
    + thermometer, and `footerStats` (WTC `end_date`, a billings metric) is kept distinct, not cross-compared.
-4. **N1 nav-seed.** Verify `CallLog.jsx:31` seeds `sales` from `teamMember.name` (not the email-fallback
-   `displayName`); empty seed if name absent.
+4. **N1 nav-seed.** Verify the corrected R2 wiring: a clean `repName` (`teamMember?.name`, NO email
+   fallback) is hoisted in `App.jsx` and passed into `Home`; `CallLog` nav-state `sales` seeds from
+   `repName`; empty seed if absent. (`teamMember` is NOT in scope in `Home.jsx` — the old
+   `teamMember.name` phrasing was unbuildable.)
 5. **N2 footer scope.** Verify `footerStats`/thermometer stay company-wide (NOT rep-scoped) and the
    part-4 A1 wording implying a rep variant is corrected.
 6. **REG-3 token scale.** Verify part 5 §D gives concrete values (surface map + spacing/radius/font
@@ -471,7 +482,8 @@ derivation per view, cycle behavior, thresholds, empty states, and the one data 
   except where a field-add is noted.
 
 **View 1 — Booked vs. left to go (default).** Two slices: money **sold this month** vs **remaining to
-personal target** (target = company goal ÷ active estimators — the same number the bar uses). If sold
+personal target** (target = company goal ÷ N distinct `sales_name` reps — the same number the bar uses,
+per Box 2 / part 5 §B). If sold
 ≥ target, ring is full with a subtle "over" treatment (thin overflow arc / `112%`), **never a broken
 >100% ring.** Legend: `Booked $X (n%)` / `Left to go $Y (n%)`.
 
@@ -627,6 +639,9 @@ that append habit was the round-2 pattern. **This is now the newest source of tr
   `call_log.sales_name`)** — by construction the SAME population the numerator sums over, so per-rep
   targets always sum to the company goal. (Sidesteps the role-string question entirely; confirm the
   `sales_name` population at build.)
+  - **Arithmetic [LOCKED — R3]:** `target = goal ÷ N` is assigned to **ALL N** distinct-`sales_name`
+    reps, **including reps who carry jobs but have $0 sold this month.** If tiles show only for reps
+    with sales (M < N), Σ(targets) = goal·M/N < goal — the sum breaks. Every one of the N gets a tile.
 
 ### C. Other live findings folded in (personal boxes + charts + doc hygiene)
 - **F1 / one "sold this month" basis [LOCKED]:** the single basis is **`proposals.created_at`**, used
@@ -634,9 +649,14 @@ that append habit was the round-2 pattern. **This is now the newest source of tr
   `end_date` because it is a **different metric (billings %, not bookings-sold)** — keep them distinct,
   never cross-compare. (Fixes the "two $ figures disagree" risk by naming the basis + separating the
   billings metric.)
-- **N1 / A2 nav-seed [LOCKED]:** seed `CallLog.jsx:31` `filters.sales` from **`teamMember.name`**, not
-  the raw `displayName` (which can be an email fallback → matches zero `salesOptions` → tile ≠ list).
-  If name is absent, leave the seed empty (no-op) rather than seeding an email.
+- **N1 / A2 nav-seed [LOCKED — corrected R2 round-3]:** the trap is that `Home.jsx:32` only receives
+  `{ displayName, displayRole }`, and `displayName` is already the **email fallback**
+  (`App.jsx:210`: `teamMember?.name ?? session?.user?.email ?? ""`) — and `teamMember` is NOT a prop of
+  Home. So "seed from `teamMember.name`" is unbuildable at the seed site. **Fix: hoist a clean rep-name
+  in `App.jsx` — `const repName = teamMember?.name ?? "" ` (NO email fallback) — and pass it as a new
+  `repName` prop into `Home` (`App.jsx:233` mount).** Box 4's tap seeds `CallLog` nav-state `sales` from
+  `repName`; if `repName` is empty, seed empty (no-op) so it never seeds an email that matches zero
+  `salesOptions`.
 - **N2 / footer scope [LOCKED — resolve contradiction]:** `footerStats` + the thermometer are
   **company-wide / un-split** (NOT rep-scoped). Only hero, money bar, scoreboard, and finder are
   rep-scoped. Correct the amendment-part-4 A1 wording that implied `footerStats` gets a rep variant —

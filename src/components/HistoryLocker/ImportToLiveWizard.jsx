@@ -152,11 +152,16 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
   const [replaceConfirmText, setReplaceConfirmText] = useState("");
   const [replaceMode, setReplaceMode] = useState(false); // user committed to Replace; deletion runs at final import
 
-  // Parse legacy job number once (e.g., "7210" or "7210 - Foo" → 7210)
-  const legacyJobNumParsed = (() => {
-    const m = String(record.legacy_id || "").match(/^(\d{4,5})/);
-    return m ? Number(m[1]) : null;
+  // Parse legacy job number once (e.g., "7210" or "7210 - Foo" → 7210).
+  // CO suffixes appear in the archive as "6882CO1", "6882 CO1", and "6882C01"
+  // (letter O or zero) — capture them so a change order imports as one.
+  const legacyParsed = (() => {
+    const m = String(record.legacy_id || "").match(/^(\d{4,5})(?:\s*C[O0](\d{1,2}))?/i);
+    return m ? { jobNum: Number(m[1]), coNum: m[2] ? Number(m[2]) : null } : null;
   })();
+  const legacyJobNumParsed = legacyParsed ? legacyParsed.jobNum : null;
+  const legacyCoNum = legacyParsed ? legacyParsed.coNum : null;
+  const legacyNumLabel = legacyJobNumParsed ? (legacyCoNum ? `${legacyJobNumParsed} CO${legacyCoNum}` : String(legacyJobNumParsed)) : null;
 
   // Prefill derived from archive record
   const archiveCustName = (raw["customer/customerName"] || raw["customer/ifCustomerName"] || raw["customer/Customer Name"] || record.customer_name || "").trim();
@@ -220,8 +225,12 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         supabase.from("work_types").select("id, name, cost_code, tenant_id, active").order("name"),
         supabase.from("tenant_config").select("default_billing_terms").limit(1).maybeSingle(),
         supabase.from("call_log").select("job_number").order("job_number", { ascending: false }).limit(1),
+        // Uniqueness is (job_number, co_number) — a parent and its COs share job_number,
+        // so the collision check must match the exact CO slot, not just the number.
         legacyJobNumParsed
-          ? supabase.from("call_log").select("id, display_job_number, archive_record_id").eq("job_number", legacyJobNumParsed).maybeSingle()
+          ? (legacyCoNum
+              ? supabase.from("call_log").select("id, display_job_number, archive_record_id").eq("job_number", legacyJobNumParsed).eq("co_number", legacyCoNum).maybeSingle()
+              : supabase.from("call_log").select("id, display_job_number, archive_record_id").eq("job_number", legacyJobNumParsed).is("co_number", null).maybeSingle())
           : Promise.resolve({ data: null }),
       ]);
       // If the legacy holder is this same archive, also fetch child counts so we can decide if Replace is safe.
@@ -472,23 +481,33 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
       // 2. Job number — legacy if user picked it (re-check availability), else next auto
       let jobNum;
       if (form.useLegacyJobNum && legacyJobNumParsed) {
-        const { data: stillTaken } = await supabase.from("call_log")
+        let takenQ = supabase.from("call_log")
           .select("id, display_job_number")
-          .eq("job_number", legacyJobNumParsed)
-          .maybeSingle();
+          .eq("job_number", legacyJobNumParsed);
+        takenQ = legacyCoNum ? takenQ.eq("co_number", legacyCoNum) : takenQ.is("co_number", null);
+        const { data: stillTaken } = await takenQ.maybeSingle();
         if (stillTaken) {
-          throw new Error(`Legacy number ${legacyJobNumParsed} is now in use on Job #${stillTaken.display_job_number || stillTaken.id}. Go back and choose Assign New.`);
+          throw new Error(`Legacy number ${legacyNumLabel} is now in use on Job #${stillTaken.display_job_number || stillTaken.id}. Go back and choose Assign New.`);
         }
         jobNum = legacyJobNumParsed;
       } else {
         const { data: lastJob } = await supabase.from("call_log").select("job_number").order("job_number", { ascending: false }).limit(1);
         jobNum = lastJob && lastJob.length ? (lastJob[0].job_number || 9999) + 1 : 10000;
       }
+      // Keeping a legacy CO number → import as a real change order. Link the live
+      // parent job when it exists; otherwise it stands alone as its own record.
+      const importCoNum = form.useLegacyJobNum && legacyJobNumParsed ? legacyCoNum : null;
+      let parentJobId = null;
+      if (importCoNum) {
+        const { data: parent } = await supabase.from("call_log")
+          .select("id").eq("job_number", jobNum).is("co_number", null).maybeSingle();
+        parentJobId = parent?.id || null;
+      }
       const displayLabel = form.projectName || custName();
       const jobsiteSet = form.jobsiteAddress || form.jobsiteCity;
       const buildJobPayload = () => [{
         job_number: jobNum,
-        display_job_number: `${jobNum} - ${displayLabel}`,
+        display_job_number: importCoNum ? `${jobNum} CO${importCoNum} - ${displayLabel}` : `${jobNum} - ${displayLabel}`,
         job_name: form.projectName || null,
         customer_name: custName(),
         customer_type: form.customerType,
@@ -496,7 +515,10 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
         sales_name: form.salesName,
         stage: "Sold",
         bid_due: form.bidDue || null,
-        is_change_order: false,
+        is_change_order: !!importCoNum,
+        co_number: importCoNum,
+        parent_job_id: parentJobId,
+        co_standalone: importCoNum ? !parentJobId : false,
         jobsite_address: jobsiteSet ? form.jobsiteAddress : null,
         jobsite_city:    jobsiteSet ? form.jobsiteCity    : null,
         jobsite_state:   jobsiteSet ? form.jobsiteState   : null,
@@ -515,7 +537,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
       let { data: newJob, error: jErr } = await supabase.from("call_log").insert(buildJobPayload()).select().single();
       if (jErr && jErr.code === "23505") {
         if (form.useLegacyJobNum && legacyJobNumParsed) {
-          throw new Error(`Legacy number ${legacyJobNumParsed} is now in use. Go back and choose Assign New.`);
+          throw new Error(`Legacy number ${legacyNumLabel} is now in use. Go back and choose Assign New.`);
         }
         const { data: lastJob2 } = await supabase.from("call_log").select("job_number").order("job_number", { ascending: false }).limit(1);
         jobNum = lastJob2 && lastJob2.length ? (lastJob2[0].job_number || 9999) + 1 : 10000;
@@ -812,7 +834,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
                 </button>
                 {replaceMode && (
                   <div style={{ fontSize: 12, color: C.amber, fontFamily: F.ui, marginTop: 4 }}>
-                    Replace queued: existing Job #{legacyJobNumParsed} will be deleted when you finish the wizard. Continue to Review.
+                    Replace queued: existing Job #{legacyNumLabel} will be deleted when you finish the wizard. Continue to Review.
                   </div>
                 )}
               </div>
@@ -827,7 +849,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
               selected={form.useLegacyJobNum}
               disabled={legacyDisabled}
               onClick={() => set("useLegacyJobNum", true)}
-              primary={legacyJobNumParsed ? `Keep legacy number: ${legacyJobNumParsed}` : "No legacy number to keep"}
+              primary={legacyJobNumParsed ? `Keep legacy number: ${legacyNumLabel}` : "No legacy number to keep"}
               sub={!legacyJobNumParsed ? `Couldn't parse a number from "${record.legacy_id || "—"}"` : null}
               hint={legacyTakenBy ? `Already in use on Job #${legacyTakenBy.display_job_number || legacyTakenBy.id}` : null}
             />
@@ -849,7 +871,7 @@ export default function ImportToLiveWizard({ record, onClose, onSaved }) {
           </div>
         );
         const wtNames = form.selectedWorkTypeIds.map(id => workTypes.find(w => w.id === id)?.name).filter(Boolean).join(", ");
-        const chosenJobNum = form.useLegacyJobNum && legacyJobNumParsed ? legacyJobNumParsed : nextAutoJobNum;
+        const chosenJobNum = form.useLegacyJobNum && legacyJobNumParsed ? legacyNumLabel : nextAutoJobNum;
         return (
           <div>
             <StepLabel n={8} label="Review" />

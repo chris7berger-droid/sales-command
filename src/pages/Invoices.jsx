@@ -2005,7 +2005,33 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   // point) and prevents amount drift under the live QB record + Stripe pay link (plan §2.3).
   const syncedLock = !!inv.qb_invoice_id;
 
+  // Invoice-side twin of the pay-app delete cascade (dcbee9f, PayAppDetailModal):
+  // deleting a pay-app invoice must also remove the pay app row itself, or the
+  // ghost keeps counting in New Pay App numbering and prior-billed math even
+  // though its invoice is gone (job 10019, 2026-08-18). Pay-app lines cascade
+  // via FK; unlock the schedule when no pay apps remain (same as modal delete).
+  async function deleteLinkedPayApp() {
+    if (!linkedPayApp) return;
+    const { error: paErr, count: paCount } = await supabase
+      .from("billing_schedule_pay_apps")
+      .delete({ count: "exact" })
+      .eq("id", linkedPayApp.id);
+    if (paErr || !paCount) {
+      alert(`Invoice deleted, but removing linked Pay App #${linkedPayApp.app_number} failed${paErr ? `: ${paErr.message}` : " (0 rows — likely blocked by RLS)"}. Delete it from the job's Billing Schedule.`);
+      return;
+    }
+    const { count: remaining } = await supabase
+      .from("billing_schedule_pay_apps")
+      .select("id", { count: "exact", head: true })
+      .eq("billing_schedule_id", linkedPayApp.billing_schedule_id);
+    if (!remaining) {
+      await supabase.from("billing_schedule").update({ status: "draft" }).eq("id", linkedPayApp.billing_schedule_id);
+    }
+  }
+
   async function handleDelete() {
+    // linkedPayApp is still null mid-load; deleting before it resolves would skip the cascade.
+    if (loading) return;
     if (inv.voided_at) {
       // Already voided — hide from lists. QB record stays as audit trail.
       if (!confirm(`Hide voided Invoice #${inv.id} from lists? (record stays in DB for audit.)`)) return;
@@ -2019,9 +2045,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       setShowVoidModal("delete");
       return;
     }
-    if (!confirm(`Delete Invoice #${inv.id}? This cannot be undone.`)) return;
+    const delMsg = linkedPayApp
+      ? `Delete Invoice #${inv.id} and its linked Pay App #${linkedPayApp.app_number}? This cannot be undone.`
+      : `Delete Invoice #${inv.id}? This cannot be undone.`;
+    if (!confirm(delMsg)) return;
     const { error } = await supabase.from("invoices").update({ deleted_at: new Date().toISOString() }).eq("id", inv.id);
     if (error) { alert(error.message); return; }
+    await deleteLinkedPayApp();
     onDeleted && onDeleted();
   }
 
@@ -2382,6 +2412,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     if (showVoidModal === "delete") {
       const { error: delErr } = await supabase.from("invoices").update({ deleted_at: new Date().toISOString(), stripe_payment_link_id: null }).eq("id", inv.id);
       if (delErr) { alert(delErr.message); setSaving(false); return; }
+      await deleteLinkedPayApp();
       setSaving(false);
       setShowVoidModal(null);
       setVoidReason("");

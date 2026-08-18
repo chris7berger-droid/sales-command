@@ -1,10 +1,11 @@
 # Lock-at-Sold Enforcement
 
 **Repo:** sales-command · **Branch:** `feat/lock-at-sold` · **Drafted:** 2026-08-18 (T1 plan terminal)
-**Status:** Revision pass 1 (round-1 audit response, scope-cut ratified by Chris) — awaiting round-2 audit → build
+**Status:** Revision pass 2 (round-2 audit response) — awaiting round-3 confirm pass → build
 **Incident:** Job 10019 (Swire CC Fllet Shop Grind & Seal), 2026-08-18
-**Related:** F40 (post-send lock integrity — Schedule round-trip; stays open, NOT pulled in), B32 (draft pay-app snapshot drift; adjacent, untouched — future design note added to its row)
-**Scope-cut (ratified 2026-08-18):** §4.3 re-lock reconcile is OUT of this build — deferred to §6 as a future atomic SECURITY DEFINER RPC. 9 of 14 round-1 caused-by findings traced to it; the guards below close the incident without it.
+**Related:** F40 (post-send lock integrity; stays open, NOT pulled in), B32 (draft pay-app snapshot drift; ADJ-1 design note on its row), B70 (jobs.amount vs contract_sum divergence, ADJ-2)
+**Scope-cut (ratified 2026-08-18):** §4.3 re-lock reconcile is OUT — deferred to §6 as a future atomic SECURITY DEFINER RPC.
+**Round-2 ratifications (Chris, 2026-08-18):** (1) backfill PRESERVES `proposals.total` on Sold/Signed rows — recompute only Sent; (2) **SOW carve-out** — Field SOW definitely, Sales SOW too, stay editable on committed proposals; pricing freeze does not cover SOW text.
 
 ---
 
@@ -67,6 +68,22 @@ data repair, commit `6db76eb`):
 > Draft. A proposal cannot *become* Sold with unlocked WTCs. When pricing legitimately
 > changes before commitment, the billing schedule (SOV) must be told, not left behind.
 
+**Amendment 1 (round-2 audit, Chris-ratified 2026-08-18) — scope of "pricing":**
+SOW text is NOT part of the freeze. Field SOW is routinely edited after a proposal is
+sent (crew planning is operational, not contractual), and Sales SOW may get wording/
+room edits before signing. The freeze covers dollar-bearing fields (labor, materials,
+travel, discount, rates, size/unit); `sales_sow`, `field_sow`, and `sub_areas` remain
+editable on committed proposals via a SOW-only save path (§4.2).
+
+**Amendment 2 (round-2 finding E) — known bypass, honestly stated:** the invariant is
+enforced client-side only in this build. The `apply_source_edit_to_sisters`
+SECURITY DEFINER RPC (migration `20260519230000:236-300`) UPDATEs pricing fields on
+Sent/Signed sisters and overwrites their `locked_line_total` — a non-UI write the
+client freeze cannot see. It never unlocks (the sign door stays closed) but can
+reintroduce 10019-class drift on a committed sister. This is the concrete case the
+deferred §6 DB-level freeze must cover; "frozen" in this build means "frozen against
+every UI path."
+
 This rule already exists in Chris's process and in F40's notes ("WTCs lock at approval").
 "Told, not left behind" is satisfied in this build by the §4.2 warn naming the schedule's
 dollars and pointing at the existing manual edit path — automatic repair is §6 deferred.
@@ -85,15 +102,15 @@ dollars and pointing at the existing manual edit path — automatic repair is §
 5. Result: proposal summary $13,740 vs Job Detail/pay-app $13,422 — invisible until
    Chris eyeballed two screens side by side.
 
-## 3. Current-state map (verified by grep, 2026-08-18, tip `6db76eb`; signing row corrected in revision 1)
+## 3. Current-state map (verified by grep, 2026-08-18, tip `6db76eb`; signing row corrected rev 1, sister-sync row added rev 2)
 
 ### Ways a proposal becomes Sold/Signed
 | Path | Site | Lock gate today? |
 |---|---|---|
 | Send Proposal button | `ProposalDetail.jsx:918` | ✅ `wtcs.length > 0 && every(locked)` |
 | Send from PDF modal | `ProposalPDFModal.jsx:274-275` | ✅ same gate |
-| **Internal Approve** | `ProposalDetail.jsx:790` (`handleInternalApprove`; opened from button `:908` and from PDF modal callback at the `onInternalApprove` prop on the `:833` render line) | ❌ **none — the 10019 gap** |
-| **Customer signs** | `mark_proposal_signed` RPC, reached from BOTH `proposal-signed` edge fn (`index.ts:69`) AND the PublicSigningPage client fallback (`:366-383`) | ❌ **none in the RPC** — closed in this build by making unlocked-committed proposals unreachable (§4.2 freeze + §4.3 backfill); RPC precondition deferred to §6 |
+| **Internal Approve** | `ProposalDetail.jsx:790` (`handleInternalApprove`; opened from button `:908` and from PDF modal's `onInternalApprove` prop on the `:833` render line) | ❌ **none — the 10019 gap** |
+| **Customer signs** | `mark_proposal_signed` RPC, reached from BOTH `proposal-signed` edge fn (`index.ts:69`) AND the PublicSigningPage client fallback (`:366-383`) | ❌ **none in the RPC** — closed in this build by making unlocked-committed proposals unreachable (§4.2 freeze + §4.3 backfill, sequenced backfill-first); RPC precondition deferred to §6 |
 | Archive import | `ArchiveProposalModal.jsx:102`, `ImportToLiveWizard.jsx:497`, `importApi.js` | N/A — archive proposals have no WTCs (by design) |
 
 ### Ways a WTC unlocks (or edits leak past the lock)
@@ -104,7 +121,7 @@ dollars and pointing at the existing manual edit path — automatic repair is §
 | Sent-with-unlocked editing (no unlock event) | `WTCCalculator.jsx:2313` freeze covers Sold/Signed only | ❌ Sent proposals fully editable when unlocked |
 | Autosave | `WTCCalculator.jsx:1898-1913` + `handleSave:2191` | ❌ gated by `proposalSold` only; persists `locked:` state variable verbatim |
 | + Add Work Type on committed proposal | `ProposalDetail.jsx:1034` | ❌ none — a Sold proposal can gain a WTC |
-| SOW edits on committed proposal | SowTab gated by `locked` only (`:2450`) | ❌ unlocked-committed → editable |
+| Sister-sync RPC `apply_source_edit_to_sisters` | migration `20260519230000:236-300`, SECURITY DEFINER | ❌ UPDATEs pricing + `locked_line_total` on Sent/Signed sisters — bypasses ANY client freeze (§1 Amendment 2; §6) |
 | Pull Back | `ProposalDetail.jsx:558` | ✅ sanctioned path — blocks on live invoices, resets to Draft, clears locks + `locked_line_total` |
 
 ### Billing schedule writers (context only — NONE are edited in this build)
@@ -130,308 +147,346 @@ name/reason validation:
   return — same standard as the Send gate, naming the offenders.
 - Both approve entries route through this one handler (button `:908` and the PDF
   modal's `onInternalApprove` prop) — verified round 1; no second gate site needed.
-- **Sister-cohort note (round-1 ADJ-3, verified against migration `20260519230000`):**
+- **Sister-cohort note (ADJ-3, verified against migration `20260519230000`):**
   `clone_proposal_to_gcs` copies sister WTCs with `locked = false` whenever the target
-  has a markup override or the parent was partially locked. So the gate WILL routinely
-  fire on multi-GC approvals — the approver locks the sister's WTCs first. That is
-  expected behavior (locking IS the approval of the price), not a dead-end; §7 smoke
-  step 6 asserts this exact flow.
+  has a markup override or the parent was partially locked. The gate WILL routinely
+  fire on multi-GC approvals — the approver locks the sister's WTCs first. Expected
+  behavior, not a dead-end; §7 smoke step 6 asserts this flow.
 - Rate-card WTCs count in the gate exactly as in the Send gate (no new semantics).
 
-### 4.2 Committed-freeze + unlock guards (closes gaps 2 & 3, C2/C3/A1-3, E)
+### 4.2 Committed-freeze + unlock guards (C2/C3/A1-3, E, D, F + SOW carve-out)
 
-**One concept, applied consistently: `committed = ["Sent","Signed","Sold"].includes(status)`.**
+**One concept: `isCommitted = ["Sent","Signed","Sold"].includes(status)`.**
+(Named `isCommitted`, NOT `committed` — a block-scoped `const committed` already
+exists at `WTCCalculator.jsx:1239` and must not be shadowed. Round-2 F.)
 
 In `WTCCalculator.jsx`:
-- Replace the `proposalSold` boolean with a `committed` flag from the same fetch
-  (`:2313`), keeping the raw status string in state for messages. Everything currently
-  gated on `proposalSold` gates on `committed` — read-only overlay (`:2425,:2444`),
-  per-tab `onChange` handlers (`:2447-2452`), autosave (`:1898`). Result: a Sent
-  proposal is frozen **whether or not its WTCs happen to be unlocked** — the
-  no-unlock-event leak (§0 click-path 3) closes.
-- Overlay copy branches on status: Sold/Signed keep today's text; Sent reads
-  "This proposal has been sent — pull it back to Draft to edit pricing."
+- Replace the `proposalSold` boolean with `isCommitted` from the same fetch (`:2313`),
+  keeping the raw status string in state for messages. Gate on it: read-only overlay,
+  per-tab `onChange` handlers for the PRICING tabs (bidding, labor, materials, travel,
+  discount — `:2447-2452` except `:2450`), autosave (`:1898`). Result: a Sent proposal's
+  pricing is frozen whether or not its WTCs are unlocked (§0 click-path 3 closes).
+- **Overlay scope (round-2 F, honest mechanics):** the SOW tab (`:2450`) has NO
+  `proposalSold` token today — its freeze was only ever the overlay div (`:2444`) +
+  the save path. With the SOW carve-out the overlay now applies when
+  `isCommitted && !["summary","sow"].includes(tab)`. Do NOT add an `isCommitted` gate
+  to SowTab's `onChange` — SOW stays interactive. (Known pre-existing limit: the
+  overlay intercepts pointer, not keyboard focus — unchanged in this build, noted.)
+- **SOW carve-out (Chris-ratified):** on a committed proposal, the SOW tab is editable
+  **even when the WTC is locked** (today's `locked → readOnly` Textarea behavior
+  applies only when NOT committed — on Draft, unlock first as usual, since unlock is
+  free there). Saving SOW on a committed proposal goes through a new
+  **`saveSowOnly()`** partial update writing ONLY `sales_sow`, `field_sow`,
+  `sub_areas` — never the full `handleSave` payload, so pricing cannot ride along.
+  `size`/`unit` stay frozen (price-adjacent; a room change that alters size is a
+  pricing change → Pull Back). The SowTab "Save" button routes to `saveSowOnly` when
+  `isCommitted`, to `handleSave` otherwise.
 - `handleSave` (`:2191`) short-circuit: on a committed proposal, return without
-  writing (single guard at the top — covers autosave, unmount flush, and every
-  manual save path in one place). It must never persist `locked: false` on a
-  committed proposal.
-- `handleLock` (`:2258`) — guard ordering is the round-1 Critical's sibling: the
-  unlock guard runs **first**, before the `handleSave()` flush (`:2264`) and before
-  `setLocked` (`:2267`), so a blocked unlock leaves both React state and DB untouched:
-  - Re-fetch `status` fresh inside the handler (one query — not the mount snapshot;
-    round-1 A1-3).
-  - If unlocking and `committed` → block:
+  writing — covers autosave, unmount flush, and every manual full-save path. It must
+  never persist `locked: false` on a committed proposal. (`saveSowOnly` is the ONLY
+  committed-state write, and it touches no pricing or lock columns.)
+  **Known accepted limit:** the short-circuit reads the mount-time `isCommitted` —
+  a proposal committed *while the calculator is open* stays editable until remount.
+  Accepted at ≤5-user concurrency; do not claim the short-circuit covers this.
+- `handleLock` (`:2258`) — guard-first ordering, and **direction-scoped (round-2 D,
+  pinned as code, not prose):** the early-return condition is exactly
+  `if (!newLocked && <blocked>) return;` — **never a bare `if (isCommitted)`** — so
+  the LOCK direction always proceeds (it is the repair path for sisters and backfill
+  stragglers, and it must still fire the `proposals.total` sync). Ordering: guard runs
+  before the `handleSave()` flush (`:2264`) and before `setLocked` (`:2267`); a
+  blocked unlock leaves React state and DB untouched.
+  - Re-fetch `status` fresh inside the handler (one query — not the mount snapshot).
+  - Unlocking + committed → block:
     `alert("This proposal is <status>. Pull it back to Draft to edit pricing — unlocking is disabled after it's been sent.")`
-  - If unlocking, Draft, and a `billing_schedule` exists (`maybeSingle` on demand) →
-    warn, allow:
-    `confirm("This job has a billing schedule at $<contract_sum>. If you change pricing, update the schedule to match on the job's Billing Schedule section. Unlock?")`
-    (Manual reconcile pointer — the automatic offer is §6 deferred; no promise made.)
-  - Lock direction: allowed on any status. On a committed proposal locking is the
-    *repair* action (sisters per §4.1, backfill stragglers) — it flushes no pricing
-    edits because `handleSave` short-circuits; it writes only `locked` +
-    `locked_line_total` + the `proposals.total` sync, same as today.
-- The `:2313` fetch keeps the H6 behavior for the signing page untouched.
+  - Unlocking + Draft + `billing_schedule` exists (`maybeSingle` on demand) → warn,
+    allow: `confirm("This job has a billing schedule at $<contract_sum>. If you change pricing, update the schedule to match on the job's Billing Schedule section. Unlock?")`
+  - Lock direction on a committed proposal: flushes nothing (`handleSave`
+    short-circuits); computes `locked_line_total` from the freshly FETCHED row (as
+    today, `:2285` reads `allWtcs` from the DB query, not local edit state) and runs
+    the `proposals.total` sync as today.
 
 In `ProposalDetail.jsx`:
-- `toggleWtcLock` (`:310`): same guard, same ordering (guard → alert/confirm → write).
-  Status is available as `p.status` on the already-loaded proposal — still re-read
-  from the fetched row, not a stale closure.
-- `+ Add Work Type` (`:1034`): hidden when `committed` — a committed proposal cannot
-  gain a WTC (round-1 Group E). (Change orders are their own proposals per existing
-  CO model; nothing lost.)
-- No `teamMember` threading — that existed only for the cut §4.3.
+- `toggleWtcLock` (`:310`): same direction-scoped guard, same ordering
+  (`!newLocked && …` — the lock direction must still reach the auto-create at `:345`
+  and the total sync).
+- `+ Add Work Type` (`:1034`): hidden when committed — a committed proposal cannot
+  gain a WTC. (Change orders are their own proposals; nothing lost.)
+- No `teamMember` threading (only the cut reconcile needed it).
 
 ### 4.3 Ship-time backfill: re-lock the existing unlocked-committed population (C1)
 
 The sign door (§3) stays ungated in this build, so the Sent/Signed rows that could
-still walk through it unlocked must be repaired at ship:
+still walk through it unlocked must be repaired — **before the code ships**:
 
+- **Sequence (round-2 A):** the backfill runs BEFORE the UI deploy goes live. The
+  deploy gate is: §0 count query returns 0 → then promote the build. The 8
+  Sent/Signed rows hold live signing tokens; running the script after deploy leaves a
+  window where a customer signature recreates the incident state. Backfill first,
+  always.
 - Population (§0): 21 unlocked WTCs on committed proposals (7 Sent / 1 Signed /
-  13 Sold, incl. 10019's 3). Re-query at deploy time; the count moves.
-- Mechanics: locking is not a bare flag — it must stamp `locked_line_total`
-  (`calcWtcPrice` result), which is client-side math the H6 signing-page RPC reads.
-  So the backfill is a **Node script reusing `src/lib/calc.js`** (same math as
-  `handleLock`), authenticated as Chris's admin user (mint user JWT via GoTrue —
-  established backfill pattern), writing `locked = true, locked_line_total = <computed>`
-  per WTC and syncing each proposal's `total`.
+  13 Sold). Re-query at run time; the count moves.
+- **Selection (bf-1):** per-WTC WHERE — `proposal_wtc.locked = false` joined to
+  proposals with `status IN ('Sent','Signed','Sold') AND deleted_at IS NULL` — so
+  partially-locked proposals get only their unlocked rows touched. Archive proposals
+  have zero WTCs and fall out naturally; the script asserts it selected zero
+  `is_archive_proposal` rows anyway.
+- **Math parity (round-2 B):** the script reuses `src/lib/calc.js` and must byte-match
+  what `handleLock`/`toggleWtcLock` would write:
+  - SELECT includes the proposal's pricing-era columns (`created_at`,
+    `pricing_anchor_at`) and calls `usesExactPricing(proposal)` per row — omitting
+    them silently defaults the era and mis-rounds penny-window proposals by up to
+    $1/line on a signed contract's public page.
+  - `markup_override_pct` is passed as `undefined` — exactly as both lock paths do —
+    never the sister's proposal-level override.
+  - Dry-run prints, per proposal: the resolved era flag and per-WTC computed
+    `locked_line_total`.
+- **Writes (Chris-ratified X + full disclosure):** per selected WTC:
+  `locked = true`, `locked_line_total = <computed>`. Per proposal: `proposals.total`
+  is **recomputed ONLY for Sent rows** (matching what a lock in the app would do);
+  **Sold and Signed rows keep their existing `total` untouched** — a signed
+  contract's number is immutable, and skipping the write avoids mass-firing
+  `trg_sync_job_amount` → Schedule Command `jobs.amount` across 13 sold jobs.
+  The trigger therefore fires only for the ≤7 Sent proposals.
+- **Run protocol (bf-2):** dry-run → human review → live run back-to-back; the live
+  run asserts each target WTC's `updated_at` is unchanged since the dry-run snapshot
+  (catches an edit landing between runs — the trigger side effects are never
+  exercised in dry-run, so parity depends on nothing moving).
 - Executed at the **deploy gate** (buildvsplan → deploy terminal), NOT by the build
-  session. Script lands in `scripts/` on this branch with a dry-run mode (prints
-  per-WTC computed totals, writes nothing) — dry-run output is reviewed before the
-  live run.
+  session. Script lands in `scripts/` on this branch, authenticated as Chris's admin
+  user (mint user JWT via GoTrue — established backfill pattern).
 - Post-ship invariant: §4.1 + §4.2 make new unlocked-committed rows unreachable via
-  the UI, so the sign door never again sees one. The RPC-level precondition stays in
-  §6 with reopen trigger "any post-ship row appears where status ∈ committed and a
-  WTC is unlocked" (detectable by re-running the §0 count query).
+  the UI (sister-sync RPC excepted — §1 Amendment 2). The RPC-level sign-door
+  precondition stays in §6 with reopen trigger "§0 count query > 0 post-ship."
 
 ### 4.4 UI (layout section — per plan standard)
 
 No new screens, no layout changes. Gates surface through the existing alert/confirm
-vocabulary (matching every guard in these files). The calculator's read-only overlay
-and banner are reused with the new Sent wording; the amber "In Progress" / green
-"Locked" card states are untouched. No new colors or components (Style Rules
-untouched). `fmt$`, no cents, in the schedule warn.
+vocabulary. The calculator's read-only overlay and banner are reused with the new
+Sent wording ("This proposal has been sent — pull it back to Draft to edit pricing;
+scope of work stays editable on the SOW tab."); the SOW tab shows a thin notice line
+when committed: "Pricing is locked — SOW edits save without touching price." Amber
+"In Progress" / green "Locked" card states untouched. No new colors or components.
+`fmt$`, no cents, in the schedule warn.
 
-## 5. Blast radius — the triple-confirm (updated for revision 1)
-
-Every consumer of the touched concepts, traced at `6db76eb`. **"Untouched" means the
-build must not edit that site and the audit should flag any diff that does.**
+## 5. Blast radius — the triple-confirm (updated rev 2)
 
 ### Sites this build EDITS (complete list)
 | Site | Change |
 |---|---|
 | `ProposalDetail.jsx` `handleInternalApprove` | gate prepended (§4.1) |
-| `ProposalDetail.jsx` `toggleWtcLock` | unlock guard prepended (§4.2) |
+| `ProposalDetail.jsx` `toggleWtcLock` | direction-scoped unlock guard prepended (§4.2) |
 | `ProposalDetail.jsx` `:1034` + Add Work Type | hidden when committed (§4.2) |
-| `WTCCalculator.jsx` `proposalSold` → `committed` (+ status string) | freeze broadened to Sent (§4.2) |
+| `WTCCalculator.jsx` `proposalSold` → `isCommitted` (+ status string) | freeze broadened to Sent; SOW tab exempted (§4.2) |
 | `WTCCalculator.jsx` `handleSave` | committed short-circuit at top (§4.2) |
-| `WTCCalculator.jsx` `handleLock` | guard-first ordering + fresh status fetch (§4.2) |
+| `WTCCalculator.jsx` NEW `saveSowOnly` | SOW-only partial update on committed (§4.2) |
+| `WTCCalculator.jsx` `handleLock` | guard-first, direction-scoped, fresh status fetch (§4.2) |
 | `scripts/` backfill script (new file) | §4.3 — deploy-gate execution only |
+
+### Backfill writes (full disclosure — round-2 C)
+`proposal_wtc.locked`, `proposal_wtc.locked_line_total` (21 rows);
+`proposals.total` on Sent rows only (≤7) → `trg_sync_job_amount` fires for those only.
+Sold/Signed totals untouched. Nothing else written.
 
 ### Consumers of `proposal_wtc.locked` — verdicts
 | Site | Verdict |
 |---|---|
 | `ProposalDetail.jsx:520,913,918,940-984` (checklist %, clone gate, Send gate, card styling) | Untouched reads |
 | `ProposalPDFModal.jsx:274-275` send gate | Untouched |
-| `WTCCalculator.jsx` overlay / SOW readOnly / PDF gate `:1541` | Overlay + SOW re-keyed to `committed ∥ locked` (§4.2); PDF gate untouched |
-| `Invoices.jsx` "locked" hits (QB/amount locks, `linkedPayApp`) | Different concept — untouched |
+| `WTCCalculator.jsx` overlay / PDF gate `:1541` | Overlay re-keyed to `isCommitted` w/ SOW exemption (§4.2); PDF gate untouched |
+| SowTab `locked → readOnly` Textarea | Behavior change BY DESIGN on committed proposals only (carve-out); Draft behavior unchanged |
+| `Invoices.jsx` "locked" hits (QB/amount locks) | Different concept — untouched |
 | `BillingScheduleSection.jsx:23,68` (SCHEDULE lock — name collision) | Untouched |
 
 ### Consumers of `locked_line_total`
 | Site | Verdict |
 |---|---|
-| H6 signing RPC, `PublicSigningPage.jsx`, `PublicInvoicePage.jsx` | Untouched code. §4.2 blocked-unlock keeps snapshots alive on committed proposals (strictly safer); §4.3 backfill POPULATES it for 21 currently-null WTCs — signing pages that today would show a null-total line start showing the computed total (behavior improvement; smoke step 9 eyeballs one) |
+| H6 signing RPC, `PublicSigningPage.jsx`, `PublicInvoicePage.jsx` | Untouched code. §4.3 backfill POPULATES 21 currently-null snapshots with era-correct math (round-2 B); signing pages that today show a null-total line start showing the computed total; smoke step 9 eyeballs one |
 | Pull Back clears it (`ProposalDetail.jsx:570`) | Untouched — still the sanctioned clear |
+| Sister-sync RPC overwrites it | Pre-existing bypass, NOT changed by this build — §1 Amendment 2, §6 |
 
 ### Sold/Signed writers
 | Site | Verdict |
 |---|---|
-| `handleInternalApprove` | Gated (§4.1) — the ONLY status-writer edited. QB job creation, notify trigger, sister-cohort branch all unchanged after the gate |
-| `mark_proposal_signed` RPC + `proposal-signed` edge fn + PublicSigningPage fallback | **Untouched** — no edge fn deploys, no migrations. Door closed by population repair (§4.3) + unreachability (§4.1/4.2); RPC precondition parked §6 |
-| Archive/import paths | Untouched — archive exempt from the gate |
+| `handleInternalApprove` | Gated (§4.1) — the ONLY status-writer edited. QB job creation, notify trigger, sister branch unchanged after the gate |
+| `mark_proposal_signed` RPC + edge fn + fallback | Untouched — door closed by backfill-first sequencing (§4.3) + unreachability (§4.1/4.2); RPC precondition parked §6 |
+| Archive/import paths | Untouched — archive exempt |
 
 ### Billing schedule
-**This build writes nothing to `billing_schedule` or `billing_schedule_lines`** (the
-round-1 reconcile is cut). Auto-create INSERT (`:344`) is preserved verbatim inside
-`toggleWtcLock` — the audit verifies the prepended guard cannot reorder or skip it on
-the lock direction. Manual editing (`BillingScheduleSection`) untouched and now
-load-bearing as the reconcile path named in the §4.2 warn.
+**This build writes nothing to `billing_schedule` or `billing_schedule_lines`.**
+Auto-create INSERT (`:344`) preserved verbatim inside `toggleWtcLock` — reachable
+because the guard is direction-scoped (`!newLocked && …`, §4.2/round-2 D); the audit
+verifies that exact condition. Manual editing (`BillingScheduleSection`) untouched
+and load-bearing as the named reconcile path.
 
-### Flows deliberately NOT changed (regression tripwires for round 2)
+### Flows deliberately NOT changed (regression tripwires for round 3)
 1. **Pull Back** — byte-identical; referenced by new messages, not edited.
 2. **Send Proposal / Send to Customer** — gates already correct; no edits.
-3. **Send to Schedule** + everything F40 covers — out of scope, untouched.
-4. **Multi-GC clone** — untouched; §4.1 note + smoke step 6 set the sister
-   expectation (arrive unlocked → approver locks → approve passes).
+3. **Send to Schedule** + everything F40 covers — untouched. (Note: Field SOW edits
+   on committed proposals via `saveSowOnly` flow to Field through the existing
+   manual Send-to-Schedule path — no new sync obligation created here.)
+4. **Multi-GC clone + sister-sync RPC** — untouched; sisters arrive unlocked
+   (§4.1 note); the RPC's freeze bypass is documented (§1 Amendment 2), not fixed.
 5. **Archive proposals** — exempt everywhere.
 6. **Edge functions / RPCs / migrations** — zero touched, zero deployed.
 7. **`proposals.total` → `trg_sync_job_amount` → Schedule Command `jobs.amount`** —
-   the total-sync writes in `handleLock`/`toggleWtcLock` are preserved verbatim;
-   audit verifies guard placement cannot skip them on a *successful* lock. (Known
-   divergence when a schedule is stale is ADJ-2, filed in BACKLOG — not this build.)
+   handler total-sync writes preserved verbatim on the lock direction; backfill fires
+   it for Sent rows only.
 8. **`handleSave`'s sibling-sync + total-sync** — the committed short-circuit returns
    before ALL writes; on non-committed proposals every existing write runs unchanged.
+   `saveSowOnly` performs none of these syncs (SOW columns don't affect price).
 
 ## 6. Out of scope (named, with the user-trigger that would reopen them)
-- **Automatic SOV reconcile on re-lock** (round-1 §4.3, cut by ratified scope-cut
-  2026-08-18): when built, it is ONE atomic SECURITY DEFINER RPC (command-suite-db
-  migration + rehearsal) that classifies the line-mapping up front and moves
-  `contract_sum` + lines in a single transaction, gated on **submitted/paid** pay apps
-  only (ADJ-1 — drafts must not block it). Reopen trigger: schedule drift recurs
-  after §4.1/§4.2 ship.
+- **Automatic SOV reconcile on re-lock** (round-1 cut): when built, ONE atomic
+  SECURITY DEFINER RPC (command-suite-db migration + rehearsal), mapping classified
+  up front, `contract_sum` + lines in a single transaction, gated on
+  **submitted/paid** pay apps only (ADJ-1 on B32). Reopen trigger: schedule drift
+  recurs after this build ships.
 - **Lock precondition inside `mark_proposal_signed`** (RPC migration): reopen trigger
-  — any post-ship row where status ∈ committed and a WTC is unlocked (§0 count query
-  returns > 0 on a proposal not in the backfill set).
+  — §0 count query > 0 on any proposal outside the backfill set, post-ship.
 - **DB-level freeze** (trigger blocking `proposal_wtc` money-column UPDATE when
-  locked/committed): reopen when client-side enforcement proves insufficient.
+  locked/committed): the sister-sync RPC bypass (§1 Amendment 2, round-2 ADJ-E) is
+  the concrete case it must cover — the trigger must either gate that RPC's writes or
+  the RPC must be amended with it. Reopen when client-side enforcement proves
+  insufficient OR when sister drift is observed.
 - **F40's three seams** — separate loop, unchanged priority.
-- **B32** — unchanged; its row gains the ADJ-1 design note for the future reconcile.
+- **B32 / B70** — unchanged; future reconcile design notes live on their rows.
 - **Calculator-side schedule auto-create** — asymmetry left as-is.
+- **Overlay keyboard-focus gap** — pre-existing; fold into any future freeze hardening.
 
-## 7. Smoke plan (preview deploy, before merge)
+## 7. Smoke plan (preview deploy, before merge; backfill smoke at deploy gate)
 1. **10019 regression:** proposal page → Unlock on a WTC → blocked with pull-back
    message (Sold). Calculator Summary tab → Unlock → same block.
-2. Any **Sent** proposal → EDIT WTC → every tab read-only with the Sent banner; no
-   autosave write lands (confirm `updated_at` unchanged after opening/closing).
-3. Draft proposal WITH billing schedule → unlock → confirm names the schedule dollars
-   and points at the Billing Schedule section → accept → unlock proceeds. Edit price,
-   re-lock → NO automatic schedule change (verify contract_sum untouched) — manual
-   edit on the Billing Schedule section still works.
-4. Internal Approve with one unlocked WTC → blocked, names the WTC; lock it →
+2. Any **Sent** proposal → EDIT WTC → pricing tabs read-only with the Sent banner;
+   no autosave write lands (confirm `updated_at` unchanged after open/close).
+3. **SOW carve-out:** same Sent proposal → SOW tab editable → edit Field SOW → save →
+   reload: SOW persisted, `updated_at` moved, but pricing fields + `locked` +
+   `proposals.total` byte-identical. Repeat with Sales SOW wording change.
+4. Draft proposal WITH billing schedule → unlock → confirm names the schedule dollars
+   and points at the Billing Schedule section → accept → unlock proceeds; re-lock →
+   NO automatic schedule change; manual schedule edit still works.
+5. Internal Approve with one unlocked WTC → blocked, names the WTC; lock it →
    approve succeeds; QB job + rep notification still fire.
-5. Archive proposal → Internal Approve unaffected.
 6. **Multi-GC sister:** clone → sister's WTCs arrive unlocked (expected) → approve
-   blocked → lock sister WTCs → approve passes as Signed.
-7. Committed proposal → + Add Work Type button absent; Draft → present.
-8. Send Proposal, Pull Back, Send to Schedule: click through unchanged flows — no
-   behavior difference; after Pull Back (→ Draft), editing and unlocking work freely.
-9. **Backfill (at deploy gate):** dry-run output reviewed → live run → §0 count query
-   returns 0 → open one backfilled Sent proposal's signing link → totals render.
+   blocked → lock sister WTCs (verify auto-create/total-sync still fire on this
+   lock — the direction-scoped guard) → approve passes as Signed.
+7. Committed proposal → + Add Work Type absent; Draft → present. Archive proposal →
+   Internal Approve unaffected.
+8. Send Proposal, Pull Back, Send to Schedule: unchanged flows — no behavior
+   difference; after Pull Back (→ Draft), editing and unlocking work freely.
+9. **Backfill (deploy gate, BEFORE promoting the UI build):** dry-run prints per-row
+   era flag + computed totals → review → live run (asserts `updated_at` parity and
+   zero archive rows) → §0 count query returns 0 → open one backfilled Sent
+   proposal's signing link → totals render, Sold/Signed `proposals.total` unchanged →
+   THEN promote the deploy.
 
 ---
 
 ## Audit manifest
 
-_Generated by `/auditcriteria` on 2026-08-18 (round 2). Consumed by `/runaudit` to size the adversarial audit pass._
+_Generated by `/auditcriteria` on 2026-08-18 (round 3). Consumed by `/runaudit` to size the adversarial audit pass._
 
 ### Bottom line (plain English)
-Round 2 on a smaller, safer plan: the risky auto-update of billing-schedule dollars
-was cut, so this build now only adds gates and a freeze — it writes nothing to the
-schedule at all. Three reviewers: one proving the new gates actually fire on real
-paths, one hunting leftover ways a job can go Sold unlocked, one re-checking the
-break-nothing promises now that the freeze covers more of the calculator.
+Confirm pass on a converging plan. Round 2's findings were all spec-tightenings on the
+cleanup script and two code details — all now pinned in the plan — plus one new piece:
+Chris ratified keeping scope-of-work text editable on sent jobs, which adds one small
+new save path. Two reviewers: one verifies the round-2 fixes landed exactly as
+specified, one attacks the only genuinely new mechanism (the SOW-only save).
 
 ### Round
 - Plan type: bug
-- Current round: 2
-- Plan revision under audit: (revision pass 1 commit — see git log)
-- Findings trend: round 1 (17: 1C/2H/1M/1L caused-by groups + 3 adjacent) → 2 (?) —
-  round-1 pattern was reconcile-over-engineered; the mechanism driving 64% of findings
-  is now cut, so round 2 at or above 17 would signal new scope creep, not progress
+- Current round: 3
+- Plan revision under audit: (revision pass 2 commit — see git log)
+- Findings trend: round 1 (17: 1C/2H/1M/1L) → round 2 (12: 0C/2H/2M/2L) → 3 (?) —
+  declining, near-converged. Round-2 pattern (backfill-contract) resolved by pinning
+  the contract in §4.3. A round-3 count above ~6 signals the SOW carve-out introduced
+  real new surface; at or below, ship it.
 
 ### Prior rounds
-- Round 1: manifest `1f0591e`, plan `b98ba7c` · 1C/2H/1M/1L (5 caused-by groups, 3 adjacent) · pattern: reconcile-over-engineered
+- Round 1: manifest `1f0591e`, plan `b98ba7c` · 1C/2H/1M/1L (+3 adjacent) · pattern: reconcile-over-engineered → resolved by ratified scope-cut
+- Round 2: manifest/plan `2e9e98d` · 0C/2H/2M/2L (+1 adjacent, 2 assertions) · pattern: backfill-contract → resolved by §4.3 contract pinning (sequence-first, era parity, preserve-signed-totals, bf-1/bf-2 assertions) + §4.2 direction-scoping (D) + honest SOW mechanics (F) + §1 Amendment 2 (ADJ-E)
 
-**Briefing for agents**: do NOT re-find round-1 findings. Groups A/B/D dissolved with
-the §4.3 cut (nothing writes to billing_schedule anymore — confirm that stays true in
-the spec, then move on). Group C (invariant leaks) and Group E (structure edits) are
-now IN the plan as §4.2/§4.3 — attack the *specs* for them, not their absence. ADJ-1/
-ADJ-2 are filed in BACKLOG; ADJ-3 is integrated into §4.1. Attack ONLY material new
-to this revision: the `committed` freeze semantics, the guard-first ordering, the
-handleSave short-circuit, and the backfill script contract.
+**Briefing for agents**: do NOT re-find round-1/round-2 findings — each is integrated
+at the cited section. Attack ONLY: (a) whether the round-2 integrations are internally
+consistent as now written, and (b) the NEW SOW carve-out (`saveSowOnly`, overlay SOW
+exemption, locked-Textarea override on committed) — the one mechanism no prior round
+saw. The sister-sync bypass is documented-accepted (§1 Amendment 2), not a finding.
 
 ### Deployment context
-- **Live tenants**: 1 — HDSP only; multi-tenant onboarding blocked
-- **Prod / staging / dev**: prod, daily use (proposal lock/approve/sign)
-- **Blocking feature flags**: `customers.requires_pay_app` gates schedule auto-create;
-  irrelevant to most of the kept scope (freeze applies to all proposals)
+- **Live tenants**: 1 — HDSP only
+- **Prod / staging / dev**: prod, daily use
+- **Blocking feature flags**: none relevant to kept scope
 - **Concurrency profile**: ≤5 concurrent users
-
-Cross-tenant findings cap at Med while live_tenants == 1. Multi-user race findings cap
-at Low at this concurrency.
+Severity caps as prior rounds (cross-tenant ≤ Med, races ≤ Low).
 
 ### Time budget + finding cap
-- **Time budget**: 180 min (kept scope shrank — two files + one script; revised from 240)
-- **Finding cap**: 18 findings
+- **Time budget**: 90 min (confirm pass on integrated revisions + one new mechanism)
+- **Finding cap**: 9 findings
 
 ### Surface
-- Total lines: ~300 incl. manifest
+- Total lines: ~340 incl. manifest
 - Sections: 8 (§0–§7)
-- [LOCKED] decisions: 2 (§1 invariant; scope-cut ratification in header)
-- [DESIGN-OPEN] items: 0
-- [OPEN] items: 0
-- Plan-to-code ratio: ~300 : ~140 est code lines ≈ 2:1 — acceptable for round 2
+- [LOCKED] decisions: 2 + 2 amendments (§1 + header ratifications)
+- [DESIGN-OPEN] / [OPEN] items: 0
+- Plan-to-code ratio: ~340 : ~170 est code lines ≈ 2:1
 
 ### Layers touched
-- UI / components (gates, freeze overlay, button visibility)
-- State model (committed flag semantics; status × lock interplay)
-- Data script (one-shot backfill writing `locked` + `locked_line_total` + `total`)
+- UI / components (gates, freeze overlay w/ SOW exemption, SOW notice line)
+- State model (isCommitted semantics; SOW-vs-pricing field partition)
+- Data script (backfill: locked + locked_line_total + Sent-only total)
 
-### New mechanisms introduced
-- `committed` flag replacing `proposalSold` (broadened freeze — §4.2)
-- Guard-first ordering contract in `handleLock`/`toggleWtcLock` (§4.2)
-- `handleSave` committed short-circuit (§4.2)
-- Backfill script reusing `src/lib/calc.js` with dry-run mode (§4.3)
+### New mechanisms introduced (this revision)
+- `saveSowOnly()` partial update (sales_sow / field_sow / sub_areas only) — NEW, unaudited
+- Overlay SOW-tab exemption + locked-Textarea override on committed — NEW, unaudited
+- Backfill contract additions (sequence-first gate, era columns, Sent-only total, bf-1/bf-2 assertions) — round-2 findings, now spec
 
 ### Cross-system reach
-- `trg_sync_job_amount`: `proposals.total` writes in the edited handlers AND the
-  backfill script propagate to Schedule Command `jobs.amount` — verify preserved
-  timing on success paths and sane values from the backfill.
-- H6 signing RPC reads `locked_line_total` — backfill populates 21 currently-null
-  snapshots; verify the computed values match what `handleLock` would have written.
+- `trg_sync_job_amount`: backfill fires it for ≤7 Sent rows only; handler paths preserved
+- H6 signing RPC ← backfill-populated snapshots (era parity pinned §4.3)
+- Field Command reads `field_sow` downstream via manual Send-to-Schedule — `saveSowOnly`
+  edits flow through the existing path; verify no staleness assumption breaks (F40 territory — flag, don't expand)
 
 ### Irreversibility
-- Backfill flips 21 WTCs to locked and stamps snapshots — reversible in principle
-  (flags can be cleared) but it changes what live signing pages display; dry-run
-  review is the control. Everything else reversible; zero migrations.
+- Backfill as before (dry-run + preserve-signed-totals shrinks it). Everything else reversible; zero migrations.
 
 ### Known weak points
-- `handleSave` short-circuit is load-bearing for the whole freeze: any *legitimate*
-  write on committed proposals routed through `handleSave` today would be silently
-  dropped — agents enumerate `handleSave` callers and confirm none is a sanctioned
-  committed-state write (the §4.2 claim is "there are none"; falsify it).
-- Lock-direction-on-committed remains allowed (repair path). Verify the lock flow on a
-  committed proposal cannot smuggle pricing edits (it calls `handleSave` first — which
-  now short-circuits — confirm `locked_line_total` is then computed from FETCHED rows,
-  not from possibly-edited local React state).
-- The `committed` fetch (`:2313`) is still a mount-time snapshot for the overlay
-  (only `handleLock` re-fetches) — a proposal Sent *while the calculator is open*
-  stays editable until remount. Weight per concurrency profile.
-- Backfill computes `locked_line_total` OUTSIDE the app (Node + calc.js): exact-pricing
-  era flag (`usesExactPricing`) and rate-card exclusions must match `handleLock`'s
-  math or the signing page shows different totals than the app would have stamped.
-- `+ Add Work Type` hidden on committed — confirm no legitimate flow adds a WTC to a
-  Sent proposal today (e.g. pre-send additions after an early send).
+- `saveSowOnly` is the sole committed-state write path: verify it cannot be reached
+  with a payload containing pricing keys (spec says column-list literal, not object
+  spread from state), and that the SowTab save-button routing (`isCommitted` ternary)
+  can't send a committed SOW edit through full `handleSave` (which would silently drop
+  it — user thinks saved, nothing written).
+- SOW carve-out × locked semantics: on committed proposals the `locked → readOnly`
+  Textarea override inverts today's rule ("Locked — change order required to edit").
+  Verify no other consumer of that readOnly assumption (PDF regeneration? signed-PDF
+  SOW snapshot?) treats locked SOW as immutable-after-signature — a signed PDF already
+  rendered is a snapshot, but confirm nothing re-renders contract SOW from live rows.
+- The §4.3 "backfill BEFORE deploy" gate is procedural (deploy-terminal discipline),
+  not mechanical — confirm the §7 step-9 ordering is stated everywhere the deploy is
+  described (it is the only enforcement).
+- Direction-scoped guard condition (`!newLocked && …`) is now pinned, but appears in
+  two files — verify the plan text keeps both sites' conditions identical.
 
 ### Open questions
-- Count: 1
-- Highest-pressure: does any current workflow deliberately edit a Sent proposal's SOW
-  text (not price) before signing? The committed freeze now blocks SOW edits on Sent —
-  if that was a real workflow, it needs Chris's explicit OK (flag to Chris, don't
-  assume).
+- Count: 0 (both round-2 questions ratified by Chris: preserve-signed-totals; SOW
+  carve-out covering field_sow + sales_sow + sub_areas, size/unit frozen)
 
-### Suggested attack angles (3 total)
-1. **User-path state trace (freeze + gates)** — covers UI + state model. Required
-   reading: `WTCCalculator.jsx` (:1890-1915, :2185-2320, :2420-2455),
-   `ProposalDetail.jsx` (:310-360, :790-830, :900-920, :1034). Specific pressure:
-   for each guard, prove ordering (guard before ANY write incl. the `:2264` flush and
-   `setLocked`); enumerate `handleSave` callers vs the short-circuit; trace `committed`
-   freshness at every gate firing; verify lock-direction repair writes only
-   lock/snapshot/total from fetched rows.
-2. **State-model completeness (residual leaks)** — covers the invariant post-revision.
-   Required reading: §3 tables, `mark_proposal_signed` call sites (read-only),
-   migration `20260519230000` (clone lock semantics). Specific pressure: enumerate
-   remaining paths to Sold-with-unlocked (sign door between deploy and backfill,
-   backfill misses, imports, direct DB); attack the §4.3 unreachability argument and
-   the backfill script contract (era flag, rate cards, dry-run parity).
-3. **Regression tripwires** — covers §5 promises. Required reading: §5 edited-sites
-   table + tripwire list. Specific pressure: falsify "billing schedule untouched,"
-   "auto-create preserved verbatim," "total-sync timing preserved," "Pull Back
-   byte-identical"; probe the broadened freeze for collateral damage (Sent SOW-edit
-   workflow, PDF generation on Sent, archive panel, F40 seams).
+### Suggested attack angles (2 total)
+1. **Round-2 integration verify** — covers §4.2/§4.3 as revised. Required reading:
+   §4.2, §4.3, §5, round-2 findings A–F as summarized in Prior rounds. Specific
+   pressure: confirm each round-2 finding's fix is internally consistent where it now
+   lives (sequence gate reachable, era columns sufficient for `usesExactPricing`,
+   Sent-only total write matches the §5 disclosure, direction-scoped condition
+   identical at both guard sites, `isCommitted` rename complete incl. `:1239`
+   collision avoidance).
+2. **SOW carve-out attack** — covers the NEW mechanism. Required reading: §4.2
+   carve-out spec, `WTCCalculator.jsx` SowTab (:989-1130, :2450), `handleSave`
+   payload (:2191-2226), sister-sync migration SOW handling. Specific pressure:
+   payload isolation (no pricing keys reachable), save-button routing, autosave
+   interaction with SOW edits on committed (short-circuit must NOT eat a SOW edit —
+   trace where SOW autosave lands), locked-Textarea override blast radius, whether
+   any surface re-renders contract SOW from live rows post-signature.
 
-### Suggested agent count: 3
+### Suggested agent count: 2
 
-Rationale: kept scope dropped a full layer (no schedule writes) and the round-1
-pattern is resolved by cut rather than patch, so 3 focused angles cover the two files
-+ script without overlap; not 2 because the freeze semantics are genuinely new surface
-this round.
+Rationale: declining trend with both round-2 Highs resolved by spec-pinning; the only
+unaudited surface is the SOW carve-out, which merits its own dedicated attacker but
+not a wider panel — 3 would re-plow confirmed ground.

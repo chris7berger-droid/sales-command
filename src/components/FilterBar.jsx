@@ -13,7 +13,7 @@ const labelStyle = {
   color: C.textFaint, fontFamily: F.display, marginBottom: 3,
 };
 
-export default function FilterBar({ filters, onChange, salesOptions, customerOptions, workTypeOptions, showInvoiceNumber }) {
+export default function FilterBar({ filters, onChange, onClear, salesOptions, customerOptions, workTypeOptions, showInvoiceNumber }) {
   const { sales, dateFrom, dateTo, workType, customer, jobNumber, invoiceNumber } = filters;
   const set = (k, v) => onChange({ ...filters, [k]: v });
 
@@ -63,7 +63,7 @@ export default function FilterBar({ filters, onChange, salesOptions, customerOpt
       )}
       {hasFilters && (
         <button
-          onClick={() => onChange({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "", invoiceNumber: "" })}
+          onClick={() => { onChange({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "", invoiceNumber: "" }); onClear?.(); }}
           style={{
             padding: "7px 14px", borderRadius: 7, border: `1.5px solid ${C.borderStrong}`,
             background: "transparent", color: C.textMuted, fontSize: 11.5, fontWeight: 700,

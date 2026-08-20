@@ -248,6 +248,7 @@ export default function CallLog({ teamMember, setSubPage }) {
         <FilterBar
           filters={filters}
           onChange={setFilters}
+          onClear={() => setQ("")}
           salesOptions={[...new Set(rows.map(r => r.sales_name).filter(Boolean))].sort()}
           workTypeOptions={workTypes}
         />

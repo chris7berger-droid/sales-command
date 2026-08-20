@@ -1161,8 +1161,13 @@ function InvoicePDFModal({ invoice, lines, wtcIndex = {}, onClose, onSent, onQbS
                       {/* job_id carries the whole display string ("6897 - Plenium
                           Builders Virginia Palmer Elementary - Polish"). A field
                           labeled Job # prints the number, not the job name — the
-                          name wrapped to two ragged lines under the label. */}
-                      <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>{String(invoice.job_id).split(" - ")[0]}</div>
+                          name wrapped to two ragged lines under the label. The
+                          proposal number (P7) is appended so the same job's
+                          separate proposals read distinctly (e.g. "7215 P7"). */}
+                      <div style={{ fontSize: 12, fontWeight: 400, color: "#887c6e" }}>
+                        {String(invoice.job_id).split(" - ")[0]}
+                        {invoice.proposals?.proposal_number ? ` P${invoice.proposals.proposal_number}` : ""}
+                      </div>
                     </>
                   )}
                   {invoice.due_date && (
@@ -1457,6 +1462,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [attachLabel, setAttachLabel] = useState(DEFAULT_ATTACHMENT_LABEL); // pre-fills "Release Waiver"; cleared after each add so extra files can be untitled
   const [editingAttachId, setEditingAttachId] = useState(null); // row being re-labeled
   const [attachLabelDraft, setAttachLabelDraft] = useState("");
+  const [attachDragActive, setAttachDragActive] = useState(false); // drag-over highlight for the drop zone
   const [customerContacts, setCustomerContacts] = useState([]);
   const [custInfo, setCustInfo] = useState({ id: null, name: "", billingEmail: "", billingName: "", billingContactId: null });
   const [editingRecipient, setEditingRecipient] = useState(null);
@@ -1579,7 +1585,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   async function reloadInv() {
     const { data: refreshed } = await supabase
       .from("invoices")
-      .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
+      .select(`*, proposals(call_log_id, proposal_number, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
       .eq("id", inv.id)
       .maybeSingle();
     if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
@@ -1750,7 +1756,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       // recent QB link/unlink action — list-cached props can be stale.
       const { data: freshInv } = await supabase
         .from("invoices")
-        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, customer_id, customers(billing_email, billing_name, contact_email, email, first_name, last_name, name)))`)
+        .select(`*, proposals(call_log_id, proposal_number, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync, customer_id, customers(billing_email, billing_name, contact_email, email, first_name, last_name, name)))`)
         .eq("id", inv.id)
         .maybeSingle();
       if (freshInv) setInv(prev => ({ ...prev, ...freshInv }));
@@ -1950,7 +1956,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
 
       const { data: refreshed } = await supabase
         .from("invoices")
-        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
+        .select(`*, proposals(call_log_id, proposal_number, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
         .eq("id", inv.id)
         .maybeSingle();
       if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
@@ -1999,7 +2005,33 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   // point) and prevents amount drift under the live QB record + Stripe pay link (plan §2.3).
   const syncedLock = !!inv.qb_invoice_id;
 
+  // Invoice-side twin of the pay-app delete cascade (dcbee9f, PayAppDetailModal):
+  // deleting a pay-app invoice must also remove the pay app row itself, or the
+  // ghost keeps counting in New Pay App numbering and prior-billed math even
+  // though its invoice is gone (job 10019, 2026-08-18). Pay-app lines cascade
+  // via FK; unlock the schedule when no pay apps remain (same as modal delete).
+  async function deleteLinkedPayApp() {
+    if (!linkedPayApp) return;
+    const { error: paErr, count: paCount } = await supabase
+      .from("billing_schedule_pay_apps")
+      .delete({ count: "exact" })
+      .eq("id", linkedPayApp.id);
+    if (paErr || !paCount) {
+      alert(`Invoice deleted, but removing linked Pay App #${linkedPayApp.app_number} failed${paErr ? `: ${paErr.message}` : " (0 rows — likely blocked by RLS)"}. Delete it from the job's Billing Schedule.`);
+      return;
+    }
+    const { count: remaining } = await supabase
+      .from("billing_schedule_pay_apps")
+      .select("id", { count: "exact", head: true })
+      .eq("billing_schedule_id", linkedPayApp.billing_schedule_id);
+    if (!remaining) {
+      await supabase.from("billing_schedule").update({ status: "draft" }).eq("id", linkedPayApp.billing_schedule_id);
+    }
+  }
+
   async function handleDelete() {
+    // linkedPayApp is still null mid-load; deleting before it resolves would skip the cascade.
+    if (loading) return;
     if (inv.voided_at) {
       // Already voided — hide from lists. QB record stays as audit trail.
       if (!confirm(`Hide voided Invoice #${inv.id} from lists? (record stays in DB for audit.)`)) return;
@@ -2013,9 +2045,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       setShowVoidModal("delete");
       return;
     }
-    if (!confirm(`Delete Invoice #${inv.id}? This cannot be undone.`)) return;
+    const delMsg = linkedPayApp
+      ? `Delete Invoice #${inv.id} and its linked Pay App #${linkedPayApp.app_number}? This cannot be undone.`
+      : `Delete Invoice #${inv.id}? This cannot be undone.`;
+    if (!confirm(delMsg)) return;
     const { error } = await supabase.from("invoices").update({ deleted_at: new Date().toISOString() }).eq("id", inv.id);
     if (error) { alert(error.message); return; }
+    await deleteLinkedPayApp();
     onDeleted && onDeleted();
   }
 
@@ -2376,6 +2412,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     if (showVoidModal === "delete") {
       const { error: delErr } = await supabase.from("invoices").update({ deleted_at: new Date().toISOString(), stripe_payment_link_id: null }).eq("id", inv.id);
       if (delErr) { alert(delErr.message); setSaving(false); return; }
+      await deleteLinkedPayApp();
       setSaving(false);
       setShowVoidModal(null);
       setVoidReason("");
@@ -2915,14 +2952,28 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           })}
 
           {attachments.length < MAX_INVOICE_ATTACHMENTS && (
-            <div style={{ marginTop: attachments.length ? 8 : 0, padding: "10px 12px", background: C.linenDeep, border: `1px solid ${C.borderStrong}`, borderRadius: 8 }}>
+            <div
+              onDragOver={e => { e.preventDefault(); if (!uploadingAttachment) setAttachDragActive(true); }}
+              onDragLeave={e => { e.preventDefault(); setAttachDragActive(false); }}
+              onDrop={e => {
+                e.preventDefault();
+                setAttachDragActive(false);
+                if (uploadingAttachment) return;
+                const f = e.dataTransfer?.files?.[0];
+                if (f) handleUploadAttachment(f, attachLabel).then(ok => { if (ok) setAttachLabel(""); });
+              }}
+              style={{ marginTop: attachments.length ? 8 : 0, padding: "10px 12px", background: attachDragActive ? C.linen : C.linenDeep, border: `1px ${attachDragActive ? "dashed" : "solid"} ${attachDragActive ? C.teal : C.borderStrong}`, borderRadius: 8, transition: "background 120ms, border-color 120ms" }}
+            >
               <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
                 <input value={attachLabel} onChange={e => setAttachLabel(e.target.value)} placeholder="Label (optional)" style={{ flex: 1, minWidth: 140, padding: "6px 8px", fontSize: 12, fontFamily: F.ui, border: `1px solid ${C.borderStrong}`, borderRadius: 5, background: C.linen, color: C.textBody, WebkitAppearance: "none" }} />
               </div>
-              <label style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: C.dark, background: C.teal, borderRadius: 6, padding: "6px 14px", cursor: uploadingAttachment ? "wait" : "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-                {uploadingAttachment ? "Uploading…" : "+ Add Attachment"}
-                <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; handleUploadAttachment(f, attachLabel).then(ok => { if (ok) setAttachLabel(""); }); }} style={{ display: "none" }} disabled={uploadingAttachment} />
-              </label>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <label style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: C.dark, background: C.teal, borderRadius: 6, padding: "6px 14px", cursor: uploadingAttachment ? "wait" : "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                  {uploadingAttachment ? "Uploading…" : "+ Add Attachment"}
+                  <input type="file" accept="application/pdf,.docx,.xlsx,.xls,image/*" onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; handleUploadAttachment(f, attachLabel).then(ok => { if (ok) setAttachLabel(""); }); }} style={{ display: "none" }} disabled={uploadingAttachment} />
+                </label>
+                <span style={{ fontSize: 11, color: C.textMuted, fontFamily: F.ui }}>{attachDragActive ? "Drop to upload" : "or drag & drop a file here"}</span>
+              </div>
             </div>
           )}
           {attachError && <div style={{ fontSize: 11.5, color: C.red || "#e53935", fontFamily: F.ui, marginTop: 8 }}>{attachError}</div>}
@@ -3014,7 +3065,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             setSyncReLink(false);
             const { data: refreshed } = await supabase
               .from("invoices")
-              .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
+              .select(`*, proposals(call_log_id, proposal_number, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
               .eq("id", inv.id)
               .maybeSingle();
             if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
@@ -3142,7 +3193,7 @@ export default function Invoices({ setSubPage, teamMember }) {
   const load = async () => {
     const data = await fetchAll(
       "invoices",
-      `*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`,
+      `*, proposals(call_log_id, proposal_number, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`,
       { filters: [["is", "deleted_at", null]], order: { column: "sent_at", ascending: false } }
     );
     setInvoices(data);
@@ -3173,7 +3224,7 @@ export default function Invoices({ setSubPage, teamMember }) {
     (async () => {
       const { data } = await supabase
         .from("invoices")
-        .select(`*, proposals(call_log_id, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
+        .select(`*, proposals(call_log_id, proposal_number, ${PROPOSAL_ERA}, call_log(sales_name, customer_name, display_job_number, show_cents, qb_customer_id, qb_skip_sync))`)
         .eq("id", routeInvoiceId)
         .is("deleted_at", null)
         .maybeSingle();

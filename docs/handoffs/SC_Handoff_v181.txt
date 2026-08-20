@@ -1,3 +1,173 @@
+SC_Handoff_v181 — F44 rate cards shipped · T&M void/reissue reworked · F45 killed
+================================================================================
+Date: 2026-08-10 → 2026-08-11 (one continuous session)
+Repo/branch: sales-command @ main — all work MERGED + PUSHED (Vercel auto-deploys)
+Paired repo: command-suite-db @ main — one migration pushed to shared prod
+Prior: v180 (T&M Material cost code /fix). Mode: /resume → build (F44), then a
+       bug/verification loop (void-reissue) that turned into a small feature change.
+Gates: vite build green on every push; F44 migration rehearsed --against-prod +
+       db:push behavioural gate; every UI change verified end-to-end on preview by Chris.
+Prod DATA writes: YES — F44 P7 flag fix (permanent) + disposable test fixtures
+       (all torn down + verified gone). See PROD DATA WRITES.
+
+
+███ WHAT SHIPPED ███████████████████████████████████████████████████████████████
+
+1. F44 — Rate cards no longer count as contract dollars   [merge dc4f0a3, live]
+   A T&M rate card is an hourly rate sheet, not committed work, so it must carry
+   $0 of fixed contract value. It was flowing through the same fixed-total sums as
+   real work types and inflating every "contract value" figure — surfacing as a
+   phantom "Remaining on contract" the Job Totals ledger invited someone to bill.
+   - calcProposalTotal (calc.js) now EXCLUDES is_rate_card and is the single
+     contract-value primitive; all six fixed-total sum-sites route through it
+     (ProposalDetail total writer, WTCCalculator x2, ProposalPDFModal signed
+     price, MultiGCWizard x2, SOV seeding).
+   - The per-line BILLING primitive calcWtcPrice was DELIBERATELY NOT touched —
+     zeroing it is the archive/pay-app invoice-zeroing trap (CLAUDE.md Data #6).
+     Safe because T&M bills via day-rows, and the billing sites already branch
+     is_rate_card away from calcWtcPrice.
+   - Rate cards RENDER as an hourly rate ("$105/hr · Regular") — not a fixed line
+     price — on proposal detail, the proposal PDF, and the public signing page.
+     New pure helper rateCardLabel() in utils.js. Per Chris: no "(1.5x)"
+     multiplier and no "billed as incurred" suffix on the customer surfaces.
+   - Migration 20260810170000 (command-suite-db 87f9dda): get_public_proposal_view
+     carries is_rate_card / rate_amount / rate_class so the signing page can render
+     the rate. CREATE OR REPLACE restated SECURITY DEFINER + search_path + anon
+     grant. `total` stays p.total (auto-corrects via the writers). Rehearsed
+     --against-prod green, no new anon exposure, pushed live + verified.
+
+2. T&M void/reissue — reworked to VOID + DELETE + REBUILD   [merge a2707d4, live]
+   Started as a verification of the shipped void/reissue path; became a design fix.
+   - On a T&M invoice, "Pull Back" now VOIDS (in QuickBooks if synced) + DELETES
+     the invoice, with a modal note telling the user to RECREATE FROM SCRATCH.
+     No auto-reissue. Detection: isTMInvoice = invoice has is_rate_card day-row
+     lines (Invoices.jsx). QB void still runs with the required reason for audit;
+     test-named invoices bypass the real QB call.
+   - REGULAR invoices keep the existing carry-forward reissue UNCHANGED. The
+     divergence is intentional and T&M-only.
+   - WHY: a T&M day-row's HOURS can't be edited once billed (preserve-only, Data
+     #6), and there is no day-row editor on the existing-invoice screen — only on
+     the create screen. So carrying day-rows into a reissue leaves frozen rows.
+     Voiding + rebuilding routes the user back to the create flow, the only place
+     day-rows are editable. Chris weighed and chose this over building in-place
+     T&M editing (much bigger for little gain).
+
+3. Delete clears the invoice-number search   [in a2707d4, live]
+   Deleting the invoice you searched for left its number in the FilterBar, so the
+   list came back filtered-to-nothing (blank). onDeleted now clears
+   filters.invoiceNumber. Applies to every delete path.
+
+
+███ DECISIONS ██████████████████████████████████████████████████████████████████
+
+- Rate card = $0 of fixed value (F44 decision A). Confirmed by Chris.
+- T&M void/reissue: DELETE-and-rebuild, not carry-forward. Chris's words: void =
+  send a new one = clean slate; carrying material-but-not-hours "makes zero sense."
+  He accepts T&M diverging from regular because the rate card genuinely works
+  differently (uneditable hours).
+- Naming un-jumble: what Chris calls "reissue" (pull back, edit, resend with the
+  SAME number) is a DIFFERENT thing than the button (which mints a new number).
+- F45 (revise invoice in place / same number) = WON'T DO. Chris: "I'm not gonna
+  edit invoices in place. I don't want to deal with that." The T&M
+  delete-and-rebuild covers the correction need. Logged in Completed Log so it
+  isn't re-filed.
+- An amount-patch approach to void/reissue (fix/tm-reissue-amount) was built,
+  verified, then THROWN AWAY when Chris reframed the requirement. Correct call —
+  it was polishing a behavior he didn't want.
+
+
+███ BACKLOG CHANGES ████████████████████████████████████████████████████████████
+
+- F44  → CLOSED (merge dc4f0a3). Row updated with the DONE summary.
+- F45  → WON'T DO. Removed from active Features; one-line entry in Completed Log.
+- Void/reissue T&M → verified + reworked + shipped (was an untested item from v179).
+- Still OPEN: F46 (server-side check that T&M invoice_lines.amount == hrs×rate),
+  S13 (proposal_wtc table-level anon grant leaks cost basis — pre-existing).
+- Minor follow-up noted, not filed: hide the now-vestigial burden-rate field on
+  rate cards in WTCCalculator (F44 made it stop moving money).
+
+
+███ VERIFICATION ██████████████████████████████████████████████████████████████
+
+- F44: PDF render verified by Chris (rate lines, excluded total). Migration
+  rehearsed green; live function confirmed to carry the 3 fields + still SECURITY
+  DEFINER. Regular proposals unaffected (calcProposalTotal is a no-op when no
+  rate cards). Prod deploy READY.
+- Invoice #10159 (Chris's real T&M invoice, job 7215 STY 4) smoke-checked against
+  QuickBooks by DocNumber: two day-lines (Aug 4 $4,460, Aug 5 $2,305), one QB
+  line per day, amounts reconcile to hrs×rate, 5% retention as a negative line to
+  the retention asset account, net due $6,426.75. SC shows gross $6,765 (intended
+  gross+negative-retainage split). Not a duplicate — 10158 was a never-synced
+  draft, soft-deleted.
+- v180 (parallel /fix session) pulled in + cross-checked: the "T&M Material" regex
+  fix and F44 don't collide — zero WTCs in prod are is_rate_card=true with a
+  non-"T&M" work type, so F44 isn't silently dropping any priced material.
+- Void/reissue: exercised end-to-end on preview with a disposable fixture. First
+  pass found a real bug (reissue header amount kept the dropped T&M dollars); after
+  the rework, verified T&M Pull Back voids+deletes with no reissue, regular is
+  untouched, and the search clears so the list isn't blank.
+
+
+███ PROD DATA WRITES ███████████████████████████████████████████████████████████
+
+- PERMANENT: F44 P7 fix (scripts/f44_flag_p7_rate_cards.sql). Proposal 72572e85
+  (job 7215) had three T&M rate lines entered as plain 1-hour WTCs before the
+  is_rate_card flag existed. Flagged by id — 105 regular / 125 OT / 150 DT — and
+  proposals.total recomputed $28,379.64 → $27,999.64. Applied via linked db query,
+  verified in prod.
+- DISPOSABLE (all torn down + verified zero rows): F44 signing-render fixture
+  (job 998), and the void/reissue test fixture (job 997, invoice 09970), rebuilt
+  several times across the verify loop. Fixture scripts: F44 ones committed under
+  scripts/; the void/reissue fixture lived in the session scratchpad only.
+- NOTE: sales-command is unlinked from Supabase; all prod SQL ran via
+  `cd ~/command-suite-db && supabase db query --linked -f <file>`. The Supabase
+  MCP execute_sql is READ-ONLY.
+
+
+███ NOT TOUCHED / STILL OPEN ██████████████████████████████████████████████████
+
+- F46, S13 (see BACKLOG changes).
+- Void/reissue on REGULAR invoices — carry-forward reissue is unchanged and was
+  not re-verified this session (out of scope; only the T&M path changed).
+- The WTCCalculator vestigial burden-rate field on rate cards (minor cleanup).
+
+
+███ NEXT SESSION POINTERS █████████████████████████████████████████████████████
+
+- No active stream. /resume pointer set to the void/reissue closeout with the
+  remaining items. Run /decide or /orient to pick the next one (F46 or S13).
+
+
+███ FILES TO KNOW ██████████████████████████████████████████████████████████████
+
+- src/lib/calc.js — calcProposalTotal (contract-value primitive, excludes rate cards)
+- src/lib/utils.js — rateCardLabel() + RATE_CLASS_LABEL
+- src/pages/Invoices.jsx — handlePullBack (isTMInvoice → void+delete), the void
+  modal (T&M recreate note), onDeleted (clears invoiceNumber search)
+- src/components/ProposalPDFModal.jsx, ProposalDetail.jsx, src/pages/PublicSigningPage.jsx
+  — rate-card rendering
+- command-suite-db/supabase/migrations/20260810170000_public_proposal_view_rate_cards.sql
+- docs/plans/rate_card_not_contract.md — the F44 plan of record
+
+
+███ GIT STATE █████████████████████████████████████████████████████████████████
+
+sales-command    main @ f511aa0 — clean, pushed. All feature branches deleted.
+                 Key merges: dc4f0a3 (F44), a2707d4 (T&M void+delete).
+command-suite-db main @ 87f9dda — migration 20260810170000 pushed + live.
+Prod deploys READY for both F44 and the T&M void+delete change.
+
+
+========================================================================================
+NOTE: number collision — a parallel feat/home-follow-up-screen session also wrote a v181
+handoff (below). Both preserved verbatim on merge 2026-08-20. Follow-up sequence continues v182+.
+
+
+
+========================================================================================
+
+
+
 SC_Handoff_v181 — Home → Follow-Up Screen: ideation locked (three-zone structure)
 ========================================================================================
 Date: 2026-08-11

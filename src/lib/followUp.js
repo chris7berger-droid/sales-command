@@ -345,6 +345,7 @@ export function activeRepCount(snap) {
 // per-rep figure but KEPT in the company thermometer (REG-1 / G1).
 export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
   const month = tod().slice(0, 7);
+  const clById = new Map(snap.callLog.map(c => [c.id, c]));
   const jobSalesName = new Map(snap.callLog.map(c => [c.id, c.sales_name]));
   const jobArchiveId = new Map(snap.callLog.map(c => [c.id, c.archive_record_id]));
 
@@ -415,12 +416,21 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
   const large = repSoldProps.filter(p => (p.total || 0) >= LARGE_JOB).reduce((s, p) => s + (p.total || 0), 0);
   const small = repSold - large;
 
+  // The exact jobs behind the Sold tile — so tapping it drills into THESE, not the
+  // all-time Sold stage list (tile is month + archive-scoped; a stage filter isn't).
+  const soldList = repSoldProps.map(p => {
+    const cl = clById.get(p.call_log_id);
+    return { callLogId: p.call_log_id, customerId: p.customer_id || cl?.customer_id || null,
+      name: cl?.customer_name || "—", sub: cl?.display_job_number || cl?.job_name || "", value: p.total || 0 };
+  }).sort((a, b) => (b.value || 0) - (a.value || 0));
+
   return {
     repName, target, goalDivisor: N,
     hero: { state: heroState, sold: repSold, bestMonth, callsThisMonth, bidsOut, soldCount: repSoldCount },
     bar: { sold: repSold, target, pacePct: Math.round(monthFrac * 100), behind, gap },
     donut: { booked: repSold, left: Math.max(0, target - repSold), over: repSold > target, large, small },
     scoreboard,
+    soldList,
     thermometer: { sold: companySold, goal: monthlyGoal, pct: monthlyGoal ? Math.round((companySold / monthlyGoal) * 100) : 0 },
   };
 }

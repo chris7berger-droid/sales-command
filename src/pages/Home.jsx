@@ -22,6 +22,7 @@ import GoalThermometer from "../components/followup/GoalThermometer";
 import HuntBox from "../components/followup/HuntBox";
 import HuntResultsPanel from "../components/followup/HuntResultsPanel";
 import HuntResultsModal from "../components/followup/HuntResultsModal";
+import JobListModal from "../components/followup/JobListModal";
 import LogOutcomeModal from "../components/followup/LogOutcomeModal";
 import heroImg from "../assets/hero/hero-01.jpg";
 
@@ -48,6 +49,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
   const [logTarget, setLogTarget] = useState(null);
   const [showAllOwed, setShowAllOwed] = useState(false);
   const [showRevivals, setShowRevivals] = useState(false);
+  const [showSold, setShowSold] = useState(false);
   const [toast, setToast] = useState(null);
 
   // auto-dismiss the "logged" confirmation
@@ -86,7 +88,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
   );
   if (!eng) return null;
 
-  const { hero, bar, donut, scoreboard, thermometer, target } = eng;
+  const { hero, bar, donut, scoreboard, thermometer, target, soldList } = eng;
 
   // ── Money bar geometry ──
   const fillPct = Math.min(100, target > 0 ? (bar.sold / target) * 100 : 0);
@@ -223,7 +225,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
         <BoxLabel>Your Book</BoxLabel>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: SP.lg }}>
           {tiles.map(({ stage, data, note }) => (
-            <button key={stage} onClick={() => openTile(stage)}
+            <button key={stage} onClick={() => stage === "Sold" ? setShowSold(true) : openTile(stage)}
               className={stage === "Wants Bid" && (data?.count || 0) > 0 ? "soft-pulse" : undefined}
               style={{ textAlign: "left", background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: R.card, padding: SP.xl, cursor: "pointer", boxShadow: "0 2px 8px rgba(28,24,20,0.07)", transition: "transform 0.12s, box-shadow 0.12s" }}
               onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(28,24,20,0.12)"; }}
@@ -278,6 +280,10 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
 
       {showRevivals && (
         <HuntResultsModal calls={results.calls} jobs={results.jobs} onGoTo={onGoTo} onClose={() => setShowRevivals(false)} />
+      )}
+
+      {showSold && (
+        <JobListModal title="Sold This Month" subtitle="Closed" items={soldList} onGoTo={onGoTo} onClose={() => setShowSold(false)} />
       )}
 
       {/* footer · controllables + manual refresh */}

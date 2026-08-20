@@ -128,7 +128,7 @@ export default function HuntBox({ goneQuiet, dormant, onGoTo, onLog }) {
             </span>
             <span style={{ fontSize: 11, fontWeight: 700, color: C.tealDark, fontFamily: F.ui }}>{fmt$(pileValue)} available</span>
           </div>
-          {list.map(o => <OutboundCard key={`${o.source}-${o.customerId || o.callLogId}`} item={o} onLog={onLog} />)}
+          {list.map(o => <OutboundCard key={`${o.source}-${o.customerId || o.callLogId}`} item={o} onLog={onLog} onOpen={onGoTo} />)}
           {pile.length > LIST_CAP && (
             <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, paddingLeft: 2 }}>showing top {LIST_CAP} of {pile.length}</div>
           )}

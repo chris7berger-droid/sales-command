@@ -5,14 +5,18 @@ import { C, F } from "../../lib/tokens";
 import { fmtD, fmt$ } from "../../lib/utils";
 import Btn from "../Btn";
 
-export default function OutboundCard({ item, onLog }) {
+export default function OutboundCard({ item, onLog, onOpen }) {
   const reason = item.source === "gone_quiet" ? "gone quiet since" : "last job";
   return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 12,
-      background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderLeft: `3px solid ${C.teal}`,
-      borderRadius: 8, padding: "8px 12px",
-    }}>
+    <div
+      onClick={onOpen ? () => onOpen(item) : undefined}
+      title={onOpen ? "Open this job" : undefined}
+      style={{
+        display: "flex", alignItems: "center", gap: 12,
+        background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderLeft: `3px solid ${C.teal}`,
+        borderRadius: 8, padding: "8px 12px",
+        cursor: onOpen ? "pointer" : "default",
+      }}>
       <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 8, overflow: "hidden" }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "55%" }}>
           {item.name || "—"}
@@ -30,7 +34,7 @@ export default function OutboundCard({ item, onLog }) {
         <a href={`tel:${item.phone}`} onClick={e => e.stopPropagation()} title={item.phone}
            style={{ fontSize: 13, color: C.tealDark, fontFamily: F.ui, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>☎</a>
       )}
-      <Btn v="secondary" sz="sm" onClick={() => onLog?.(item)}>Log</Btn>
+      <Btn v="secondary" sz="sm" onClick={(e) => { e?.stopPropagation?.(); onLog?.(item); }}>Log</Btn>
     </div>
   );
 }

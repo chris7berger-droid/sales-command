@@ -700,3 +700,37 @@ Superseded runway sections above now carry inline `⚠ DEFERRED` / `⚠ SUPERSED
 donut cycle, amendment parts 1/2/4-§A, top scope box). A builder reading top→bottom can no longer ship a
 parked spec. **Build order of truth: part 5 > part 4 > parts 1–3 > original boxes.**
 
+---
+
+## 2026-08-20 amendment (part 6) — smoke corrections on John's live data [LOCKED — Chris]
+
+_Found while smoke-testing the built screen as a real rep (John Paul). Two core-number
+fixes. **This is now the newest source of truth** where it touches the goal divisor + the
+sold-month basis. NOTE FOR THE GATE TERMINALS (T4 `/buildvsplan`): item A **intentionally
+re-introduces the "team_members-role divisor" pattern that round 2 killed** — that kill was
+based on a false premise (below), so its reappearance is CORRECT, not a regression. Do not flag it._
+
+### A. Goal-split divisor — REVERSED to active Sales Reps [LOCKED]
+REG-2 (part 5 §B) locked the divisor as **distinct `call_log.sales_name`**, explicitly NOT a
+`team_members` role query. **Real data disproved the premise:** HDSP has 2 Admins (the owner +
+Denise) who each carry a handful of jobs, so they appear as distinct `sales_name` → the goal
+split **4 ways instead of 2**, making John read 111% of a $112.5K target instead of 55% of $225K.
+- **Fix:** divisor `N` = count of **active `team_members` with a selling role** (`SELLING_ROLES =
+  ['Sales Rep']`) — `followUp.js` `activeRepCount`. This gives 2 for HDSP.
+- **Why this is NOT the original REG-2 bug:** that bug used `['Sales Rep','Admin','Manager']`
+  (SalesDash:93), which over-counted by including non-selling admins. Counting **Sales Rep only**
+  is the correct role filter — it excludes the admins and matches "who carries a sales goal."
+- `loadSnapshot` now carries `team_members (id, name, role, active)`. Divide-by-zero guard
+  (`goal ÷ Math.max(N,1)`) unchanged. Extend `SELLING_ROLES` if a Manager ever carries a quota.
+
+### B. Sold-month basis — archive-aware [LOCKED, partial fix; app-wide = B70]
+The single "sold this month" basis was `proposals.created_at` (part 5 §C / F1). Pulling an
+archived History-Locker job live stamps a Sold proposal with **today's** `created_at`, so a
+years-old sale counted as new (John: $618K shown vs $125K real — one $469K job sold Feb-2025).
+- **Fix (Home only):** archive-lineage Sold jobs are credited to their **real** sold month from
+  `archive.legacy_records.raw_data->>'job/soldDate'` (`followUp.js` `soldMonthOf` +
+  `archiveSoldDateById`; parser handles both ISO and US-locale formats in the data). Non-archive
+  jobs still use `created_at`.
+- **Still wrong app-wide** (Sales Dash, forecasts, reports) → filed as **B70**; real fix stamps the
+  true sold date at import time. Its own loop.
+

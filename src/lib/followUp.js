@@ -45,6 +45,19 @@ function daysAgo(n)   { const d = new Date(); d.setDate(d.getDate() - n);   retu
 function addDays(dateStr, n) { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() + n); return ymd(d); }
 const day = (v) => (v ? String(v).slice(0, 10) : null); // normalize date | timestamptz → YYYY-MM-DD
 
+// Archive jobs carry their REAL sold date in raw_data['job/soldDate'], but in
+// mixed formats — ISO 8601 ("2025-02-13T00:01:06.302Z") AND a US locale string
+// ("2/2/2026, 12:00:00 AM"). Return wall-clock YYYY-MM-DD (ISO: take the date
+// part directly to avoid a UTC→local month shift; locale: parse via Date).
+function parseArchiveSoldDate(v) {
+  if (!v) return null;
+  const s = String(v);
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : ymd(d);
+}
+
 // ── Error-surfacing paginated select (fetchAll swallows the error; P5/N7) ────
 async function pagedSelect(client, table, select, { order, filters = [], pageSize = 1000 } = {}) {
   let all = [], from = 0;
@@ -67,7 +80,7 @@ async function pagedSelect(client, table, select, { order, filters = [], pageSiz
 }
 
 function emptySnap(status, error) {
-  return { status, error: error || null, callLog: [], proposals: [], customers: [], archiveDateById: new Map(), outreach: [] };
+  return { status, error: error || null, callLog: [], proposals: [], customers: [], archiveDateById: new Map(), archiveSoldDateById: new Map(), outreach: [] };
 }
 
 // ── The one shared snapshot ─────────────────────────────────────────────────
@@ -99,12 +112,20 @@ export async function loadSnapshot() {
   //    archived job's call_log.created_at is the IMPORT date, not a real touch
   //    (N1) — without this the whole historical book reads "touched today" and
   //    Zone 3 ships empty. Real touch = legacy_records.record_date.
+  //    raw_data['job/soldDate'] is the job's REAL sold date — used to credit an
+  //    archived Sold job to the month it was ACTUALLY sold, not the import month
+  //    (otherwise pulling an old job live counts it as a brand-new sale).
   const archiveIds = [...new Set(cl.data.map(r => r.archive_record_id).filter(Boolean))];
   const archiveDateById = new Map();
+  const archiveSoldDateById = new Map();
   if (archiveIds.length) {
-    const { data: legacy, error } = await archiveDb.from("legacy_records").select("id, record_date").in("id", archiveIds);
+    const { data: legacy, error } = await archiveDb.from("legacy_records").select("id, record_date, raw_data").in("id", archiveIds);
     if (error) return emptySnap("error", error);
-    for (const r of legacy || []) archiveDateById.set(r.id, r.record_date);
+    for (const r of legacy || []) {
+      archiveDateById.set(r.id, r.record_date);
+      const sold = parseArchiveSoldDate(r.raw_data?.["job/soldDate"]);
+      if (sold) archiveSoldDateById.set(r.id, sold);
+    }
   }
 
   // 5. outreach_log — last MAX_SUPPRESSION_DAYS, for the suppression rule. The
@@ -125,7 +146,7 @@ export async function loadSnapshot() {
     outreach = ol.data || [];
   }
 
-  return { status: "data", error: null, callLog: cl.data, proposals: pr.data, customers: cx.data, archiveDateById, outreach };
+  return { status: "data", error: null, callLog: cl.data, proposals: pr.data, customers: cx.data, archiveDateById, archiveSoldDateById, outreach };
 }
 
 // ── Suppression: latest outcome per customer wins (supersede, N8) ───────────
@@ -316,6 +337,17 @@ export function activeRepCount(snap) {
 export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
   const month = tod().slice(0, 7);
   const jobSalesName = new Map(snap.callLog.map(c => [c.id, c.sales_name]));
+  const jobArchiveId = new Map(snap.callLog.map(c => [c.id, c.archive_record_id]));
+
+  // The month a Sold proposal is credited to. Normal jobs: proposal.created_at.
+  // Archive-lineage jobs (pulled live from the History Locker): their REAL sold
+  // date (raw_data['job/soldDate']), so an old sale imported this month is NOT
+  // miscounted as a new one. Unknown archive date → null (not counted this month).
+  const soldMonthOf = (p) => {
+    const arc = jobArchiveId.get(p.call_log_id);
+    if (arc) { const d = snap.archiveSoldDateById?.get(arc); return d ? d.slice(0, 7) : null; }
+    return day(p.created_at)?.slice(0, 7) || null;
+  };
 
   // proposal totals grouped by job (for the Wants Bid / Has Bid $ tiles)
   const propsByJob = new Map();
@@ -324,8 +356,8 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
     propsByJob.get(p.call_log_id).push(p);
   }
 
-  // ── Sold this month (single basis: proposals.created_at) ──
-  const soldThisMonth = snap.proposals.filter(p => p.status === "Sold" && day(p.created_at)?.startsWith(month));
+  // ── Sold this month (credited by real sold-month; archive-aware) ──
+  const soldThisMonth = snap.proposals.filter(p => p.status === "Sold" && soldMonthOf(p) === month);
   const companySold = soldThisMonth.reduce((s, p) => s + (p.total || 0), 0); // incl. orphans → thermometer
 
   // rep's sold-this-month proposals (orphans excluded — no call_log_id → no rep)
@@ -337,7 +369,7 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
   const byMonth = new Map();
   for (const p of snap.proposals) {
     if (p.status !== "Sold" || jobSalesName.get(p.call_log_id) !== repName || !repName) continue;
-    const m = day(p.created_at)?.slice(0, 7);
+    const m = soldMonthOf(p);
     if (m) byMonth.set(m, (byMonth.get(m) || 0) + (p.total || 0));
   }
   const priors = [...byMonth].filter(([m]) => m < month).map(([, v]) => v);

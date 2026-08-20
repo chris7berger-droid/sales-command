@@ -90,7 +90,12 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
 
   // ── Money bar geometry ──
   const fillPct = Math.min(100, target > 0 ? (bar.sold / target) * 100 : 0);
-  const paceMove = `${fmt$(bar.gap)} to go — one good job, or ${repGoneQuiet.length} quiet bid${repGoneQuiet.length === 1 ? "" : "s"} you already have out.`;
+  const overTarget = target > 0 && bar.sold >= target;
+  const paceMove = target <= 0
+    ? "Set a monthly goal in Settings to track your pace."
+    : overTarget
+      ? `Target crushed — ${pctOf(bar.sold, target)}% of your number. Now pile on.`
+      : `${fmt$(bar.gap)} to go — one good job, or ${repGoneQuiet.length} quiet bid${repGoneQuiet.length === 1 ? "" : "s"} you already have out.`;
 
   // ── Donut views (2 only: booked-vs-left → big-vs-small) ──
   const soldTotal = donut.large + donut.small;
@@ -185,7 +190,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
               <span style={{ fontSize: FS.boxNum, fontWeight: 800, color: C.tealDeep, fontFamily: F.display, lineHeight: 1 }}>{fmt$(bar.sold)}</span>
               <span style={{ fontSize: 14, color: C.textMuted, fontFamily: F.body }}>of {fmt$(target)} target</span>
               <span style={{ marginLeft: "auto", fontSize: 12.5, fontWeight: 700, color: bar.behind ? C.amber : C.tealDark, fontFamily: F.ui }}>
-                {bar.behind ? "behind pace" : "on pace"}
+                {overTarget ? "crushing it" : bar.behind ? "behind pace" : "on pace"}
               </span>
             </div>
             {/* labeled pace marker — the line isn't a mystery: it's where an even

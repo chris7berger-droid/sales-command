@@ -441,7 +441,14 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
   };
 }
 
-// Box 5 "What You Owe": bids due + self-set follow-up dates, this rep, one list.
+// Stages where a self-set follow-up is still "owed" — the active sales pipeline.
+// A follow-up on a Sold/Scheduled/Lost job is moot (the deal's closed), and reps
+// set follow-up dates at intake that never get cleared, so without this guard a
+// won job keeps surfacing here forever. Allowlist (not a Sold/Lost blocklist) so
+// future post-sale stages can't leak back in.
+const OWED_STAGES = new Set(["New Inquiry", "Wants Bid", "Has Bid"]);
+
+// Box 5 "Where To Dig": bids due + self-set follow-up dates, this rep, one list.
 // Oldest / most-overdue first. A job that is both a due bid and has a follow-up
 // shows once (the bid wins).
 export function owedItems(snap, { repName } = {}) {
@@ -450,7 +457,7 @@ export function owedItems(snap, { repName } = {}) {
     kind: "bid", id: b.id, title: b.jobNumber || "—", sub: b.customer || "", date: b.bidDue,
   }));
   const seen = new Set(bids.map(b => b.id));
-  let fu = snap.callLog.filter(r => r.follow_up && r.follow_up <= today && !seen.has(r.id));
+  let fu = snap.callLog.filter(r => r.follow_up && r.follow_up <= today && !seen.has(r.id) && OWED_STAGES.has(r.stage));
   if (repName) fu = fu.filter(r => r.sales_name === repName);
   const followups = fu.map(r => ({
     kind: "followup", id: r.id, title: r.display_job_number || r.job_name || "—",

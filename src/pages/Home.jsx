@@ -21,6 +21,7 @@ import MoneyDonut from "../components/followup/MoneyDonut";
 import GoalThermometer from "../components/followup/GoalThermometer";
 import HuntBox from "../components/followup/HuntBox";
 import HuntResultsPanel from "../components/followup/HuntResultsPanel";
+import HuntResultsModal from "../components/followup/HuntResultsModal";
 import LogOutcomeModal from "../components/followup/LogOutcomeModal";
 import heroImg from "../assets/hero/hero-01.jpg";
 
@@ -46,6 +47,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
   const canManage = ["Admin", "Manager"].includes(displayRole);
   const [logTarget, setLogTarget] = useState(null);
   const [showAllOwed, setShowAllOwed] = useState(false);
+  const [showRevivals, setShowRevivals] = useState(false);
   const [toast, setToast] = useState(null);
 
   // auto-dismiss the "logged" confirmation
@@ -263,8 +265,12 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
       {/* ── BOX 6 · WHERE TO HUNT + results companion ────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 300px", gap: SP.lg, alignItems: "start" }}>
         <HuntBox goneQuiet={repGoneQuiet} dormant={repDormant} onGoTo={onGoTo} onLog={setLogTarget} />
-        <HuntResultsPanel callsThisWeek={results.callsThisWeek} reengaged={results.reengaged} />
+        <HuntResultsPanel callsThisWeek={results.callsThisWeek} reengaged={results.reengaged} onDrill={() => setShowRevivals(true)} />
       </div>
+
+      {showRevivals && (
+        <HuntResultsModal calls={results.calls} jobs={results.jobs} onGoTo={onGoTo} onClose={() => setShowRevivals(false)} />
+      )}
 
       {/* footer · controllables + manual refresh */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: SP.md }}>

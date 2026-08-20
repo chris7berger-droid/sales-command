@@ -118,7 +118,7 @@ export default function HuntBox({ goneQuiet, dormant, onGoTo, onLog }) {
       {/* dormant + gone-quiet lists, $-tagged, calmer beneath the coach */}
       {list.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui }}>Call list</div>
+          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui }}>Sleepers</div>
           {list.map(o => <OutboundCard key={`${o.source}-${o.customerId || o.callLogId}`} item={o} onLog={onLog} />)}
         </div>
       )}

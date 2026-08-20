@@ -410,23 +410,32 @@ export function owedItems(snap, { repName } = {}) {
 //              "money you put back in motion by working it" — NOT "revived/won"
 //              (that needs outcome-over-time tracking, deferred to F51).
 export function huntResults(snap, { repName } = {}) {
-  if (!repName) return { callsThisWeek: 0, reengaged: 0 };
+  if (!repName) return { callsThisWeek: 0, reengaged: 0, calls: [], jobs: [] };
   const weekAgo = daysAgo(7);
+  const clById = new Map(snap.callLog.map(c => [c.id, c]));
+  const cxById = new Map(snap.customers.map(c => [c.id, c]));
   const jobBidValue = new Map(); // call_log_id -> summed non-deleted proposal total
   for (const p of snap.proposals) {
     jobBidValue.set(p.call_log_id, (jobBidValue.get(p.call_log_id) || 0) + (p.total || 0));
   }
-  let callsThisWeek = 0, reengaged = 0;
+  const calls = [];      // every logged call this week (Activity drill-in)
+  const jobs = [];       // distinct bids re-engaged this week (Impact drill-in)
   const seenJobs = new Set();
+  let reengaged = 0;
   for (const o of snap.outreach) {
     if (o.logged_by !== repName || day(o.created_at) < weekAgo) continue;
-    callsThisWeek++;
+    const cl = o.call_log_id ? clById.get(o.call_log_id) : null;
+    const name = cl?.customer_name || cxById.get(o.customer_id)?.name || "—";
+    calls.push({ callLogId: o.call_log_id || null, customerId: o.customer_id || null, name, outcome: o.outcome, date: day(o.created_at) });
     if (o.call_log_id && !seenJobs.has(o.call_log_id)) {
       seenJobs.add(o.call_log_id);
-      reengaged += jobBidValue.get(o.call_log_id) || 0;
+      const value = jobBidValue.get(o.call_log_id) || 0;
+      reengaged += value;
+      jobs.push({ callLogId: o.call_log_id, name: cl?.job_name || cl?.customer_name || name, value });
     }
   }
-  return { callsThisWeek, reengaged };
+  jobs.sort((a, b) => (b.value || 0) - (a.value || 0)); // biggest money first
+  return { callsThisWeek: calls.length, reengaged, calls, jobs };
 }
 
 // ── Write: log an outbound outcome ──────────────────────────────────────────

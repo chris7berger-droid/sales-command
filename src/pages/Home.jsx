@@ -217,6 +217,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: SP.lg }}>
           {tiles.map(({ stage, data, note }) => (
             <button key={stage} onClick={() => openTile(stage)}
+              className={stage === "Wants Bid" && (data?.count || 0) > 0 ? "soft-pulse" : undefined}
               style={{ textAlign: "left", background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: R.card, padding: SP.xl, cursor: "pointer", boxShadow: "0 2px 8px rgba(28,24,20,0.07)", transition: "transform 0.12s, box-shadow 0.12s" }}
               onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(28,24,20,0.12)"; }}
               onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(28,24,20,0.07)"; }}>

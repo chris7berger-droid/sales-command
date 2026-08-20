@@ -29,7 +29,6 @@ import WelcomeScreen from "./components/WelcomeScreen";
 import RadarLoader from "./components/RadarLoader";
 import { TenantConfigProvider } from "./lib/TenantConfigContext";
 import { AlertsProvider } from "./lib/alerts";
-import AlertsBanner from "./components/followup/AlertsBanner";
 import Import from "./pages/Import/Import";
 import UpdateBanner from "./components/UpdateBanner";
 import Archive from "./pages/Archive";
@@ -337,7 +336,6 @@ function AppShell({ open, setOpen, displayName, displayRole, displayInitials, on
             </div>
           </div>
           <div data-app-content style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
-            <AlertsBanner />
             <ErrorBoundary>{children}</ErrorBoundary>
           </div>
         </div>

@@ -22,7 +22,7 @@ export default function LogOutcomeModal({ item, loggedBy, onClose, onLogged }) {
         source: item.source, outcome, note,
         customerId: item.customerId, callLogId: item.callLogId, loggedBy,
       });
-      onLogged?.();
+      onLogged?.(outcome);
     } catch (e) {
       setError(e.message || "Couldn't save the outcome.");
       setSaving(false);

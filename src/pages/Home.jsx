@@ -9,13 +9,13 @@
 //   5. What you owe (bids due + self-set follow-ups; celebrates when clear).
 //   6. Where to hunt (opportunity finder + dormant/quiet lists).
 // Style rules (CLAUDE.md): NO white backgrounds; teal buttons get BLACK text.
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { C, F, SP, R, FS } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
 import { useAlerts } from "../lib/alerts";
 import { useTenantConfig } from "../lib/TenantConfigContext";
-import { homeEngagement, owedItems, dormantCustomers, goneQuietBids } from "../lib/followUp";
+import { homeEngagement, owedItems, dormantCustomers, goneQuietBids, SUPPRESSION_WINDOWS } from "../lib/followUp";
 import RunwayBar from "../components/followup/RunwayBar";
 import MoneyDonut from "../components/followup/MoneyDonut";
 import GoalThermometer from "../components/followup/GoalThermometer";
@@ -45,6 +45,14 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
   const canManage = ["Admin", "Manager"].includes(displayRole);
   const [logTarget, setLogTarget] = useState(null);
   const [showAllOwed, setShowAllOwed] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  // auto-dismiss the "logged" confirmation
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const firstName = (repName || displayName).split(" ")[0];
   const h = new Date().getHours();
@@ -260,7 +268,25 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
       </div>
 
       {logTarget && (
-        <LogOutcomeModal item={logTarget} loggedBy={displayName} onClose={() => setLogTarget(null)} onLogged={() => { setLogTarget(null); refresh(); }} />
+        <LogOutcomeModal item={logTarget} loggedBy={displayName} onClose={() => setLogTarget(null)}
+          onLogged={(outcome) => {
+            const days = SUPPRESSION_WINDOWS[outcome];
+            const who = logTarget?.name || "That job";
+            setToast(days ? `Logged — ${who} drops off your list, back in ${days} days.` : "Logged.");
+            setLogTarget(null);
+            refresh();
+          }} />
+      )}
+
+      {/* confirmation so a logged call never feels like a job vanished */}
+      {toast && (
+        <div style={{ position: "fixed", bottom: SP.xl, left: "50%", transform: "translateX(-50%)", zIndex: 200,
+          background: C.dark, color: C.teal, fontFamily: F.ui, fontSize: 13, fontWeight: 700,
+          padding: "12px 20px", borderRadius: R.chip, boxShadow: "0 8px 28px rgba(0,0,0,0.4)",
+          display: "flex", alignItems: "center", gap: SP.md }}>
+          <span>✓ {toast}</span>
+          <button onClick={() => setToast(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(48,207,172,0.55)", fontSize: 15, padding: 0 }}>✕</button>
+        </div>
       )}
     </div>
   );

@@ -55,13 +55,14 @@ export default function HuntBox({ goneQuiet, dormant, onGoTo, onLog }) {
   const angles = useMemo(() => buildAngles(goneQuiet, dormant), [goneQuiet, dormant]);
   const [cursor, setCursor] = useState(0);
   const [pinned, setPinned] = useState(null); // index the rep pinned to return to
+  const [showAll, setShowAll] = useState(false);
 
   const served = angles.length ? angles[cursor % angles.length] : null;
   const advance = () => setCursor(c => c + 1);
   const back = () => setCursor(c => Math.max(0, c - 1));
 
   const pile = [...goneQuiet, ...dormant];
-  const list = pile.slice(0, LIST_CAP);
+  const list = showAll ? pile : pile.slice(0, LIST_CAP);
   const pileValue = pile.reduce((s, x) => s + (x.value || 0), 0);
 
   return (
@@ -130,7 +131,10 @@ export default function HuntBox({ goneQuiet, dormant, onGoTo, onLog }) {
           </div>
           {list.map(o => <OutboundCard key={`${o.source}-${o.customerId || o.callLogId}`} item={o} onLog={onLog} onOpen={onGoTo} />)}
           {pile.length > LIST_CAP && (
-            <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, paddingLeft: 2 }}>showing top {LIST_CAP} of {pile.length}</div>
+            <button onClick={() => setShowAll(s => !s)}
+              style={{ alignSelf: "flex-start", marginTop: SP.xs, background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.tealDark, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              {showAll ? "Show fewer ▴" : `+ ${pile.length - LIST_CAP} more ▾`}
+            </button>
           )}
         </div>
       )}

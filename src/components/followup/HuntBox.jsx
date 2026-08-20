@@ -84,9 +84,7 @@ export default function HuntBox({ goneQuiet, dormant, onGoTo, onLog }) {
             {served.card.why}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: SP.sm, marginTop: SP.xs, flexWrap: "wrap" }}>
-            <Btn v="teal" sz="md" onClick={() => onGoTo(served.card)}>
-              {served.card.phone ? `Call ${served.card.name?.split(" ")[0] || "them"}` : "Open job"}
-            </Btn>
+            <Btn v="teal" sz="md" onClick={() => onGoTo(served.card)}>Go to this job</Btn>
             <button onClick={advance} title="Serve the next angle"
               style={{ background: "transparent", border: `1.5px solid ${C.tealBorder}`, color: C.teal, borderRadius: R.chip, padding: "7px 14px", cursor: "pointer", fontFamily: F.display, fontSize: 12.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
               ↻ Refresh

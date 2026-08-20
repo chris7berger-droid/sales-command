@@ -26,6 +26,7 @@ import heroImg from "../assets/hero/hero-01.jpg";
 const LIGHT = "#f3ede1";            // light ink on the dark hero / hunt panels
 const LIGHT_MUTED = "rgba(243,237,225,0.72)";
 const pctOf = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0);
+const OWED_PREVIEW = 8;             // What You Owe caps to the most-overdue few, rest behind an expander
 
 function BoxLabel({ children, right }) {
   return (
@@ -43,6 +44,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
 
   const canManage = ["Admin", "Manager"].includes(displayRole);
   const [logTarget, setLogTarget] = useState(null);
+  const [showAllOwed, setShowAllOwed] = useState(false);
 
   const firstName = (repName || displayName).split(" ")[0];
   const h = new Date().getHours();
@@ -224,7 +226,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
           <div style={{ fontSize: 15, fontWeight: 700, color: C.tealDark, fontFamily: F.body }}>All caught up — go hunt. 🎯</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
-            {owed.map(item => {
+            {(showAllOwed ? owed : owed.slice(0, OWED_PREVIEW)).map(item => {
               const overdue = item.date && item.date < new Date().toLocaleDateString("en-CA");
               return (
                 <button key={`${item.kind}-${item.id}`} onClick={() => navigate(`/calllog/${item.id}`, { state: { from: "/home" } })}
@@ -238,6 +240,12 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
                 </button>
               );
             })}
+            {owed.length > OWED_PREVIEW && (
+              <button onClick={() => setShowAllOwed(s => !s)}
+                style={{ alignSelf: "flex-start", marginTop: SP.xs, background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.tealDark, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                {showAllOwed ? "Show fewer ▴" : `+ ${owed.length - OWED_PREVIEW} more ▾`}
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -201,17 +201,17 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
                 {daysLeft} day{daysLeft === 1 ? "" : "s"} left
               </span>
             </div>
-            {/* labeled pace marker — a dark chip with amber text so it reads on the
-                linen bar; it's where an even month would have you today (clamp so
-                the chip can't clip an edge). */}
-            <div style={{ position: "relative", height: 18 }}>
-              <div style={{ position: "absolute", bottom: 0, left: `${Math.min(88, Math.max(12, bar.pacePct))}%`, transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: C.amber, background: C.dark, padding: "2px 7px", borderRadius: 5, fontFamily: F.ui }}>
+            {/* labeled pace marker — plain dark label + a quiet marker line: reads
+                on the linen without alarm. Where an even month would have you today
+                (clamp the label so it can't clip an edge). */}
+            <div style={{ position: "relative", height: 14 }}>
+              <div style={{ position: "absolute", bottom: 0, left: `${Math.min(88, Math.max(12, bar.pacePct))}%`, transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: C.textMuted, fontFamily: F.ui }}>
                 should be here today ▾
               </div>
             </div>
             <div style={{ position: "relative", height: 14, borderRadius: 7, background: C.linenDeep, overflow: "visible" }}>
               <div style={{ width: `${fillPct}%`, height: "100%", background: C.teal, borderRadius: 7, transition: "width 0.4s ease" }} />
-              <div title="where you should be by today" style={{ position: "absolute", top: -4, bottom: -4, left: `${Math.min(100, bar.pacePct)}%`, width: 3, background: C.amber, borderRadius: 2 }} />
+              <div title="where you should be by today" style={{ position: "absolute", top: -3, bottom: -3, left: `${Math.min(100, bar.pacePct)}%`, width: 2, background: C.tealDark, borderRadius: 2 }} />
             </div>
             <div style={{ fontSize: 13.5, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginTop: SP.md }}>{paceMove}</div>
           </div>

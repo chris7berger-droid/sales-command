@@ -53,6 +53,8 @@ export default function MoneyDonut({ views }) {
       onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); advance(); } }}
       style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}
     >
+      {/* name the CURRENT view so it's never ambiguous which split you're looking at */}
+      <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textLight, fontFamily: F.ui, textAlign: "center" }}>{view.tapLabel}</div>
       <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <Ring slices={view.slices} over={view.over} />
         <div style={{ position: "absolute", textAlign: "center" }}>

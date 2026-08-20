@@ -168,11 +168,17 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
             <div style={{ display: "flex", alignItems: "baseline", gap: SP.sm, marginBottom: SP.md }}>
               <span style={{ fontSize: FS.boxNum, fontWeight: 800, color: C.tealDeep, fontFamily: F.display, lineHeight: 1 }}>{fmt$(bar.sold)}</span>
               <span style={{ fontSize: 14, color: C.textMuted, fontFamily: F.body }}>of {fmt$(target)} target</span>
-              <span style={{ marginLeft: "auto", fontSize: 13, fontWeight: 700, color: bar.behind ? C.amber : C.tealDark, fontFamily: F.ui }}>
-                pace {bar.pacePct}%
+              <span style={{ marginLeft: "auto", fontSize: 12.5, fontWeight: 700, color: bar.behind ? C.amber : C.tealDark, fontFamily: F.ui }}>
+                {bar.behind ? "behind pace" : "on pace"}
               </span>
             </div>
-            {/* track + fill + pace marker */}
+            {/* labeled pace marker — the line isn't a mystery: it's where an even
+                month would have you today (clamp the label so it can't clip an edge). */}
+            <div style={{ position: "relative", height: 13 }}>
+              <div style={{ position: "absolute", bottom: 0, left: `${Math.min(88, Math.max(12, bar.pacePct))}%`, transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: bar.behind ? C.amber : C.tealDeep, fontFamily: F.ui }}>
+                should be here today ▾
+              </div>
+            </div>
             <div style={{ position: "relative", height: 14, borderRadius: 7, background: C.linenDeep, overflow: "visible" }}>
               <div style={{ width: `${fillPct}%`, height: "100%", background: C.teal, borderRadius: 7, transition: "width 0.4s ease" }} />
               <div title="where you should be by today" style={{ position: "absolute", top: -4, bottom: -4, left: `${Math.min(100, bar.pacePct)}%`, width: 2.5, background: bar.behind ? C.amber : C.tealDeep, borderRadius: 2 }} />

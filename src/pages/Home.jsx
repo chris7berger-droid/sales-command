@@ -97,7 +97,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
     ? "Set a monthly goal in Settings to track your pace."
     : overTarget
       ? `Target crushed — ${pctOf(bar.sold, target)}% of your number. Now pile on.`
-      : `${fmt$(bar.gap)} to go — one good job, or ${repGoneQuiet.length} quiet bid${repGoneQuiet.length === 1 ? "" : "s"} you already have out.`;
+      : `${fmt$(bar.gap)} to go — land one good job${repGoneQuiet.length ? `, or revive a few of your ${repGoneQuiet.length} quiet bid${repGoneQuiet.length === 1 ? "" : "s"}` : ""}.`;
 
   // ── Donut views (2 only: booked-vs-left → big-vs-small) ──
   const soldTotal = donut.large + donut.medium + donut.small;

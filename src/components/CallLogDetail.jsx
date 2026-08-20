@@ -1034,13 +1034,15 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                   };
                   const sc = statusColors[p.status] || { bg: "rgba(28,24,20,0.06)", color: C.textFaint };
                   return (
-                    <button key={`p-${p.id}`} onClick={() => onNavigateProposal && onNavigateProposal(p.id)}
+                    <button key={`p-${p.id}`} onClick={() => onNavigateProposal && onNavigateProposal(p.id)} title={label}
                       style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "10px 14px", background: i % 2 === 0 ? C.linenLight : C.linen, border: "none", borderBottom: `1px solid ${C.border}`, cursor: onNavigateProposal ? "pointer" : "default", textAlign: "left" }}
                       onMouseEnter={e => e.currentTarget.style.background = C.tealGlow}
                       onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? C.linenLight : C.linen}
                     >
-                      <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.03em", minWidth: 140 }}>{label}</span>
-                      <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: sc.bg, color: sc.color, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>{p.status}</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.03em", width: 340, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+                      <span style={{ width: 64, flexShrink: 0, display: "flex" }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: sc.bg, color: sc.color, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>{p.status}</span>
+                      </span>
                       {p.sent_at && <span style={{ fontSize: 11.5, fontWeight: 600, color: C.textMuted, fontFamily: F.ui }}>Sent {fmtD(p.sent_at)}</span>}
                       <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>{fmt$((contractSumByProposalId[p.id] > 0 ? contractSumByProposalId[p.id] : parseFloat(p.total)) || 0)}</span>
                     </button>

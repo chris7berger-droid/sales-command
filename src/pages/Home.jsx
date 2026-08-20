@@ -97,12 +97,14 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
   const donutViews = [
     {
       tapLabel: "Booked vs Left", // MoneyDonut shows the NEXT view's tapLabel as the tap hint
-      center: `${pctOf(donut.booked, donut.booked + donut.left) || (donut.over ? 100 : 0)}%`,
-      centerSub: "booked",
+      // % of TARGET, not % of the ring — so beating target reads >100% (549%),
+      // while the ring itself caps at full + the overflow arc.
+      center: `${pctOf(donut.booked, target)}%`,
+      centerSub: "of target",
       over: donut.over,
       slices: [
-        { label: "Booked", value: donut.booked, color: C.teal, pct: pctOf(donut.booked, donut.booked + donut.left) },
-        { label: "Left to go", value: donut.left, color: C.linenDeep, pct: pctOf(donut.left, donut.booked + donut.left) },
+        { label: "Booked", value: donut.booked, color: C.teal, pct: pctOf(donut.booked, target) },
+        { label: "Left to go", value: donut.left, color: C.linenDeep, pct: pctOf(donut.left, target) },
       ],
     },
     {

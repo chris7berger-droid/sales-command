@@ -93,6 +93,8 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
   // ── Money bar geometry ──
   const fillPct = Math.min(100, target > 0 ? (bar.sold / target) * 100 : 0);
   const overTarget = target > 0 && bar.sold >= target;
+  const nowD = new Date();
+  const daysLeft = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0).getDate() - nowD.getDate();
   const paceMove = target <= 0
     ? "Set a monthly goal in Settings to track your pace."
     : overTarget
@@ -195,20 +197,21 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
             <div style={{ display: "flex", alignItems: "baseline", gap: SP.sm, marginBottom: SP.md }}>
               <span style={{ fontSize: FS.boxNum, fontWeight: 800, color: C.tealDeep, fontFamily: F.display, lineHeight: 1 }}>{fmt$(bar.sold)}</span>
               <span style={{ fontSize: 14, color: C.textMuted, fontFamily: F.body }}>of {fmt$(target)} target</span>
-              <span style={{ marginLeft: "auto", fontSize: 12.5, fontWeight: 700, color: bar.behind ? C.amber : C.tealDark, fontFamily: F.ui }}>
-                {overTarget ? "crushing it" : bar.behind ? "behind pace" : "on pace"}
+              <span style={{ marginLeft: "auto", background: C.dark, color: C.teal, fontSize: 12, fontWeight: 700, fontFamily: F.ui, borderRadius: 6, padding: "3px 10px", whiteSpace: "nowrap" }}>
+                {daysLeft} day{daysLeft === 1 ? "" : "s"} left
               </span>
             </div>
-            {/* labeled pace marker — the line isn't a mystery: it's where an even
-                month would have you today (clamp the label so it can't clip an edge). */}
-            <div style={{ position: "relative", height: 13 }}>
-              <div style={{ position: "absolute", bottom: 0, left: `${Math.min(88, Math.max(12, bar.pacePct))}%`, transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: bar.behind ? C.amber : C.tealDeep, fontFamily: F.ui }}>
+            {/* labeled pace marker — a dark chip with amber text so it reads on the
+                linen bar; it's where an even month would have you today (clamp so
+                the chip can't clip an edge). */}
+            <div style={{ position: "relative", height: 18 }}>
+              <div style={{ position: "absolute", bottom: 0, left: `${Math.min(88, Math.max(12, bar.pacePct))}%`, transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: C.amber, background: C.dark, padding: "2px 7px", borderRadius: 5, fontFamily: F.ui }}>
                 should be here today ▾
               </div>
             </div>
             <div style={{ position: "relative", height: 14, borderRadius: 7, background: C.linenDeep, overflow: "visible" }}>
               <div style={{ width: `${fillPct}%`, height: "100%", background: C.teal, borderRadius: 7, transition: "width 0.4s ease" }} />
-              <div title="where you should be by today" style={{ position: "absolute", top: -4, bottom: -4, left: `${Math.min(100, bar.pacePct)}%`, width: 2.5, background: bar.behind ? C.amber : C.tealDeep, borderRadius: 2 }} />
+              <div title="where you should be by today" style={{ position: "absolute", top: -4, bottom: -4, left: `${Math.min(100, bar.pacePct)}%`, width: 3, background: C.amber, borderRadius: 2 }} />
             </div>
             <div style={{ fontSize: 13.5, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginTop: SP.md }}>{paceMove}</div>
           </div>

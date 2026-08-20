@@ -25,8 +25,8 @@ const COLOR = { green: C.green, yellow: C.amber, red: C.red, unset: C.textFaint 
 function runwayMessage(color, weeks) {
   if (color === "unset") return "Set your runway to turn on the outbound list.";
   if (color === "green") return `Crews booked ${weeks} weeks out — you're covered.`;
-  if (color === "yellow") return "Crews thin in 2 weeks — start calling.";
-  return weeks <= 0 ? "No booked work ahead — call today." : `Crews thin in ${weeks} week${weeks === 1 ? "" : "s"} — start calling.`;
+  if (color === "yellow") return "Crews thin in 2 weeks.";
+  return weeks <= 0 ? "No booked work ahead — call today." : `Crews thin in ${weeks} week${weeks === 1 ? "" : "s"}.`;
 }
 
 export default function RunwayBar({ canManage }) {

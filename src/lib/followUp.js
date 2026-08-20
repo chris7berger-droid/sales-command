@@ -80,7 +80,7 @@ async function pagedSelect(client, table, select, { order, filters = [], pageSiz
 }
 
 function emptySnap(status, error) {
-  return { status, error: error || null, callLog: [], proposals: [], customers: [], archiveDateById: new Map(), archiveSoldDateById: new Map(), outreach: [] };
+  return { status, error: error || null, callLog: [], proposals: [], customers: [], archiveDateById: new Map(), archiveSoldDateById: new Map(), outreach: [], teamMembers: [] };
 }
 
 // ── The one shared snapshot ─────────────────────────────────────────────────
@@ -146,7 +146,12 @@ export async function loadSnapshot() {
     outreach = ol.data || [];
   }
 
-  return { status: "data", error: null, callLog: cl.data, proposals: pr.data, customers: cx.data, archiveDateById, archiveSoldDateById, outreach };
+  // 6. team_members — for the goal-split divisor (count of active SALES people).
+  //    A plain read; if it fails we fall back to an empty list (divisor guard).
+  const tm = await pagedSelect(supabase, "team_members", "id, name, role, active", { order: "id" });
+  const teamMembers = tm.error ? [] : (tm.data || []);
+
+  return { status: "data", error: null, callLog: cl.data, proposals: pr.data, customers: cx.data, archiveDateById, archiveSoldDateById, outreach, teamMembers };
 }
 
 // ── Suppression: latest outcome per customer wins (supersede, N8) ───────────
@@ -322,13 +327,17 @@ export function footerStats(snap, { monthlyGoal } = {}) {
 export const LARGE_JOB = 50000; // donut View 2 size line (fixed $50K default, part 3)
 const SCOREBOARD_STAGES = ["Wants Bid", "Has Bid", "Sold"]; // Box 4, in order
 
-// Divisor N for the goal split: DISTINCT active reps who carry jobs (appear in
-// call_log.sales_name) — the SAME population the sold-$ numerator sums over, so
-// per-rep targets sum to the company goal (REG-2). NOT a team_members role query.
+// Roles that carry a share of the company sales goal. Admins/Managers who show
+// up as a sales_name on the odd job do NOT (that was the 4-vs-2 divisor bug).
+export const SELLING_ROLES = ["Sales Rep"];
+
+// Divisor N for the goal split: count of ACTIVE SALESPEOPLE (team_members with a
+// selling role). Supersedes the plan's "distinct sales_name" model — that counted
+// the owner + an admin who each carried a few jobs, splitting the goal 4 ways
+// instead of 2 (found in HDSP smoke 2026-08-20). Sales Rep only, so it also
+// avoids the original REG-2 bug (which wrongly included Admin/Manager).
 export function activeRepCount(snap) {
-  const reps = new Set();
-  for (const c of snap.callLog) if (c.sales_name) reps.add(c.sales_name);
-  return reps.size;
+  return (snap.teamMembers || []).filter(t => t.active && SELLING_ROLES.includes(t.role)).length;
 }
 
 // All personal + company figures for the six Home boxes, for ONE rep (repName).

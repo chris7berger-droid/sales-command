@@ -15,11 +15,12 @@ import { C, F, SP, R, FS } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
 import { useAlerts } from "../lib/alerts";
 import { useTenantConfig } from "../lib/TenantConfigContext";
-import { homeEngagement, owedItems, dormantCustomers, goneQuietBids, SUPPRESSION_WINDOWS } from "../lib/followUp";
+import { homeEngagement, owedItems, dormantCustomers, goneQuietBids, huntResults, SUPPRESSION_WINDOWS } from "../lib/followUp";
 import RunwayBar from "../components/followup/RunwayBar";
 import MoneyDonut from "../components/followup/MoneyDonut";
 import GoalThermometer from "../components/followup/GoalThermometer";
 import HuntBox from "../components/followup/HuntBox";
+import HuntResultsPanel from "../components/followup/HuntResultsPanel";
 import LogOutcomeModal from "../components/followup/LogOutcomeModal";
 import heroImg from "../assets/hero/hero-01.jpg";
 
@@ -66,6 +67,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
   const owed = useMemo(() => (snapshot ? owedItems(snapshot, { repName }) : []), [snapshot, repName]);
   const repGoneQuiet = useMemo(() => (snapshot ? goneQuietBids(snapshot, { repName }) : []), [snapshot, repName]);
   const repDormant = useMemo(() => (snapshot ? dormantCustomers(snapshot, { repName }) : []), [snapshot, repName]);
+  const results = useMemo(() => (snapshot ? huntResults(snapshot, { repName }) : { callsThisWeek: 0, reengaged: 0 }), [snapshot, repName]);
 
   const loadingCore = !hasSnapshot && loading;
 
@@ -258,8 +260,11 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
         )}
       </div>
 
-      {/* ── BOX 6 · WHERE TO HUNT ────────────────────────────────────────── */}
-      <HuntBox goneQuiet={repGoneQuiet} dormant={repDormant} onGoTo={onGoTo} onLog={setLogTarget} />
+      {/* ── BOX 6 · WHERE TO HUNT + results companion ────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 300px", gap: SP.lg, alignItems: "start" }}>
+        <HuntBox goneQuiet={repGoneQuiet} dormant={repDormant} onGoTo={onGoTo} onLog={setLogTarget} />
+        <HuntResultsPanel callsThisWeek={results.callsThisWeek} reengaged={results.reengaged} />
+      </div>
 
       {/* footer · controllables + manual refresh */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: SP.md }}>

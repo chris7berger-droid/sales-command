@@ -402,6 +402,33 @@ export function owedItems(snap, { repName } = {}) {
   return [...bids, ...followups].sort((a, b) => ((a.date || "") < (b.date || "") ? -1 : 1));
 }
 
+// Box 6 results companion — the payoff of working the call list, this rep, last
+// 7 days (home-engagement-redesign.md Box 6 / F51 results panel v1):
+//   Activity = calls logged this week (effort made visible).
+//   Impact   = $ of stalled bids RE-ENGAGED this week (sum of the bid value of
+//              the distinct Has-Bid jobs this rep logged a call on). This is
+//              "money you put back in motion by working it" — NOT "revived/won"
+//              (that needs outcome-over-time tracking, deferred to F51).
+export function huntResults(snap, { repName } = {}) {
+  if (!repName) return { callsThisWeek: 0, reengaged: 0 };
+  const weekAgo = daysAgo(7);
+  const jobBidValue = new Map(); // call_log_id -> summed non-deleted proposal total
+  for (const p of snap.proposals) {
+    jobBidValue.set(p.call_log_id, (jobBidValue.get(p.call_log_id) || 0) + (p.total || 0));
+  }
+  let callsThisWeek = 0, reengaged = 0;
+  const seenJobs = new Set();
+  for (const o of snap.outreach) {
+    if (o.logged_by !== repName || day(o.created_at) < weekAgo) continue;
+    callsThisWeek++;
+    if (o.call_log_id && !seenJobs.has(o.call_log_id)) {
+      seenJobs.add(o.call_log_id);
+      reengaged += jobBidValue.get(o.call_log_id) || 0;
+    }
+  }
+  return { callsThisWeek, reengaged };
+}
+
 // ── Write: log an outbound outcome ──────────────────────────────────────────
 // App-side "at least one FK" invariant (RG1 — deliberately NO DB CHECK, which
 // would re-break customer delete). Verify a row came back (RLS silent no-op).

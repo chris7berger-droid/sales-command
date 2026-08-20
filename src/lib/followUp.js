@@ -324,7 +324,8 @@ export function footerStats(snap, { monthlyGoal } = {}) {
 // is a DIFFERENT metric (billings %, not bookings-sold) — the two are kept
 // distinct and never cross-compared.
 
-export const LARGE_JOB = 50000; // donut View 2 size line (fixed $50K default, part 3)
+export const MEDIUM_JOB = 10000; // donut size buckets: Small <10K · Medium 10–50K · Large ≥50K
+export const LARGE_JOB = 50000;
 const SCOREBOARD_STAGES = ["Wants Bid", "Has Bid", "Sold"]; // Box 4, in order
 
 // Roles that carry a share of the company sales goal. Admins/Managers who show
@@ -412,9 +413,14 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
     scoreboard[stage] = { amount, count: jobs.length };
   }
 
-  // ── Donut data (2 views: booked-vs-left → big-vs-small) ──
-  const large = repSoldProps.filter(p => (p.total || 0) >= LARGE_JOB).reduce((s, p) => s + (p.total || 0), 0);
-  const small = repSold - large;
+  // ── Donut data (2 views: booked-vs-left → by job size) ──
+  let small = 0, medium = 0, large = 0;
+  for (const p of repSoldProps) {
+    const t = p.total || 0;
+    if (t >= LARGE_JOB) large += t;
+    else if (t >= MEDIUM_JOB) medium += t;
+    else small += t;
+  }
 
   // The exact jobs behind the Sold tile — so tapping it drills into THESE, not the
   // all-time Sold stage list (tile is month + archive-scoped; a stage filter isn't).
@@ -428,7 +434,7 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
     repName, target, goalDivisor: N,
     hero: { state: heroState, sold: repSold, bestMonth, callsThisMonth, bidsOut, soldCount: repSoldCount },
     bar: { sold: repSold, target, pacePct: Math.round(monthFrac * 100), behind, gap },
-    donut: { booked: repSold, left: Math.max(0, target - repSold), over: repSold > target, large, small },
+    donut: { booked: repSold, left: Math.max(0, target - repSold), over: repSold > target, large, medium, small },
     scoreboard,
     soldList,
     thermometer: { sold: companySold, goal: monthlyGoal, pct: monthlyGoal ? Math.round((companySold / monthlyGoal) * 100) : 0 },

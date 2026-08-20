@@ -100,7 +100,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
       : `${fmt$(bar.gap)} to go — one good job, or ${repGoneQuiet.length} quiet bid${repGoneQuiet.length === 1 ? "" : "s"} you already have out.`;
 
   // ── Donut views (2 only: booked-vs-left → big-vs-small) ──
-  const soldTotal = donut.large + donut.small;
+  const soldTotal = donut.large + donut.medium + donut.small;
   const donutViews = [
     {
       tapLabel: "Booked vs Left", // MoneyDonut shows the NEXT view's tapLabel as the tap hint
@@ -115,12 +115,13 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
       ],
     },
     {
-      tapLabel: "Big vs Small",
+      tapLabel: "By Job Size",
       center: fmt$(soldTotal),
       centerSub: "sold",
       slices: [
         { label: "Large ≥ $50K", value: donut.large, color: C.tealDeep, pct: pctOf(donut.large, soldTotal) },
-        { label: "Small < $50K", value: donut.small, color: C.amber, pct: pctOf(donut.small, soldTotal) },
+        { label: "Medium $10–50K", value: donut.medium, color: C.teal, pct: pctOf(donut.medium, soldTotal) },
+        { label: "Small < $10K", value: donut.small, color: C.amber, pct: pctOf(donut.small, soldTotal) },
       ],
     },
   ];

@@ -55,7 +55,6 @@ export const GLOBAL_CSS = `
   input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus,input:-webkit-autofill:active{-webkit-box-shadow:0 0 0 1000px ${C.linenDeep} inset !important;-webkit-text-fill-color:${C.textBody} !important;background-color:${C.linenDeep} !important;transition:background-color 5000s ease-in-out 0s}
   @keyframes reasonPulse{0%,100%{box-shadow:0 0 0 0 rgba(249,168,37,0)}50%{box-shadow:0 0 0 4px rgba(249,168,37,0.45)}}
   .reason-pulse{animation:reasonPulse 1.5s ease-in-out infinite}
-  @keyframes softPulse{0%,100%{outline-color:rgba(48,207,172,0)}50%{outline-color:rgba(48,207,172,0.32)}}
-  .soft-pulse{outline:2px solid rgba(48,207,172,0);outline-offset:3px;animation:softPulse 3.6s ease-in-out infinite}
-  @media (prefers-reduced-motion:reduce){.soft-pulse{animation:none}}
+  @keyframes softPulse{0%,100%{filter:drop-shadow(0 0 6px rgba(48,207,172,0))}50%{filter:drop-shadow(0 0 9px rgba(48,207,172,0.6))}}
+  .soft-pulse{animation:softPulse 3.4s ease-in-out infinite}
 `;

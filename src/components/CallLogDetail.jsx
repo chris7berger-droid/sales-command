@@ -1,7 +1,7 @@
 // SC-20 — Call Log Row Detail View
 import { useState, useEffect, useRef, useMemo } from "react";
 import { C, F } from "../lib/tokens";
-import { fmt$ } from "../lib/utils";
+import { fmt$, fmtD } from "../lib/utils";
 import { sumContractBilled } from "../lib/calc";
 import { selectableWorkTypes } from "../lib/workTypes";
 import Btn from "./Btn";
@@ -218,13 +218,13 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         if (children) callLogIds.push(...children.map(c => c.id));
       }
       const [{ data: props }, { data: invs }] = await Promise.all([
-        supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, cloned_from_proposal_id, is_archive_proposal, customer_id, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
+        supabase.from("proposals").select("id, status, total, historical_billed_amount, proposal_number, cloned_from_proposal_id, is_archive_proposal, customer_id, sent_at, call_log(display_job_number)").is("deleted_at", null).in("call_log_id", callLogIds).order("created_at"),
         // Lines are embedded so T&M dollars can be told apart from contract
         // dollars. sumContractBilled works on INVOICES and sums invoice.amount,
         // so it cannot distinguish them — a mixed invoice carries both under one
         // figure. One extra embed on a query that already runs, not a second
         // round-trip.
-        supabase.from("invoices").select("id, status, amount, job_name, voided_at, void_reason, retention_release_of, invoice_lines(amount, reg_hours, reg_rate, ot_hours, ot_rate, dt_hours, dt_rate, proposal_wtc:proposal_wtc_id(is_rate_card))").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
+        supabase.from("invoices").select("id, status, amount, job_name, sent_at, voided_at, void_reason, retention_release_of, invoice_lines(amount, reg_hours, reg_rate, ot_hours, ot_rate, dt_hours, dt_rate, proposal_wtc:proposal_wtc_id(is_rate_card))").is("deleted_at", null).in("call_log_id", callLogIds).order("sent_at", { ascending: false }),
       ]);
       setLinkedProposals(props || []);
       setLinkedInvoices(invs || []);
@@ -1041,6 +1041,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                     >
                       <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, letterSpacing: "0.03em", minWidth: 140 }}>{label}</span>
                       <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: sc.bg, color: sc.color, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.04em" }}>{p.status}</span>
+                      {p.sent_at && <span style={{ fontSize: 11.5, fontWeight: 600, color: C.textMuted, fontFamily: F.ui }}>Sent {fmtD(p.sent_at)}</span>}
                       <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto" }}>{fmt$((contractSumByProposalId[p.id] > 0 ? contractSumByProposalId[p.id] : parseFloat(p.total)) || 0)}</span>
                     </button>
                   );
@@ -1106,6 +1107,7 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
                           Retention Release
                         </span>
                       )}
+                      {inv.sent_at && <span style={{ fontSize: 11.5, fontWeight: 600, color: C.textMuted, fontFamily: F.ui }}>Sent {fmtD(inv.sent_at)}</span>}
                       <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums", marginLeft: "auto", textDecoration: isVoided ? "line-through" : "none" }}>{fmt$(inv.amount)}</span>
                     </button>
                   );

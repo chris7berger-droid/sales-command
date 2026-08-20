@@ -205,8 +205,8 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
                 on the linen without alarm. Where an even month would have you today
                 (clamp the label so it can't clip an edge). */}
             <div style={{ position: "relative", height: 14 }}>
-              <div style={{ position: "absolute", bottom: 0, left: `${Math.min(88, Math.max(12, bar.pacePct))}%`, transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: C.textMuted, fontFamily: F.ui }}>
-                should be here today ▾
+              <div style={{ position: "absolute", bottom: 0, left: `${Math.min(88, Math.max(12, bar.pacePct))}%`, transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 10.5, fontWeight: 600, color: C.textMuted, fontFamily: F.ui }}>
+                Today's goal line ▾
               </div>
             </div>
             <div style={{ position: "relative", height: 14, borderRadius: 7, background: C.linenDeep, overflow: "visible" }}>

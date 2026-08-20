@@ -60,7 +60,9 @@ export default function HuntBox({ goneQuiet, dormant, onGoTo, onLog }) {
   const advance = () => setCursor(c => c + 1);
   const back = () => setCursor(c => Math.max(0, c - 1));
 
-  const list = [...goneQuiet, ...dormant].slice(0, LIST_CAP);
+  const pile = [...goneQuiet, ...dormant];
+  const list = pile.slice(0, LIST_CAP);
+  const pileValue = pile.reduce((s, x) => s + (x.value || 0), 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: SP.lg }}>
@@ -115,11 +117,21 @@ export default function HuntBox({ goneQuiet, dormant, onGoTo, onLog }) {
         </div>
       )}
 
-      {/* dormant + gone-quiet lists, $-tagged, calmer beneath the coach */}
-      {list.length > 0 && (
+      {/* dormant + gone-quiet lists, $-tagged, calmer beneath the coach.
+          Header names the FULL pile (count + $ available) so the money-bar
+          "revive a few of your N sleepers" number has a home. */}
+      {pile.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui }}>Sleepers</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: SP.sm }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui }}>
+              Sleepers · {pile.length}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: C.tealDark, fontFamily: F.ui }}>{fmt$(pileValue)} available</span>
+          </div>
           {list.map(o => <OutboundCard key={`${o.source}-${o.customerId || o.callLogId}`} item={o} onLog={onLog} />)}
+          {pile.length > LIST_CAP && (
+            <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, paddingLeft: 2 }}>showing top {LIST_CAP} of {pile.length}</div>
+          )}
         </div>
       )}
     </div>

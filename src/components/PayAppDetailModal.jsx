@@ -488,8 +488,8 @@ export default function PayAppDetailModal({ payAppId, schedule, proposal, onClos
                       );
                     })}
                     {isDraft && edited && (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 70px 100px", padding: "7px 12px", gap: 8, borderTop: `2px solid ${C.borderStrong}`, background: C.linen, fontSize: 12, fontFamily: F.display, fontWeight: 700 }}>
-                        <div style={{ color: C.textHead }}>Total This App</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 90px 70px 100px", padding: "7px 12px", gap: 8, borderTop: `2px solid ${C.borderStrong}`, background: C.dark, fontSize: 12, fontFamily: F.display, fontWeight: 700 }}>
+                        <div style={{ color: "rgba(255,255,255,0.85)" }}>Total This App</div>
                         <div />
                         <div />
                         <div style={{ textAlign: "right", color: C.teal }}>{fmt$(edited.gross)}</div>

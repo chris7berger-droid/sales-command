@@ -953,8 +953,8 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
           : null;
         const hasTM = tmBilled > 0 || tmRates.length > 0;
 
-        const cellLabel = { fontSize: 10.5, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 };
-        const cellValue = { fontSize: 16, fontWeight: 800, color: C.textHead, fontFamily: F.display };
+        const statLabel = { fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", fontFamily: F.display, letterSpacing: "0.09em", textTransform: "uppercase", marginBottom: 7 };
+        const statValue = { fontSize: 19, fontWeight: 800, color: "#fff", fontFamily: F.display, fontVariantNumeric: "tabular-nums", lineHeight: 1 };
         const ledgerRow = { display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "7px 0" };
         const ledgerLbl = { fontSize: 13, color: C.textBody, fontFamily: F.ui };
         const ledgerVal = { fontSize: 15, fontWeight: 700, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums" };
@@ -966,44 +966,55 @@ export default function CallLogDetail({ job, teamMembers, workTypes, onBack, onS
         // order does. Two boxes would force the reader to add two numbers to
         // answer "what is this job worth", and both boxes would still need a
         // "Billed" label — the collision moves rather than resolves.
+        const pctClamped = Math.max(0, Math.min(100, pct));
         return (
-          <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20, marginBottom: 24 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Job Totals</div>
+          <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 12, overflow: "hidden", marginBottom: 24, boxShadow: "0 1px 3px rgba(28,24,20,0.08)" }}>
+            {/* Ledger: contract (+ T&M) rolls up to job value */}
+            <div style={{ padding: "18px 22px 16px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, fontFamily: F.display, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Job Totals</div>
 
-            <div style={ledgerRow}>
-              <span style={ledgerLbl}>Contract</span>
-              <span style={ledgerVal}>{fmt$(sold)}</span>
+              <div style={ledgerRow}>
+                <span style={ledgerLbl}>Contract</span>
+                <span style={ledgerVal}>{fmt$(sold)}</span>
+              </div>
+
+              {hasTM && (
+                <div style={{ ...ledgerRow, alignItems: "flex-start" }}>
+                  <span style={ledgerLbl}>
+                    T&amp;M billed to date
+                    {(ratesText || hoursText) && (
+                      <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginTop: 2 }}>
+                        {[hoursText ? `${hoursText} hrs` : null, ratesText ? `@ ${ratesText}` : null].filter(Boolean).join("  ")}
+                      </div>
+                    )}
+                  </span>
+                  <span style={ledgerVal}>+ {fmt$(tmBilled)}</span>
+                </div>
+              )}
+
+              <div style={{ borderTop: `1px solid ${C.borderStrong}`, marginTop: 8, paddingTop: 12, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span style={{ fontSize: 15, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>{hasTM ? "Job value to date" : "Job value"}</span>
+                <span style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display, fontVariantNumeric: "tabular-nums" }}>{fmt$(jobValue)}</span>
+              </div>
             </div>
 
-            {hasTM && (
-              <div style={{ ...ledgerRow, alignItems: "flex-start" }}>
-                <span style={ledgerLbl}>
-                  T&amp;M billed to date
-                  {(ratesText || hoursText) && (
-                    <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginTop: 2 }}>
-                      {[hoursText ? `${hoursText} hrs` : null, ratesText ? `@ ${ratesText}` : null].filter(Boolean).join("  ")}
-                    </div>
-                  )}
-                </span>
-                <span style={ledgerVal}>+ {fmt$(tmBilled)}</span>
+            {/* Stat strip: billed / remaining / % invoiced */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", background: C.dark }}>
+              <div style={{ padding: "14px 22px" }}>
+                <div title="Historical billed (pre-SC) + invoices issued via Sales Command, excludes deleted. Includes T&M." style={statLabel}>Billed</div>
+                <div style={statValue}>{fmt$(billed)}</div>
               </div>
-            )}
-
-            <div style={{ borderTop: `1px solid ${C.borderStrong}`, marginTop: 6, paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span style={{ ...ledgerLbl, fontWeight: 800, color: C.textHead }}>{hasTM ? "Job value to date" : "Job value"}</span>
-              <span style={{ ...cellValue, fontSize: 18 }}>{fmt$(jobValue)}</span>
-            </div>
-
-            <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-              <div>
-                <div title="Historical billed (pre-SC) + invoices issued via Sales Command, excludes deleted. Includes T&M." style={cellLabel}>Billed</div>
-                <div style={cellValue}>{fmt$(billed)}</div>
+              <div style={{ padding: "14px 22px", borderLeft: "1px solid rgba(255,255,255,0.12)" }}>
+                <div title="Contract work only — T&M has no scheduled value to bill down." style={statLabel}>Remaining on contract</div>
+                <div style={statValue}>{fmt$(remainingOnContract)}</div>
               </div>
-              <div>
-                <div title="Contract work only — T&M has no scheduled value to bill down." style={cellLabel}>Remaining on contract</div>
-                <div style={cellValue}>{fmt$(remainingOnContract)}</div>
+              <div style={{ padding: "14px 22px", borderLeft: "1px solid rgba(255,255,255,0.12)" }}>
+                <div style={statLabel}>% Invoiced</div>
+                <div style={{ ...statValue, color: C.teal }}>{pct}%</div>
+                <div style={{ marginTop: 9, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.14)", overflow: "hidden" }}>
+                  <div style={{ width: `${pctClamped}%`, height: "100%", background: C.teal, borderRadius: 2 }} />
+                </div>
               </div>
-              <div><div style={cellLabel}>% Invoiced</div><div style={cellValue}>{pct}%</div></div>
             </div>
           </div>
         );

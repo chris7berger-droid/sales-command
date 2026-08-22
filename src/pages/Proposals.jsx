@@ -128,7 +128,7 @@ export default function Proposals({ teamMember, setSubPage }) {
 
   if (sel) return <ProposalDetail
     p={sel}
-    onBack={() => { setSel(null); navigate("/proposals"); }}
+    onBack={() => { setSel(null); navigate("/proposals"); load(); }}
     onDeleted={() => { setSel(null); navigate("/proposals"); load(); }}
     teamMember={teamMember}
     onNavigateJob={id => navigate(`/calllog/${id}`)}

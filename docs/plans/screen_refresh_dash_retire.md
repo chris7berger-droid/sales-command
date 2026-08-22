@@ -223,15 +223,16 @@ or be explicitly closed — nothing rides along unowned:
 | Analytics modal | → `/analytics` page (§4.2) | Planned |
 | Pipeline stage StatCards | → Call Log stat row (§3.1) | Planned |
 | Per-rep filtering | → Call Log FilterBar (pipeline) + Analytics page rep filter | Preserved |
-| **GoalCard scorecard** (Monthly Billings, Yearly Sales, Conversion Rate, Proposals Sent — `SalesDash.jsx:15–56`) | **OPEN** | ⚠️ decide |
+| **GoalCard scorecard** (Monthly Billings, Yearly Sales, Conversion Rate, Proposals Sent — `SalesDash.jsx:15–56`) | **Drop** — dies with Sales Dash | Resolved (Chris, 2026-08-22) |
 
-**OPEN DECISION — GoalCard:** Home already shows the monthly goal (GoalThermometer) + company goal, but
-the 4-metric scorecard (yearly sales, conversion rate, proposals sent) has no new home.
-- **Recommended default:** fold these metrics onto the **Analytics** sub-page (they're manager-level
-  analysis), and drop the standalone GoalCard component. Alternative: a third manager-only Home card.
-- **Flagging for Chris / audit** rather than silently dropping. If unresolved, build stops here and asks.
+**RESOLVED — GoalCard:** Drop the 4-metric scorecard entirely; it dies with Sales Dash. Home already
+covers the monthly goal (GoalThermometer), and the other three metrics (yearly sales, conversion rate,
+proposals sent) are not being relocated. Delete the `GoalCard` component and its `GOALS` state along
+with `SalesDash.jsx`; do not extract it.
 
-**Deferred (not this build):** confirm whether the "New Inquiry" call_log stage is dead and remove if so.
+**Deferred (not this build):**
+- Add **Yearly Sales** back onto the Home screen later (Chris intends to; explicitly out of scope here).
+- Confirm whether the "New Inquiry" call_log stage is dead and remove if so.
 
 ---
 
@@ -301,8 +302,8 @@ Verify against the **live schema and actual code**, not the plan's prose:
 3. **Design baseline:** do the §2 stat-row decisions (which override the raw mockups) stay internally
    consistent, and do they reuse tokens/`StatCard`/`SectionHeader` (no white surfaces, teal-on-dark
    badges)? Flag any spot the plan would introduce a bespoke component instead of the foundation.
-4. Is the §8 GoalCard OPEN decision genuinely a user-facing call (not something the plan should have
-   resolved itself)?
+4. GoalCard is resolved to **drop** (§8). Confirm nothing else depends on the `GoalCard` component or
+   `GOALS` state such that deleting it breaks another surface.
 
 ### Hard checks (any agent)
 - Flag every place the plan says "verify at build" — confirm that's an honest unknown, not hand-waving

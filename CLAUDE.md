@@ -183,9 +183,16 @@ invoices: id (text), job_id, job_name, status, amount, discount, sent_at,
   qb_payment_id (text), stripe_checkout_id (text), stripe_checkout_url (text),
   stripe_payment_id (text), paid_at (timestamptz), description (text),
   viewing_token (uuid, default gen_random_uuid()),
-  updated_at (timestamptz, auto-trigger),
+  created_at (timestamptz), updated_at (timestamptz, auto-trigger),
   deleted_at (timestamptz, NULL = active),
+  voided_at (timestamptz, NULL = active; void ≠ delete — "active" invoices
+    exclude both deleted_at AND voided_at),
+  retention_amount (numeric), retention_pct (numeric),
+  retention_released (boolean), retention_release_of (text FK invoices — set
+    on release invoices; see migration 20260601120000),
   tenant_id (uuid FK tenant_config)
+  — verified against prod 2026-08-22; prior list omitted created_at/voided_at/
+    retention_* and wrongly implied created_at was absent.
 
 invoice_lines: id (int8), invoice_id (text FK invoices), proposal_wtc_id
   (uuid FK proposal_wtc), billing_pct (numeric), amount (numeric),

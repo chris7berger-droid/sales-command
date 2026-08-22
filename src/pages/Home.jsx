@@ -300,7 +300,7 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
       </div>
 
       {logTarget && (
-        <LogOutcomeModal item={logTarget} loggedBy={displayName} onClose={() => setLogTarget(null)}
+        <LogOutcomeModal item={logTarget} loggedBy={repName || displayName} onClose={() => setLogTarget(null)}
           onLogged={(outcome) => {
             const days = SUPPRESSION_WINDOWS[outcome];
             const who = logTarget?.name || "That job";

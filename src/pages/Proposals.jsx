@@ -4,14 +4,29 @@ import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { fmt$, fmtD } from "../lib/utils";
+import { calcProposalTotal, usesExactPricing } from "../lib/calc";
 import { PROP_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
+import StatCard from "../components/StatCard";
 import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
 import FilterBar from "../components/FilterBar";
 import NewProposalModal from "../components/NewProposalModal";
 import ProposalDetail from "../components/ProposalDetail";
+
+// Top-row buckets (§2.3) — EXHAUSTIVE: every live proposal status maps to
+// exactly one bucket, so Σ(buckets) === All. A status not listed here lands in
+// an explicit "Other" remainder (rendered + dev-warned), never silently dropped.
+const PROP_BUCKETS = {
+  Draft: ["Draft", "New", "In Progress", "Parked"],
+  Sent:  ["Sent", "Viewed", "Approved Internally", "Approved"],
+  Sold:  ["Signed", "Sold"],
+  Lost:  ["Lost"],
+};
+const STATUS_BUCKET = Object.fromEntries(
+  Object.entries(PROP_BUCKETS).flatMap(([b, ss]) => ss.map(s => [s, b]))
+);
 
 export default function Proposals({ teamMember, setSubPage }) {
   const navigate = useNavigate();
@@ -45,7 +60,7 @@ export default function Proposals({ teamMember, setSubPage }) {
     const [data, invData, { data: wtData }] = await Promise.all([
       fetchAll(
         "proposals",
-        "*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id)",
+        "*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id, is_rate_card, prevailing_wage, pw_rate, pw_ot_rate, burden_rate, ot_burden_rate, markup_pct, regular_hours, ot_hours, size, materials, travel, discount), proposal_recipients(viewed_at, role)",
         { filters: [["is", "deleted_at", null]], order: { column: "created_at", ascending: false } }
       ),
       fetchAll("invoices", "id, status, proposal_id"),
@@ -94,6 +109,36 @@ export default function Proposals({ teamMember, setSubPage }) {
     onNavigateInvoice={id => navigate(`/invoices/${id}`)}
   />;
 
+  // ─── "Proposals" stat row + Needs-Attention (§2.3 / §3.2) ────────────────
+  // Global counts (matches the existing status-tab convention on this page).
+  const bucketCounts = { Draft: 0, Sent: 0, Sold: 0, Lost: 0, Other: 0 };
+  const otherStatuses = new Set();
+  for (const p of proposals) {
+    const b = STATUS_BUCKET[p.status];
+    if (b) bucketCounts[b]++;
+    else { bucketCounts.Other++; otherStatuses.add(p.status || "(none)"); }
+  }
+  const allCount = proposals.length;
+  // Build assertion: Σ(named buckets) === All (nothing fell through). In dev,
+  // scream the unmapped status set so a new status gets bucketed, not dropped.
+  const bucketSum = bucketCounts.Draft + bucketCounts.Sent + bucketCounts.Sold + bucketCounts.Lost;
+  if (import.meta.env?.DEV && bucketSum !== allCount) {
+    console.error(`[Proposals] bucket leak: Σ(Draft+Sent+Sold+Lost)=${bucketSum} ≠ All=${allCount}; unmapped statuses:`, [...otherStatuses]);
+  }
+
+  // Needs-Attention (opened-aware, via embedded proposal_recipients.viewed_at).
+  const opened = p => (p.proposal_recipients || []).some(r => r.viewed_at);
+  const sentNotOpened  = proposals.filter(p => p.status === "Sent" && !opened(p)).length;
+  const openedNoResp   = proposals.filter(p => opened(p) && !["Signed", "Sold", "Lost"].includes(p.status)).length;
+  const draftsToFinish = bucketCounts.Draft;
+  // $ potential = winnable pipeline $ (Draft + Sent buckets — not yet resolved),
+  // summed via calcProposalTotal over proposal_wtc (excludes rate cards, F44),
+  // never proposals.total (stale, Data Integrity Rule #2).
+  const dollarPotential = proposals
+    .filter(p => STATUS_BUCKET[p.status] === "Draft" || STATUS_BUCKET[p.status] === "Sent")
+    .reduce((s, p) => s + calcProposalTotal(p.proposal_wtc, parseFloat(p.markup_override_pct) || undefined, usesExactPricing(p)), 0);
+  const naLabel = t => <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>{t}</div>;
+
   return (
     <>
       {showModal && (
@@ -105,6 +150,27 @@ export default function Proposals({ teamMember, setSubPage }) {
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <SectionHeader title="Proposals" action={<Btn sz="sm" onClick={() => setShowModal(true)}>+ New Proposal</Btn>} />
+        {/* Top stat row (§2.3) — mutually-exclusive buckets that sum to All */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 16 }}>
+          <StatCard label="All"   value={loading ? "…" : allCount}            accent={C.teal} />
+          <StatCard label="Draft" value={loading ? "…" : bucketCounts.Draft}  accent={C.textLight} />
+          <StatCard label="Sent"  value={loading ? "…" : bucketCounts.Sent}   accent={C.purple} />
+          <StatCard label="Sold"  value={loading ? "…" : bucketCounts.Sold}   accent={C.green} />
+          <StatCard label="Lost"  value={loading ? "…" : bucketCounts.Lost}   accent={C.red} />
+          {bucketCounts.Other > 0 && (
+            <StatCard label="Other" value={bucketCounts.Other} sub={[...otherStatuses].join(", ")} accent={C.amber} />
+          )}
+        </div>
+        {/* Needs-Attention (opened-aware) */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {naLabel("Needs Attention")}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 16 }}>
+            <StatCard label="Sent – not opened"    value={loading ? "…" : sentNotOpened}   sub="No open yet"        accent={C.amber} />
+            <StatCard label="Opened – no response" value={loading ? "…" : openedNoResp}     sub="Opened, unresolved" accent={C.teal} />
+            <StatCard label="Drafts to finish"     value={loading ? "…" : draftsToFinish}   sub="Not yet sent"       accent={C.amber} />
+            <StatCard label="$ Potential"          value={loading ? "…" : fmt$(dollarPotential)} sub="Draft + Sent (winnable)" accent={C.purple} />
+          </div>
+        </div>
         <div style={{ display: "flex", gap: 6 }}>
           {STATUS_TABS.map(tab => {
             const active = statusFilter === tab;

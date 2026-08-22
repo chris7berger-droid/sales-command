@@ -30,10 +30,6 @@ export default function OutboundCard({ item, onLog, onOpen }) {
           {fmt$(item.value)}
         </span>
       )}
-      {item.phone && (
-        <a href={`tel:${item.phone}`} onClick={e => e.stopPropagation()} title={item.phone}
-           style={{ fontSize: 13, color: C.tealDark, fontFamily: F.ui, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>☎</a>
-      )}
       <Btn v="secondary" sz="sm" onClick={(e) => { e?.stopPropagation?.(); onLog?.(item); }}>Log</Btn>
     </div>
   );

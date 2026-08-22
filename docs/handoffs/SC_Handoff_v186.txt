@@ -1,0 +1,172 @@
+SC_Handoff_v186 — Home Engagement Redesign: BUILT, smoke-hardened, gated, MERGED + LIVE in prod (F47 closed)
+==========================================================================================================
+Date: 2026-08-17 → 2026-08-22 (build + multi-day smoke, one continuous loop)
+Repo/branch: sales-command @ main — clean, in sync with origin (711e683). Branch feat/home-follow-up-screen
+             MERGED (PR #35) + DELETED (local + remote).
+Prior: v185 (PLAN — 6 boxes locked, audit manifest ready). This session BUILT it, smoke-tested on live data,
+       ran all three gates, merged, and shipped to prod.
+Mode: BUILD (opus 4.8) → live smoke as a real rep → cold gates (T4/T5/T6) → merge → close.
+ERD Loop #45: CLOSED 2026-08-22 (erd-loop 4971aa6) — shipped + prod-verified.
+
+
+███ SESSION SUMMARY ██████████████████████████████████████████████████████████████████████
+
+Built the Home engagement redesign (F47) per docs/plans/home-engagement-redesign.md — a 6-box reskin of
+src/pages/Home.jsx + src/components/followup/* matching docs/home-engagement-mockup-v1.png. Zero migrations.
+Ran an inline build gate, then Chris smoke-tested on a real rep's account (John Paul) on the Vercel preview —
+which surfaced THREE real sales-accuracy bugs the old screen had been hiding, all fixed before ship. A long
+live-smoke pass reshaped copy/UX (Sleepers metaphor, results panel, clickable cards, calmer pace marker).
+Then three COLD gate terminals (T4 /buildvsplan, T5 /code-review, T6 /security-review) all came back green;
+one T5 finding fixed on-branch, the rest filed. Merged PR #35 to main → auto-deployed to prod (scmybiz.com).
+F47 closed, ERD #45 closed. Follow-ups banked as F49/F51/F52/B70.
+
+
+███ CHANGES SHIPPED (all on main via PR #35 merge 4bb33a4) ████████████████████████████████
+
+Build + hero (pre-smoke):
+  9953509  Hero: single static hero-01.jpg bundled (rotation deferred F50)
+  7fbdd3a  Home engagement redesign — 6-box reskin (Home.jsx + followup/*, new selectors in followUp.js,
+           token scales, repName hoist in App.jsx, CallLog nav-seed)
+  7a0d1c4  Merge main into branch (13 fixes that landed while away; only conflict = handoff v181 numbering)
+
+Three sales-accuracy bugs (found in live smoke on John Paul):
+  588a0dd  Archive jobs credited to REAL job/soldDate month, not import month (John $618K → true $125K)
+  c9cfd67  Goal-split divisor = active Sales Reps (2), not distinct sales_name (4) — reverses REG-2 premise
+  166ea25  Donut center shows true % of target (>100% when over), not capped at 100
+  f5aa3f5  Money bar celebrates over-target ("target crushed / crushing it")
+  8035a3e  Plan amendment part-6 documenting the two reversals (divisor + archive) as newest source of truth
+
+UI/UX polish (live smoke, all display-only):
+  7560dcf width cap 1080→1600 · f671278 pace/donut labels · 2d0b747 Where-To-Dig cap (+F51) ·
+  6c1ba74 "What You Owe"→"Where To Dig" · c7a976f CTA "Go to this job" · 2c79b2f log toast ·
+  aa85350 + 5dd250c Box-6 results panel + "Sleepers"/"Waking Up the Sleepers" + drill-in ·
+  55fea83 kill global bids-due banner + Wants-Bid soft pulse · d82ce64 pulse visible (glow) ·
+  33caf8f + 9ea4d22 clearer money-bar move copy + Sleepers count/$-available · 2f12864 Sold-tile drill-in ·
+  43160f3 donut 3-tier "By Job Size" · ddd7bdc Where-To-Dig excludes closed jobs (OWED_STAGES) ·
+  6f85d5b + af9476b Sleeper cards open the job + expandable list · cb7f2f1/9ee683b/e8f0f67 pace-marker
+  tone-down → "Today's goal line" · 6686f5c remove phone icon · 4a5a23b crew runway → "Coming soon" (F49)
+
+Gate response + close:
+  08a488c  T5 #1 fix (re-engaged $ = Has-Bid only) + file F52 · d8c17fb T4 Tier-2 (log under repName)
+  32a4634  file B70 (archive dating app-wide)
+  4bb33a4  Merge PR #35 → main
+  711e683  Closes F47 in BACKLOG.md (on main, post-merge)
+
+
+███ DEPLOYED ████████████████████████████████████████████████████████████████████████████
+
+Frontend only — Vercel auto-deploys prod (scmybiz.com) on push to main. Merge 4bb33a4 triggered the prod build.
+NO edge functions deployed. NO DB migrations (this build is ZERO migrations — every new field already existed).
+Verified live: trg_notify_proposal_approved is present + enabled in prod (T5 #4 check, read-only).
+
+
+███ DECISIONS / CHOICES MADE ████████████████████████████████████████████████████████████
+
+- Divisor reversal (part-6 §A): the plan's LOCKED "distinct sales_name, NOT team_members role" was WRONG on
+  real data — 2 Admins carry a few jobs, so the goal split 4 ways not 2. Fixed to active role='Sales Rep'.
+  This intentionally re-introduces the round-2 "killed pattern," but the CORRECT form (Sales Rep only, not the
+  [Sales Rep,Admin,Manager] set). Documented in plan part-6 so the gates don't false-flag it.
+- Archive sold-date (part-6 §B): use legacy_records.raw_data['job/soldDate'] (mixed ISO + US-locale formats)
+  as the real sold month. Chose re-dating over excluding because the date exists (all 61 archive jobs have it).
+- Crew runway → "Coming soon" placeholder: Chris rejected shipping the weeks bar even as-is ("don't want it
+  until it works the way I want"). Real % model is F49.
+- Anxiety banner removed app-wide (Chris: "causes anxiety") → replaced with a soft slow pulse on the Wants Bid
+  tile. Home is now the only bids-due surface (was cross-screen).
+- T5 findings: fixed #1 (clear bug) on-branch; #2 (multi-proposal double-count) deferred to F52 because it
+  needs a RULE (multi-GC sisters sum; revisions don't), not an end-of-session patch.
+
+
+███ GATE TERMINAL EXCHANGE (cold T4/T5/T6 — key points, not a journal) ████████████████████
+
+Process: gates run in SEPARATE cold terminals, synced via git, NOT this build terminal. (Early on I ran
+/buildvsplan inline here; Chris corrected — "each gate uses a different terminal" — an inline run is a
+heads-up, never the real pass. Saved as a feedback memory.) Each gate got a prompt from here carrying the
+part-6 context + an explicit heads-up that the team_members-role divisor is intentionally back, so it would
+NOT be mis-flagged as a REG-2 regression.
+
+T4 /buildvsplan → 0 blockers, SMOKE-GO.
+  Confirmed: divisor is Sales-Rep-only (not flagged); archive sold-month flows through all six money sinks;
+  loadSnapshot pulls raw_data; owedItems OWED_STAGES gate; repName wiring; token scales match part-5 §D.
+  1 Tier-2 (latent, no HDSP impact): "calls logged" written under displayName but read under repName — equal
+  while team_member.name is set (HDSP), diverges only for a null-name rep → FIXED d8c17fb (log under repName).
+  2 watch, no action: date-less archive sale drops from ALL months (intentional, safer than the import-date
+  bug it kills); money-bar `>=` vs donut `>` at exactly-target (correct as-is: 100% = full ring, "met" copy).
+
+T5 /code-review → 0 ship-blockers. 5 findings:
+  #1 re-engaged $ counted ANY logged job incl. a past-Sold customer's big total → FIXED 08a488c (Has-Bid only).
+  #2 multiple-proposals-per-job double-counts pipeline $ (scoreboard / goneQuiet.value / huntResults) → F52
+     (needs a rule: multi-GC sisters legitimately sum; revisions/versions don't).
+  #3 suppression keys only on customer_id → a null-customer bid never suppresses off the hunt list → F52.
+  #4 proposal-approved notify trigger lives in command-suite-db → VERIFIED live + enabled in prod (non-issue).
+  #5 duplicate todayLocal() (America/Los_Angeles) in follow-up-reminders + send-pay-app → F52 cleanup.
+  Reviewed clean: Invoices/WTCCalculator money-integrity, RLS .select() verifies, delete-preflight cascade,
+  orphan-Sold rep-scoping (excluded per-rep, kept in thermometer), donut over-ring geometry.
+
+T6 /security-review → 0 exploitable-today on the scoped surface (all reads, zero writes/migrations this branch).
+  Aside (NOT introduced here): S13 — proposal_wtc carries a TABLE-level anon SELECT grant, so an invoice-link
+  holder can read cost basis / margin via PostgREST regardless of what the page selects. Pre-existing, already
+  filed (S13, T2), out of scope — confirmed still on the backlog.
+
+
+███ NEW BACKLOG ITEMS (filed this session) ██████████████████████████████████████████████
+
+  F51  T2  Work-a-follow-up + notes thread — action follow-ups, don't just accumulate dates (outreach_log spine)
+  F52  T3  Home money-metric polish (T5 residue): #2 multi-proposal double-count, #3 null-customer suppression,
+           #5 edge-fn todayLocal cleanup — all display-only
+  B70  T2  Archive imports mis-date sold metrics APP-WIDE (Home fixed; SalesDash/forecasts/reports still wrong)
+  (F49 % crew-booked runway pre-existed; updated this session — Home now shows a "Coming soon" placeholder.)
+
+
+███ CLOSED THIS SESSION █████████████████████████████████████████████████████████████████
+
+  F47  Home → Follow-Up screen visual redesign — merged PR #35 (4bb33a4), live in prod, closed in 711e683.
+
+
+███ VERIFICATION ███████████████████████████████████████████████████████████████████████
+
+  - Chris SMOKE-tested on the Vercel preview as a real rep (John Paul, live HDSP data) across the whole screen.
+    That smoke is what caught all 3 accuracy bugs. Corrected numbers verified against the DB read-only
+    (John $618K→$125K, divisor 4→2/target $225K, company thermometer 141%→~30%).
+  - All three COLD gate terminals green: T4 /buildvsplan (0 blockers), T5 /code-review (0 ship-blockers),
+    T6 /security-review (0 exploitable-today).
+  - PENDING: Chris to eyeball the screen on PROD (scmybiz.com) post-deploy — smoke was on the preview URL;
+    prod is the same code but confirm the deploy landed + numbers render.
+
+
+███ NOT TOUCHED THIS SESSION ███████████████████████████████████████████████████████████
+
+  - S13 (proposal_wtc anon SELECT grant) — surfaced by T6 as an aside; PRE-EXISTING, out of scope, already filed.
+  - B70's app-wide fix (SalesDash/reports still mis-date archive sales) — Home-only fix shipped; rest deferred.
+  - F49/F51/F52 — all filed, none started.
+
+
+███ NEXT SESSION POINTERS ██████████████████████████████████████████████████████████████
+
+  1. FIRST: open scmybiz.com and confirm the redesign is live + numbers correct (prod smoke).
+  2. Chris's stated next want (from ERD #45 debrief): apply the dynamic-scoreboard treatment to Call Log,
+     Proposals, and Invoices — "not just a home screen thing anymore." That's a NEW plan-mode initiative.
+  3. When picking up the runway: F49 is plan-mode (/decide → ideate → plan); parked spec in the plan doc
+     amendment parts 1/2/4-§A.
+
+
+███ FILES TO PROBABLY KNOW ABOUT NEXT SESSION ██████████████████████████████████████████
+
+  src/pages/Home.jsx                          — the 6-box composition (money bar, boxes, modals, toast)
+  src/lib/followUp.js                         — homeEngagement / soldMonthOf / huntResults / owedItems /
+                                                activeRepCount / archiveSoldDateById (the money funnel)
+  src/components/followup/                     — MoneyDonut, GoalThermometer, HuntBox, HuntResultsPanel/Modal,
+                                                JobListModal, OutboundCard (RunwayBar no longer rendered)
+  docs/plans/home-engagement-redesign.md      — part-6 amendment is newest truth (divisor + archive fixes)
+  src/lib/tokens.js                           — SP/R/FS scales + softPulse keyframe
+
+
+███ GIT STATE ON CLOSE █████████████████████████████████████████████████████████████████
+
+  Branch: main (in sync with origin/main @ 711e683). Working tree clean.
+  feat/home-follow-up-screen: merged + deleted (local + remote, pruned).
+  Open PRs: none (PR #35 merged). erd-loop: pushed (4971aa6).
+
+
+███ END STATE ██████████████████████████████████████████████████████████████████████████
+
+Merged, deployed to prod, ERD #45 closed. Prod eyeball is the only open loose end. Ready for a fresh session.

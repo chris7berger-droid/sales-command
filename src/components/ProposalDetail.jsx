@@ -1391,6 +1391,12 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                         {r.viewed_at ? <span> · Viewed {fmtD(r.viewed_at.slice(0, 10))}</span> : r.sent_at ? <span style={{ color: C.amber }}> · Not viewed</span> : null}
                       </div>
                     </div>
+                    {!r.viewed_at && (
+                      <button onClick={() => markRecipientReceived(r.id, true)} title="Confirm they got it (hand-delivered / Outlook / downloaded PDF) — clears it from 'Sent – not opened'"
+                        style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 700, color: C.teal, background: "transparent", border: `1px solid ${C.tealBorder}`, borderRadius: 6, padding: "4px 9px", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}>
+                        Mark received
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

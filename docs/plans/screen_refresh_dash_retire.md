@@ -3,7 +3,9 @@
 **Branch:** `feat/screen-refresh-dash-retire`
 **Repo:** sales-command
 **Author:** ideate → plan session, 2026-08-22 (revised post round-1 audit)
-**Status:** Revised after round-1 audit (commit `9c24604`). Scope reduced — see `## Round-1 audit response`.
+**Status:** Revised after round-1 audit (`9c24604`), then **re-scoped 2026-08-22** to add the Home→Call Log
+rebalance (Home = performance-only; Dig/Hunt/Sleepers/Owe move to Call Log; one shared pipeline selector).
+Cash Flow + Analytics decision (delete → AR Command) unchanged. See §1/§2.1/§3.1 and `## Round-1 audit response`.
 
 ---
 
@@ -41,13 +43,21 @@ supersedes the raw mockups where noted.
 
 ## §1 Goal & scope
 
-Bring Call Log, Proposals, and Invoices up to the Home aesthetic (stat row + Needs-Attention row on top of
-the existing tables), and **retire the redundant Sales Dash screen by deleting it outright.**
+Bring Call Log, Proposals, and Invoices up to the Home aesthetic, **rebalance Home and Call Log so Home is
+performance-only and Call Log is the operational command center**, and **retire Sales Dash by deleting it.**
 
 ### In scope
 1. **Aesthetic refresh** — Call Log, Proposals, Invoices: top stat row (+ Needs-Attention where specified),
    built on the Home token/component foundation.
-2. **Delete Sales Dash entirely** — nav item, `/dashboard` route, `SalesDash.jsx` and everything it hosts
+2. **Home → Call Log rebalance [Decision: Chris, 2026-08-22].** Home becomes **performance-only** (hero,
+   personal monthly sales + target, company/team goal, crew runway, three "Your Book" nav cards). Move the
+   operational intelligence **off Home and onto Call Log** — **Where to Dig**, **Where to Hunt** (incl.
+   Biggest Bid Hanging), **Sleepers**, **What You Owe** (overdue bids + follow-ups) — by **relocating the
+   existing F47 `components/followup/*` components**, not rebuilding them. The `useAlerts()` / `followUp.js`
+   engine (snapshot, selectors, suppression/supersede, Log-outcome flow) stays wired; only the render
+   location changes. This partially reverses F47's placement (which put that content on Home) to match the
+   current mockups.
+3. **Delete Sales Dash entirely** — nav item, `/dashboard` route, `SalesDash.jsx` and everything it hosts
    (both modals, GoalCard, pipeline Overview bar, conversion-rate calc), and all references (including the
    Directory chapter).
 
@@ -63,10 +73,12 @@ the existing tables), and **retire the redundant Sales Dash screen by deleting i
 
 ## §2 Locked design decisions
 
-### 2.1 Sales Dash — retire by deletion [Decision: Chris, 2026-08-22]
-Sales Dash is deleted whole. Its only assets worth keeping — the **pipeline stage counts** — move to the
-Call Log stat row (§3.1). Cash Flow + Analytics are **removed** and deferred to AR Command. Home is
-**unchanged** (no new cards, no new `displayRole` usage).
+### 2.1 Sales Dash deletion + Home/Call Log rebalance [Decision: Chris, 2026-08-22]
+Sales Dash is deleted whole; its pipeline stage counts move to the Call Log pipeline row (§3.1). Cash Flow +
+Analytics are **removed** and deferred to AR Command (F53). **Home is NOT static:** it sheds its operational
+intelligence (Where to Dig / Where to Hunt / Sleepers / What You Owe) to Call Log and keeps only performance
++ the three "Your Book" nav cards. Home's "Your Book" and Call Log's pipeline row read **one shared selector**
+(§3.1) so their numbers are identical.
 
 ### 2.2 Call Log stat row — "Your Pipeline"
 `All · Wants Bid ↑ · Has Bid ($ open) · Sold ($ this month)`
@@ -103,15 +115,28 @@ Pattern: a `SectionHeader`-labeled `StatCard` row (+ Needs-Attention row for Pro
 **above** the existing FilterBar + DataTable. No table/detail/routing changes. Reuse tokens + `StatCard` +
 `SectionHeader`; no new white surfaces; no bespoke twins of existing components.
 
-### 3.1 Call Log — `src/pages/CallLog.jsx`
-- Insert "Your Pipeline" stat row above the list.
-- **Counts:** group `call_log` by `stage` (pattern at `SalesDash.jsx:195`). `Has Bid`/`Sold` = all-time;
-  `Wants Bid` = this-month.
-- **Dollars (new):** `Has Bid — $ open` and `Sold — $ this month` computed via **`calcWtcPrice()` over the
-  job's `proposal_wtc`** (as `NewInvoiceModal.jsx:151,597`), never `proposals.total`. Do not copy
-  SalesDash's `p.total` sum — it carries the stale-total bug.
-- **Pagination:** any count/sum over `call_log`/`proposals` uses `supabaseHelpers.fetchAll` (1000-row cap).
-- Manager per-rep view is preserved via the existing Call Log FilterBar "Sales Rep" dropdown.
+### 3.1 Call Log — `src/pages/CallLog.jsx` (operational command center)
+Three layers above the existing table/filters/detail (all untouched): **(a) pipeline row, (b) relocated
+intelligence, (c) table.**
+
+**(a) Pipeline row — shared selector with Home's "Your Book."**
+- The Wants Bid / Has Bid / Sold numbers here are the SAME as Home's "Your Book" cards. Compute them
+  **once** in `followUp.js`; both screens read that selector. Do **not** compute pipeline numbers
+  independently in `CallLog.jsx`.
+- **Counts / timelines (identical on both screens):** `All` / `Wants Bid` / `Has Bid` = all-time open,
+  rep-scoped; **`Sold` = current month** for BOTH count and $, via `creditedSoldMonth()`. "this month" =
+  `tod().slice(0,7)`, never `new Date().getMonth()` on a date column.
+- **Dollars:** via `calcProposalTotal()` / `calcWtcPrice()`, **never `proposals.total`** (Data Rule #2).
+- **De-dup one bid per job (closes F52):** collapse revisions/versions to newest/live; keep multi-GC sisters
+  as separate bids. `followUp.js` sums every proposal per job today (~`:303`/`:422`/`:493`) — fix at the
+  shared selector so Home's Your Book gets the corrected numbers too.
+- Pagination via `supabaseHelpers.fetchAll`; per-rep view via the existing FilterBar "Sales Rep" dropdown.
+
+**(b) Relocated intelligence (moved from Home).** Render, in order under the pipeline row: **Where to Dig**,
+**Where to Hunt** (incl. Biggest Bid Hanging), **Sleepers**, **What You Owe**. Relocate the existing
+`components/followup/*` components as-is; keep the `useAlerts()` / `followUp.js` data + suppression +
+Log-outcome flow wired. Remove them from `Home.jsx` in the same slice; verify no capability is lost and the
+Home + Call Log pipeline numbers match.
 
 ### 3.2 Proposals — `src/pages/Proposals.jsx`
 - Insert top stat row (5 buckets, exhaustive per §2.3) + Needs-Attention row (4).

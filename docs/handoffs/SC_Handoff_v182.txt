@@ -1,0 +1,94 @@
+SC_Handoff_v182 — Home → Follow-Up Screen: plan pass + 3 audit rounds → PLAN FROZEN
+========================================================================================
+Date: 2026-08-11
+Repo/branch: sales-command @ feat/home-follow-up-screen (worktree
+  ~/sales-command-home-follow-up-screen) — plan FROZEN, committed + PUSHED, branch open
+Paired repo: command-suite-db — untouched (two migrations NAMED in the plan, not authored)
+Prior: v181 (ideation locked). Mode: PLAN — no code, plan doc only. Build is NEXT.
+Gates: n/a (no build, no deploys, no data writes)
+Prod DATA writes: NONE.
+
+
+███ WHAT SHIPPED ███████████████████████████████████████████████████████████████
+
+Nothing ran or deployed — this was the PLAN pass + three adversarial audit rounds for
+the Home→Follow-Up Screen. Everything lives in docs/plans/home-follow-up-screen.md,
+now marked ✅ FROZEN — READY TO BUILD. ERD Loop #45 opened (connective piece) and
+stays OPEN until the screen is built + smoke-verified.
+
+  Commits (all on feat/home-follow-up-screen, pushed):
+  - d58a9c5  plan pass: §0 read-verified baseline, §2 file-level design, §3-5, layout
+             + audit manifest (round 1)
+  - 4737912  Plan revision pass 1 — round-1 response (4H/9M/12L, premise-vs-data-reality)
+  - 9ac6e9e  audit manifest (round 2)
+  - 425bf08  Plan revision pass 2 — round-2 response (2H/9M/6L incl 3 regressions,
+             fix-pair-interaction)
+  - b054a16  audit manifest (round 3)
+  - dd65563  Plan revision pass 3 — round-3 response (0H/4M/4L, spec-completion) + FROZEN
+
+  Audit arc: 25 → 17 → 8 findings · Highs 4 → 2 → 0 · regressions 3 → 0. Converged;
+  no round 4 (the trend + the manifest's own freeze rule say build).
+
+
+███ DECISIONS (Chris-ratified) ████████████████████████████████████████████████
+
+  - A1 — Zone 1a "Needs claiming" DROPPED. Intake always assigns a rep
+    (NewInquiryWizard mandatory step), so unassigned inquiries can't exist and the
+    claim list would sit empty. NOT making the rep optional. Zone 1 = bid-due only.
+    Revisit only if an ownerless lead source (web form / shared inbox) is added.
+  - N1/P4 — dormant "last touch" = archive_records.record_date (fallback raw
+    job/Bid Due Date). NOT call_log.created_at (that's the import date → whole book
+    reads "touched today"). NOT raw_data (has no sold-date key).
+  - N5 — gone-quiet signal = newest non-deleted proposal created_at (no schema change).
+  - P2 — per-outcome suppression windows: Left message / Reached-interested = 14d,
+    Reached-not-now = 30d, Bad number = 180d. All finite (mis-log self-heals via a
+    newer superseding row; no delete path).
+  - K2 — footer goals line renders for ALL roles (Sales Dash is Admin/Manager-only).
+
+
+███ VERIFICATION ██████████████████████████████████████████████████████████████
+
+  None — no code. Plan premises were read-verified against real code across all 3
+  rounds (Home.jsx, NewInquiryWizard, CallLogDetail, ImportToLiveWizard, App.jsx,
+  config.js, Settings.jsx, archive components). The audit confirmed delete_customer /
+  merge_customers behavior against the real RPC bodies.
+
+
+███ NOT TOUCHED / OPEN █████████████████████████████████████████████████████████
+
+  - No code, no BACKLOG.md changes, no migrations, no edge functions.
+  - command-suite-db: TWO migrations NAMED but NOT authored (see NEXT).
+  - Adjacent/backlog (audit ADJ3/ADJ4, not folded): logged_by free-text (note only);
+    no-team_member session → empty rep lists (pre-existing). File to BACKLOG if desired.
+
+
+███ NEXT SESSION POINTERS ██████████████████████████████████████████████████████
+
+  1. MIGRATIONS in command-suite-db (rehearse first — shared DB, Field reads it):
+     - Migration A: tenant_config runway cols (schedule_runway_weeks/note/updated_at)
+       + DROP/recreate tenant_config_update policy w/ is_admin_or_manager() (NON-additive,
+       touches live Settings save — the app-side canManage gate on Settings.jsx must
+       ship with it, per P1).
+     - Migration B: outreach_log table — ON DELETE SET NULL FKs, NO check constraint
+       (enforce at-least-one-FK app-side in logOutcome — a CHECK re-breaks delete),
+       4 enumerated RLS policies (omit UPDATE/DELETE), (tenant_id,created_at) index,
+       merge_customers CREATE OR REPLACE from canonical base 20260520100009.
+  2. BUILD session against the frozen plan (build mode, opus 4.8 medium). ~9.5h.
+     Then buildvsplan → preview smoke. Migrations gate Zones 2/3.
+  3. Plan is FROZEN — do not re-audit; next verification is the build itself.
+
+
+███ FILES TO KNOW ██████████████████████████████████████████████████████████████
+
+  - docs/plans/home-follow-up-screen.md — THE frozen plan. §0 baseline, §2 file-level
+    design, §3 files-to-touch, §4 out-of-scope, §5 estimate, layout, round-3 manifest.
+  - docs/plans/assets/*.png — three reference screenshots.
+  - src/pages/Home.jsx — the screen being rewritten (§0.2).
+  - src/lib/followUp.js (NEW), src/lib/alerts.jsx (NEW), src/components/followup/* (NEW)
+    — the build targets named in §3.
+
+
+Git state: feat/home-follow-up-screen @ dd65563 pushed; local == origin (0/0), working
+tree CLEAN. Branch stays OPEN (build stream). Worktree materialized on this machine
+(Mac mini); pull on the laptop with `git fetch` — everything is remote-accessible.
+ERD Loop #45 OPEN (closes at built + smoke-verified screen on preview).

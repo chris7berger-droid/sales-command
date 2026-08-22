@@ -1,0 +1,61 @@
+SC_Handoff_v185 — Home Engagement Redesign: PLAN session complete (6 boxes locked, audit manifest ready, NO build)
+=========================================================================================================
+Date: 2026-08-13
+Repo/branch: sales-command @ feat/home-follow-up-screen — clean, committed + PUSHED (5b1a679). NOT merged.
+Prior: v184 (IDEATE — engagement vision locked, scope ratified). This session turned that vision into a plan.
+Mode: PLAN (opus 4.8, xhigh). Design-only — NOTHING was built or changed in app code this session.
+ERD Loop #45: STILL OPEN (plan agreed; screen not built/accepted yet).
+
+
+███ THE LOOP YOU'RE IN (read this first) █████████████████████████████████████████████████
+
+You are the PLANNING terminal. Run a SEPARATE audit terminal alongside you and bounce between them
+until the plan is A-grade, THEN build. The two terminals sync through GIT, not chat:
+
+  1. AUDIT terminal runs:  /runaudit docs/plans/home-engagement-redesign.md   (read-only, 3 agents)
+  2. It hands findings to ME (this planning terminal). We ratify each: Accept / Partial / Reject (Chris's call).
+  3. For every Accept, I revise the plan doc — re-reading the CITED SOURCE per finding, not the audit's
+     prose — then COMMIT + PUSH.
+  4. Audit terminal does `git pull` and re-runs. Repeat until findings go dry.
+  5. Then a contained BUILD session on the "ships now" column (buildvsplan + preview smoke before merge).
+
+Collision rule: the PLANNING terminal is the only one that writes; the AUDIT terminal stays read-only.
+Push after each revision; pull before each round. Works across the Mac Mini and the laptop identically.
+
+
+███ WHAT THIS SESSION DID ████████████████████████████████████████████████████████████████
+
+Wrote the full build spec, one box at a time, each locked with Chris and committed on its own:
+    docs/plans/home-engagement-redesign.md   ← the plan you OWN (6 boxes + round-1 audit manifest).
+Source of truth for the design stays:
+    docs/HOME_ENGAGEMENT_VISION.md            ← the ratified north-star.
+Engine already ships (followUp.js / alerts.jsx, buildvsplan passed) — this is a PRESENTATION reskin
+of Home.jsx + components/followup/*. ZERO migrations, zero backend.
+
+
+███ THE SCREEN, TOP → BOTTOM (all 6 [LOCKED] 2026-08-13) ████████████████████████████████
+
+  1. YOU — personal win, never displaced. Sold this month → results (+ "best month yet"); else → effort.
+  2. MONEY BAR — money SOLD this month vs company goal ÷ active estimators; pace marker; tap-donut.
+     Carries ALL the pressure (the YOU box never does).
+  3. BUSINESS (shared) — crew runway (existing schedule_runway_weeks; slides up ONLY when critical) +
+     monthly goal thermometer (un-split, no ranking).
+  4. YOUR BOOK — Wants Bid → Has Bid → Sold, $ + count, tap-drills via CallLog.jsx:29 stageFilter.
+  5. WHAT YOU OWE — bids due + self-set follow_up dates; celebrates when clear.
+  6. WHERE TO HUNT — finder serves ONE + refresh; v1 angles #1 Biggest Bid Hanging / #3 Quick Win /
+     #5 You're Their Guy / #2 Almost Yes (needs viewed_at). Dormant/quiet lists beneath.
+
+
+███ ZERO-DB CLAIM (the thing the audit must break) ██████████████████████████████████████
+
+Only trivial reads of columns that ALREADY exist — no migration:
+  - call_log.follow_up          (set at CallLogDetail.jsx:619; add to loadSnapshot select)
+  - proposals viewed_at/sent_at (seen at ProposalDetail.jsx:1377; add to snapshot for angle #2)
+  - team_members active/role    (active-estimator count for the goal split; pattern at ImportToLiveWizard.jsx:219)
+Deferred: QB-$ angles, work_type/city-zip angles, per-week crew detail + 72h/30% critical.
+
+
+███ NEXT ACTION ██████████████████████████████████████████████████████████████████████████
+
+Open the AUDIT terminal and run:  /runaudit docs/plans/home-engagement-redesign.md
+Bring its findings back here to ratify + revise. Loop until dry, then build.

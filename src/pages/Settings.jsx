@@ -665,6 +665,9 @@ export default function Settings({ userRole }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const handleSave = async () => {
+    // The tenant_config UPDATE policy is Admin/Manager-only (P1). Guard the write
+    // so a Sales user can't trigger a save the policy will silently reject.
+    if (!canManage) { setError("Only an admin or manager can change settings."); return; }
     setSaving(true);
     setError(null);
     try {
@@ -697,7 +700,7 @@ export default function Settings({ userRole }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {saved && <span style={{ fontSize: 12, fontWeight: 700, color: C.green, fontFamily: F.ui }}>Saved</span>}
           {error && <span style={{ fontSize: 12, fontWeight: 700, color: C.red, fontFamily: F.ui }}>{error}</span>}
-          <Btn sz="sm" onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Btn>
+          {canManage && <Btn sz="sm" onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Btn>}
         </div>
       } />
 

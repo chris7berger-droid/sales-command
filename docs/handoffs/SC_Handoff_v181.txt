@@ -156,3 +156,96 @@ sales-command    main @ f511aa0 — clean, pushed. All feature branches deleted.
                  Key merges: dc4f0a3 (F44), a2707d4 (T&M void+delete).
 command-suite-db main @ 87f9dda — migration 20260810170000 pushed + live.
 Prod deploys READY for both F44 and the T&M void+delete change.
+
+
+========================================================================================
+NOTE: number collision — a parallel feat/home-follow-up-screen session also wrote a v181
+handoff (below). Both preserved verbatim on merge 2026-08-20. Follow-up sequence continues v182+.
+
+
+
+========================================================================================
+
+
+
+SC_Handoff_v181 — Home → Follow-Up Screen: ideation locked (three-zone structure)
+========================================================================================
+Date: 2026-08-11
+Repo/branch: sales-command @ feat/home-follow-up-screen (worktree
+  ~/sales-command-home-follow-up-screen) — ideation committed + PUSHED, branch open
+Paired repo: command-suite-db — untouched (future runway/outreach fields named, not authored)
+Prior: v180 (T&M Material cost code fixes). Mode: ideate — design conversation only,
+  zero code. Plan pass is NEXT, in a fresh terminal.
+Gates: n/a (no build, no deploys, no data writes)
+Prod DATA writes: NONE.
+
+
+███ WHAT SHIPPED ███████████████████████████████████████████████████████████████
+
+Nothing ran or deployed — this was the ideate pass for converting the Home screen
+into a follow-up/action screen. All decisions locked with Chris beat-by-beat and
+written into docs/plans/home-follow-up-screen.md ("Ideation decisions" section).
+
+  1. e4ad6d4 — Ideate: lock three-zone follow-up screen structure
+     Plan doc updated from PARKED to IDEATED with the full locked structure:
+     - Follow-up TAKES OVER Home (not a layer on top); Sales Dash keeps stats duty.
+     - Zone 1 Alerts: "needs claiming" (New Inquiry, no sales rep → Claim action)
+       + "bid due reached" (Wants Bid, bid_due ≤ today → Update action). List capped
+       at 10 oldest-first with +N expander.
+     - Zone 2 Schedule runway: MANUAL v1 — admin-only "weeks booked ahead" number
+       + note on tenant config; ≥3 green / 2 yellow / <2 red runway bar.
+     - Zone 3 Outbound worklist: expands when runway yellow/red. V1 sources =
+       dormant customers (6 months, hardcoded) + gone-quiet bids. Call cards with
+       log-the-outcome write-back.
+     - "You have N alerts → Take Action" banner lives on every OTHER screen.
+     - Old Home stats compress to a one-row footer strip.
+
+  (b3c98b9, earlier today, was the /detach park: plan stub + 3 reference
+  screenshots into docs/plans/assets/.)
+
+
+███ DECISIONS ██████████████████████████████████████████████████████████████████
+
+  - THE WHY (drives everything): reps are 99.9% inbound-trained and don't look at
+    the schedule 1–2 weeks out; crews risk sitting home while reps busy-work far-out
+    projects. The screen exists to convert thin runway into outbound calls.
+  - Runway is MANUAL on purpose: automating it needs the Schedule + Field builds
+    finished. Chris enters the number weekly; automation is a later phase.
+  - Deferred from v1: sold-job-neighbors/referrals outbound source (fuzzier query).
+
+
+███ VERIFICATION ██████████████████████████████████████████████████████████████
+
+  None — no code was written this session. §0 Baseline was left TODO for the
+  plan pass by design.
+
+
+███ NOT TOUCHED / OPEN █████████████████████████████████████████████████████████
+
+  - No code, no BACKLOG.md changes, no migrations, no edge functions.
+  - v180's open items (editable material line on T&M invoice screen; v179
+    checklist confirmation) — untouched, still open.
+
+
+███ NEXT SESSION POINTERS ██████████████████████████████████████████████████████
+
+  - PLAN pass is ALREADY UNDERWAY in a parallel terminal in THIS SAME worktree
+    (at v181 close, the plan doc carried uncommitted §0 read-verified baseline +
+    §2 expansion in the working tree). That terminal owns committing its own work.
+  - Locked ideation decisions are NOT up for renegotiation in the plan.
+  - Any DB change (runway fields, outreach log) gets authored in command-suite-db.
+
+
+███ FILES TO KNOW ██████████████████████████████████████████████████████████████
+
+  - docs/plans/home-follow-up-screen.md — the plan doc; Ideation decisions = locked
+  - docs/plans/assets/Screenshot 2026-08-11*.png — current Home, old alert list,
+    old Take Action banner (the three references)
+  - src/pages/Home.jsx — the screen being replaced (unread this session, §0 target)
+
+
+Git state: feat/home-follow-up-screen @ e4ad6d4 pushed (+ this handoff commit on
+top). Working tree NOT clean at close: docs/plans/home-follow-up-screen.md carries
+the parallel plan terminal's in-flight edits — deliberately left uncommitted for
+that session to own. Branch stays OPEN by design (work stream for plan + build).
+Worktree ~/sales-command-home-follow-up-screen materialized on this machine (Mac mini).

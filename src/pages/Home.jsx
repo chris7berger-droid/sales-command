@@ -1,237 +1,329 @@
-import { useState, useEffect } from "react";
+// Home — ENGAGEMENT redesign (docs/plans/home-engagement-redesign.md).
+// A reskin of the shipped follow-up engine into the shape of
+// docs/home-engagement-mockup-v1.png. Build order of truth: part 5 > part 4 >
+// parts 1–3 > original boxes. Six boxes, top → bottom:
+//   1. YOU (personal win) — never displaced.
+//   2. Money bar (personal; carries all pace/pressure) + donut.
+//   3. Business, in the open (shared: crew runway AS-IS + goal thermometer).
+//   4. Your book (personal scoreboard: Wants Bid → Has Bid → Sold, tap to drill).
+//   5. What you owe (bids due + self-set follow-ups; celebrates when clear).
+//   6. Where to hunt (opportunity finder + dormant/quiet lists).
+// Style rules (CLAUDE.md): NO white backgrounds; teal buttons get BLACK text.
+import { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { C, F } from "../lib/tokens";
-import { fmt$, tod } from "../lib/utils";
-import { STAGES } from "../lib/mockData";
-import { supabase } from "../lib/supabase";
-import { fetchAll } from "../lib/supabaseHelpers";
-import { getTenantConfig, DEFAULTS } from "../lib/config";
-import StatCard from "../components/StatCard";
-import SectionHeader from "../components/SectionHeader";
+import { C, F, SP, R, FS } from "../lib/tokens";
+import { fmt$ } from "../lib/utils";
+import { useAlerts } from "../lib/alerts";
+import { useTenantConfig } from "../lib/TenantConfigContext";
+import { homeEngagement, owedItems, dormantCustomers, goneQuietBids, huntResults, SUPPRESSION_WINDOWS } from "../lib/followUp";
+import MoneyDonut from "../components/followup/MoneyDonut";
+import GoalThermometer from "../components/followup/GoalThermometer";
+import HuntBox from "../components/followup/HuntBox";
+import HuntResultsPanel from "../components/followup/HuntResultsPanel";
+import HuntResultsModal from "../components/followup/HuntResultsModal";
+import JobListModal from "../components/followup/JobListModal";
+import LogOutcomeModal from "../components/followup/LogOutcomeModal";
+import heroImg from "../assets/hero/hero-01.jpg";
 
-function GoalCard({ label, actual, goal, fmt = v => v, accent = C.teal, onClick, items = [] }) {
-  const pct     = Math.min(Math.round((actual / goal) * 100), 100);
-  const color   = pct >= 100 ? C.green : pct >= 60 ? C.amber : C.red;
-  const barW    = `${pct}%`;
+const LIGHT = "#f3ede1";            // light ink on the dark hero / hunt panels
+const LIGHT_MUTED = "rgba(243,237,225,0.72)";
+const pctOf = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0);
+const OWED_PREVIEW = 8;             // What You Owe caps to the most-overdue few, rest behind an expander
 
+function BoxLabel({ children, right }) {
   return (
-    <div onClick={onClick} style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 12, padding: "20px 24px", boxShadow: "0 2px 8px rgba(28,24,20,0.07)", display: "flex", flexDirection: "column", gap: 12, cursor: onClick ? "pointer" : "default", transition: "transform 0.15s ease" }} onMouseEnter={e => { if (onClick) e.currentTarget.style.transform = "translateY(-2px)"; }} onMouseLeave={e => { if (onClick) e.currentTarget.style.transform = "none"; }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textFaint, fontFamily: F.ui }}>{label}</div>
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8 }}>
-        <div style={{ fontSize: 28, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.02em", lineHeight: 1 }}>
-          {fmt(actual)}
-        </div>
-        <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, paddingBottom: 3 }}>
-          goal {fmt(goal)}
-        </div>
-      </div>
-      <div style={{ height: 8, background: C.border, borderRadius: 6, overflow: "hidden" }}>
-        <div style={{ height: "100%", width: barW, background: color, borderRadius: 6, transition: "width 0.6s cubic-bezier(0.4,0,0.2,1)" }} />
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color, fontFamily: F.ui }}>{pct}% of goal</span>
-        <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>
-          {pct >= 100 ? "Goal reached!" : `${fmt(goal - actual)} to go`}
-        </span>
-      </div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: SP.md }}>
+      <div style={{ fontSize: FS.label, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textLight, fontFamily: F.ui }}>{children}</div>
+      {right}
     </div>
   );
 }
 
-function GoalDrilldown({ title, items, onClose }) {
-  return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(28,24,20,0.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: C.linen, border: `1px solid ${C.borderStrong}`, borderRadius: 14, width: "90%", maxWidth: 540, maxHeight: "70vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(28,24,20,0.25)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
-          <span style={{ fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textHead, fontFamily: F.display }}>{title}</span>
-          <span onClick={onClose} style={{ cursor: "pointer", fontSize: 18, color: C.textMuted, lineHeight: 1 }}>✕</span>
-        </div>
-        <div style={{ overflowY: "auto", padding: "8px 0" }}>
-          {items.length === 0 && (
-            <div style={{ padding: "24px 20px", textAlign: "center", color: C.textFaint, fontFamily: F.ui, fontSize: 13 }}>No items to show</div>
-          )}
-          {items.map((item, i) => (
-            <div key={item.id || item.label || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", background: i % 2 === 0 ? "transparent" : C.linenDeep, gap: 12 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {item.jobName || "Untitled"}
-                </div>
-                <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui, marginTop: 2 }}>
-                  {item.customer}{item.status ? ` · ${item.status}` : ""}
-                </div>
-              </div>
-              {item.total != null && (
-                <div style={{ background: C.dark, color: C.teal, fontSize: 13, fontWeight: 700, fontFamily: F.ui, whiteSpace: "nowrap", borderRadius: 6, padding: "3px 10px" }}>{fmt$(item.total)}</div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function Home({ displayName = "there", displayRole = "Sales Rep" }) {
+export default function Home({ displayName = "there", repName = "" }) {
   const navigate = useNavigate();
+  const cfg = useTenantConfig();
+  const { snapshot, loading, hasSnapshot, firstLoadError, refresh } = useAlerts();
 
-  const [rows,          setRows]          = useState([]);
-  const [monthRows,     setMonthRows]     = useState([]);
-  const [billing,       setBilling]       = useState(0);
-  const [ytd,           setYtd]           = useState(0);
-  const [proposalsSent, setProposalsSent] = useState(0);
-  const [soldTotal,       setSoldTotal]       = useState(0);
-  const [monthItems,    setMonthItems]    = useState([]);
-  const [ytdItems,      setYtdItems]      = useState([]);
-  const [sentItems,     setSentItems]     = useState([]);
-  const [drilldown,     setDrilldown]     = useState(null);
-  const [loading,       setLoading]       = useState(true);
-  const [GOALS, setGOALS] = useState({ monthlyBilling: DEFAULTS.monthly_billing_goal, yearlyBilling: DEFAULTS.yearly_billing_goal, conversionRate: DEFAULTS.conversion_rate_goal, proposalsSent: DEFAULTS.proposals_sent_goal });
+  const [logTarget, setLogTarget] = useState(null);
+  const [showAllOwed, setShowAllOwed] = useState(false);
+  const [showRevivals, setShowRevivals] = useState(false);
+  const [showSold, setShowSold] = useState(false);
+  const [toast, setToast] = useState(null);
 
+  // auto-dismiss the "logged" confirmation
   useEffect(() => {
-    getTenantConfig().then(cfg => setGOALS({
-      monthlyBilling: cfg.monthly_billing_goal,
-      yearlyBilling: cfg.yearly_billing_goal,
-      conversionRate: cfg.conversion_rate_goal,
-      proposalsSent: cfg.proposals_sent_goal,
-    }));
-  }, []);
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
-  useEffect(() => {
-    async function load() {
-      const now   = new Date();
-      const month = now.toISOString().slice(0, 7);
-      const year  = now.getFullYear().toString();
+  const firstName = (repName || displayName).split(" ")[0];
+  const h = new Date().getHours();
+  const partOfDay = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+  const dateStr = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
-      const isRep = !["Admin","Manager"].includes(displayRole);
-      const log = await fetchAll("call_log", "*", {
-        order: { column: "created_at", ascending: false },
-        filters: isRep ? [["eq", "sales_name", displayName]] : [],
-      });
-      setRows(log);
-      const monthLog = log.filter(r => r.created_at?.startsWith(month));
-      setMonthRows(monthLog);
+  const eng = useMemo(
+    () => (snapshot ? homeEngagement(snapshot, { repName, monthlyGoal: cfg.monthly_billing_goal }) : null),
+    [snapshot, repName, cfg.monthly_billing_goal]
+  );
+  const owed = useMemo(() => (snapshot ? owedItems(snapshot, { repName }) : []), [snapshot, repName]);
+  const repGoneQuiet = useMemo(() => (snapshot ? goneQuietBids(snapshot, { repName }) : []), [snapshot, repName]);
+  const repDormant = useMemo(() => (snapshot ? dormantCustomers(snapshot, { repName }) : []), [snapshot, repName]);
+  const results = useMemo(() => (snapshot ? huntResults(snapshot, { repName }) : { callsThisWeek: 0, reengaged: 0 }), [snapshot, repName]);
 
-      const props = await fetchAll(
-        "proposals",
-        'total, approved_at, created_at, status, call_log_id, call_log(sales_name, job_name, display_job_number, customer_name), proposal_wtc(end_date)',
-        { filters: [["is", "deleted_at", null]] }
-      );
-      const filteredProps = isRep ? props.filter(p => p.call_log?.sales_name === displayName) : props;
+  const loadingCore = !hasSnapshot && loading;
 
-      const getEndDate = p => {
-        const wtcs = p.proposal_wtc || [];
-        const dates = wtcs.map(w => w.end_date).filter(Boolean).sort();
-        return dates[dates.length - 1] || null;
-      };
+  const onGoTo = (card) => {
+    if (card.callLogId) navigate(`/calllog/${card.callLogId}`, { state: { from: "/home" } });
+    else if (card.customerId) navigate(`/customers/${card.customerId}`);
+  };
 
-      const toItem = p => ({ jobName: p.call_log?.job_name, jobNumber: p.call_log?.display_job_number, customer: p.call_log?.customer_name || "", total: p.total || 0, status: p.status });
+  if (loadingCore) return <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>Loading…</div>;
+  if (firstLoadError) return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13, color: C.red, fontFamily: F.ui }}>
+      Couldn't load. <button onClick={refresh} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.tealDark, fontWeight: 700, fontFamily: F.ui }}>Retry</button>
+    </div>
+  );
+  if (!eng) return null;
 
-      const monthSold = filteredProps.filter(p => p.status === "Sold" && getEndDate(p)?.startsWith(month));
-      const monthBill = monthSold.reduce((sum, p) => sum + (p.total || 0), 0);
+  const { hero, bar, donut, scoreboard, thermometer, target, soldList } = eng;
 
-      const ytdSold = filteredProps.filter(p => p.status === "Sold" && getEndDate(p)?.startsWith(year));
-      const ytdBill = ytdSold.reduce((sum, p) => sum + (p.total || 0), 0);
+  // ── Money bar geometry ──
+  const fillPct = Math.min(100, target > 0 ? (bar.sold / target) * 100 : 0);
+  const overTarget = target > 0 && bar.sold >= target;
+  const nowD = new Date();
+  const daysLeft = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0).getDate() - nowD.getDate();
+  const paceMove = target <= 0
+    ? "Set a monthly goal in Settings to track your pace."
+    : overTarget
+      ? `Target crushed — ${pctOf(bar.sold, target)}% of your number. Now pile on.`
+      : (() => {
+          const sleepers = repGoneQuiet.length + repDormant.length;
+          return `${fmt$(bar.gap)} to go — land one good job${sleepers ? `, or revive a few of your ${sleepers} sleeper${sleepers === 1 ? "" : "s"}` : ""}.`;
+        })();
 
-      const sentList = filteredProps.filter(p => ["Sent","Viewed","Approved","Signed","Sold","Lost"].includes(p.status));
+  // ── Donut views (2 only: booked-vs-left → big-vs-small) ──
+  const soldTotal = donut.large + donut.medium + donut.small;
+  const donutViews = [
+    {
+      tapLabel: "Booked vs Left", // MoneyDonut shows the NEXT view's tapLabel as the tap hint
+      // % of TARGET, not % of the ring — so beating target reads >100% (549%),
+      // while the ring itself caps at full + the overflow arc.
+      center: `${pctOf(donut.booked, target)}%`,
+      centerSub: "of target",
+      over: donut.over,
+      slices: [
+        { label: "Booked", value: donut.booked, color: C.teal, pct: pctOf(donut.booked, target) },
+        { label: "Left to go", value: donut.left, color: C.linenDeep, pct: pctOf(donut.left, target) },
+      ],
+    },
+    {
+      tapLabel: "By Job Size",
+      center: fmt$(soldTotal),
+      centerSub: "sold",
+      slices: [
+        { label: "Large ≥ $50K", value: donut.large, color: C.tealDeep, pct: pctOf(donut.large, soldTotal) },
+        { label: "Medium $10–50K", value: donut.medium, color: C.teal, pct: pctOf(donut.medium, soldTotal) },
+        { label: "Small < $10K", value: donut.small, color: C.amber, pct: pctOf(donut.small, soldTotal) },
+      ],
+    },
+  ];
 
-      setBilling(monthBill);
-      setYtd(ytdBill);
-      setProposalsSent(sentList.length);
-      setSoldTotal(filteredProps.filter(p => p.status === "Sold").length);
-      setMonthItems(monthSold.map(toItem));
-      setYtdItems(ytdSold.map(toItem));
-      setSentItems(sentList.map(toItem));
-      setLoading(false);
-    }
-    load();
-  }, [displayName, displayRole]);
-
-  const sc = STAGES.reduce((a, s) => ({ ...a, [s]: (["Has Bid","Sold"].includes(s) ? rows : monthRows).filter(r => r.stage === s).length }), {});
-  const pCol         = { "New Inquiry": C.teal, "Wants Bid": C.amber, "Has Bid": C.purple, Sold: C.green, Lost: C.red };
-  const tot          = STAGES.reduce((a, s) => a + (sc[s] || 0), 0) || 1;
-  const bids         = rows.filter(r => r.bid_due === tod()).length;
-  const fups         = rows.filter(r => r.follow_up === tod()).length;
-  const soldCount    = sc["Sold"] || 0;
-  const totalClosed  = soldCount + (sc["Lost"] || 0);
-  const convRate     = totalClosed > 0 ? Math.round((soldCount / totalClosed) * 100) : 0;
-  const firstName    = displayName.split(" ")[0];
+  // ── Scoreboard (Box 4) tiles ──
+  const tiles = [
+    { stage: "Wants Bid", data: scoreboard["Wants Bid"], note: "waiting on your number" },
+    { stage: "Has Bid", data: scoreboard["Has Bid"], note: "out the door" },
+    { stage: "Sold", data: scoreboard.Sold, note: "closed this month" },
+  ];
+  const openTile = (stage) => navigate("/calllog", { state: { stageFilter: stage, sales: repName } });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 26 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: SP.xxl, maxWidth: 1600 }}>
 
-      {/* GREETING */}
-      <div>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textFaint, fontFamily: F.ui, marginBottom: 6 }}>
-          {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+      {/* ── BOX 1 · YOU (personal win) ───────────────────────────────────── */}
+      <div style={{ position: "relative", overflow: "hidden", borderRadius: R.hero, background: C.dark, minHeight: 190 }}>
+        <img src={heroImg} alt="" style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "62%", height: "100%", objectFit: "cover", objectPosition: "center" }} />
+        <div style={{ position: "absolute", inset: 0, background: `linear-gradient(90deg, ${C.dark} 42%, rgba(28,24,20,0.72) 62%, rgba(28,24,20,0.10) 100%)` }} />
+        <div style={{ position: "relative", padding: SP.xl }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: SP.md }}>
+            <span style={{ fontSize: FS.label, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "rgba(243,237,225,0.5)", fontFamily: F.ui }}>{dateStr}</span>
+          </div>
+          <div style={{ fontSize: 17, fontWeight: 600, color: LIGHT, fontFamily: F.body, marginBottom: SP.sm }}>
+            Good {partOfDay}, {firstName}. <span aria-hidden>👋</span>
+          </div>
+
+          {hero.state === "results" && (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: SP.md, flexWrap: "wrap" }}>
+                <span style={{ fontSize: FS.hero, fontWeight: 800, color: LIGHT, fontFamily: F.display, lineHeight: 0.95, letterSpacing: "0.01em" }}>{fmt$(hero.sold)}</span>
+                <span style={{ fontSize: FS.sub, fontWeight: 700, color: C.teal, fontFamily: F.display, textTransform: "uppercase", letterSpacing: "0.04em" }}>sold this month</span>
+                {hero.bestMonth && (
+                  <span style={{ background: C.teal, color: C.dark, fontSize: 11, fontWeight: 800, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em", borderRadius: R.chip, padding: "4px 10px" }}>★ Best month this year</span>
+                )}
+              </div>
+              <div style={{ fontSize: 14, color: LIGHT_MUTED, fontFamily: F.body, marginTop: SP.sm }}>
+                {hero.soldCount} job{hero.soldCount === 1 ? "" : "s"} closed this month — keep stacking wins.
+              </div>
+            </>
+          )}
+
+          {hero.state === "effort" && (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: SP.md, flexWrap: "wrap" }}>
+                <span style={{ fontSize: FS.hero, fontWeight: 800, color: LIGHT, fontFamily: F.display, lineHeight: 0.95 }}>{hero.callsThisMonth}</span>
+                <span style={{ fontSize: FS.sub, fontWeight: 700, color: C.teal, fontFamily: F.display, textTransform: "uppercase", letterSpacing: "0.04em" }}>calls logged this month</span>
+              </div>
+              <div style={{ fontSize: 14, color: LIGHT_MUTED, fontFamily: F.body, marginTop: SP.sm }}>
+                {hero.bidsOut} bid{hero.bidsOut === 1 ? "" : "s"} out — you're doing the work, it's coming.
+              </div>
+            </>
+          )}
+
+          {hero.state === "fresh" && (
+            <div style={{ fontSize: 30, fontWeight: 800, color: LIGHT, fontFamily: F.display, letterSpacing: "0.02em", marginTop: SP.xs, maxWidth: 420 }}>
+              Fresh month — your first move sets the tone.
+            </div>
+          )}
         </div>
-        <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.03em", textTransform: "uppercase", lineHeight: 1.1 }}>
-          Good Morning, {firstName}
-        </h1>
-        <p style={{ margin: "8px 0 0", color: C.textMuted, fontSize: 14.5, fontFamily: F.body }}>
-          Here's the state of the pipeline today.
-        </p>
       </div>
 
-      {/* ALERT BANNER */}
-      {(bids > 0 || fups > 0) && (
-        <div onClick={() => navigate("/calllog", { state: { bidDueFilter: true } })} style={{ background: "rgba(249,168,37,0.12)", border: "1.5px solid rgba(249,168,37,0.4)", borderRadius: 10, padding: "11px 18px", display: "flex", gap: 12, alignItems: "center", cursor: "pointer" }}>
-          <span style={{ fontSize: 16 }}>⚠</span>
-          <span style={{ fontSize: 13.5, color: "#7a5000", fontWeight: 700, fontFamily: F.ui }}>
-            {bids > 0 && `${bids} bid${bids > 1 ? "s" : ""} due today`}
-            {bids > 0 && fups > 0 && <span style={{ margin: "0 10px", opacity: 0.35 }}>|</span>}
-            {fups > 0 && `${fups} follow-up${fups > 1 ? "s" : ""} today`}
-          </span>
-        </div>
-      )}
-
-      {/* STAT CARDS */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(172px,1fr))", gap: 12 }}>
-        <StatCard label="New Inquiries" value={loading ? "…" : sc["New Inquiry"] || 0} sub="This month" accent={C.teal}   onClick={() => navigate("/calllog", { state: { stageFilter: "New Inquiry" } })} />
-        <StatCard label="Wants Bid"     value={loading ? "…" : sc["Wants Bid"]   || 0} sub="Active"     accent={C.amber}  onClick={() => navigate("/calllog", { state: { stageFilter: "Wants Bid" } })} />
-        <StatCard label="Has Bid"       value={loading ? "…" : sc["Has Bid"]     || 0} sub="Awaiting"   accent={C.purple} onClick={() => navigate("/calllog", { state: { stageFilter: "Has Bid" } })} />
-        <StatCard label="Sold"          value={loading ? "…" : soldTotal} sub="All time" accent={C.green}  onClick={() => navigate("/calllog", { state: { stageFilter: "Sold" } })} />
-      </div>
-
-      {/* PIPELINE BAR */}
-      <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: "20px 24px", boxShadow: "0 2px 8px rgba(28,24,20,0.07)" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui, marginBottom: 12 }}>Pipeline Overview</div>
-        <div style={{ display: "flex", gap: 3, height: 7, borderRadius: 6, overflow: "hidden" }}>
-          {STAGES.map(s => {
-            const pct = ((sc[s] || 0) / tot) * 100;
-            return pct > 0 ? <div key={s} style={{ width: `${pct}%`, background: pCol[s], minWidth: 4 }} title={`${s}: ${sc[s]}`} /> : null;
-          })}
-        </div>
-        <div style={{ display: "flex", gap: 18, marginTop: 12, flexWrap: "wrap" }}>
-          {STAGES.map(s => (
-            <div key={s} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: pCol[s] }} />
-              <span style={{ fontSize: 12, color: C.textMuted, fontFamily: F.ui }}>
-                {s} <strong style={{ color: C.textHead }}>{sc[s] || 0}</strong>
+      {/* ── BOX 2 · MONEY BAR (personal; carries pace) + donut ───────────── */}
+      <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: R.card, padding: SP.xl, boxShadow: "0 2px 8px rgba(28,24,20,0.07)" }}>
+        <BoxLabel>Your Money · Month Progress</BoxLabel>
+        <div style={{ display: "flex", gap: SP.xl, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ flex: "1 1 340px", minWidth: 280 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: SP.sm, marginBottom: SP.md }}>
+              <span style={{ fontSize: FS.boxNum, fontWeight: 800, color: C.tealDeep, fontFamily: F.display, lineHeight: 1 }}>{fmt$(bar.sold)}</span>
+              <span style={{ fontSize: 14, color: C.textMuted, fontFamily: F.body }}>of {fmt$(target)} target</span>
+              <span style={{ marginLeft: "auto", background: C.dark, color: C.teal, fontSize: 12, fontWeight: 700, fontFamily: F.ui, borderRadius: 6, padding: "3px 10px", whiteSpace: "nowrap" }}>
+                {daysLeft} day{daysLeft === 1 ? "" : "s"} left
               </span>
             </div>
+            {/* labeled pace marker — plain dark label + a quiet marker line: reads
+                on the linen without alarm. Where an even month would have you today
+                (clamp the label so it can't clip an edge). */}
+            <div style={{ position: "relative", height: 14 }}>
+              <div style={{ position: "absolute", bottom: 0, left: `${Math.min(88, Math.max(12, bar.pacePct))}%`, transform: "translateX(-50%)", whiteSpace: "nowrap", fontSize: 10.5, fontWeight: 600, color: C.textMuted, fontFamily: F.ui }}>
+                Today's goal line ▾
+              </div>
+            </div>
+            <div style={{ position: "relative", height: 14, borderRadius: 7, background: C.linenDeep, overflow: "visible" }}>
+              <div style={{ width: `${fillPct}%`, height: "100%", background: C.teal, borderRadius: 7, transition: "width 0.4s ease" }} />
+              <div title="where you should be by today" style={{ position: "absolute", top: -3, bottom: -3, left: `${Math.min(100, bar.pacePct)}%`, width: 2, background: C.tealDark, borderRadius: 2 }} />
+            </div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginTop: SP.md }}>{paceMove}</div>
+          </div>
+          <div style={{ flex: "0 0 auto", width: 150 }}>
+            <MoneyDonut views={donutViews} />
+          </div>
+        </div>
+      </div>
+
+      {/* ── BOX 3 · THE BUSINESS, IN THE OPEN (shared) ───────────────────── */}
+      {/* Crew runway parked as "coming soon" until the % of crew booked model
+          ships (backlog F49) — the weeks bar isn't the version Chris wants live. */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: SP.lg }}>
+        <div style={{ background: C.linenCard, border: `1px dashed ${C.borderStrong}`, borderRadius: R.card, padding: SP.xl, boxShadow: "0 2px 8px rgba(28,24,20,0.07)", display: "flex", flexDirection: "column", justifyContent: "center", minHeight: 120 }}>
+          <div style={{ fontSize: FS.label, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui, marginBottom: SP.sm }}>Crew Runway</div>
+          <div style={{ fontSize: FS.sub, fontWeight: 800, color: C.textMuted, fontFamily: F.display, letterSpacing: "0.02em" }}>Coming soon</div>
+          <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.body, marginTop: SP.xs }}>% of crew booked — on the way.</div>
+        </div>
+        <GoalThermometer sold={thermometer.sold} goal={thermometer.goal} pct={thermometer.pct} />
+      </div>
+
+      {/* ── BOX 4 · YOUR BOOK (scoreboard / the doorway) ─────────────────── */}
+      <div>
+        <BoxLabel>Your Book</BoxLabel>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: SP.lg }}>
+          {tiles.map(({ stage, data, note }) => (
+            <button key={stage} onClick={() => stage === "Sold" ? setShowSold(true) : openTile(stage)}
+              className={stage === "Wants Bid" && (data?.count || 0) > 0 ? "soft-pulse" : undefined}
+              style={{ textAlign: "left", background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: R.card, padding: SP.xl, cursor: "pointer", boxShadow: "0 2px 8px rgba(28,24,20,0.07)", transition: "transform 0.12s, box-shadow 0.12s" }}
+              onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(28,24,20,0.12)"; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(28,24,20,0.07)"; }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: SP.sm }}>
+                <span style={{ fontSize: FS.label, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>{stage}</span>
+                <span style={{ color: C.tealDark, fontSize: 15 }}>→</span>
+              </div>
+              <div style={{ fontSize: FS.boxNum, fontWeight: 800, color: C.textHead, fontFamily: F.display, lineHeight: 1 }}>{fmt$(data?.amount || 0)}</div>
+              <div style={{ fontSize: 12.5, color: C.textMuted, fontFamily: F.ui, marginTop: SP.xs }}>{data?.count || 0} {note}</div>
+            </button>
           ))}
         </div>
       </div>
 
-      {/* GOAL SCORECARDS */}
-      <SectionHeader title="Monthly Goals" />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 16 }}>
-        <GoalCard label="Monthly Billings"  actual={loading ? 0 : billing}       goal={GOALS.monthlyBilling}  fmt={fmt$}          accent={C.teal}     onClick={() => setDrilldown({ title: "Monthly Billings", items: monthItems })} />
-        <GoalCard label="Yearly Sales"      actual={loading ? 0 : ytd}           goal={GOALS.yearlyBilling}   fmt={fmt$}          accent={C.tealDark} onClick={() => setDrilldown({ title: "Yearly Sales", items: ytdItems })} />
-        <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 12, padding: "20px 24px", boxShadow: "0 2px 8px rgba(28,24,20,0.07)", display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textFaint, fontFamily: F.ui }}>Conversion Rate</div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.02em", lineHeight: 1 }}>
-            {loading ? "…" : `${convRate}%`}
+      {/* ── BOX 5 · WHAT YOU OWE (full-width) ────────────────────────────── */}
+      <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: R.card, padding: SP.xl, boxShadow: "0 2px 8px rgba(28,24,20,0.07)" }}>
+        <BoxLabel right={owed.length > 0 && <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>{owed.length} open · oldest first</span>}>Where To Dig</BoxLabel>
+        {owed.length === 0 ? (
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.tealDark, fontFamily: F.body }}>All caught up — go hunt. 🎯</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
+            {(showAllOwed ? owed : owed.slice(0, OWED_PREVIEW)).map(item => {
+              const overdue = item.date && item.date < new Date().toLocaleDateString("en-CA");
+              return (
+                <button key={`${item.kind}-${item.id}`} onClick={() => navigate(`/calllog/${item.id}`, { state: { from: "/home" } })}
+                  style={{ textAlign: "left", display: "flex", alignItems: "center", gap: SP.md, background: C.linen, border: `1px solid ${C.border}`, borderLeft: `3px solid ${overdue ? C.red : C.amber}`, borderRadius: R.chip, padding: "10px 14px", cursor: "pointer" }}>
+                  <span style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${C.borderStrong}`, flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "45%" }}>{item.title}</span>
+                  <span style={{ fontSize: 12, color: C.textMuted, fontFamily: F.body, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.sub}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: overdue ? C.red : C.amber, fontFamily: F.ui, whiteSpace: "nowrap" }}>
+                    {item.kind === "bid" ? "bid" : "follow-up"} {overdue ? "· overdue" : ""}
+                  </span>
+                </button>
+              );
+            })}
+            {owed.length > OWED_PREVIEW && (
+              <button onClick={() => setShowAllOwed(s => !s)}
+                style={{ alignSelf: "flex-start", marginTop: SP.xs, background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.tealDark, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                {showAllOwed ? "Show fewer ▴" : `+ ${owed.length - OWED_PREVIEW} more ▾`}
+              </button>
+            )}
           </div>
-          <div style={{ fontSize: 12, color: C.textMuted, fontFamily: F.ui }}>
-            {loading ? "" : `${sc["Sold"] || 0} Sold · ${sc["Lost"] || 0} Lost`}
-          </div>
-        </div>
-        <GoalCard label="Proposals Sent"    actual={loading ? 0 : proposalsSent} goal={GOALS.proposalsSent}   fmt={v => `${v}`}   accent={C.purple}   onClick={() => setDrilldown({ title: "Proposals Sent", items: sentItems })} />
+        )}
       </div>
 
-      {drilldown && <GoalDrilldown title={drilldown.title} items={drilldown.items} onClose={() => setDrilldown(null)} />}
+      {/* ── BOX 6 · WHERE TO HUNT + results companion ────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 300px", gap: SP.lg, alignItems: "start" }}>
+        <HuntBox goneQuiet={repGoneQuiet} dormant={repDormant} onGoTo={onGoTo} onLog={setLogTarget} />
+        <HuntResultsPanel callsThisWeek={results.callsThisWeek} reengaged={results.reengaged} onDrill={() => setShowRevivals(true)} />
+      </div>
 
+      {showRevivals && (
+        <HuntResultsModal calls={results.calls} jobs={results.jobs} onGoTo={onGoTo} onClose={() => setShowRevivals(false)} />
+      )}
+
+      {showSold && (
+        <JobListModal title="Sold This Month" subtitle="Closed" items={soldList} onGoTo={onGoTo} onClose={() => setShowSold(false)} />
+      )}
+
+      {/* footer · controllables + manual refresh */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: SP.md }}>
+        <span style={{ fontSize: 12, color: C.textFaint, fontFamily: F.body, fontStyle: "italic" }}>Control the controllables. Pull the door.</span>
+        <button onClick={refresh} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11.5, fontWeight: 700, color: C.tealDark, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em" }}>↻ Refresh</button>
+      </div>
+
+      {logTarget && (
+        <LogOutcomeModal item={logTarget} loggedBy={repName || displayName} onClose={() => setLogTarget(null)}
+          onLogged={(outcome) => {
+            const days = SUPPRESSION_WINDOWS[outcome];
+            const who = logTarget?.name || "That job";
+            setToast(days ? `Logged — ${who} drops off your list, back in ${days} days.` : "Logged.");
+            setLogTarget(null);
+            refresh();
+          }} />
+      )}
+
+      {/* confirmation so a logged call never feels like a job vanished */}
+      {toast && (
+        <div style={{ position: "fixed", bottom: SP.xl, left: "50%", transform: "translateX(-50%)", zIndex: 200,
+          background: C.dark, color: C.teal, fontFamily: F.ui, fontSize: 13, fontWeight: 700,
+          padding: "12px 20px", borderRadius: R.chip, boxShadow: "0 8px 28px rgba(0,0,0,0.4)",
+          display: "flex", alignItems: "center", gap: SP.md }}>
+          <span>✓ {toast}</span>
+          <button onClick={() => setToast(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(48,207,172,0.55)", fontSize: 15, padding: 0 }}>✕</button>
+        </div>
+      )}
     </div>
   );
 }

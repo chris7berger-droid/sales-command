@@ -11,6 +11,10 @@ const DEFAULTS = {
   conversion_rate_goal: 50, proposals_sent_goal: 30,
   stripe_customer_id: null, stripe_subscription_id: null,
   subscription_status: null, subscription_started_at: null,
+  // Schedule runway (Home → Follow-Up Zone 2). Unset on day one — a DB null
+  // overrides these DEFAULTS via {...DEFAULTS, ...data}, so the unset-state
+  // guard lives in RunwayBar, not here (plan E1).
+  schedule_runway_weeks: null, schedule_runway_note: "", schedule_runway_updated_at: null,
 };
 
 let _cache = null;
@@ -40,8 +44,15 @@ export async function refreshTenantConfig() {
 
 export async function updateTenantConfig(partial) {
   const current = await getTenantConfig();
-  const { error } = await supabase.from("tenant_config").update(partial).eq("id", current.id);
+  // Row-count-verify (P1): the tenant_config UPDATE policy is Admin/Manager-only,
+  // and an RLS-blocked update returns NO error and NO rows — checking `error`
+  // alone would report a silent no-op as success ("Saved" but nothing saved).
+  const { data, error } = await supabase
+    .from("tenant_config").update(partial).eq("id", current.id).select();
   if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error("Save was blocked — no rows updated. You may not have permission to change settings.");
+  }
   return refreshTenantConfig();
 }
 

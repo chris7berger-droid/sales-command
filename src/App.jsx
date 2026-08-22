@@ -28,6 +28,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import WelcomeScreen from "./components/WelcomeScreen";
 import RadarLoader from "./components/RadarLoader";
 import { TenantConfigProvider } from "./lib/TenantConfigContext";
+import { AlertsProvider } from "./lib/alerts";
 import Import from "./pages/Import/Import";
 import UpdateBanner from "./components/UpdateBanner";
 import Archive from "./pages/Archive";
@@ -206,12 +207,18 @@ function SalesCommandApp() {
   }
 
   const displayName = teamMember?.name ?? session?.user?.email ?? "";
+  // Clean rep name for per-rep scoping on Home (engagement redesign N1): NO email
+  // fallback, because it seeds CallLog's `sales` filter — an email would match
+  // zero salesOptions. Empty when the member has no name → rep-scoped figures
+  // read empty rather than mis-attributing.
+  const repName = teamMember?.name ?? "";
   const displayRole     = teamMember?.role      ?? "Member";
   const displayInitials = displayName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 
   return (
     <TenantConfigProvider>
     <UpdateBanner />
+    <AlertsProvider displayName={displayName} displayRole={displayRole}>
     <BrowserRouter>
       <Routes>
         <Route path="/suite" element={<SubConCommandPage />} />
@@ -235,7 +242,7 @@ function SalesCommandApp() {
           >
             <Routes>
               <Route path="/" element={<Navigate to="/home" replace />} />
-              <Route path="/home" element={<Home displayName={displayName} displayRole={displayRole} />} />
+              <Route path="/home" element={<Home displayName={displayName} displayRole={displayRole} repName={repName} />} />
               <Route path="/dashboard" element={<SalesDash displayName={displayName} displayRole={displayRole} />} />
               <Route path="/calllog" element={<CallLog teamMember={teamMember} setSubPage={setSubPage} />} />
               <Route path="/calllog/:id" element={<CallLog teamMember={teamMember} setSubPage={setSubPage} />} />
@@ -255,6 +262,7 @@ function SalesCommandApp() {
         } />
       </Routes>
     </BrowserRouter>
+    </AlertsProvider>
     </TenantConfigProvider>
   );
 }

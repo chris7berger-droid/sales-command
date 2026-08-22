@@ -4,8 +4,10 @@ import { supabase } from "../lib/supabase";
 import { fmt$, fmt$c, rateCardLabel } from "../lib/utils";
 import { calcWtcPrice, calcProposalTotal, usesExactPricing } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
+import { useAlerts } from "../lib/alerts";
 
 function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove }) {
+  const { refresh: refreshAlerts } = useAlerts();
   const exactPricing = usesExactPricing(proposal);
   // Cents are shown whenever the price HAS cents — i.e. penny-priced proposals
   // (the 6/26–7/29 window) always print them, regardless of the job's checkbox.
@@ -152,6 +154,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
       setSendDone(true);
       if (proposal.call_log_id) {
         await supabase.from("call_log").update({ stage: "Has Bid" }).eq("id", proposal.call_log_id);
+        refreshAlerts(); // clear the Wants-Bid alert immediately (N4)
       }
     } catch (e) {
       setSendError(e.message || "Send failed. Please try again.");

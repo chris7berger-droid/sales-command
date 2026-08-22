@@ -1,26 +1,32 @@
-// Sales intelligence — "Where to Dig" + "Where to Hunt / Sleepers" + the
-// log-a-call flow. RELOCATED from Home (F47) to Call Log per the 2026-08-22
-// rebalance (Home = performance, Call Log = action). The engine is unchanged:
-// useAlerts() snapshot, followUp.js selectors, suppression/supersede, and the
-// Log-outcome write — only the render location moved. Leaf components
-// (HuntBox / HuntResultsPanel / …) are reused as-is.
+// Sales intelligence — "Where to Dig" (compact priority summary) + "Where to
+// Hunt / Sleepers" + the log-a-call flow. RELOCATED from Home (F47) to Call Log
+// per the 2026-08-22 rebalance (Home = performance, Call Log = action), then laid
+// out two-column to match the mockup. The engine is unchanged: useAlerts()
+// snapshot, followUp.js selectors, suppression/supersede, and the Log-outcome
+// write. Leaf components (HuntBox / HuntResultsPanel / …) are reused as-is.
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { C, F, SP, R } from "../../lib/tokens";
+import { fmt$ } from "../../lib/utils";
 import { useAlerts } from "../../lib/alerts";
-import { owedItems, dormantCustomers, goneQuietBids, huntResults, SUPPRESSION_WINDOWS } from "../../lib/followUp";
+import { owedItems, huntResults, dormantCustomers, goneQuietBids, digSummary, SUPPRESSION_WINDOWS } from "../../lib/followUp";
 import HuntBox from "./HuntBox";
 import HuntResultsPanel from "./HuntResultsPanel";
 import HuntResultsModal from "./HuntResultsModal";
 import LogOutcomeModal from "./LogOutcomeModal";
 
-const OWED_PREVIEW = 8; // What You Owe caps to the most-overdue few, rest behind an expander
+const OWED_PREVIEW = 8;
 
-function BoxLabel({ children, right }) {
+// One compact priority card: numbered badge + title + sub, in the mockup's style.
+function DigCard({ n, color, title, sub }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: SP.md }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textLight, fontFamily: F.ui }}>{children}</div>
-      {right}
+    <div style={{ display: "flex", alignItems: "center", gap: SP.md, background: C.linen, border: `1px solid ${C.border}`, borderLeft: `3px solid ${color}`, borderRadius: R.chip, padding: "14px 16px" }}>
+      <span style={{ flexShrink: 0, width: 34, height: 34, borderRadius: "50%", border: `2px solid ${color}`, color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 800, fontFamily: F.display }}>{n}</span>
+      <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+        <span style={{ fontSize: 14, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>{title}</span>
+        <span style={{ fontSize: 12.5, color: C.textMuted, fontFamily: F.body }}>{sub}</span>
+      </span>
+      <span style={{ color: C.textFaint, fontSize: 18 }}>›</span>
     </div>
   );
 }
@@ -34,64 +40,80 @@ export default function SalesIntelligence({ repName = "", displayName = "" }) {
   const [showRevivals, setShowRevivals] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // auto-dismiss the "logged" confirmation
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 4500);
     return () => clearTimeout(t);
   }, [toast]);
 
+  const dig = useMemo(() => (snapshot ? digSummary(snapshot, { repName }) : null), [snapshot, repName]);
   const owed = useMemo(() => (snapshot ? owedItems(snapshot, { repName }) : []), [snapshot, repName]);
   const repGoneQuiet = useMemo(() => (snapshot ? goneQuietBids(snapshot, { repName }) : []), [snapshot, repName]);
   const repDormant = useMemo(() => (snapshot ? dormantCustomers(snapshot, { repName }) : []), [snapshot, repName]);
   const results = useMemo(() => (snapshot ? huntResults(snapshot, { repName }) : { callsThisWeek: 0, reengaged: 0 }), [snapshot, repName]);
 
-  if (!snapshot) return null;
+  if (!snapshot || !dig) return null;
 
   const onGoTo = (card) => {
     if (card.callLogId) navigate(`/calllog/${card.callLogId}`, { state: { from: "/calllog" } });
     else if (card.customerId) navigate(`/customers/${card.customerId}`);
   };
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: SP.xxl }}>
+  const label = (t, right) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: SP.md }}>
+      <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textLight, fontFamily: F.ui }}>{t}</span>
+      {right}
+    </div>
+  );
 
-      {/* ── WHERE TO DIG (bids due + self-set follow-ups) ─────────────────── */}
-      <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: R.card, padding: SP.xl, boxShadow: "0 2px 8px rgba(28,24,20,0.07)" }}>
-        <BoxLabel right={owed.length > 0 && <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>{owed.length} open · oldest first</span>}>Where To Dig</BoxLabel>
-        {owed.length === 0 ? (
-          <div style={{ fontSize: 15, fontWeight: 700, color: C.tealDark, fontFamily: F.body }}>All caught up — go hunt. 🎯</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: SP.xl, alignItems: "start" }}>
+
+      {/* ── LEFT · WHERE TO DIG (compact priority summary) ────────────────── */}
+      <div>
+        {label("Where To Dig (Priority)", owed.length > 0 && (
+          <button onClick={() => setShowAllOwed(s => !s)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.tealDark, fontFamily: F.ui }}>
+            {showAllOwed ? "Hide list ▴" : `See all (${owed.length}) →`}
+          </button>
+        ))}
+        <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
+          <DigCard n={dig.dueToday.count} color={C.red} title="Bids due today"
+            sub={dig.dueToday.amount > 0 ? `${fmt$(dig.dueToday.amount)} in potential revenue` : "Nothing due today"} />
+          <DigCard n={dig.overdue.count} color={C.red} title="Bids overdue"
+            sub={dig.overdue.amount > 0 ? `${fmt$(dig.overdue.amount)} in potential revenue` : "None overdue"} />
+          <DigCard n={dig.followupsWeek.count} color={C.amber} title="Follow-ups this week"
+            sub="Keep the momentum going" />
+        </div>
+
+        {/* full per-job list, on demand (nothing lost from the relocation) */}
+        {showAllOwed && owed.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: SP.sm, marginTop: SP.md }}>
             {(showAllOwed ? owed : owed.slice(0, OWED_PREVIEW)).map(item => {
               const overdue = item.date && item.date < new Date().toLocaleDateString("en-CA");
               return (
                 <button key={`${item.kind}-${item.id}`} onClick={() => navigate(`/calllog/${item.id}`, { state: { from: "/calllog" } })}
-                  style={{ textAlign: "left", display: "flex", alignItems: "center", gap: SP.md, background: C.linen, border: `1px solid ${C.border}`, borderLeft: `3px solid ${overdue ? C.red : C.amber}`, borderRadius: R.chip, padding: "10px 14px", cursor: "pointer" }}>
-                  <span style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${C.borderStrong}`, flexShrink: 0 }} />
-                  <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "45%" }}>{item.title}</span>
+                  style={{ textAlign: "left", display: "flex", alignItems: "center", gap: SP.md, background: C.linen, border: `1px solid ${C.border}`, borderLeft: `3px solid ${overdue ? C.red : C.amber}`, borderRadius: R.chip, padding: "9px 14px", cursor: "pointer" }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: C.textHead, fontFamily: F.ui, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "48%" }}>{item.title}</span>
                   <span style={{ fontSize: 12, color: C.textMuted, fontFamily: F.body, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.sub}</span>
-                  <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: overdue ? C.red : C.amber, fontFamily: F.ui, whiteSpace: "nowrap" }}>
-                    {item.kind === "bid" ? "bid" : "follow-up"} {overdue ? "· overdue" : ""}
+                  <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: overdue ? C.red : C.amber, fontFamily: F.ui, whiteSpace: "nowrap" }}>
+                    {item.kind === "bid" ? "bid" : "follow-up"}{overdue ? " · overdue" : ""}
                   </span>
                 </button>
               );
             })}
-            {owed.length > OWED_PREVIEW && (
-              <button onClick={() => setShowAllOwed(s => !s)}
-                style={{ alignSelf: "flex-start", marginTop: SP.xs, background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.tealDark, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                {showAllOwed ? "Show fewer ▴" : `+ ${owed.length - OWED_PREVIEW} more ▾`}
-              </button>
-            )}
+          </div>
+        )}
+
+        {/* results companion (kept from Home — "back in motion" this week) */}
+        {(results.callsThisWeek > 0 || results.reengaged > 0) && (
+          <div style={{ marginTop: SP.lg }}>
+            <HuntResultsPanel callsThisWeek={results.callsThisWeek} reengaged={results.reengaged} onDrill={() => setShowRevivals(true)} />
           </div>
         )}
       </div>
 
-      {/* ── WHERE TO HUNT (Biggest Bid Hanging + Sleepers) + results ──────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 300px", gap: SP.lg, alignItems: "start" }}>
-        <HuntBox goneQuiet={repGoneQuiet} dormant={repDormant} onGoTo={onGoTo} onLog={setLogTarget} />
-        <HuntResultsPanel callsThisWeek={results.callsThisWeek} reengaged={results.reengaged} onDrill={() => setShowRevivals(true)} />
-      </div>
+      {/* ── RIGHT · WHERE TO HUNT (Biggest Bid Hanging + Sleepers) ────────── */}
+      <HuntBox goneQuiet={repGoneQuiet} dormant={repDormant} onGoTo={onGoTo} onLog={setLogTarget} />
 
       {showRevivals && (
         <HuntResultsModal calls={results.calls} jobs={results.jobs} onGoTo={onGoTo} onClose={() => setShowRevivals(false)} />

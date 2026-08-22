@@ -146,6 +146,36 @@ export function pipelineStats(snapshot, { repName = "" } = {}) {
   };
 }
 
+// "Where to Dig" summary — the three at-a-glance priority buckets on Call Log
+// (bids due today, bids overdue, follow-ups this week), each with a count and
+// the $ of open bid on the table. Rep-scoped; reuses the same de-duped bid
+// valuation as pipelineStats. The detailed per-job list is owedItems (below).
+export function digSummary(snapshot, { repName = "" } = {}) {
+  const today = tod();
+  const wo = new Date(); wo.setDate(wo.getDate() + 7);
+  const weekOut = ymd(wo);
+  const inRep = c => !repName || c.sales_name === repName;
+
+  const bidsByJob = new Map();
+  for (const p of dedupeBids(snapshot.proposals)) {
+    if (!bidsByJob.has(p.call_log_id)) bidsByJob.set(p.call_log_id, []);
+    bidsByJob.get(p.call_log_id).push(p);
+  }
+  const jobBidValue = id => (bidsByJob.get(id) || []).reduce((s, p) => s + bidValue(p), 0);
+  const sum = js => js.reduce((s, c) => s + jobBidValue(c.id), 0);
+
+  const active = snapshot.callLog.filter(c => !c.archived && inRep(c));
+  const dueTodayJobs = active.filter(c => c.stage === "Wants Bid" && c.bid_due === today);
+  const overdueJobs  = active.filter(c => c.stage === "Wants Bid" && c.bid_due && c.bid_due < today);
+  const followupJobs = active.filter(c => c.follow_up && c.follow_up <= weekOut && OWED_STAGES.has(c.stage));
+
+  return {
+    dueToday: { count: dueTodayJobs.length, amount: sum(dueTodayJobs) },
+    overdue: { count: overdueJobs.length, amount: sum(overdueJobs) },
+    followupsWeek: { count: followupJobs.length },
+  };
+}
+
 // ── Error-surfacing paginated select (fetchAll swallows the error; P5/N7) ────
 async function pagedSelect(client, table, select, { order, filters = [], pageSize = 1000 } = {}) {
   let all = [], from = 0;

@@ -19,7 +19,7 @@ export default function PipelinePanel({ label, footnote, items = [], segments = 
           {label}
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(180px, 1fr))`, gap: SP.lg }}>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: SP.lg }}>
         {items.map(it => {
           const clickable = !!it.onClick;
           return (

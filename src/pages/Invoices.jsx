@@ -9,6 +9,7 @@ import { INV_C, PROP_C } from "../lib/mockData";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 import SectionHeader from "../components/SectionHeader";
 import StatCard from "../components/StatCard";
+import PipelinePanel from "../components/PipelinePanel";
 import DataTable from "../components/DataTable";
 import Checkbox from "../components/Checkbox";
 import Pill from "../components/Pill";
@@ -3189,6 +3190,8 @@ export default function Invoices({ setSubPage, teamMember }) {
   const [lastViewedId, setLastViewedId] = useState(null);
   const [qbConnected, setQbConnected] = useState(null);
   const [filters, setFilters] = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "", invoiceNumber: "" });
+  const [invFilter, setInvFilter] = useState(null); // stat-card lens: "drafted"|"invoiced"|"collected"|"overdue"|"dueWeek"|"paidMonth"
+  const listRef = useRef(null); // the "ALL INVOICES" divider — scroll target on a stat click
 
   const load = async () => {
     const data = await fetchAll(
@@ -3290,8 +3293,26 @@ export default function Invoices({ setSubPage, teamMember }) {
     return dayDiff(inv.due_date);
   };
 
+  // Stat-card lens — matches the exact invoices a clicked stat counted. Voided
+  // rows excluded (they render for audit but aren't in these views' numbers).
+  const matchesInvLens = (inv) => {
+    if (!invFilter) return true;
+    if (inv.voided_at) return false;
+    switch (invFilter) {
+      case "drafted":   return tsMonth(inv.created_at) === thisMonth;
+      case "invoiced":  return dateMonth(inv.sent_at) === thisMonth;
+      case "collected": return tsMonth(inv.paid_at) === thisMonth;
+      case "overdue":   return inv.status !== "Paid" && inv.due_date && inv.due_date < todayStr;
+      case "dueWeek":   return inv.status !== "Paid" && inv.due_date && inv.due_date >= todayStr && inv.due_date <= weekOut;
+      case "paidMonth": return inv.status === "Paid" && tsMonth(inv.paid_at) === thisMonth;
+      default: return true;
+    }
+  };
+  const INV_LENS_LABEL = { drafted: "Drafted this month", invoiced: "Invoiced this month", collected: "Collected this month", overdue: "Overdue", dueWeek: "Due this week", paidMonth: "Paid this month" };
+
   const baseList = isRetentionView ? retentionInvoices : invoices;
   const filteredInvoices = baseList.filter(inv => {
+    if (invFilter && !matchesInvLens(inv)) return false;
     const sales = inv.proposals?.call_log?.sales_name || "";
     const cust = inv.proposals?.call_log?.customer_name || inv.job_name || "";
     const jobNum = inv.proposals?.call_log?.display_job_number || inv.job_id || "";
@@ -3308,6 +3329,22 @@ export default function Invoices({ setSubPage, teamMember }) {
   useEffect(() => {
     if (setSubPage) setSubPage(sel ? "detail" : showModal ? "new" : null);
   }, [sel, showModal]);
+
+  // Reset the stat lens when switching between All Invoices and the Retention view.
+  useEffect(() => { setInvFilter(null); }, [isRetentionView]);
+
+  const scrollToList = () => requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  const pickInvLens = (key) => { setInvFilter(key); scrollToList(); };
+  const flowItems = [
+    { key: "drafted",   glyph: "✎", color: C.teal,  value: loading ? "…" : fmt$c(draftedMonth),   label: "Drafted",   sub: "This month", subColor: "rgba(243,237,225,0.55)", onClick: () => pickInvLens("drafted"),   active: invFilter === "drafted" },
+    { key: "invoiced",  glyph: "➤", color: C.amber, value: loading ? "…" : fmt$c(invoicedMonth),  label: "Invoiced",  sub: "This month", subColor: "rgba(243,237,225,0.55)", onClick: () => pickInvLens("invoiced"),  active: invFilter === "invoiced" },
+    { key: "collected", glyph: "✓", color: C.green, value: loading ? "…" : fmt$c(collectedMonth), label: "Collected", sub: "This month", subColor: "rgba(243,237,225,0.55)", onClick: () => pickInvLens("collected"), active: invFilter === "collected" },
+  ];
+  const retentionItems = [
+    { key: "held", glyph: "$", color: C.teal,  value: fmt$c(totalRetentionHeld), label: "Total Retention Held" },
+    { key: "open", glyph: "▤", color: C.amber, value: String(retentionInvoices.length), label: "Open Pay Apps w/ Retention" },
+    { key: "avg",  glyph: "⌀", color: C.green, value: fmt$c(retentionInvoices.length ? totalRetentionHeld / retentionInvoices.length : 0), label: "Avg per Invoice" },
+  ];
 
   // Remember the invoice you were just in so the list highlights + scrolls to it on the way back
   useEffect(() => { if (sel?.id) setLastViewedId(sel.id); }, [sel?.id]);
@@ -3379,33 +3416,35 @@ export default function Invoices({ setSubPage, teamMember }) {
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
-          {isRetentionView ? (
-            <>
-              <StatCard label="Total Retention Held" value={fmt$c(totalRetentionHeld)} accent={C.teal} />
-              <StatCard label="Open Pay Apps with Retention" value={String(retentionInvoices.length)} accent={C.amber} />
-              <StatCard label="Avg per Invoice" value={fmt$c(retentionInvoices.length ? totalRetentionHeld / retentionInvoices.length : 0)} accent={C.green} />
-            </>
-          ) : (
-            <>
-              <StatCard label="Drafted"   value={fmt$c(draftedMonth)}   sub="This month" accent={C.teal} />
-              <StatCard label="Invoiced"  value={fmt$c(invoicedMonth)}  sub="This month" accent={C.amber} />
-              <StatCard label="Collected" value={fmt$c(collectedMonth)} sub="This month" accent={C.green} />
-            </>
-          )}
-        </div>
+        {isRetentionView ? (
+          <PipelinePanel label="Retention" items={retentionItems} />
+        ) : (
+          <PipelinePanel label="This Month" items={flowItems} />
+        )}
 
         {!isRetentionView && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>Needs Attention</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 16 }}>
-              <StatCard label="Overdue" value={loading ? "…" : overdueCount} accent={C.red}
+              <StatCard label="Overdue" value={loading ? "…" : overdueCount} accent={C.red} onClick={() => pickInvLens("overdue")}
                 sub={overdueCount ? <span style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui }}>{fmt$c(overdueAmt)} overdue</span> : "None past due"} />
-              <StatCard label="Due this week" value={loading ? "…" : dueThisWeek} sub="Next 7 days" accent={C.amber} />
-              <StatCard label="Awaiting retention" value={loading ? "…" : retentionInvoices.length} accent={C.purple}
+              <StatCard label="Due this week" value={loading ? "…" : dueThisWeek} sub="Next 7 days" accent={C.amber} onClick={() => pickInvLens("dueWeek")} />
+              <StatCard label="Awaiting retention" value={loading ? "…" : retentionInvoices.length} accent={C.purple} onClick={() => setSearchParams({ view: "retention" })}
                 sub={retentionInvoices.length ? <span style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui }}>{fmt$c(totalRetentionHeld)} held</span> : "None held"} />
-              <StatCard label="Paid this month" value={loading ? "…" : paidThisMonthCount} sub="Invoices collected" accent={C.green} />
+              <StatCard label="Paid this month" value={loading ? "…" : paidThisMonthCount} sub="Invoices collected" accent={C.green} onClick={() => pickInvLens("paidMonth")} />
             </div>
+          </div>
+        )}
+
+        {/* ── ALL INVOICES workspace — deliberate second section ── */}
+        <div ref={listRef} style={{ display: "flex", alignItems: "baseline", gap: 12, borderTop: `2px solid ${C.borderStrong}`, paddingTop: 18, marginTop: 8, scrollMarginTop: 12 }}>
+          <span style={{ fontSize: 20, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>{isRetentionView ? "Retention" : "All Invoices"}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui, letterSpacing: "0.06em", textTransform: "uppercase" }}>{(isRetentionView ? retentionInvoices.length : activeInvoices.length)} {isRetentionView ? "open" : "active"}</span>
+        </div>
+        {invFilter && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(48,207,172,0.10)", border: `1.5px solid ${C.tealBorder}`, borderRadius: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui }}>Showing: {INV_LENS_LABEL[invFilter]} ({filteredInvoices.length})</span>
+            <button onClick={() => setInvFilter(null)} style={{ background: "none", border: `1.5px solid ${C.tealBorder}`, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: C.tealDeep, cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
           </div>
         )}
 

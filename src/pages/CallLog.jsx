@@ -436,6 +436,20 @@ export default function CallLog({ teamMember, setSubPage }) {
           </>
         )}
       </div>
+      {/* Floating cue → jump to the job list, since the intelligence fills the screen */}
+      <button
+        onClick={() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        title="Jump to your job list"
+        style={{
+          position: "fixed", right: 24, bottom: 24, zIndex: 150,
+          display: "flex", alignItems: "center", gap: 8,
+          background: C.dark, color: C.teal, border: `1.5px solid ${C.teal}`,
+          borderRadius: 24, padding: "10px 18px", cursor: "pointer",
+          fontFamily: F.display, fontSize: 13, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+          boxShadow: "0 6px 20px rgba(0,0,0,0.28)",
+        }}>
+        <span style={{ fontSize: 15 }}>↓</span> {loading ? "Job list" : `${filtered.length} job${filtered.length !== 1 ? "s" : ""}`}
+      </button>
     </>
   );
 }

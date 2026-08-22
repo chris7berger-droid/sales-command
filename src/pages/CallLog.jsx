@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
@@ -30,7 +30,9 @@ export default function CallLog({ teamMember, setSubPage }) {
   const [workTypes, setWorkTypes] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [filter, setFilter]       = useState(navState.stageFilter || "All");
+  const [digFilter, setDigFilter] = useState(null); // null | "dueToday" | "overdue" | "followups" — Where-to-Dig lens
   const [q, setQ]                 = useState("");
+  const tableRef = useRef(null);
   // Seed `sales` from nav-state so a Home "Your Book" tile tap opens THIS rep's
   // own filtered pile, not the company-wide stage list (engagement redesign N1/A2).
   const [filters, setFilters]     = useState({ sales: navState.sales || "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
@@ -178,13 +180,23 @@ export default function CallLog({ teamMember, setSubPage }) {
   }
 
   const todayStr = tod();
+  const woDate = new Date(); woDate.setDate(woDate.getDate() + 7);
+  const weekOutStr = woDate.toLocaleDateString("en-CA");
+  const OWED_STAGES = ["New Inquiry", "Wants Bid", "Has Bid"];
+  const matchesDig = (r) => {
+    if (digFilter === "dueToday") return r.stage === "Wants Bid" && r.bid_due === todayStr;
+    if (digFilter === "overdue")  return r.stage === "Wants Bid" && r.bid_due && r.bid_due < todayStr;
+    if (digFilter === "followups") return r.follow_up && r.follow_up <= weekOutStr && OWED_STAGES.includes(r.stage);
+    return true;
+  };
   const activeRows = rows.filter(r => !r.archived);
   const oldRows = rows.filter(r => r.archived);
   // When searching, search ALL rows so old jobs aren't hidden from search results
   const visibleRows = q ? rows : (showOld ? oldRows : activeRows);
   const filtered = visibleRows.filter(r => {
     if (bidDueFilter && r.bid_due !== todayStr) return false;
-    if (!bidDueFilter && filter !== "All" && r.stage !== filter) return false;
+    if (digFilter && !matchesDig(r)) return false;
+    if (!bidDueFilter && !digFilter && filter !== "All" && r.stage !== filter) return false;
     if (q && !((r.display_job_number || r.job_name)?.toLowerCase().includes(q.toLowerCase()) || String(r.job_number || r.id).includes(q) || (r.customer_name || "").toLowerCase().includes(q.toLowerCase()))) return false;
     if (filters.sales && r.sales_name !== filters.sales) return false;
     if (filters.dateFrom && (r.created_at || "").slice(0, 10) < filters.dateFrom) return false;
@@ -214,21 +226,22 @@ export default function CallLog({ teamMember, setSubPage }) {
   const addedThisWeek = since(null);
   const wbThisWeek = since("Wants Bid");
 
+  const pickStage = (st) => { setFilter(st); setDigFilter(null); };
   const SUB_MUTED = "rgba(243,237,225,0.55)";
   const STAGE_COLOR = { "New Inquiry": C.teal, "Wants Bid": C.amber, "Has Bid": C.purple, Sold: C.green, Lost: C.red };
   const pipelineItems = [
     { key: "All", glyph: "✳", color: C.teal, value: pLoad ? "…" : pipe.all, label: "All",
       sub: pLoad ? "" : addedThisWeek > 0 ? `↑ ${addedThisWeek} this week` : "Active jobs",
-      subColor: addedThisWeek > 0 ? C.teal : SUB_MUTED, onClick: () => setFilter("All"), active: filter === "All" },
+      subColor: addedThisWeek > 0 ? C.teal : SUB_MUTED, onClick: () => pickStage("All"), active: filter === "All" },
     { key: "Wants Bid", glyph: "🔍", color: C.amber, value: pLoad ? "…" : pipe.wantsBid.count, label: "Wants Bid",
       sub: pLoad ? "" : wbThisWeek > 0 ? `↑ ${wbThisWeek} this week` : "In pipeline",
-      subColor: wbThisWeek > 0 ? C.teal : SUB_MUTED, onClick: () => setFilter("Wants Bid"), active: filter === "Wants Bid" },
+      subColor: wbThisWeek > 0 ? C.teal : SUB_MUTED, onClick: () => pickStage("Wants Bid"), active: filter === "Wants Bid" },
     { key: "Has Bid", glyph: "📋", color: C.purple, value: pLoad ? "…" : pipe.hasBid.count, label: "Has Bid",
       sub: pLoad ? "…" : `${fmt$(pipe.hasBid.amount)} open`, subColor: C.teal,
-      onClick: () => setFilter("Has Bid"), active: filter === "Has Bid" },
+      onClick: () => pickStage("Has Bid"), active: filter === "Has Bid" },
     { key: "Sold", glyph: "✓", color: C.green, value: pLoad ? "…" : pipe.sold.count, label: "Sold",
       sub: pLoad ? "…" : `${fmt$(pipe.sold.amount)} this month`, subColor: C.teal,
-      onClick: () => setFilter("Sold"), active: filter === "Sold" },
+      onClick: () => pickStage("Sold"), active: filter === "Sold" },
   ];
   const pipelineSegments = STAGES.map(s => ({ color: STAGE_COLOR[s], value: scopedActive.filter(c => c.stage === s).length }));
 
@@ -236,6 +249,16 @@ export default function CallLog({ teamMember, setSubPage }) {
   // whole company (Chris, 2026-08-22). Empty repName = company-wide.
   const isManager = ["Admin", "Manager"].includes(teamMember?.role);
   const intelRepName = isManager && intelScope === "company" ? "" : myName;
+
+  // A Where-to-Dig card click → filter the table to that bucket + scroll to it.
+  // Scope the table to the same rep the card counted, so the number matches.
+  const onDig = (bucket) => {
+    setDigFilter(bucket);
+    setFilter("All");
+    setFilters(f => ({ ...f, sales: intelRepName || "" }));
+    requestAnimationFrame(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  const DIG_LABEL = { dueToday: "Bids due today", overdue: "Bids overdue", followups: "Follow-ups this week" };
 
   return (
     <>
@@ -265,7 +288,7 @@ export default function CallLog({ teamMember, setSubPage }) {
                 ))}
               </div>
             )}
-            <SalesIntelligence repName={intelRepName} displayName={myName} />
+            <SalesIntelligence repName={intelRepName} displayName={myName} onDig={onDig} />
           </>
         )}
         {/* Active / Old Jobs toggle */}
@@ -304,6 +327,12 @@ export default function CallLog({ teamMember, setSubPage }) {
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(249,168,37,0.12)", border: "1.5px solid rgba(249,168,37,0.4)", borderRadius: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: "#7a5000" }}>⚠ Showing bids due today only</span>
             <button onClick={() => navigate("/calllog", { replace: true })} style={{ background: "none", border: "1.5px solid rgba(249,168,37,0.5)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: "#7a5000", cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
+          </div>
+        )}
+        {digFilter && (
+          <div ref={tableRef} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(48,207,172,0.10)", border: `1.5px solid ${C.tealBorder}`, borderRadius: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui }}>Showing: {DIG_LABEL[digFilter]} ({filtered.length})</span>
+            <button onClick={() => setDigFilter(null)} style={{ background: "none", border: `1.5px solid ${C.tealBorder}`, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: C.tealDeep, cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
           </div>
         )}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>

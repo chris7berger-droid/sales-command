@@ -18,20 +18,24 @@ import LogOutcomeModal from "./LogOutcomeModal";
 const OWED_PREVIEW = 8;
 
 // One compact priority card: numbered badge + title + sub, in the mockup's style.
-function DigCard({ n, color, title, sub }) {
+// Clickable → filters the Call Log table to that bucket.
+function DigCard({ n, color, title, sub, onClick }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: SP.md, background: C.linen, border: `1px solid ${C.border}`, borderLeft: `3px solid ${color}`, borderRadius: R.chip, padding: "14px 16px" }}>
+    <button onClick={onClick} disabled={!onClick}
+      style={{ width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: SP.md, background: C.linen, border: `1px solid ${C.border}`, borderLeft: `3px solid ${color}`, borderRadius: R.chip, padding: "14px 16px", cursor: onClick ? "pointer" : "default", transition: "background 0.12s" }}
+      onMouseEnter={e => { if (onClick) e.currentTarget.style.background = C.linenLight; }}
+      onMouseLeave={e => { if (onClick) e.currentTarget.style.background = C.linen; }}>
       <span style={{ flexShrink: 0, width: 34, height: 34, borderRadius: "50%", border: `2px solid ${color}`, color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 800, fontFamily: F.display }}>{n}</span>
       <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
         <span style={{ fontSize: 14, fontWeight: 700, color: C.textHead, fontFamily: F.ui }}>{title}</span>
         <span style={{ fontSize: 12.5, color: C.textMuted, fontFamily: F.body }}>{sub}</span>
       </span>
       <span style={{ color: C.textFaint, fontSize: 18 }}>›</span>
-    </div>
+    </button>
   );
 }
 
-export default function SalesIntelligence({ repName = "", displayName = "" }) {
+export default function SalesIntelligence({ repName = "", displayName = "", onDig }) {
   const navigate = useNavigate();
   const { snapshot, refresh } = useAlerts();
 
@@ -78,11 +82,14 @@ export default function SalesIntelligence({ repName = "", displayName = "" }) {
         ))}
         <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
           <DigCard n={dig.dueToday.count} color={C.red} title="Bids due today"
-            sub={dig.dueToday.amount > 0 ? `${fmt$(dig.dueToday.amount)} in potential revenue` : "Nothing due today"} />
+            sub={dig.dueToday.amount > 0 ? `${fmt$(dig.dueToday.amount)} in potential revenue` : "Nothing due today"}
+            onClick={() => onDig?.("dueToday")} />
           <DigCard n={dig.overdue.count} color={C.red} title="Bids overdue"
-            sub={dig.overdue.amount > 0 ? `${fmt$(dig.overdue.amount)} in potential revenue` : "None overdue"} />
+            sub={dig.overdue.amount > 0 ? `${fmt$(dig.overdue.amount)} in potential revenue` : "None overdue"}
+            onClick={() => onDig?.("overdue")} />
           <DigCard n={dig.followupsWeek.count} color={C.amber} title="Follow-ups this week"
-            sub="Keep the momentum going" />
+            sub="Keep the momentum going"
+            onClick={() => onDig?.("followups")} />
         </div>
 
         {/* full per-job list, on demand (nothing lost from the relocation) */}

@@ -16,7 +16,6 @@ import { fmt$ } from "../lib/utils";
 import { useAlerts } from "../lib/alerts";
 import { useTenantConfig } from "../lib/TenantConfigContext";
 import { homeEngagement, owedItems, dormantCustomers, goneQuietBids, huntResults, SUPPRESSION_WINDOWS } from "../lib/followUp";
-import RunwayBar from "../components/followup/RunwayBar";
 import MoneyDonut from "../components/followup/MoneyDonut";
 import GoalThermometer from "../components/followup/GoalThermometer";
 import HuntBox from "../components/followup/HuntBox";
@@ -40,12 +39,11 @@ function BoxLabel({ children, right }) {
   );
 }
 
-export default function Home({ displayName = "there", displayRole = "Sales Rep", repName = "" }) {
+export default function Home({ displayName = "there", repName = "" }) {
   const navigate = useNavigate();
   const cfg = useTenantConfig();
   const { snapshot, loading, hasSnapshot, firstLoadError, refresh } = useAlerts();
 
-  const canManage = ["Admin", "Manager"].includes(displayRole);
   const [logTarget, setLogTarget] = useState(null);
   const [showAllOwed, setShowAllOwed] = useState(false);
   const [showRevivals, setShowRevivals] = useState(false);
@@ -222,8 +220,14 @@ export default function Home({ displayName = "there", displayRole = "Sales Rep",
       </div>
 
       {/* ── BOX 3 · THE BUSINESS, IN THE OPEN (shared) ───────────────────── */}
+      {/* Crew runway parked as "coming soon" until the % of crew booked model
+          ships (backlog F49) — the weeks bar isn't the version Chris wants live. */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: SP.lg }}>
-        <RunwayBar canManage={canManage} />
+        <div style={{ background: C.linenCard, border: `1px dashed ${C.borderStrong}`, borderRadius: R.card, padding: SP.xl, boxShadow: "0 2px 8px rgba(28,24,20,0.07)", display: "flex", flexDirection: "column", justifyContent: "center", minHeight: 120 }}>
+          <div style={{ fontSize: FS.label, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui, marginBottom: SP.sm }}>Crew Runway</div>
+          <div style={{ fontSize: FS.sub, fontWeight: 800, color: C.textMuted, fontFamily: F.display, letterSpacing: "0.02em" }}>Coming soon</div>
+          <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.body, marginTop: SP.xs }}>% of crew booked — on the way.</div>
+        </div>
         <GoalThermometer sold={thermometer.sold} goal={thermometer.goal} pct={thermometer.pct} />
       </div>
 

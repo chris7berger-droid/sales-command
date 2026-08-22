@@ -8,7 +8,7 @@ import { calcProposalTotal, usesExactPricing } from "../lib/calc";
 import { creditedSoldMonth, parseArchiveSoldDate } from "../lib/followUp";
 import { STAGES, STAGE_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
-import StatCard from "../components/StatCard";
+import PipelinePanel from "../components/PipelinePanel";
 import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
@@ -218,22 +218,24 @@ export default function CallLog({ teamMember, setSubPage }) {
     return true;
   });
 
-  // ─── "Your Pipeline" stat row ────────────────────────────────────────────
-  // Respects the FilterBar "Sales Rep" dropdown (manager per-rep view, §3.1).
-  // Counts come from call_log.stage; $ comes from calcProposalTotal over the
-  // joined proposal_wtc (never proposals.total).
-  const [thisY, thisM] = todayStr.split("-").map(Number);
-  const thisMonth = `${thisY}-${String(thisM).padStart(2, "0")}`;
-  const lastMonth = thisM === 1 ? `${thisY - 1}-12` : `${thisY}-${String(thisM - 1).padStart(2, "0")}`;
+  // ─── "Your Pipeline" dark hero panel (§3.1, redesigned to the 2026-08-22
+  // mockup) ────────────────────────────────────────────────────────────────
+  // Respects the FilterBar "Sales Rep" dropdown (manager per-rep view). Counts
+  // come from call_log.stage; $ comes from calcProposalTotal over the joined
+  // proposal_wtc (never proposals.total). Cards are clickable → filter the list.
+  const thisMonth = todayStr.slice(0, 7);
+  const wa = new Date(); wa.setDate(wa.getDate() - 7);
+  const weekAgo = wa.toLocaleDateString("en-CA");
   const repFilter = filters.sales;
   const scopedJobs = activeRows.filter(r => !repFilter || r.sales_name === repFilter);
   const jobsInStage = st => scopedJobs.filter(r => r.stage === st);
-  const pipeAll     = scopedJobs.length;
-  const wantsBidNow = jobsInStage("Wants Bid").filter(r => (r.created_at || "").slice(0, 7) === thisMonth).length;
-  const wantsBidPrev = jobsInStage("Wants Bid").filter(r => (r.created_at || "").slice(0, 7) === lastMonth).length;
-  const wantsTrend  = wantsBidNow - wantsBidPrev;
-  const hasBidCount = jobsInStage("Has Bid").length;
-  const soldCount   = jobsInStage("Sold").length;
+  const createdSince = (list, since) => list.filter(r => (r.created_at || "").slice(0, 10) >= since).length;
+  const pipeAll       = scopedJobs.length;
+  const addedThisWeek = createdSince(scopedJobs, weekAgo);
+  const wantsBidTotal = jobsInStage("Wants Bid").length;
+  const wbThisWeek    = createdSince(jobsInStage("Wants Bid"), weekAgo);
+  const hasBidCount   = jobsInStage("Has Bid").length;
+  const soldCount     = jobsInStage("Sold").length;
   const scopedProps = proposals.filter(p => !repFilter || p.call_log?.sales_name === repFilter);
   const propTotal   = p => calcProposalTotal(p.proposal_wtc, parseFloat(p.markup_override_pct) || undefined, usesExactPricing(p));
   const hasBidOpen  = scopedProps.filter(p => p.call_log?.stage === "Has Bid").reduce((s, p) => s + propTotal(p), 0);
@@ -243,28 +245,36 @@ export default function CallLog({ teamMember, setSubPage }) {
   const soldMonth   = scopedProps
     .filter(p => p.status === "Sold" && creditedSoldMonth(p, { archiveIdByJob, archiveSoldDateById }) === thisMonth)
     .reduce((s, p) => s + propTotal(p), 0);
-  const $badge      = txt => <span style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui }}>{txt}</span>;
+
+  const SUB_MUTED = "rgba(243,237,225,0.55)";
+  const STAGE_COLOR = { "New Inquiry": C.teal, "Wants Bid": C.amber, "Has Bid": C.purple, Sold: C.green, Lost: C.red };
+  const pipelineItems = [
+    { key: "All", glyph: "✳", color: C.teal, value: loading ? "…" : pipeAll, label: "All",
+      sub: loading ? "" : addedThisWeek > 0 ? `↑ ${addedThisWeek} this week` : "Active jobs",
+      subColor: addedThisWeek > 0 ? C.teal : SUB_MUTED, onClick: () => setFilter("All"), active: filter === "All" },
+    { key: "Wants Bid", glyph: "🔍", color: C.amber, value: loading ? "…" : wantsBidTotal, label: "Wants Bid",
+      sub: loading ? "" : wbThisWeek > 0 ? `↑ ${wbThisWeek} this week` : "In pipeline",
+      subColor: wbThisWeek > 0 ? C.teal : SUB_MUTED, onClick: () => setFilter("Wants Bid"), active: filter === "Wants Bid" },
+    { key: "Has Bid", glyph: "📋", color: C.purple, value: loading ? "…" : hasBidCount, label: "Has Bid",
+      sub: propsLoaded ? `${fmt$(hasBidOpen)} open` : "…", subColor: C.teal,
+      onClick: () => setFilter("Has Bid"), active: filter === "Has Bid" },
+    { key: "Sold", glyph: "✓", color: C.green, value: loading ? "…" : soldCount, label: "Sold",
+      sub: propsLoaded ? `${fmt$(soldMonth)} this month` : "…", subColor: C.teal,
+      onClick: () => setFilter("Sold"), active: filter === "Sold" },
+  ];
+  const pipelineSegments = STAGES.map(s => ({ color: STAGE_COLOR[s], value: jobsInStage(s).length }));
 
   return (
     <>
       {wizardEl}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <SectionHeader title="Call Log" action={<Btn sz="sm" onClick={() => setShowModal(true)}>+ New Inquiry</Btn>} />
-        {/* "Your Pipeline" stat row (§3.1) — Active Jobs assigned to you */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>
-            Your Pipeline <span style={{ color: C.textFaint, fontWeight: 500, textTransform: "none", letterSpacing: 0, marginLeft: 6 }}>Pipeline shows Active Jobs assigned to you.</span>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 16 }}>
-            <StatCard label="All" value={loading ? "…" : pipeAll} sub="Active jobs" accent={C.teal} />
-            <StatCard label="Wants Bid" value={loading ? "…" : wantsBidNow} accent={C.amber}
-              sub={loading ? "This month" : wantsTrend > 0 ? `↑ ${wantsTrend} vs last month` : wantsTrend < 0 ? `↓ ${Math.abs(wantsTrend)} vs last month` : "This month"} />
-            <StatCard label="Has Bid" value={loading ? "…" : hasBidCount} accent={C.purple}
-              sub={propsLoaded ? $badge(`${fmt$(hasBidOpen)} open`) : "…"} />
-            <StatCard label="Sold" value={loading ? "…" : soldCount} accent={C.green}
-              sub={propsLoaded ? $badge(`${fmt$(soldMonth)} this month`) : "…"} />
-          </div>
-        </div>
+        <PipelinePanel
+          label="Your Pipeline"
+          footnote="Pipeline shows Active Jobs assigned to you"
+          items={pipelineItems}
+          segments={pipelineSegments}
+        />
         {/* Active / Old Jobs toggle */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={() => setShowOld(false)} style={{

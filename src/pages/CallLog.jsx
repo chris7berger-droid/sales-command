@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { C, F } from "../lib/tokens";
-import { supabase } from "../lib/supabase";
+import { supabase, archiveDb } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
-import { fmtD, over, tod } from "../lib/utils";
+import { fmtD, fmt$, over, tod } from "../lib/utils";
+import { calcProposalTotal, usesExactPricing } from "../lib/calc";
+import { creditedSoldMonth, parseArchiveSoldDate } from "../lib/followUp";
 import { STAGES, STAGE_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
+import StatCard from "../components/StatCard";
 import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
@@ -22,6 +25,9 @@ export default function CallLog({ teamMember, setSubPage }) {
   const navState = location.state || {};
   const { refresh: refreshAlerts } = useAlerts();
   const [rows, setRows]           = useState([]);
+  const [proposals, setProposals] = useState([]);   // for "Your Pipeline" $ (via calcProposalTotal, not stale total)
+  const [propsLoaded, setPropsLoaded] = useState(false);
+  const [archiveSoldDateById, setArchiveSoldDateById] = useState(new Map()); // real sold month for archive-lineage jobs (B70)
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
   const [workTypes, setWorkTypes] = useState([]);
@@ -93,9 +99,16 @@ export default function CallLog({ teamMember, setSubPage }) {
       if (data.length < PAGE) break;
       from += PAGE;
     }
-    const pcData = await fetchAll("proposals", "call_log_id, customer_id", {
-      filters: [["is", "deleted_at", null]],
-    });
+    // One proposals fetch feeds both the multi-GC count (below) and the
+    // "Your Pipeline" $ figures. Money is summed via calcProposalTotal over the
+    // joined proposal_wtc — NEVER proposals.total (stale, Data Integrity Rule #2).
+    const pcData = await fetchAll(
+      "proposals",
+      "call_log_id, customer_id, id, status, markup_override_pct, created_at, pricing_anchor_at, " +
+        "call_log(stage, sales_name), " +
+        "proposal_wtc(is_rate_card, prevailing_wage, pw_rate, pw_ot_rate, burden_rate, ot_burden_rate, markup_pct, regular_hours, ot_hours, size, materials, travel, discount)",
+      { filters: [["is", "deleted_at", null]] }
+    );
     const clById = new Map(allLog.map(cl => [cl.id, cl]));
     const gcsByJob = new Map(allLog.map(cl => [cl.id, new Set()]));
     for (const row of pcData) {
@@ -108,7 +121,24 @@ export default function CallLog({ teamMember, setSubPage }) {
       cl._gcCount = gcsByJob.get(cl.id)?.size || 0;
     }
 
+    // Real sold month for archive-lineage jobs — a proposal built on an imported
+    // job carries today's created_at, so "Sold $ this month" must credit it to
+    // the job's REAL sold date instead (B70). Archive fetch failure degrades
+    // gracefully to created_at bucketing (empty map), never blocks the page.
+    const archiveIds = [...new Set(allLog.map(r => r.archive_record_id).filter(Boolean))];
+    if (archiveIds.length) {
+      const { data: legacy } = await archiveDb.from("legacy_records").select("id, raw_data").in("id", archiveIds);
+      const map = new Map();
+      for (const r of legacy || []) {
+        const sold = parseArchiveSoldDate(r.raw_data?.["job/soldDate"]);
+        if (sold) map.set(r.id, sold);
+      }
+      setArchiveSoldDateById(map);
+    }
+
     setRows(allLog);
+    setProposals(pcData);
+    setPropsLoaded(true);
     setTeam(tm || []);
     setCustomers(allCx);
     setWorkTypes(wt || []);
@@ -188,11 +218,53 @@ export default function CallLog({ teamMember, setSubPage }) {
     return true;
   });
 
+  // ─── "Your Pipeline" stat row ────────────────────────────────────────────
+  // Respects the FilterBar "Sales Rep" dropdown (manager per-rep view, §3.1).
+  // Counts come from call_log.stage; $ comes from calcProposalTotal over the
+  // joined proposal_wtc (never proposals.total).
+  const [thisY, thisM] = todayStr.split("-").map(Number);
+  const thisMonth = `${thisY}-${String(thisM).padStart(2, "0")}`;
+  const lastMonth = thisM === 1 ? `${thisY - 1}-12` : `${thisY}-${String(thisM - 1).padStart(2, "0")}`;
+  const repFilter = filters.sales;
+  const scopedJobs = activeRows.filter(r => !repFilter || r.sales_name === repFilter);
+  const jobsInStage = st => scopedJobs.filter(r => r.stage === st);
+  const pipeAll     = scopedJobs.length;
+  const wantsBidNow = jobsInStage("Wants Bid").filter(r => (r.created_at || "").slice(0, 7) === thisMonth).length;
+  const wantsBidPrev = jobsInStage("Wants Bid").filter(r => (r.created_at || "").slice(0, 7) === lastMonth).length;
+  const wantsTrend  = wantsBidNow - wantsBidPrev;
+  const hasBidCount = jobsInStage("Has Bid").length;
+  const soldCount   = jobsInStage("Sold").length;
+  const scopedProps = proposals.filter(p => !repFilter || p.call_log?.sales_name === repFilter);
+  const propTotal   = p => calcProposalTotal(p.proposal_wtc, parseFloat(p.markup_override_pct) || undefined, usesExactPricing(p));
+  const hasBidOpen  = scopedProps.filter(p => p.call_log?.stage === "Has Bid").reduce((s, p) => s + propTotal(p), 0);
+  // "Sold $ this month" credits archive-lineage sales to their REAL sold month,
+  // not the import/proposal-build date (B70) — shared basis via creditedSoldMonth.
+  const archiveIdByJob = new Map(rows.map(r => [r.id, r.archive_record_id]));
+  const soldMonth   = scopedProps
+    .filter(p => p.status === "Sold" && creditedSoldMonth(p, { archiveIdByJob, archiveSoldDateById }) === thisMonth)
+    .reduce((s, p) => s + propTotal(p), 0);
+  const $badge      = txt => <span style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui }}>{txt}</span>;
+
   return (
     <>
       {wizardEl}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <SectionHeader title="Call Log" action={<Btn sz="sm" onClick={() => setShowModal(true)}>+ New Inquiry</Btn>} />
+        {/* "Your Pipeline" stat row (§3.1) — Active Jobs assigned to you */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>
+            Your Pipeline <span style={{ color: C.textFaint, fontWeight: 500, textTransform: "none", letterSpacing: 0, marginLeft: 6 }}>Pipeline shows Active Jobs assigned to you.</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 16 }}>
+            <StatCard label="All" value={loading ? "…" : pipeAll} sub="Active jobs" accent={C.teal} />
+            <StatCard label="Wants Bid" value={loading ? "…" : wantsBidNow} accent={C.amber}
+              sub={loading ? "This month" : wantsTrend > 0 ? `↑ ${wantsTrend} vs last month` : wantsTrend < 0 ? `↓ ${Math.abs(wantsTrend)} vs last month` : "This month"} />
+            <StatCard label="Has Bid" value={loading ? "…" : hasBidCount} accent={C.purple}
+              sub={propsLoaded ? $badge(`${fmt$(hasBidOpen)} open`) : "…"} />
+            <StatCard label="Sold" value={loading ? "…" : soldCount} accent={C.green}
+              sub={propsLoaded ? $badge(`${fmt$(soldMonth)} this month`) : "…"} />
+          </div>
+        </div>
         {/* Active / Old Jobs toggle */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={() => setShowOld(false)} style={{

@@ -49,13 +49,27 @@ const day = (v) => (v ? String(v).slice(0, 10) : null); // normalize date | time
 // mixed formats — ISO 8601 ("2025-02-13T00:01:06.302Z") AND a US locale string
 // ("2/2/2026, 12:00:00 AM"). Return wall-clock YYYY-MM-DD (ISO: take the date
 // part directly to avoid a UTC→local month shift; locale: parse via Date).
-function parseArchiveSoldDate(v) {
+export function parseArchiveSoldDate(v) {
   if (!v) return null;
   const s = String(v);
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : ymd(d);
+}
+
+// The month (YYYY-MM) a Sold proposal is credited to — the ONE basis every
+// "sold this month" surface must share (B70). Archive-lineage jobs (pulled live
+// from the History Locker) credit to their REAL sold date
+// (raw_data['job/soldDate']); normal jobs to proposal.created_at. Unknown
+// archive sold date → null (not counted this month), so an old sale imported
+// this month is never miscounted as new. `archiveIdByJob` maps call_log_id →
+// archive_record_id; `archiveSoldDateById` maps archive id → YYYY-MM-DD (both
+// from loadSnapshot, or an equivalent archive fetch — see CallLog "Your Pipeline").
+export function creditedSoldMonth(proposal, { archiveIdByJob, archiveSoldDateById } = {}) {
+  const arc = archiveIdByJob?.get(proposal.call_log_id);
+  if (arc) { const d = archiveSoldDateById?.get(arc); return d ? d.slice(0, 7) : null; }
+  return day(proposal.created_at)?.slice(0, 7) || null;
 }
 
 // ── Error-surfacing paginated select (fetchAll swallows the error; P5/N7) ────
@@ -350,15 +364,11 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
   const jobSalesName = new Map(snap.callLog.map(c => [c.id, c.sales_name]));
   const jobArchiveId = new Map(snap.callLog.map(c => [c.id, c.archive_record_id]));
 
-  // The month a Sold proposal is credited to. Normal jobs: proposal.created_at.
-  // Archive-lineage jobs (pulled live from the History Locker): their REAL sold
-  // date (raw_data['job/soldDate']), so an old sale imported this month is NOT
-  // miscounted as a new one. Unknown archive date → null (not counted this month).
-  const soldMonthOf = (p) => {
-    const arc = jobArchiveId.get(p.call_log_id);
-    if (arc) { const d = snap.archiveSoldDateById?.get(arc); return d ? d.slice(0, 7) : null; }
-    return day(p.created_at)?.slice(0, 7) || null;
-  };
+  // The month a Sold proposal is credited to — shared with every other
+  // "sold this month" surface via creditedSoldMonth (B70). Normal jobs credit to
+  // proposal.created_at; archive-lineage jobs to their REAL sold date, so an old
+  // sale imported this month is NOT miscounted as new.
+  const soldMonthOf = (p) => creditedSoldMonth(p, { archiveIdByJob: jobArchiveId, archiveSoldDateById: snap.archiveSoldDateById });
 
   // proposal totals grouped by job (for the Wants Bid / Has Bid $ tiles)
   const propsByJob = new Map();

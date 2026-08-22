@@ -3280,13 +3280,27 @@ export default function Invoices({ setSubPage, teamMember }) {
   // ── Needs-Attention (§2.4/§3.3) — actionable counts over activeInvoices.
   // due_date is a `date` col → compare wall-clock strings directly (tod()).
   const todayStr = tod();
-  const weekOut = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toLocaleDateString("en-CA"); })();
   const unpaidActive = activeInvoices.filter(i => i.status !== "Paid" && i.due_date);
   const overdueList = unpaidActive.filter(i => i.due_date < todayStr);
   const overdueCount = overdueList.length;
   const overdueAmt   = overdueList.reduce((a, i) => a + (i.amount || 0), 0);
-  const dueThisWeek  = unpaidActive.filter(i => i.due_date >= todayStr && i.due_date <= weekOut).length;
-  const paidThisMonthCount = activeInvoices.filter(i => i.status === "Paid" && tsMonth(i.paid_at) === thisMonth).length;
+
+  // ── AR aging (QuickBooks buckets) — unpaid, non-voided, with a due date.
+  // daysLate = dayDiff(due_date) (positive = past due). "Current" = not yet due.
+  // The late buckets (1–30…90+) sum to the top-bar "Past Due" total.
+  const AGE_META = [
+    { key: "aging_current", bkt: "current", label: "Current", color: C.teal },
+    { key: "aging_30",  bkt: "b30",  label: "1–30",  color: C.amber },
+    { key: "aging_60",  bkt: "b60",  label: "31–60", color: C.amber },
+    { key: "aging_90",  bkt: "b90",  label: "61–90", color: C.red },
+    { key: "aging_90p", bkt: "b90p", label: "90+",   color: C.red },
+  ];
+  const agingBuckets = { current: { count: 0, amt: 0 }, b30: { count: 0, amt: 0 }, b60: { count: 0, amt: 0 }, b90: { count: 0, amt: 0 }, b90p: { count: 0, amt: 0 } };
+  for (const i of unpaidActive) {
+    const d = dayDiff(i.due_date);
+    const b = d <= 0 ? "current" : d <= 30 ? "b30" : d <= 60 ? "b60" : d <= 90 ? "b90" : "b90p";
+    agingBuckets[b].count++; agingBuckets[b].amt += (i.amount || 0);
+  }
 
   const aging = (inv) => {
     if (!inv.due_date || inv.status === "Paid") return null;
@@ -3298,17 +3312,24 @@ export default function Invoices({ setSubPage, teamMember }) {
   const matchesInvLens = (inv) => {
     if (!invFilter) return true;
     if (inv.voided_at) return false;
+    const late = inv.status !== "Paid" && inv.due_date ? dayDiff(inv.due_date) : null;
     switch (invFilter) {
       case "drafted":   return tsMonth(inv.created_at) === thisMonth;
       case "invoiced":  return dateMonth(inv.sent_at) === thisMonth;
       case "collected": return tsMonth(inv.paid_at) === thisMonth;
-      case "overdue":   return inv.status !== "Paid" && inv.due_date && inv.due_date < todayStr;
-      case "dueWeek":   return inv.status !== "Paid" && inv.due_date && inv.due_date >= todayStr && inv.due_date <= weekOut;
-      case "paidMonth": return inv.status === "Paid" && tsMonth(inv.paid_at) === thisMonth;
+      case "overdue":   return late != null && late > 0;
+      case "aging_current": return late != null && late <= 0;
+      case "aging_30":  return late != null && late >= 1 && late <= 30;
+      case "aging_60":  return late != null && late >= 31 && late <= 60;
+      case "aging_90":  return late != null && late >= 61 && late <= 90;
+      case "aging_90p": return late != null && late > 90;
       default: return true;
     }
   };
-  const INV_LENS_LABEL = { drafted: "Drafted this month", invoiced: "Invoiced this month", collected: "Collected this month", overdue: "Overdue", dueWeek: "Due this week", paidMonth: "Paid this month" };
+  const INV_LENS_LABEL = {
+    drafted: "Drafted this month", invoiced: "Sent this month", collected: "Paid this month", overdue: "Past due",
+    aging_current: "Current (not due yet)", aging_30: "1–30 days late", aging_60: "31–60 days late", aging_90: "61–90 days late", aging_90p: "90+ days late",
+  };
 
   const baseList = isRetentionView ? retentionInvoices : invoices;
   const filteredInvoices = baseList.filter(inv => {
@@ -3335,10 +3356,12 @@ export default function Invoices({ setSubPage, teamMember }) {
 
   const scrollToList = () => requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   const pickInvLens = (key) => { setInvFilter(key); scrollToList(); };
+  const MUTED = "rgba(243,237,225,0.55)";
   const flowItems = [
-    { key: "drafted",   glyph: "✎", color: C.teal,  value: loading ? "…" : fmt$c(draftedMonth),   label: "Drafted",   sub: "This month", subColor: "rgba(243,237,225,0.55)", onClick: () => pickInvLens("drafted"),   active: invFilter === "drafted" },
-    { key: "invoiced",  glyph: "➤", color: C.amber, value: loading ? "…" : fmt$c(invoicedMonth),  label: "Invoiced",  sub: "This month", subColor: "rgba(243,237,225,0.55)", onClick: () => pickInvLens("invoiced"),  active: invFilter === "invoiced" },
-    { key: "collected", glyph: "✓", color: C.green, value: loading ? "…" : fmt$c(collectedMonth), label: "Collected", sub: "This month", subColor: "rgba(243,237,225,0.55)", onClick: () => pickInvLens("collected"), active: invFilter === "collected" },
+    { key: "drafted",   glyph: "✎", color: C.teal,  value: loading ? "…" : fmt$c(draftedMonth),   label: "Drafted",  sub: "This month", subColor: MUTED, onClick: () => pickInvLens("drafted"),   active: invFilter === "drafted" },
+    { key: "invoiced",  glyph: "➤", color: C.amber, value: loading ? "…" : fmt$c(invoicedMonth),  label: "Sent",     sub: "This month", subColor: MUTED, onClick: () => pickInvLens("invoiced"),  active: invFilter === "invoiced" },
+    { key: "collected", glyph: "✓", color: C.green, value: loading ? "…" : fmt$c(collectedMonth), label: "Paid",     sub: "This month", subColor: MUTED, onClick: () => pickInvLens("collected"), active: invFilter === "collected" },
+    { key: "overdue",   glyph: "!", color: C.red,   value: loading ? "…" : fmt$c(overdueAmt),     label: "Past Due", sub: overdueCount ? `${overdueCount} invoice${overdueCount !== 1 ? "s" : ""}` : "All current", subColor: MUTED, onClick: () => pickInvLens("overdue"), active: invFilter === "overdue" },
   ];
   const retentionItems = [
     { key: "held", glyph: "$", color: C.teal,  value: fmt$c(totalRetentionHeld), label: "Total Retention Held" },
@@ -3422,19 +3445,23 @@ export default function Invoices({ setSubPage, teamMember }) {
           <PipelinePanel label="This Month" items={flowItems} />
         )}
 
-        {!isRetentionView && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>Needs Attention</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 16 }}>
-              <StatCard label="Overdue" value={loading ? "…" : overdueCount} accent={C.red} onClick={() => pickInvLens("overdue")}
-                sub={overdueCount ? <span style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui }}>{fmt$c(overdueAmt)} overdue</span> : "None past due"} />
-              <StatCard label="Due this week" value={loading ? "…" : dueThisWeek} sub="Next 7 days" accent={C.amber} onClick={() => pickInvLens("dueWeek")} />
-              <StatCard label="Awaiting retention" value={loading ? "…" : retentionInvoices.length} accent={C.purple} onClick={() => setSearchParams({ view: "retention" })}
-                sub={retentionInvoices.length ? <span style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui }}>{fmt$c(totalRetentionHeld)} held</span> : "None held"} />
-              <StatCard label="Paid this month" value={loading ? "…" : paidThisMonthCount} sub="Invoices collected" accent={C.green} onClick={() => pickInvLens("paidMonth")} />
+        {!isRetentionView && (() => {
+          const badge = txt => <span style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui }}>{txt}</span>;
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>Receivables Aging — how late is the money</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 16 }}>
+                {AGE_META.map(m => (
+                  <StatCard key={m.key} label={m.label} value={loading ? "…" : agingBuckets[m.bkt].count} accent={m.color}
+                    onClick={() => pickInvLens(m.key)}
+                    sub={agingBuckets[m.bkt].amt > 0 ? badge(fmt$c(agingBuckets[m.bkt].amt)) : (m.bkt === "current" ? "Not due yet" : "None")} />
+                ))}
+                <StatCard label="Awaiting retention" value={loading ? "…" : retentionInvoices.length} accent={C.purple} onClick={() => setSearchParams({ view: "retention" })}
+                  sub={retentionInvoices.length ? badge(`${fmt$c(totalRetentionHeld)} held`) : "None held"} />
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ── ALL INVOICES workspace — deliberate second section ── */}
         <div ref={listRef} style={{ display: "flex", alignItems: "baseline", gap: 12, borderTop: `2px solid ${C.borderStrong}`, paddingTop: 18, marginTop: 8, scrollMarginTop: 12 }}>

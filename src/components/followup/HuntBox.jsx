@@ -80,43 +80,36 @@ export default function HuntBox({ goneQuiet, dormant, onGoTo, onLog }) {
               <span style={{ fontSize: 15, fontWeight: 800, color: C.teal, fontFamily: F.display }}>{fmt$(served.card.value)}</span>
             )}
           </div>
-          {/* content side-by-side: message on the left, actions on the right, so the tile stays short */}
-          <div style={{ display: "flex", gap: SP.lg, alignItems: "center", flexWrap: "wrap" }}>
-            <div style={{ flex: "1 1 240px", minWidth: 0, display: "flex", flexDirection: "column", gap: SP.xs }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#f3ede1", fontFamily: F.display, letterSpacing: "0.02em", lineHeight: 1.1 }}>
-                {served.card.name || served.card.lastJob || "—"} has gone dark.
-              </div>
-              <div style={{ fontSize: 13, color: "rgba(243,237,225,0.72)", fontFamily: F.body, lineHeight: 1.4 }}>
-                {served.card.why}
-              </div>
-            </div>
-            <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", gap: SP.sm, alignItems: "flex-start" }}>
-              <Btn v="teal" sz="md" onClick={() => onGoTo(served.card)}>Go to this job</Btn>
-              <div style={{ display: "flex", alignItems: "center", gap: SP.sm }}>
-                <button onClick={advance} title="Serve the next angle"
-                  style={{ background: "transparent", border: `1.5px solid ${C.tealBorder}`, color: C.teal, borderRadius: R.chip, padding: "6px 12px", cursor: "pointer", fontFamily: F.display, fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  ↻ Refresh
-                </button>
-                {cursor > 0 && (
-                  <button onClick={back} title="Step back"
-                    style={{ background: "transparent", border: "none", color: "rgba(243,237,225,0.45)", cursor: "pointer", fontFamily: F.ui, fontSize: 12, fontWeight: 700 }}>
-                    ← back
-                  </button>
-                )}
-                <button
-                  onClick={() => (pinned === cursor ? setPinned(null) : setPinned(cursor))}
-                  title={pinned === cursor ? "Unpin" : "Pin to return to this one"}
-                  style={{ background: "transparent", border: "none", color: pinned === cursor ? C.teal : "rgba(243,237,225,0.35)", cursor: "pointer", fontSize: 15 }}>
-                  {pinned === cursor ? "★" : "☆"}
-                </button>
-                {pinned != null && pinned !== cursor && (
-                  <button onClick={() => setCursor(pinned)}
-                    style={{ background: "transparent", border: "none", color: C.teal, cursor: "pointer", fontFamily: F.ui, fontSize: 12, fontWeight: 700 }}>
-                    ★ pinned
-                  </button>
-                )}
-              </div>
-            </div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: "#f3ede1", fontFamily: F.display, letterSpacing: "0.02em", lineHeight: 1.1 }}>
+            {served.card.name || served.card.lastJob || "—"} has gone dark.
+          </div>
+          <div style={{ fontSize: 13.5, color: "rgba(243,237,225,0.72)", fontFamily: F.body, lineHeight: 1.4 }}>
+            {served.card.why}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: SP.sm, marginTop: SP.xs, flexWrap: "wrap" }}>
+            <Btn v="teal" sz="md" onClick={() => onGoTo(served.card)}>Go to this job</Btn>
+            <button onClick={advance} title="Serve the next angle"
+              style={{ background: "transparent", border: `1.5px solid ${C.tealBorder}`, color: C.teal, borderRadius: R.chip, padding: "7px 14px", cursor: "pointer", fontFamily: F.display, fontSize: 12.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              ↻ Refresh
+            </button>
+            {cursor > 0 && (
+              <button onClick={back} title="Step back"
+                style={{ background: "transparent", border: "none", color: "rgba(243,237,225,0.45)", cursor: "pointer", fontFamily: F.ui, fontSize: 12, fontWeight: 700 }}>
+                ← back
+              </button>
+            )}
+            <button
+              onClick={() => (pinned === cursor ? setPinned(null) : setPinned(cursor))}
+              title={pinned === cursor ? "Unpin" : "Pin to return to this one"}
+              style={{ marginLeft: "auto", background: "transparent", border: "none", color: pinned === cursor ? C.teal : "rgba(243,237,225,0.35)", cursor: "pointer", fontSize: 15 }}>
+              {pinned === cursor ? "★" : "☆"}
+            </button>
+            {pinned != null && pinned !== cursor && (
+              <button onClick={() => setCursor(pinned)}
+                style={{ background: "transparent", border: "none", color: C.teal, cursor: "pointer", fontFamily: F.ui, fontSize: 12, fontWeight: 700 }}>
+                ★ back to pinned
+              </button>
+            )}
           </div>
         </div>
       ) : (

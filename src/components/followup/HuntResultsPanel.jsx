@@ -29,10 +29,13 @@ function Stat({ value, label, sub, count, onClick }) {
 export default function HuntResultsPanel({ callsThisWeek = 0, reengaged = 0, onDrill }) {
   const worked = callsThisWeek > 0;
   return (
-    <div style={{ background: C.dark, borderRadius: R.hero, padding: SP.xl, display: "flex", flexDirection: "column", gap: SP.xl, alignSelf: "start" }}>
+    <div style={{ background: C.dark, borderRadius: R.hero, padding: SP.xl, display: "flex", flexDirection: "column", gap: SP.lg, alignSelf: "start" }}>
       <div style={{ fontSize: FS.label, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.teal, fontFamily: F.ui }}>Waking Up the Sleepers</div>
-      <Stat value={callsThisWeek} label="Calls logged" count={callsThisWeek} onClick={() => onDrill?.("calls")} />
-      <Stat value={fmt$(reengaged)} label="Back in motion" sub="stalled bids you re-engaged" count={callsThisWeek} onClick={() => onDrill?.("jobs")} />
+      {/* two stats side-by-side so the card stays short, not a tall stack */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: SP.lg }}>
+        <Stat value={callsThisWeek} label="Calls logged" count={callsThisWeek} onClick={() => onDrill?.("calls")} />
+        <Stat value={fmt$(reengaged)} label="Back in motion" sub="stalled bids you re-engaged" count={callsThisWeek} onClick={() => onDrill?.("jobs")} />
+      </div>
       <div style={{ borderTop: `1px solid ${C.darkBorder}`, paddingTop: SP.md, fontSize: 12.5, color: "rgba(243,237,225,0.6)", fontFamily: F.body, lineHeight: 1.4 }}>
         {worked ? "Every sleeper you wake moves a bid off the dead pile. Keep pulling." : "Log a call to start waking up stalled money."}
       </div>

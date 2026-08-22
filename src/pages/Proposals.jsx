@@ -153,7 +153,7 @@ export default function Proposals({ teamMember, setSubPage }) {
   }
 
   // Needs-Attention (opened-aware, via embedded proposal_recipients.viewed_at).
-  const opened = p => (p.proposal_recipients || []).some(r => r.viewed_at);
+  // `opened` is the module-level helper (also used by matchesLens above).
   const sentNotOpened  = proposals.filter(p => p.status === "Sent" && !opened(p)).length;
   const openedNoResp   = proposals.filter(p => opened(p) && !["Signed", "Sold", "Lost"].includes(p.status)).length;
   const draftsToFinish = bucketCounts.Draft;

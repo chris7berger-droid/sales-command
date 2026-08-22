@@ -3254,15 +3254,36 @@ export default function Invoices({ setSubPage, teamMember }) {
 
   // Voided rows still render in the list (audit trail) but are excluded from totals.
   const activeInvoices = invoices.filter(i => !i.voided_at);
-  const drafted = activeInvoices.filter(i => i.status === "New").reduce((a, i) => a + (i.amount || 0), 0);
-  const pending = activeInvoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);
-  const paid    = activeInvoices.filter(i => i.status === "Paid").reduce((a, i) => a + (i.amount || 0), 0);
+
+  // ── This-month flow row (§2.4/§3.3) — monthly FLOWS, not a partition; they do
+  // NOT sum to a fixed total. Wall-clock month, column-type aware: `sent_at` /
+  // `due_date` are `date` cols (slice directly — already wall-clock); `created_at`
+  // / `paid_at` are `timestamptz` (convert to LOCAL date first, else a payment
+  // after 5pm PT misbuckets into next month). Never new Date().getMonth().
+  const thisMonth = tod().slice(0, 7);
+  const tsMonth   = v => (v ? new Date(v).toLocaleDateString("en-CA").slice(0, 7) : null); // timestamptz → local YYYY-MM
+  const dateMonth = v => (v ? String(v).slice(0, 7) : null);                                // date col → wall-clock YYYY-MM
+  const sumAmt    = list => list.reduce((a, i) => a + (i.amount || 0), 0);
+  const draftedMonth   = sumAmt(activeInvoices.filter(i => tsMonth(i.created_at) === thisMonth)); // created this month
+  const invoicedMonth  = sumAmt(activeInvoices.filter(i => dateMonth(i.sent_at) === thisMonth));  // sent this month
+  const collectedMonth = sumAmt(activeInvoices.filter(i => tsMonth(i.paid_at) === thisMonth));    // paid this month
 
   // Retention outstanding is a billing question, not a payment question: an invoice can be
   // fully Paid on its net while its retention has never been billed. Gate on retention_released
   // (same flag the Bill Retention button uses) so the two can't diverge.
   const retentionInvoices = activeInvoices.filter(i => parseFloat(i.retention_amount) > 0 && !i.retention_released);
   const totalRetentionHeld = retentionInvoices.reduce((a, i) => a + (parseFloat(i.retention_amount) || 0), 0);
+
+  // ── Needs-Attention (§2.4/§3.3) — actionable counts over activeInvoices.
+  // due_date is a `date` col → compare wall-clock strings directly (tod()).
+  const todayStr = tod();
+  const weekOut = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toLocaleDateString("en-CA"); })();
+  const unpaidActive = activeInvoices.filter(i => i.status !== "Paid" && i.due_date);
+  const overdueList = unpaidActive.filter(i => i.due_date < todayStr);
+  const overdueCount = overdueList.length;
+  const overdueAmt   = overdueList.reduce((a, i) => a + (i.amount || 0), 0);
+  const dueThisWeek  = unpaidActive.filter(i => i.due_date >= todayStr && i.due_date <= weekOut).length;
+  const paidThisMonthCount = activeInvoices.filter(i => i.status === "Paid" && tsMonth(i.paid_at) === thisMonth).length;
 
   const aging = (inv) => {
     if (!inv.due_date || inv.status === "Paid") return null;
@@ -3367,12 +3388,26 @@ export default function Invoices({ setSubPage, teamMember }) {
             </>
           ) : (
             <>
-              <StatCard label="Total Drafted" value={fmt$c(drafted)} accent={C.teal} />
-              <StatCard label="Total Pending" value={fmt$c(pending)} accent={C.amber} />
-              <StatCard label="Total Paid"    value={fmt$c(paid)}    accent={C.green} />
+              <StatCard label="Drafted"   value={fmt$c(draftedMonth)}   sub="This month" accent={C.teal} />
+              <StatCard label="Invoiced"  value={fmt$c(invoicedMonth)}  sub="This month" accent={C.amber} />
+              <StatCard label="Collected" value={fmt$c(collectedMonth)} sub="This month" accent={C.green} />
             </>
           )}
         </div>
+
+        {!isRetentionView && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>Needs Attention</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 16 }}>
+              <StatCard label="Overdue" value={loading ? "…" : overdueCount} accent={C.red}
+                sub={overdueCount ? <span style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui }}>{fmt$c(overdueAmt)} overdue</span> : "None past due"} />
+              <StatCard label="Due this week" value={loading ? "…" : dueThisWeek} sub="Next 7 days" accent={C.amber} />
+              <StatCard label="Awaiting retention" value={loading ? "…" : retentionInvoices.length} accent={C.purple}
+                sub={retentionInvoices.length ? <span style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui }}>{fmt$c(totalRetentionHeld)} held</span> : "None held"} />
+              <StatCard label="Paid this month" value={loading ? "…" : paidThisMonthCount} sub="Invoices collected" accent={C.green} />
+            </div>
+          </div>
+        )}
 
         <FilterBar
           filters={filters}

@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { C, F } from "../lib/tokens";
-import { supabase, archiveDb } from "../lib/supabase";
+import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { fmtD, fmt$, over, tod } from "../lib/utils";
-import { calcProposalTotal, usesExactPricing } from "../lib/calc";
-import { creditedSoldMonth, parseArchiveSoldDate } from "../lib/followUp";
+import { pipelineStats } from "../lib/followUp";
 import { STAGES, STAGE_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
 import PipelinePanel from "../components/PipelinePanel";
+import SalesIntelligence from "../components/followup/SalesIntelligence";
 import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
@@ -23,11 +23,8 @@ export default function CallLog({ teamMember, setSubPage }) {
   const location = useLocation();
   const { id: routeJobId } = useParams();
   const navState = location.state || {};
-  const { refresh: refreshAlerts } = useAlerts();
+  const { snapshot, refresh: refreshAlerts } = useAlerts();
   const [rows, setRows]           = useState([]);
-  const [proposals, setProposals] = useState([]);   // for "Your Pipeline" $ (via calcProposalTotal, not stale total)
-  const [propsLoaded, setPropsLoaded] = useState(false);
-  const [archiveSoldDateById, setArchiveSoldDateById] = useState(new Map()); // real sold month for archive-lineage jobs (B70)
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
   const [workTypes, setWorkTypes] = useState([]);
@@ -41,6 +38,7 @@ export default function CallLog({ teamMember, setSubPage }) {
   const [coParent, setCoParent]   = useState(null);
   const [selJob, setSelJob]       = useState(null);
   const [showOld, setShowOld]     = useState(false);
+  const [intelScope, setIntelScope] = useState("me"); // manager toggle: "me" | "company" (action cards scope)
   const [archiveBanner, setArchiveBanner] = useState(null);
   const bidDueFilter = !!navState.bidDueFilter;
 
@@ -99,16 +97,12 @@ export default function CallLog({ teamMember, setSubPage }) {
       if (data.length < PAGE) break;
       from += PAGE;
     }
-    // One proposals fetch feeds both the multi-GC count (below) and the
-    // "Your Pipeline" $ figures. Money is summed via calcProposalTotal over the
-    // joined proposal_wtc — NEVER proposals.total (stale, Data Integrity Rule #2).
-    const pcData = await fetchAll(
-      "proposals",
-      "call_log_id, customer_id, id, status, markup_override_pct, created_at, pricing_anchor_at, " +
-        "call_log(stage, sales_name), " +
-        "proposal_wtc(is_rate_card, prevailing_wage, pw_rate, pw_ot_rate, burden_rate, ot_burden_rate, markup_pct, regular_hours, ot_hours, size, materials, travel, discount)",
-      { filters: [["is", "deleted_at", null]] }
-    );
+    // Proposals — just call_log_id + customer_id, to count distinct GCs per job
+    // (the multi-GC chip). Pipeline $ now comes from the shared pipelineStats
+    // selector over the useAlerts snapshot, not a second fetch here.
+    const pcData = await fetchAll("proposals", "call_log_id, customer_id", {
+      filters: [["is", "deleted_at", null]],
+    });
     const clById = new Map(allLog.map(cl => [cl.id, cl]));
     const gcsByJob = new Map(allLog.map(cl => [cl.id, new Set()]));
     for (const row of pcData) {
@@ -121,24 +115,7 @@ export default function CallLog({ teamMember, setSubPage }) {
       cl._gcCount = gcsByJob.get(cl.id)?.size || 0;
     }
 
-    // Real sold month for archive-lineage jobs — a proposal built on an imported
-    // job carries today's created_at, so "Sold $ this month" must credit it to
-    // the job's REAL sold date instead (B70). Archive fetch failure degrades
-    // gracefully to created_at bucketing (empty map), never blocks the page.
-    const archiveIds = [...new Set(allLog.map(r => r.archive_record_id).filter(Boolean))];
-    if (archiveIds.length) {
-      const { data: legacy } = await archiveDb.from("legacy_records").select("id, raw_data").in("id", archiveIds);
-      const map = new Map();
-      for (const r of legacy || []) {
-        const sold = parseArchiveSoldDate(r.raw_data?.["job/soldDate"]);
-        if (sold) map.set(r.id, sold);
-      }
-      setArchiveSoldDateById(map);
-    }
-
     setRows(allLog);
-    setProposals(pcData);
-    setPropsLoaded(true);
     setTeam(tm || []);
     setCustomers(allCx);
     setWorkTypes(wt || []);
@@ -218,51 +195,47 @@ export default function CallLog({ teamMember, setSubPage }) {
     return true;
   });
 
-  // ─── "Your Pipeline" dark hero panel (§3.1, redesigned to the 2026-08-22
-  // mockup) ────────────────────────────────────────────────────────────────
-  // Respects the FilterBar "Sales Rep" dropdown (manager per-rep view). Counts
-  // come from call_log.stage; $ comes from calcProposalTotal over the joined
-  // proposal_wtc (never proposals.total). Cards are clickable → filter the list.
-  const thisMonth = todayStr.slice(0, 7);
+  // ─── "Your Pipeline" dark hero panel (§3.1) ──────────────────────────────
+  // Numbers come from the ONE shared selector (followUp.pipelineStats over the
+  // useAlerts snapshot) — the SAME source as Home's "Your Book" cards, so the two
+  // screens can never disagree (de-duped bids, real WTC math, Sold = this month).
+  // Scope = the FilterBar Sales Rep dropdown, else the logged-in rep (matches
+  // Home). Cards click → filter the table below.
+  const myName = teamMember?.name || "";
+  const scopeName = filters.sales || myName;
+  const pipe = snapshot ? pipelineStats(snapshot, { repName: scopeName }) : null;
+  const pLoad = !pipe;
+
+  // "↑ N this week" trend — same snapshot + scope as the numbers.
   const wa = new Date(); wa.setDate(wa.getDate() - 7);
   const weekAgo = wa.toLocaleDateString("en-CA");
-  const repFilter = filters.sales;
-  const scopedJobs = activeRows.filter(r => !repFilter || r.sales_name === repFilter);
-  const jobsInStage = st => scopedJobs.filter(r => r.stage === st);
-  const createdSince = (list, since) => list.filter(r => (r.created_at || "").slice(0, 10) >= since).length;
-  const pipeAll       = scopedJobs.length;
-  const addedThisWeek = createdSince(scopedJobs, weekAgo);
-  const wantsBidTotal = jobsInStage("Wants Bid").length;
-  const wbThisWeek    = createdSince(jobsInStage("Wants Bid"), weekAgo);
-  const hasBidCount   = jobsInStage("Has Bid").length;
-  const soldCount     = jobsInStage("Sold").length;
-  const scopedProps = proposals.filter(p => !repFilter || p.call_log?.sales_name === repFilter);
-  const propTotal   = p => calcProposalTotal(p.proposal_wtc, parseFloat(p.markup_override_pct) || undefined, usesExactPricing(p));
-  const hasBidOpen  = scopedProps.filter(p => p.call_log?.stage === "Has Bid").reduce((s, p) => s + propTotal(p), 0);
-  // "Sold $ this month" credits archive-lineage sales to their REAL sold month,
-  // not the import/proposal-build date (B70) — shared basis via creditedSoldMonth.
-  const archiveIdByJob = new Map(rows.map(r => [r.id, r.archive_record_id]));
-  const soldMonth   = scopedProps
-    .filter(p => p.status === "Sold" && creditedSoldMonth(p, { archiveIdByJob, archiveSoldDateById }) === thisMonth)
-    .reduce((s, p) => s + propTotal(p), 0);
+  const scopedActive = snapshot ? snapshot.callLog.filter(c => !c.archived && (!scopeName || c.sales_name === scopeName)) : [];
+  const since = (stage) => scopedActive.filter(c => (!stage || c.stage === stage) && (c.created_at || "").slice(0, 10) >= weekAgo).length;
+  const addedThisWeek = since(null);
+  const wbThisWeek = since("Wants Bid");
 
   const SUB_MUTED = "rgba(243,237,225,0.55)";
   const STAGE_COLOR = { "New Inquiry": C.teal, "Wants Bid": C.amber, "Has Bid": C.purple, Sold: C.green, Lost: C.red };
   const pipelineItems = [
-    { key: "All", glyph: "✳", color: C.teal, value: loading ? "…" : pipeAll, label: "All",
-      sub: loading ? "" : addedThisWeek > 0 ? `↑ ${addedThisWeek} this week` : "Active jobs",
+    { key: "All", glyph: "✳", color: C.teal, value: pLoad ? "…" : pipe.all, label: "All",
+      sub: pLoad ? "" : addedThisWeek > 0 ? `↑ ${addedThisWeek} this week` : "Active jobs",
       subColor: addedThisWeek > 0 ? C.teal : SUB_MUTED, onClick: () => setFilter("All"), active: filter === "All" },
-    { key: "Wants Bid", glyph: "🔍", color: C.amber, value: loading ? "…" : wantsBidTotal, label: "Wants Bid",
-      sub: loading ? "" : wbThisWeek > 0 ? `↑ ${wbThisWeek} this week` : "In pipeline",
+    { key: "Wants Bid", glyph: "🔍", color: C.amber, value: pLoad ? "…" : pipe.wantsBid.count, label: "Wants Bid",
+      sub: pLoad ? "" : wbThisWeek > 0 ? `↑ ${wbThisWeek} this week` : "In pipeline",
       subColor: wbThisWeek > 0 ? C.teal : SUB_MUTED, onClick: () => setFilter("Wants Bid"), active: filter === "Wants Bid" },
-    { key: "Has Bid", glyph: "📋", color: C.purple, value: loading ? "…" : hasBidCount, label: "Has Bid",
-      sub: propsLoaded ? `${fmt$(hasBidOpen)} open` : "…", subColor: C.teal,
+    { key: "Has Bid", glyph: "📋", color: C.purple, value: pLoad ? "…" : pipe.hasBid.count, label: "Has Bid",
+      sub: pLoad ? "…" : `${fmt$(pipe.hasBid.amount)} open`, subColor: C.teal,
       onClick: () => setFilter("Has Bid"), active: filter === "Has Bid" },
-    { key: "Sold", glyph: "✓", color: C.green, value: loading ? "…" : soldCount, label: "Sold",
-      sub: propsLoaded ? `${fmt$(soldMonth)} this month` : "…", subColor: C.teal,
+    { key: "Sold", glyph: "✓", color: C.green, value: pLoad ? "…" : pipe.sold.count, label: "Sold",
+      sub: pLoad ? "…" : `${fmt$(pipe.sold.amount)} this month`, subColor: C.teal,
       onClick: () => setFilter("Sold"), active: filter === "Sold" },
   ];
-  const pipelineSegments = STAGES.map(s => ({ color: STAGE_COLOR[s], value: jobsInStage(s).length }));
+  const pipelineSegments = STAGES.map(s => ({ color: STAGE_COLOR[s], value: scopedActive.filter(c => c.stage === s).length }));
+
+  // Relocated intelligence scope: reps see their own; a manager can toggle to the
+  // whole company (Chris, 2026-08-22). Empty repName = company-wide.
+  const isManager = ["Admin", "Manager"].includes(teamMember?.role);
+  const intelRepName = isManager && intelScope === "company" ? "" : myName;
 
   return (
     <>
@@ -275,6 +248,26 @@ export default function CallLog({ teamMember, setSubPage }) {
           items={pipelineItems}
           segments={pipelineSegments}
         />
+        {/* Relocated sales intelligence (Where to Dig / Where to Hunt / Sleepers) */}
+        {snapshot && (
+          <>
+            {isManager && (
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {[["me", "Just me"], ["company", "Whole company"]].map(([v, l]) => (
+                  <button key={v} onClick={() => setIntelScope(v)} style={{
+                    padding: "6px 14px", borderRadius: 20,
+                    border: `1.5px solid ${intelScope === v ? C.teal : C.border}`,
+                    background: intelScope === v ? C.dark : "transparent",
+                    color: intelScope === v ? C.teal : C.textMuted,
+                    fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
+                  }}>{l}</button>
+                ))}
+              </div>
+            )}
+            <SalesIntelligence repName={intelRepName} displayName={myName} />
+          </>
+        )}
         {/* Active / Old Jobs toggle */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={() => setShowOld(false)} style={{

@@ -516,6 +516,15 @@ async function deletePropAttachment(fullName) {
     await reloadRecipients();
   }
 
+  // Manually confirm delivery when a proposal was sent out-of-band (hand-delivered,
+  // Outlook, downloaded PDF) so the app's link-view tracking never fired. Stamps
+  // viewed_at so it drops off the Proposals "Sent – not opened" scoreboard.
+  // Toggle-able in case it was marked by mistake.
+  async function markRecipientReceived(id, received) {
+    await supabase.from("proposal_recipients").update({ viewed_at: received ? new Date().toISOString() : null }).eq("id", id);
+    await reloadRecipients();
+  }
+
   function getWtcChecks(wtc) {
     const travelData = wtc.travel || {};
     const hasTravelEntries = Object.values(travelData).some(v => typeof v === "number" && v > 0);
@@ -1119,6 +1128,11 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                               {phone && <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 1 }}>{phone}</div>}
                             </div>
                             <button onClick={() => toggleSigner(r.id)} title={isSigner ? "Unset as signer" : "Set as signer"} style={{ fontSize: 10, fontWeight: 700, color: isSigner ? C.teal : C.textMuted, background: isSigner ? C.dark : "none", border: isSigner ? `1px solid ${C.dark}` : `1px solid ${C.borderStrong}`, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}>{isSigner ? "Signer" : "Viewer"}</button>
+                            {r.viewed_at ? (
+                              <span title={`Received / viewed ${fmtD(r.viewed_at.slice(0, 10))}`} style={{ fontSize: 10, fontWeight: 700, color: "#1e5e22", background: "rgba(67,160,71,0.12)", border: "1px solid rgba(67,160,71,0.3)", borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>✓ Received</span>
+                            ) : (
+                              <button onClick={() => markRecipientReceived(r.id, true)} title="Confirm they got it (hand-delivered / Outlook / downloaded PDF) — clears it from Proposals 'Sent – not opened'" style={{ fontSize: 10, fontWeight: 700, color: C.tealDeep, background: "none", border: `1px dashed ${C.tealBorder || C.teal}`, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}>Mark received</button>
+                            )}
                             {!r.customer_contact_id && (
                               <button onClick={() => saveToCustomerFile(r.id)} title="Add this recipient to the parent customer's contact list" style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: "none", border: `1px dashed ${C.tealBorder || C.teal}`, borderRadius: 6, padding: "3px 10px", fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap" }}>Save to Customer</button>
                             )}

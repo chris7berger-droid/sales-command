@@ -491,7 +491,9 @@ export function huntResults(snap, { repName } = {}) {
     const cl = o.call_log_id ? clById.get(o.call_log_id) : null;
     const name = cl?.customer_name || cxById.get(o.customer_id)?.name || "—";
     calls.push({ callLogId: o.call_log_id || null, customerId: o.customer_id || null, name, outcome: o.outcome, date: day(o.created_at) });
-    if (o.call_log_id && !seenJobs.has(o.call_log_id)) {
+    // "Back in motion" $ = re-engaged STALLED BIDS only (Has Bid). A call logged
+    // on a Sold/dormant customer must NOT credit that customer's past sale here.
+    if (o.call_log_id && cl?.stage === "Has Bid" && !seenJobs.has(o.call_log_id)) {
       seenJobs.add(o.call_log_id);
       const value = jobBidValue.get(o.call_log_id) || 0;
       reengaged += value;

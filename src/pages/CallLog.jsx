@@ -33,7 +33,9 @@ export default function CallLog({ teamMember, setSubPage }) {
   const [digFilter, setDigFilter] = useState(null); // null | "dueToday" | "overdue" | "followups" — Where-to-Dig lens
   const [pipeFilter, setPipeFilter] = useState(null); // { key, ids:Set } — exact jobs behind a clicked pipeline stat
   const [q, setQ]                 = useState("");
-  const tableRef = useRef(null);
+  const [atList, setAtList]       = useState(false); // scroll position: true once the ALL JOBS section reaches the top
+  const commandRef = useRef(null); // top of the command center
+  const listRef = useRef(null);    // the "ALL JOBS" divider — start of the list workspace
   // Seed `sales` from nav-state so a Home "Your Book" tile tap opens THIS rep's
   // own filtered pile, not the company-wide stage list (engagement redesign N1/A2).
   const [filters, setFilters]     = useState({ sales: navState.sales || "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
@@ -143,6 +145,20 @@ export default function CallLog({ teamMember, setSubPage }) {
     if (setSubPage) setSubPage(selJob ? "detail" : showModal ? "new" : null);
   }, [selJob, showModal]);
 
+  // Scroll position → which section (command center vs list) is in view, so the
+  // page nav + floating button can reflect it. Listens on the app content
+  // scroller ([data-app-content]); the "ALL JOBS" divider (listRef) is the line.
+  useEffect(() => {
+    const scroller = document.querySelector("[data-app-content]") || window;
+    const onScroll = () => {
+      const el = listRef.current;
+      if (el) setAtList(el.getBoundingClientRect().top <= 160);
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, [selJob, loading]);
+
   const wizardEl = (showModal || coParent) ? (
     <NewInquiryWizard
       onClose={() => { setShowModal(false); setCoParent(null); }}
@@ -233,7 +249,7 @@ export default function CallLog({ teamMember, setSubPage }) {
     setFilter(st);
     setDigFilter(null);
     setPipeFilter(null);
-    requestAnimationFrame(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
   // Pipeline stat click → filter the table to the EXACT jobs that stat counted
   // (id set from the same snapshot/scope), so the list matches the number — incl.
@@ -245,7 +261,7 @@ export default function CallLog({ teamMember, setSubPage }) {
     setPipeFilter({ key, ids });
     setFilter("All");
     setDigFilter(null);
-    requestAnimationFrame(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
   const SUB_MUTED = "rgba(243,237,225,0.55)";
   const STAGE_COLOR = { "New Inquiry": C.teal, "Wants Bid": C.amber, "Has Bid": C.purple, Sold: C.green, Lost: C.red };
@@ -277,15 +293,33 @@ export default function CallLog({ teamMember, setSubPage }) {
     setPipeFilter(null);
     setFilter("All");
     setFilters(f => ({ ...f, sales: intelRepName || "" }));
-    requestAnimationFrame(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
   const DIG_LABEL = { dueToday: "Bids due today", overdue: "Bids overdue", followups: "Follow-ups this week" };
+
+  const scrollToCommand = () => commandRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const scrollToList = () => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const navPill = (label, active, onClick) => (
+    <button onClick={onClick} style={{
+      padding: "6px 16px", borderRadius: 20,
+      border: `1.5px solid ${active ? C.teal : C.border}`,
+      background: active ? C.dark : "transparent",
+      color: active ? C.teal : C.textMuted,
+      fontSize: 12, fontWeight: 700, cursor: "pointer",
+      fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase",
+    }}>{label}</button>
+  );
 
   return (
     <>
       {wizardEl}
-      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div ref={commandRef} style={{ display: "flex", flexDirection: "column", gap: 20, scrollMarginTop: 12 }}>
         <SectionHeader title="Call Log" action={<Btn sz="sm" onClick={() => setShowModal(true)}>+ New Inquiry</Btn>} />
+        {/* Page-level nav: Command Center (top) ↔ All Jobs (list). Active reflects scroll. */}
+        <div style={{ display: "flex", gap: 8, marginTop: -8 }}>
+          {navPill("Command Center", !atList, scrollToCommand)}
+          {navPill(`All Jobs · ${activeRows.length}`, atList, scrollToList)}
+        </div>
         <PipelinePanel
           label="Your Pipeline"
           footnote="Pipeline shows Active Jobs assigned to you"
@@ -312,6 +346,11 @@ export default function CallLog({ teamMember, setSubPage }) {
             <SalesIntelligence repName={intelRepName} displayName={myName} onDig={onDig} />
           </>
         )}
+        {/* ── Strong break: this is the ALL JOBS workspace, a deliberate second section ── */}
+        <div ref={listRef} style={{ display: "flex", alignItems: "baseline", gap: 12, borderTop: `2px solid ${C.borderStrong}`, paddingTop: 18, marginTop: 8, scrollMarginTop: 12 }}>
+          <span style={{ fontSize: 20, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>All Jobs</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui, letterSpacing: "0.06em", textTransform: "uppercase" }}>{activeRows.length} Active</span>
+        </div>
         {/* Active / Old Jobs toggle */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={() => setShowOld(false)} style={{
@@ -362,7 +401,7 @@ export default function CallLog({ teamMember, setSubPage }) {
             <button onClick={() => setPipeFilter(null)} style={{ background: "none", border: `1.5px solid ${C.tealBorder}`, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: C.tealDeep, cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
           </div>
         )}
-        <div ref={tableRef} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", scrollMarginTop: 12 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <input placeholder="Search job # or name…" value={q} onChange={e => setQ(e.target.value)}
             style={{ padding: "8px 14px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenLight, fontSize: 13.5, outline: "none", width: 240, color: C.textBody, fontFamily: F.ui }} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -436,10 +475,10 @@ export default function CallLog({ teamMember, setSubPage }) {
           </>
         )}
       </div>
-      {/* Floating cue → jump to the job list, since the intelligence fills the screen */}
+      {/* Floating cue — flips direction with scroll: down to the list, up to the center */}
       <button
-        onClick={() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-        title="Jump to your job list"
+        onClick={atList ? scrollToCommand : scrollToList}
+        title={atList ? "Back to the command center" : "Jump to your job list"}
         style={{
           position: "fixed", right: 24, bottom: 24, zIndex: 150,
           display: "flex", alignItems: "center", gap: 8,
@@ -448,7 +487,9 @@ export default function CallLog({ teamMember, setSubPage }) {
           fontFamily: F.display, fontSize: 13, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
           boxShadow: "0 6px 20px rgba(0,0,0,0.28)",
         }}>
-        <span style={{ fontSize: 15 }}>↓</span> {loading ? "Job list" : `${filtered.length} job${filtered.length !== 1 ? "s" : ""}`}
+        {atList
+          ? <><span style={{ fontSize: 15 }}>↑</span> Command Center</>
+          : <><span style={{ fontSize: 15 }}>↓</span> All Jobs · {activeRows.length}</>}
       </button>
     </>
   );

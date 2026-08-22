@@ -31,6 +31,7 @@ export default function CallLog({ teamMember, setSubPage }) {
   const [loading, setLoading]     = useState(true);
   const [filter, setFilter]       = useState(navState.stageFilter || "All");
   const [digFilter, setDigFilter] = useState(null); // null | "dueToday" | "overdue" | "followups" — Where-to-Dig lens
+  const [pipeFilter, setPipeFilter] = useState(null); // { key, ids:Set } — exact jobs behind a clicked pipeline stat
   const [q, setQ]                 = useState("");
   const tableRef = useRef(null);
   // Seed `sales` from nav-state so a Home "Your Book" tile tap opens THIS rep's
@@ -195,8 +196,9 @@ export default function CallLog({ teamMember, setSubPage }) {
   const visibleRows = q ? rows : (showOld ? oldRows : activeRows);
   const filtered = visibleRows.filter(r => {
     if (bidDueFilter && r.bid_due !== todayStr) return false;
+    if (pipeFilter && !pipeFilter.ids.has(r.id)) return false;
     if (digFilter && !matchesDig(r)) return false;
-    if (!bidDueFilter && !digFilter && filter !== "All" && r.stage !== filter) return false;
+    if (!bidDueFilter && !digFilter && !pipeFilter && filter !== "All" && r.stage !== filter) return false;
     if (q && !((r.display_job_number || r.job_name)?.toLowerCase().includes(q.toLowerCase()) || String(r.job_number || r.id).includes(q) || (r.customer_name || "").toLowerCase().includes(q.toLowerCase()))) return false;
     if (filters.sales && r.sales_name !== filters.sales) return false;
     if (filters.dateFrom && (r.created_at || "").slice(0, 10) < filters.dateFrom) return false;
@@ -226,8 +228,22 @@ export default function CallLog({ teamMember, setSubPage }) {
   const addedThisWeek = since(null);
   const wbThisWeek = since("Wants Bid");
 
+  // Stage tabs (below the table) — plain stage filter; clears the pipe/dig lenses.
   const pickStage = (st) => {
     setFilter(st);
+    setDigFilter(null);
+    setPipeFilter(null);
+    requestAnimationFrame(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  // Pipeline stat click → filter the table to the EXACT jobs that stat counted
+  // (id set from the same snapshot/scope), so the list matches the number — incl.
+  // Sold = this-month, not the all-time Sold stage.
+  const scopedIds = st => new Set(scopedActive.filter(c => c.stage === st).map(c => c.id));
+  const soldMonthIds = new Set(pipe ? pipe.soldProps.map(p => p.call_log_id) : []);
+  const PIPE_LABEL = { All: "All active", "Wants Bid": "Wants Bid", "Has Bid": "Has Bid", Sold: "Sold this month" };
+  const pickPipe = (key, ids) => {
+    setPipeFilter({ key, ids });
+    setFilter("All");
     setDigFilter(null);
     requestAnimationFrame(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
@@ -236,16 +252,16 @@ export default function CallLog({ teamMember, setSubPage }) {
   const pipelineItems = [
     { key: "All", glyph: "✳", color: C.teal, value: pLoad ? "…" : pipe.all, label: "All",
       sub: pLoad ? "" : addedThisWeek > 0 ? `↑ ${addedThisWeek} this week` : "Active jobs",
-      subColor: addedThisWeek > 0 ? C.teal : SUB_MUTED, onClick: () => pickStage("All"), active: filter === "All" },
+      subColor: addedThisWeek > 0 ? C.teal : SUB_MUTED, onClick: () => pickPipe("All", new Set(scopedActive.map(c => c.id))), active: pipeFilter?.key === "All" },
     { key: "Wants Bid", glyph: "🔍", color: C.amber, value: pLoad ? "…" : pipe.wantsBid.count, label: "Wants Bid",
       sub: pLoad ? "" : wbThisWeek > 0 ? `↑ ${wbThisWeek} this week` : "In pipeline",
-      subColor: wbThisWeek > 0 ? C.teal : SUB_MUTED, onClick: () => pickStage("Wants Bid"), active: filter === "Wants Bid" },
+      subColor: wbThisWeek > 0 ? C.teal : SUB_MUTED, onClick: () => pickPipe("Wants Bid", scopedIds("Wants Bid")), active: pipeFilter?.key === "Wants Bid" },
     { key: "Has Bid", glyph: "📋", color: C.purple, value: pLoad ? "…" : pipe.hasBid.count, label: "Has Bid",
       sub: pLoad ? "…" : `${fmt$(pipe.hasBid.amount)} open`, subColor: C.teal,
-      onClick: () => pickStage("Has Bid"), active: filter === "Has Bid" },
+      onClick: () => pickPipe("Has Bid", scopedIds("Has Bid")), active: pipeFilter?.key === "Has Bid" },
     { key: "Sold", glyph: "✓", color: C.green, value: pLoad ? "…" : pipe.sold.count, label: "Sold",
       sub: pLoad ? "…" : `${fmt$(pipe.sold.amount)} this month`, subColor: C.teal,
-      onClick: () => pickStage("Sold"), active: filter === "Sold" },
+      onClick: () => pickPipe("Sold", soldMonthIds), active: pipeFilter?.key === "Sold" },
   ];
   const pipelineSegments = STAGES.map(s => ({ color: STAGE_COLOR[s], value: scopedActive.filter(c => c.stage === s).length }));
 
@@ -258,6 +274,7 @@ export default function CallLog({ teamMember, setSubPage }) {
   // Scope the table to the same rep the card counted, so the number matches.
   const onDig = (bucket) => {
     setDigFilter(bucket);
+    setPipeFilter(null);
     setFilter("All");
     setFilters(f => ({ ...f, sales: intelRepName || "" }));
     requestAnimationFrame(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -337,6 +354,12 @@ export default function CallLog({ teamMember, setSubPage }) {
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(48,207,172,0.10)", border: `1.5px solid ${C.tealBorder}`, borderRadius: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui }}>Showing: {DIG_LABEL[digFilter]} ({filtered.length})</span>
             <button onClick={() => setDigFilter(null)} style={{ background: "none", border: `1.5px solid ${C.tealBorder}`, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: C.tealDeep, cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
+          </div>
+        )}
+        {pipeFilter && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(48,207,172,0.10)", border: `1.5px solid ${C.tealBorder}`, borderRadius: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui }}>Showing: {PIPE_LABEL[pipeFilter.key]} ({filtered.length})</span>
+            <button onClick={() => setPipeFilter(null)} style={{ background: "none", border: `1.5px solid ${C.tealBorder}`, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: C.tealDeep, cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
           </div>
         )}
         <div ref={tableRef} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", scrollMarginTop: 12 }}>

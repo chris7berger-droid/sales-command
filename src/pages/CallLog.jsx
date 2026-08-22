@@ -226,7 +226,11 @@ export default function CallLog({ teamMember, setSubPage }) {
   const addedThisWeek = since(null);
   const wbThisWeek = since("Wants Bid");
 
-  const pickStage = (st) => { setFilter(st); setDigFilter(null); };
+  const pickStage = (st) => {
+    setFilter(st);
+    setDigFilter(null);
+    requestAnimationFrame(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
   const SUB_MUTED = "rgba(243,237,225,0.55)";
   const STAGE_COLOR = { "New Inquiry": C.teal, "Wants Bid": C.amber, "Has Bid": C.purple, Sold: C.green, Lost: C.red };
   const pipelineItems = [
@@ -330,12 +334,12 @@ export default function CallLog({ teamMember, setSubPage }) {
           </div>
         )}
         {digFilter && (
-          <div ref={tableRef} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(48,207,172,0.10)", border: `1.5px solid ${C.tealBorder}`, borderRadius: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(48,207,172,0.10)", border: `1.5px solid ${C.tealBorder}`, borderRadius: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui }}>Showing: {DIG_LABEL[digFilter]} ({filtered.length})</span>
             <button onClick={() => setDigFilter(null)} style={{ background: "none", border: `1.5px solid ${C.tealBorder}`, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: C.tealDeep, cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
           </div>
         )}
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div ref={tableRef} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", scrollMarginTop: 12 }}>
           <input placeholder="Search job # or name…" value={q} onChange={e => setQ(e.target.value)}
             style={{ padding: "8px 14px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenLight, fontSize: 13.5, outline: "none", width: 240, color: C.textBody, fontFamily: F.ui }} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

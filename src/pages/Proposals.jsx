@@ -5,7 +5,7 @@ import { supabase, archiveDb } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { fmt$, fmtD } from "../lib/utils";
 import { calcProposalTotal, usesExactPricing } from "../lib/calc";
-import { dedupeBids, parseArchiveSoldDate } from "../lib/followUp";
+import { dedupeBids, parseArchiveSoldDate, bidValue } from "../lib/followUp";
 import { PROP_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
 import StatCard from "../components/StatCard";
@@ -115,6 +115,33 @@ export default function Proposals({ teamMember, setSubPage }) {
 
   useEffect(() => { load(); }, []);
 
+  // ─── Period scope (drives the top-bar stats AND, on a stat click, the list) ──
+  // The month a proposal credits to:
+  //   • archive-lineage jobs → their REAL sold date (archive.legacy_records),
+  //     NOT the import date (same basis followUp.js uses everywhere else);
+  //   • everyone else → activity date: sold → approved_at, sent → sent_at,
+  //     else created_at (drafts never sent).
+  // Compare as wall-clock YYYY-MM-DD strings (never new Date(), which parses a
+  // date-only value as UTC and can shift the month — Date Columns Are Wall-Clock).
+  const periodYmd = (p) => {
+    const arc = p.call_log?.archive_record_id;
+    if (arc && archiveSoldById.has(arc)) return archiveSoldById.get(arc); // already YYYY-MM-DD
+    const raw = p.approved_at || p.sent_at || p.created_at;
+    return raw ? String(raw).slice(0, 10) : null;
+  };
+  const inPeriod = (p) => {
+    const raw = periodYmd(p);
+    if (!raw) return false;
+    if (+raw.slice(0, 4) !== period.y) return false;
+    return period.mode === "year" || +raw.slice(5, 7) - 1 === period.m;
+  };
+  // Counts KEEP each GC's bid (multi-GC sisters are separate opportunities) but
+  // collapse re-bids to the same GC — the canonical dedupeBids rule shared with
+  // Home / Call Log, so the screens never disagree. This is the exact set every
+  // top-bar number is computed over, and — on a stat click — what the list shows.
+  const scoped = dedupeBids(proposals.filter(inPeriod));
+  const scopedIds = new Set(scoped.map(p => p.id));
+
   const STATUS_TABS = ["All", "Draft", "Sent", "Signed", "Sold", "Lost"];
   // Lens from a clicked stat card (bucket or attention). Takes precedence over the
   // exact-status tab; the two clear each other (no second filter engine).
@@ -131,6 +158,9 @@ export default function Proposals({ teamMember, setSubPage }) {
     }
   };
   const filteredProposals = proposals.filter(p => {
+    // A stat-card click drills into exactly the N behind that number → restrict
+    // the (otherwise all-time) list to the current period's de-duped set.
+    if (propFilter && !scopedIds.has(p.id)) return false;
     if (propFilter && !matchesLens(p)) return false;
     if (!propFilter && statusFilter !== "All" && p.status !== statusFilter) return false;
     if (filters.sales && p.call_log?.sales_name !== filters.sales) return false;
@@ -160,40 +190,21 @@ export default function Proposals({ teamMember, setSubPage }) {
   />;
 
   // ─── "Proposals" stat row + Needs-Attention (§2.3 / §3.2) ────────────────
-  // Scope the top-bar stats to the selected period (default: current month). The
-  // list below is NOT scoped — it's all-time. The month a proposal credits to:
-  //   • archive-lineage jobs → their REAL sold date (archive.legacy_records),
-  //     NOT the import date (same basis followUp.js uses everywhere else);
-  //   • everyone else → activity date: sold → approved_at, sent → sent_at,
-  //     else created_at (drafts never sent).
-  // Compare as wall-clock YYYY-MM-DD strings (never new Date(), which parses a
-  // date-only value as UTC and can shift the month — Date Columns Are Wall-Clock).
-  const periodYmd = (p) => {
-    const arc = p.call_log?.archive_record_id;
-    if (arc && archiveSoldById.has(arc)) return archiveSoldById.get(arc); // already YYYY-MM-DD
-    const raw = p.approved_at || p.sent_at || p.created_at;
-    return raw ? String(raw).slice(0, 10) : null;
-  };
-  const inPeriod = (p) => {
-    const raw = periodYmd(p);
-    if (!raw) return false;
-    if (+raw.slice(0, 4) !== period.y) return false;
-    return period.mode === "year" || +raw.slice(5, 7) - 1 === period.m;
-  };
-  // Counts KEEP each GC's bid (multi-GC sisters are separate opportunities) but
-  // collapse re-bids to the same GC — the canonical dedupeBids rule shared with
-  // Home / Call Log, so the screens never disagree. $ Potential collapses further
-  // (below) since you can only win one GC per job.
-  const scoped = dedupeBids(proposals.filter(inPeriod));
-  // Global counts (matches the existing status-tab convention on this page).
-  const bucketCounts = { Draft: 0, Sent: 0, Sold: 0, Lost: 0, Other: 0 };
+  // `scoped` / `scopedIds` (period-scoped, de-duped bids) are defined up top so
+  // the list can drill into them on a stat click. Each bucket carries both a
+  // COUNT and a $ VOLUME (the value the count represents), via bidValue: archive
+  // jobs → historical_billed_amount, everyone else → live WTC math.
+  const bucketCounts  = { Draft: 0, Sent: 0, Sold: 0, Lost: 0, Other: 0 };
+  const bucketDollars = { Draft: 0, Sent: 0, Sold: 0, Lost: 0, Other: 0 };
   const otherStatuses = new Set();
   for (const p of scoped) {
-    const b = STATUS_BUCKET[p.status];
-    if (b) bucketCounts[b]++;
-    else { bucketCounts.Other++; otherStatuses.add(p.status || "(none)"); }
+    const b = STATUS_BUCKET[p.status] || "Other";
+    bucketCounts[b]++;
+    bucketDollars[b] += bidValue(p);
+    if (b === "Other") otherStatuses.add(p.status || "(none)");
   }
-  const allCount = scoped.length;
+  const allCount   = scoped.length;
+  const allDollars = bucketDollars.Draft + bucketDollars.Sent + bucketDollars.Sold + bucketDollars.Lost + bucketDollars.Other;
   // Build assertion: Σ(named buckets) === All (nothing fell through). In dev,
   // scream the unmapped status set so a new status gets bucketed, not dropped.
   const bucketSum = bucketCounts.Draft + bucketCounts.Sent + bucketCounts.Sold + bucketCounts.Lost;
@@ -240,14 +251,16 @@ export default function Proposals({ teamMember, setSubPage }) {
       background: on ? C.dark : C.linenDeep, color: on ? C.teal : C.textLight, border: `1px solid ${on ? C.teal : "transparent"}` }}>{label}</button>
   );
 
+  // Each card shows the $ volume the count represents (loading → suppressed).
+  const dsub = (v) => (loading ? "" : fmt$(v));
   const pipelineItems = [
-    { key: "All",   glyph: "✳", color: C.teal,      value: loading ? "…" : allCount,           label: "All",   onClick: () => pickLens("All"),   active: !propFilter },
-    { key: "Draft", glyph: "✎", color: C.textLight, value: loading ? "…" : bucketCounts.Draft, label: "Draft", onClick: () => pickLens("Draft"), active: propFilter?.key === "Draft" },
-    { key: "Sent",  glyph: "➤", color: C.purple,    value: loading ? "…" : bucketCounts.Sent,  label: "Sent",  onClick: () => pickLens("Sent"),  active: propFilter?.key === "Sent" },
-    { key: "Sold",  glyph: "✓", color: C.green,     value: loading ? "…" : bucketCounts.Sold,  label: "Sold",  onClick: () => pickLens("Sold"),  active: propFilter?.key === "Sold" },
-    { key: "Lost",  glyph: "✕", color: C.red,       value: loading ? "…" : bucketCounts.Lost,  label: "Lost",  onClick: () => pickLens("Lost"),  active: propFilter?.key === "Lost" },
+    { key: "All",   glyph: "✳", color: C.teal,      value: loading ? "…" : allCount,           label: "All",   sub: dsub(allDollars),        onClick: () => pickLens("All"),   active: !propFilter },
+    { key: "Draft", glyph: "✎", color: C.textLight, value: loading ? "…" : bucketCounts.Draft, label: "Draft", sub: dsub(bucketDollars.Draft), onClick: () => pickLens("Draft"), active: propFilter?.key === "Draft" },
+    { key: "Sent",  glyph: "➤", color: C.purple,    value: loading ? "…" : bucketCounts.Sent,  label: "Sent",  sub: dsub(bucketDollars.Sent),  onClick: () => pickLens("Sent"),  active: propFilter?.key === "Sent" },
+    { key: "Sold",  glyph: "✓", color: C.green,     value: loading ? "…" : bucketCounts.Sold,  label: "Sold",  sub: dsub(bucketDollars.Sold),  onClick: () => pickLens("Sold"),  active: propFilter?.key === "Sold" },
+    { key: "Lost",  glyph: "✕", color: C.red,       value: loading ? "…" : bucketCounts.Lost,  label: "Lost",  sub: dsub(bucketDollars.Lost),  onClick: () => pickLens("Lost"),  active: propFilter?.key === "Lost" },
   ];
-  if (bucketCounts.Other > 0) pipelineItems.push({ key: "Other", glyph: "?", color: C.amber, value: bucketCounts.Other, label: "Other", sub: [...otherStatuses].join(", "), onClick: () => pickLens("Other"), active: propFilter?.key === "Other" });
+  if (bucketCounts.Other > 0) pipelineItems.push({ key: "Other", glyph: "?", color: C.amber, value: bucketCounts.Other, label: "Other", sub: dsub(bucketDollars.Other), onClick: () => pickLens("Other"), active: propFilter?.key === "Other" });
   const pipelineSegments = [
     { color: C.textLight, value: bucketCounts.Draft },
     { color: C.purple,    value: bucketCounts.Sent },

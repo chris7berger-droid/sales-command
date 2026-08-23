@@ -98,7 +98,7 @@ export function dedupeBids(proposals) {
 // Canonical bid $ for a proposal — real WTC math (rate cards excluded, F44),
 // NEVER proposals.total (stale, Data Rule #2). Archive proposals carry no WTC —
 // their value is the flat historical_billed_amount.
-function bidValue(p) {
+export function bidValue(p) {
   if (p.is_archive_proposal) return parseFloat(p.historical_billed_amount) || 0;
   return calcProposalTotal(p.proposal_wtc, parseFloat(p.markup_override_pct) || undefined, usesExactPricing(p));
 }

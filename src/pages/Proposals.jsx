@@ -53,6 +53,10 @@ export default function Proposals({ teamMember, setSubPage }) {
   const [propFilter, setPropFilter]         = useState(null); // { key } — bucket/attention lens from the stat panel
   const [workTypes, setWorkTypes]           = useState([]);
   const [filters, setFilters]               = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
+  // Period scope for the TOP-BAR stats + Needs-Attention only (the list below
+  // stays all-time). Defaults to the current month. mode "year" = whole year.
+  const _now = new Date();
+  const [period, setPeriod] = useState({ mode: "month", y: _now.getFullYear(), m: _now.getMonth() });
   const listRef = useRef(null); // the "ALL PROPOSALS" divider — scroll target on a stat click
 
   useEffect(() => {
@@ -136,15 +140,24 @@ export default function Proposals({ teamMember, setSubPage }) {
   />;
 
   // ─── "Proposals" stat row + Needs-Attention (§2.3 / §3.2) ────────────────
+  // Scope the top-bar stats to the selected period (default: current month) via
+  // created_at. The list below is intentionally NOT scoped — it stays all-time.
+  const inPeriod = (p) => {
+    if (!p.created_at) return false;
+    const d = new Date(p.created_at);
+    if (period.mode === "year") return d.getFullYear() === period.y;
+    return d.getFullYear() === period.y && d.getMonth() === period.m;
+  };
+  const scoped = proposals.filter(inPeriod);
   // Global counts (matches the existing status-tab convention on this page).
   const bucketCounts = { Draft: 0, Sent: 0, Sold: 0, Lost: 0, Other: 0 };
   const otherStatuses = new Set();
-  for (const p of proposals) {
+  for (const p of scoped) {
     const b = STATUS_BUCKET[p.status];
     if (b) bucketCounts[b]++;
     else { bucketCounts.Other++; otherStatuses.add(p.status || "(none)"); }
   }
-  const allCount = proposals.length;
+  const allCount = scoped.length;
   // Build assertion: Σ(named buckets) === All (nothing fell through). In dev,
   // scream the unmapped status set so a new status gets bucketed, not dropped.
   const bucketSum = bucketCounts.Draft + bucketCounts.Sent + bucketCounts.Sold + bucketCounts.Lost;
@@ -154,13 +167,13 @@ export default function Proposals({ teamMember, setSubPage }) {
 
   // Needs-Attention (opened-aware, via embedded proposal_recipients.viewed_at).
   // `opened` is the module-level helper (also used by matchesLens above).
-  const sentNotOpened  = proposals.filter(p => p.status === "Sent" && !opened(p)).length;
-  const openedNoResp   = proposals.filter(p => opened(p) && !["Signed", "Sold", "Lost"].includes(p.status)).length;
+  const sentNotOpened  = scoped.filter(p => p.status === "Sent" && !opened(p)).length;
+  const openedNoResp   = scoped.filter(p => opened(p) && !["Signed", "Sold", "Lost"].includes(p.status)).length;
   const draftsToFinish = bucketCounts.Draft;
   // $ potential = winnable pipeline $ (Draft + Sent buckets — not yet resolved),
   // summed via calcProposalTotal over proposal_wtc (excludes rate cards, F44),
   // never proposals.total (stale, Data Integrity Rule #2).
-  const dollarPotential = proposals
+  const dollarPotential = scoped
     .filter(p => STATUS_BUCKET[p.status] === "Draft" || STATUS_BUCKET[p.status] === "Sent")
     .reduce((s, p) => s + calcProposalTotal(p.proposal_wtc, parseFloat(p.markup_override_pct) || undefined, usesExactPricing(p)), 0);
   const naLabel = t => <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>{t}</div>;
@@ -168,6 +181,20 @@ export default function Proposals({ teamMember, setSubPage }) {
   // Click a stat → set the lens, clear the status tab, scroll to the list.
   const scrollToList = () => requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   const pickLens = (key) => { setPropFilter(key === "All" ? null : { key }); setStatusFilter("All"); scrollToList(); };
+
+  // Period selector options: every month that has a proposal, plus the current
+  // month, newest first. Value "YYYY-M" maps back to a {y,m} month scope.
+  const mKey = (y, m) => `${y}-${m}`;
+  const mLabel = (y, m) => new Date(y, m, 1).toLocaleString("en-US", { month: "short", year: "numeric" });
+  const monthSet = new Set(proposals.filter(p => p.created_at).map(p => { const d = new Date(p.created_at); return mKey(d.getFullYear(), d.getMonth()); }));
+  monthSet.add(mKey(_now.getFullYear(), _now.getMonth()));
+  const monthOptions = [...monthSet].map(k => k.split("-").map(Number)).sort((a, b) => b[0] - a[0] || b[1] - a[1]);
+  const isThisMonth = period.mode === "month" && period.y === _now.getFullYear() && period.m === _now.getMonth();
+  const isThisYear  = period.mode === "year";
+  const periodBtn = (on, label, onClick) => (
+    <button onClick={onClick} style={{ cursor: "pointer", fontFamily: F.ui, fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 6,
+      background: on ? C.dark : C.linenDeep, color: on ? C.teal : C.textLight, border: `1px solid ${on ? C.teal : "transparent"}` }}>{label}</button>
+  );
 
   const pipelineItems = [
     { key: "All",   glyph: "✳", color: C.teal,      value: loading ? "…" : allCount,           label: "All",   onClick: () => pickLens("All"),   active: !propFilter },
@@ -195,6 +222,19 @@ export default function Proposals({ teamMember, setSubPage }) {
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <SectionHeader title="Proposals" action={<Btn sz="sm" onClick={() => setShowModal(true)}>+ New Proposal</Btn>} />
+        {/* Period selector — scopes the stat bar + Needs-Attention (not the list) */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: -4 }}>
+          {periodBtn(isThisMonth, "This Month", () => setPeriod({ mode: "month", y: _now.getFullYear(), m: _now.getMonth() }))}
+          {periodBtn(isThisYear, "This Year", () => setPeriod({ mode: "year", y: _now.getFullYear() }))}
+          <select
+            value={period.mode === "month" && !isThisMonth ? mKey(period.y, period.m) : ""}
+            onChange={e => { if (!e.target.value) return; const [y, m] = e.target.value.split("-").map(Number); setPeriod({ mode: "month", y, m }); }}
+            style={{ cursor: "pointer", fontFamily: F.ui, fontSize: 12, fontWeight: 700, padding: "5px 10px", borderRadius: 6,
+              background: C.linenDeep, color: C.textLight, border: `1px solid transparent`, WebkitAppearance: "none" }}>
+            <option value="">Pick a month…</option>
+            {monthOptions.map(([y, m]) => <option key={mKey(y, m)} value={mKey(y, m)}>{mLabel(y, m)}</option>)}
+          </select>
+        </div>
         {/* Top row (§2.3) — dark pipeline panel; click a bucket to filter the list */}
         <PipelinePanel label="Proposal Flow" items={pipelineItems} segments={pipelineSegments} />
         {/* Needs-Attention (opened-aware) — clickable to filter */}

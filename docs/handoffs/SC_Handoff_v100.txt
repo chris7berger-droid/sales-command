@@ -1,0 +1,99 @@
+SC_Handoff_v100 — Proposals top bar + one-rule sales-screen alignment
+Date: 2026-08-22
+Branch state: all work merged to main and deployed (Vercel → scmybiz.com). No open branches.
+
+════════════════════════════════════════════════════════════════════
+SESSION SUMMARY
+════════════════════════════════════════════════════════════════════
+A /fix run on the Proposals top bar that grew into aligning the "sold this
+month" story across all three primary sales screens (Proposals, Call Log,
+Home). Everything shipped in small, verified, single-branch fixes, each
+merged to main after Chris previewed. Tree clean at close.
+
+════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED (commit → what)
+════════════════════════════════════════════════════════════════════
+818b12b  Proposals top bar scoped to a selectable period (This Month /
+         This Year / pick a month), dated by activity (approved→sent→created);
+         archive-lineage jobs credited to their REAL sold date from
+         archive.legacy_records['job/soldDate'] (reuses parseArchiveSoldDate).
+47b933c  Each pipeline card shows the $ volume its count represents (bidValue:
+         archive→historical_billed_amount, else live WTC math). Clicking a card
+         drills the list to that period's rows.
+c7d0e03 / 3af5ac2  Multi-GC fan-out counts as ONE $-value job in the top-bar
+         NUMBERS (collapseGcFamilies by cloned_from_proposal_id||id), but the
+         LIST drill still shows all GC copies (listScopedIds = full period set).
+df63af9  Home + Call Log: apply collapseGcFamilies at every per-job $ sum in
+         followUp.js (pipelineStats, digSummary, gone-quiet, best-month, hunt
+         results) so a fan-out's dollars count once. Job counts unchanged.
+80b8b8c  ONE sold-month rule: creditedSoldMonth now credits a sale to the month
+         it was SOLD (approved_at, fallback created_at; archive→real sold date),
+         not the draft-created month. Added approved_at to the snapshot select.
+707ae0f  Proposals drops undateable archive sales (archive w/ no real sold date
+         → null, never import date), matching Call Log/Home. Closed the last
+         1-row gap (job 7325).
+e366188  Rep filter scopes the WHOLE screen: Proposals top bar + Needs-Attention
+         now filter to the selected rep; both Proposals and Call Log panels are
+         labeled with the rep name ("… · <rep>" / "All Reps").
+
+════════════════════════════════════════════════════════════════════
+DECISIONS (Chris-ratified this session)
+════════════════════════════════════════════════════════════════════
+1. Proposals top bar period basis = sent/sold date, not created date.
+2. Multi-GC job = ONE $-value job in every top-bar number (you can only win one
+   GC), but ALL GC copies stay visible in the list.
+3. ONE sold-month rule across Proposals, Call Log, Home = the SOLD date.
+   Invoices intentionally NOT included — its top bar tracks billing events
+   (drafted/invoiced/collected), a different question dated by invoice dates.
+4. Undateable archive sales (no recorded sold date) are dropped from sold-month
+   on all three screens, not credited to their import date.
+5. Rep filter drives the scoreboards, and the boards must name the rep.
+
+════════════════════════════════════════════════════════════════════
+KEY SHARED CODE (so the screens can never disagree)
+════════════════════════════════════════════════════════════════════
+src/lib/followUp.js now exports: dedupeBids, bidValue, collapseGcFamilies,
+  parseArchiveSoldDate, creditedSoldMonth. Proposals.jsx imports these instead
+  of keeping twins. creditedSoldMonth is THE single "which month a sale lands"
+  basis (sold date, archive-aware).
+
+════════════════════════════════════════════════════════════════════
+VERIFICATION
+════════════════════════════════════════════════════════════════════
+- Each fix: vite build clean before commit.
+- Prod queries (Supabase MCP) confirmed: 6 mis-dated archives leave August;
+  multi-GC job 10220/3793 collapses correctly; company-wide Aug sold = 22 jobs
+  / ~$304k identical basis across all three screens (was Proposals 22 vs Call
+  Log 11 on the old draft-date rule, then a 1-row archive edge, now 22 = 22).
+- Not yet smoke-tested in-browser by me; Chris previewed each branch and
+  confirmed "looks awesome."
+
+════════════════════════════════════════════════════════════════════
+NOT TOUCHED / KNOWN OPEN
+════════════════════════════════════════════════════════════════════
+- 11 archive proposals have a blank job/soldDate in the archive book → they are
+  undateable and now excluded from sold-month everywhere (no source data to fix).
+- Rare edge: a Sold deal that later got a newer non-Sold revision to the same
+  (job, GC) can still differ by one row between Proposals and Call Log (different
+  dedupe order). Flagged to Chris; not fixed (rare). Offered as follow-up.
+- Call Log pipeline defaults to the logged-in rep (falls back to myName when the
+  filter is cleared); Proposals defaults to All Reps. Left as-is; Chris may want
+  a company-wide option on Call Log later.
+- Latent (pre-existing, consistent across screens): a live proposal on an
+  archive-lineage call_log is credited via the job-level archive_record_id, so it
+  would use the archive's sold date. Not observed to bite; both screens do it the
+  same way so numbers still agree.
+
+════════════════════════════════════════════════════════════════════
+FILES TO KNOW
+════════════════════════════════════════════════════════════════════
+src/pages/Proposals.jsx     — top bar: periodYmd, inPeriod, scoped (numbers) vs
+                              listScopedIds (drill), bucketDollars, rep scope.
+src/lib/followUp.js         — shared selectors (see KEY SHARED CODE above).
+src/pages/CallLog.jsx       — scopeName = filters.sales || myName; PipelinePanel.
+src/components/PipelinePanel.jsx — generic dark stat strip (label/items/segments).
+
+════════════════════════════════════════════════════════════════════
+GIT STATE
+════════════════════════════════════════════════════════════════════
+main @ e366188, clean, pushed. All session branches merged and deleted.

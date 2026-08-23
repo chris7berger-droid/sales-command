@@ -4,7 +4,6 @@ import { C, F } from "../lib/tokens";
 import { supabase, archiveDb } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { fmt$, fmtD } from "../lib/utils";
-import { calcProposalTotal, usesExactPricing } from "../lib/calc";
 import { dedupeBids, parseArchiveSoldDate, bidValue } from "../lib/followUp";
 import { PROP_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
@@ -135,11 +134,21 @@ export default function Proposals({ teamMember, setSubPage }) {
     if (+raw.slice(0, 4) !== period.y) return false;
     return period.mode === "year" || +raw.slice(5, 7) - 1 === period.m;
   };
-  // Counts KEEP each GC's bid (multi-GC sisters are separate opportunities) but
-  // collapse re-bids to the same GC — the canonical dedupeBids rule shared with
-  // Home / Call Log, so the screens never disagree. This is the exact set every
-  // top-bar number is computed over, and — on a stat click — what the list shows.
-  const scoped = dedupeBids(proposals.filter(inPeriod));
+  // A multi-GC job (same bid sent to N GCs) counts as ONE $-value job everywhere
+  // on this top bar — you can only win one. First collapse re-bids to the same GC
+  // (canonical dedupeBids), then collapse a clone family (cloned_from_proposal_id
+  // || id) to one row, preferring the parent. This is the exact set every top-bar
+  // number is computed over, and — on a stat click — what the list drills into.
+  const collapseFamilies = (rows) => {
+    const byFam = new Map();
+    for (const p of rows) {
+      const fam = p.cloned_from_proposal_id || p.id;
+      const cur = byFam.get(fam);
+      if (!cur || (!p.cloned_from_proposal_id && cur.cloned_from_proposal_id)) byFam.set(fam, p);
+    }
+    return [...byFam.values()];
+  };
+  const scoped = collapseFamilies(dedupeBids(proposals.filter(inPeriod)));
   const scopedIds = new Set(scoped.map(p => p.id));
 
   const STATUS_TABS = ["All", "Draft", "Sent", "Signed", "Sold", "Lost"];
@@ -217,20 +226,11 @@ export default function Proposals({ teamMember, setSubPage }) {
   const sentNotOpened  = scoped.filter(p => p.status === "Sent" && !opened(p)).length;
   const openedNoResp   = scoped.filter(p => opened(p) && !["Signed", "Sold", "Lost"].includes(p.status)).length;
   const draftsToFinish = bucketCounts.Draft;
-  // $ potential = winnable pipeline $ (Draft + Sent buckets — not yet resolved),
-  // summed via calcProposalTotal over proposal_wtc (excludes rate cards, F44),
-  // never proposals.total (stale, Data Integrity Rule #2). Unlike the counts, a
-  // multi-GC fan-out counts its value ONCE — you can only win one GC. Collapse by
-  // clone family (cloned_from_proposal_id || id): sisters share a family, so they
-  // fold to one; genuinely-separate proposals on a job stay separate.
-  const winnableByFamily = new Map();
-  for (const p of scoped) {
-    if (STATUS_BUCKET[p.status] !== "Draft" && STATUS_BUCKET[p.status] !== "Sent") continue;
-    const fam = p.cloned_from_proposal_id || p.id;
-    const val = calcProposalTotal(p.proposal_wtc, parseFloat(p.markup_override_pct) || undefined, usesExactPricing(p));
-    winnableByFamily.set(fam, Math.max(winnableByFamily.get(fam) || 0, val));
-  }
-  const dollarPotential = [...winnableByFamily.values()].reduce((s, v) => s + v, 0);
+  // $ potential = winnable pipeline $ (Draft + Sent — not yet resolved). `scoped`
+  // already collapses multi-GC fan-outs to one job, so this is simply the Draft
+  // and Sent volumes summed (bidValue: live WTC math, archives excluded here as
+  // they're Sold). Never proposals.total (stale, Data Integrity Rule #2).
+  const dollarPotential = bucketDollars.Draft + bucketDollars.Sent;
   const naLabel = t => <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>{t}</div>;
 
   // Click a stat → set the lens, clear the status tab, scroll to the list.

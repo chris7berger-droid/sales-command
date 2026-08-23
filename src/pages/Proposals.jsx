@@ -151,7 +151,11 @@ export default function Proposals({ teamMember, setSubPage }) {
     if (period.mode === "year") return d.getFullYear() === period.y;
     return d.getFullYear() === period.y && d.getMonth() === period.m;
   };
-  const scoped = proposals.filter(inPeriod);
+  // Exclude cloned multi-GC sisters (cloned_from_proposal_id set) so a job
+  // fanned out to N GCs counts once (the parent), not N times, across every
+  // top-bar stat. If a parent is hard-deleted its sister's FK is SET NULL, so
+  // it becomes a parent itself — no job is ever dropped.
+  const scoped = proposals.filter(p => !p.cloned_from_proposal_id && inPeriod(p));
   // Global counts (matches the existing status-tab convention on this page).
   const bucketCounts = { Draft: 0, Sent: 0, Sold: 0, Lost: 0, Other: 0 };
   const otherStatuses = new Set();

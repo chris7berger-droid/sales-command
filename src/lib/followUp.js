@@ -81,7 +81,7 @@ export function creditedSoldMonth(proposal, { archiveIdByJob, archiveSoldDateByI
 // Keying by (call_log_id, customer_id) and keeping the newest per key collapses
 // revisions while leaving sisters intact. Fixes the double-count that inflated
 // every "sum the job's proposals" site (Home Your Book + Call Log pipeline row).
-function dedupeBids(proposals) {
+export function dedupeBids(proposals) {
   const byKey = new Map();
   for (const p of proposals) {
     const key = `${p.call_log_id}::${p.customer_id ?? ""}`;

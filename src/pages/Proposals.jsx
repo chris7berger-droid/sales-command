@@ -1,10 +1,11 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { C, F } from "../lib/tokens";
-import { supabase } from "../lib/supabase";
+import { supabase, archiveDb } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { fmt$, fmtD } from "../lib/utils";
 import { calcProposalTotal, usesExactPricing } from "../lib/calc";
+import { dedupeBids, parseArchiveSoldDate } from "../lib/followUp";
 import { PROP_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
 import StatCard from "../components/StatCard";
@@ -57,6 +58,10 @@ export default function Proposals({ teamMember, setSubPage }) {
   // stays all-time). Defaults to the current month. mode "year" = whole year.
   const _now = new Date();
   const [period, setPeriod] = useState({ mode: "month", y: _now.getFullYear(), m: _now.getMonth() });
+  // archive_record_id → REAL sold date (YYYY-MM-DD), from archive.legacy_records.
+  // Archive-lineage Sold proposals credit to the month they ACTUALLY sold, not
+  // their import month (same basis followUp.js uses for Home / Call Log).
+  const [archiveSoldById, setArchiveSoldById] = useState(new Map());
   const listRef = useRef(null); // the "ALL PROPOSALS" divider — scroll target on a stat click
 
   useEffect(() => {
@@ -91,6 +96,21 @@ export default function Proposals({ teamMember, setSubPage }) {
     });
     setProposals((data || []).map(p => ({ ...p, invoices: invByProposal[p.id] || [] })));
     setLoading(false);
+
+    // Real sold dates for archive-lineage jobs (a few dozen). Read from the
+    // archive schema via archiveDb; parseArchiveSoldDate handles the mixed
+    // ISO / US-locale formats. Best-effort — a failure just falls back to the
+    // proposal's own dates (never blocks the list).
+    const archiveIds = [...new Set((data || []).map(p => p.call_log?.archive_record_id).filter(Boolean))];
+    if (archiveIds.length) {
+      const { data: legacy } = await archiveDb.from("legacy_records").select("id, raw_data").in("id", archiveIds);
+      const m = new Map();
+      for (const r of legacy || []) {
+        const sold = parseArchiveSoldDate(r.raw_data?.["job/soldDate"]);
+        if (sold) m.set(r.id, sold);
+      }
+      setArchiveSoldById(m);
+    }
   };
 
   useEffect(() => { load(); }, []);
@@ -140,22 +160,31 @@ export default function Proposals({ teamMember, setSubPage }) {
   />;
 
   // ─── "Proposals" stat row + Needs-Attention (§2.3 / §3.2) ────────────────
-  // Scope the top-bar stats to the selected period (default: current month) by
-  // the proposal's activity date: sold → approved_at, else sent → sent_at, else
-  // created_at (drafts never sent). The list below is NOT scoped — it's all-time.
-  const periodDate = (p) => p.approved_at || p.sent_at || p.created_at;
-  const inPeriod = (p) => {
-    const raw = periodDate(p);
-    if (!raw) return false;
-    const d = new Date(raw);
-    if (period.mode === "year") return d.getFullYear() === period.y;
-    return d.getFullYear() === period.y && d.getMonth() === period.m;
+  // Scope the top-bar stats to the selected period (default: current month). The
+  // list below is NOT scoped — it's all-time. The month a proposal credits to:
+  //   • archive-lineage jobs → their REAL sold date (archive.legacy_records),
+  //     NOT the import date (same basis followUp.js uses everywhere else);
+  //   • everyone else → activity date: sold → approved_at, sent → sent_at,
+  //     else created_at (drafts never sent).
+  // Compare as wall-clock YYYY-MM-DD strings (never new Date(), which parses a
+  // date-only value as UTC and can shift the month — Date Columns Are Wall-Clock).
+  const periodYmd = (p) => {
+    const arc = p.call_log?.archive_record_id;
+    if (arc && archiveSoldById.has(arc)) return archiveSoldById.get(arc); // already YYYY-MM-DD
+    const raw = p.approved_at || p.sent_at || p.created_at;
+    return raw ? String(raw).slice(0, 10) : null;
   };
-  // Exclude cloned multi-GC sisters (cloned_from_proposal_id set) so a job
-  // fanned out to N GCs counts once (the parent), not N times, across every
-  // top-bar stat. If a parent is hard-deleted its sister's FK is SET NULL, so
-  // it becomes a parent itself — no job is ever dropped.
-  const scoped = proposals.filter(p => !p.cloned_from_proposal_id && inPeriod(p));
+  const inPeriod = (p) => {
+    const raw = periodYmd(p);
+    if (!raw) return false;
+    if (+raw.slice(0, 4) !== period.y) return false;
+    return period.mode === "year" || +raw.slice(5, 7) - 1 === period.m;
+  };
+  // Counts KEEP each GC's bid (multi-GC sisters are separate opportunities) but
+  // collapse re-bids to the same GC — the canonical dedupeBids rule shared with
+  // Home / Call Log, so the screens never disagree. $ Potential collapses further
+  // (below) since you can only win one GC per job.
+  const scoped = dedupeBids(proposals.filter(inPeriod));
   // Global counts (matches the existing status-tab convention on this page).
   const bucketCounts = { Draft: 0, Sent: 0, Sold: 0, Lost: 0, Other: 0 };
   const otherStatuses = new Set();
@@ -179,10 +208,18 @@ export default function Proposals({ teamMember, setSubPage }) {
   const draftsToFinish = bucketCounts.Draft;
   // $ potential = winnable pipeline $ (Draft + Sent buckets — not yet resolved),
   // summed via calcProposalTotal over proposal_wtc (excludes rate cards, F44),
-  // never proposals.total (stale, Data Integrity Rule #2).
-  const dollarPotential = scoped
-    .filter(p => STATUS_BUCKET[p.status] === "Draft" || STATUS_BUCKET[p.status] === "Sent")
-    .reduce((s, p) => s + calcProposalTotal(p.proposal_wtc, parseFloat(p.markup_override_pct) || undefined, usesExactPricing(p)), 0);
+  // never proposals.total (stale, Data Integrity Rule #2). Unlike the counts, a
+  // multi-GC fan-out counts its value ONCE — you can only win one GC. Collapse by
+  // clone family (cloned_from_proposal_id || id): sisters share a family, so they
+  // fold to one; genuinely-separate proposals on a job stay separate.
+  const winnableByFamily = new Map();
+  for (const p of scoped) {
+    if (STATUS_BUCKET[p.status] !== "Draft" && STATUS_BUCKET[p.status] !== "Sent") continue;
+    const fam = p.cloned_from_proposal_id || p.id;
+    const val = calcProposalTotal(p.proposal_wtc, parseFloat(p.markup_override_pct) || undefined, usesExactPricing(p));
+    winnableByFamily.set(fam, Math.max(winnableByFamily.get(fam) || 0, val));
+  }
+  const dollarPotential = [...winnableByFamily.values()].reduce((s, v) => s + v, 0);
   const naLabel = t => <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>{t}</div>;
 
   // Click a stat → set the lens, clear the status tab, scroll to the list.
@@ -193,7 +230,7 @@ export default function Proposals({ teamMember, setSubPage }) {
   // month, newest first. Value "YYYY-M" maps back to a {y,m} month scope.
   const mKey = (y, m) => `${y}-${m}`;
   const mLabel = (y, m) => new Date(y, m, 1).toLocaleString("en-US", { month: "short", year: "numeric" });
-  const monthSet = new Set(proposals.map(periodDate).filter(Boolean).map(raw => { const d = new Date(raw); return mKey(d.getFullYear(), d.getMonth()); }));
+  const monthSet = new Set(proposals.map(periodYmd).filter(Boolean).map(raw => mKey(+raw.slice(0, 4), +raw.slice(5, 7) - 1)));
   monthSet.add(mKey(_now.getFullYear(), _now.getMonth()));
   const monthOptions = [...monthSet].map(k => k.split("-").map(Number)).sort((a, b) => b[0] - a[0] || b[1] - a[1]);
   const isThisMonth = period.mode === "month" && period.y === _now.getFullYear() && period.m === _now.getMonth();

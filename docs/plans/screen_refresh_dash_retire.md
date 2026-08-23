@@ -284,3 +284,41 @@ was only required if the A1 ratification changed scope — it did, in the direct
 
 **Backlog filed:** AR Command rebuild of Cash Flow Forecast + Analytics, with the server-side-gating
 requirement noted (§6).
+
+---
+
+## As-shipped amendments (2026-08-22, PR #36) — live-directed beyond the written plan
+
+The build was finished collaboratively with Chris; several things diverged from or extended the
+sections above. Recorded here so the doc matches `main`. All shipped on `feat/screen-refresh-dash-retire`,
+all three cold gates green (buildvsplan 0 blockers · code-review 0 blockers/2 should-fix fixed ·
+security-review 0 exploitable). Zero migrations.
+
+- **Shared calculator (supersedes §3.1's "group call_log by stage").** Home "Your Book" and Call Log's
+  pipeline row read ONE selector — `followUp.js pipelineStats(snapshot,{repName})` — so they're identical
+  by construction. Money via `bidValue`/`calcProposalTotal` (archive → `historical_billed_amount`);
+  `dedupeBids` = one bid per (call_log_id, customer_id), newest revision wins, sisters kept (**closes
+  F52 #2**; also applied to `goneQuietBids`/`huntResults`). Sold = current month via `creditedSoldMonth`
+  (archive-aware, **B70**). `loadSnapshot` extended with `archived` + `proposal_wtc` financial cols.
+- **Home → Call Log rebalance (per §2.1 amendment).** Home is performance-only; Where-to-Dig / Hunt /
+  Sleepers / log-outcome relocated to Call Log via new `src/components/followup/SalesIntelligence.jsx`
+  (leaf components reused as-is).
+- **Dark hero panel (overrides §3/§7 "reuse StatCard / no bespoke twins").** New reusable
+  `src/components/PipelinePanel.jsx` — dark panel with icon circles + gradient bar, used on Call Log,
+  Proposals, Invoices. Chris's explicit call to match the 2026-08-22 mockups.
+- **Clickable stats → filter + scroll (all three screens).** Pipeline/bucket/aging stats + Where-to-Dig
+  cards filter the existing table (Call Log filters to the exact job-id set the stat counted — Sold =
+  this-month ids, not the all-time stage) and scroll to the list. Reuses each screen's existing filter
+  state via added lenses (`pipeFilter`/`digFilter`, `propFilter`, `invFilter`), which clear each other.
+- **Call Log orientation.** Command Center ↔ All Jobs nav pills, "ALL JOBS · N" divider, direction-aware
+  floating button (scroll-position via a `[data-app-content]` listener), manager just-me/company toggle
+  on the intelligence.
+- **Invoices — reshaped (supersedes §2.4/§3.3's 3-flow + 4-attention layout).** Top bar = Drafted · Sent ·
+  Paid (this-month $) · **Past Due** (running overdue $). Needs-Attention → **Receivables Aging** =
+  QuickBooks buckets Current / 1–30 / 31–60 / 61–90 / 90+ (via `dayDiff`; late buckets reconcile to Past
+  Due) + a Retention chip → the Retention view (view + logic untouched).
+- **"Mark received" (new, not in original plan).** Per-recipient action on `ProposalDetail` stamping
+  `proposal_recipients.viewed_at`, so a proposal delivered out-of-band drops off "Sent – not opened."
+  Extended to invoices as a deferred item (**F54**).
+- **Backlog delta this branch:** closed F52 #2; progressed B70; filed **F53** (AR Command rebuild),
+  **F54** (opened/unopened tag — proposals + invoices), **R5** (2 low-sev code-review hardening).

@@ -1,0 +1,198 @@
+SC Handoff v187 — Screen refresh + Sales Dash retirement (Home/Call Log rebalance, Proposals/Invoices redesign)
+Date: 2026-08-22
+Branch: feat/screen-refresh-dash-retire   PR: #36 (open, base main)
+Plan: docs/plans/screen_refresh_dash_retire.md (+ "As-shipped amendments" section)
+
+═══════════════════════════════════════════════════════════════════════════════
+SESSION SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+Brought Call Log, Proposals, and Invoices up to the Home aesthetic, rebalanced
+Home↔Call Log, and retired Sales Dash. Built collaboratively/live with Chris after
+the written plan — a lot diverged from the doc (now reconciled in the plan's
+"As-shipped amendments"). ZERO migrations. All three cold gates GREEN:
+  • buildvsplan — 0 blockers, smoke GO
+  • code-review — 0 blockers; 2 should-fix fixed on-branch; 2 hardening filed (R5)
+  • security-review — 0 exploitable-today; deletion NET-REDUCES attack surface
+Branch is ready to merge (PR #36). Merge = prod deploy (Vercel → scmybiz.com).
+
+═══════════════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED (commits 77dbcca…, see git log)
+═══════════════════════════════════════════════════════════════════════════════
+SALES DASH — DELETED: /dashboard route + nav + SalesDash.jsx + Directory ch.5.
+  Closes the pre-existing unguarded financial URL. Cash Flow + Analytics removed
+  (not reparented) → rebuilt later in AR Command (F53). grep-clean verified.
+
+ONE SHARED CALCULATOR (followUp.js): new pipelineStats(snapshot,{repName}) feeds
+  BOTH Home "Your Book" AND Call Log's pipeline row → identical by construction.
+  - Money via bidValue/calcProposalTotal (archive proposals → historical_billed_amount),
+    NEVER proposals.total.
+  - dedupeBids = one bid per (call_log_id, customer_id); newest revision wins;
+    multi-GC sisters kept → CLOSES F52 #2. Also applied to goneQuietBids + huntResults.
+  - Sold = current month via creditedSoldMonth (archive-aware, B70). soldProps filters
+    status==="Sold" BEFORE dedupe (code-review #1 fix).
+  - loadSnapshot now selects `archived` + proposal_wtc financial cols.
+  - homeEngagement money (hero/bar/donut/scoreboard/soldList) re-sourced from pipelineStats.
+
+HOME = PERFORMANCE ONLY: stripped Where-to-Dig / Hunt / Sleepers / log-outcome →
+  relocated to Call Log via NEW src/components/followup/SalesIntelligence.jsx
+  (leaf HuntBox/HuntResultsPanel/etc. reused as-is). No capability lost.
+
+CALL LOG = COMMAND CENTER: NEW src/components/PipelinePanel.jsx (dark hero, icon
+  circles, gradient bar). Clickable stats filter the table to the EXACT job-id set
+  the stat counted (Sold = this-month ids, not the all-time stage) + scroll. Compact
+  Where-to-Dig 3-card summary (digSummary selector). Manager just-me/company toggle.
+  Command Center↔All Jobs nav pills + "ALL JOBS · N" divider + direction-aware
+  floating button (scroll pos via [data-app-content] listener).
+
+PROPOSALS: PipelinePanel buckets (All/Draft/Sent/Sold/Lost, exhaustive Σ===All +
+  "Other" remainder) + clickable Needs-Attention, via a propFilter lens that clears
+  the exact-status tab and vice-versa. "Mark received" per recipient on ProposalDetail
+  (stamps proposal_recipients.viewed_at) in BOTH the editable Recipients section and
+  the dark status panel → drops off "Sent – not opened." List reloads on back.
+  FIX: removed a local `const opened` that shadowed the module helper (TDZ crash on
+  the Sent-not-opened / Opened-no-response lenses).
+
+INVOICES: top bar = Drafted · Sent · Paid (this-month $) · Past Due (running overdue $).
+  Needs-Attention → RECEIVABLES AGING = QuickBooks buckets Current / 1–30 / 31–60 /
+  61–90 / 90+ (dayDiff over unpaid non-voided w/ due_date; late buckets reconcile to
+  Past Due) + a Retention chip → Retention view. All clickable via invFilter lens.
+  Retention view + all retention/void logic untouched.
+
+═══════════════════════════════════════════════════════════════════════════════
+DECISIONS (Chris, this session)
+═══════════════════════════════════════════════════════════════════════════════
+• Sales Dash + Cash Flow + Analytics: DELETE (not reparent). Settled — the
+  "manager-only on Home" idea reopens a security hole; AR Command rebuilds later.
+• Dark hero panel: override the plan's "reuse StatCard / no bespoke twins" to match
+  the mockups.
+• Home = performance / Call Log = action; move the intelligence to Call Log.
+• Invoices: top bar labels Drafted/Sent/Paid + Past Due; Needs-Attention → AR aging,
+  QuickBooks buckets (parity with QB's AR Aging report). Keep a retention chip.
+• "Mark received": per-recipient; reuse viewed_at (no schema change).
+• Floating button rejected as first shipped → replaced with Command Center/All Jobs
+  orientation + direction-aware button.
+
+═══════════════════════════════════════════════════════════════════════════════
+NEW / CLOSED BACKLOG ITEMS
+═══════════════════════════════════════════════════════════════════════════════
+CLOSED: F52 #2 (multiple-proposals-per-job double-count) — fixed at pipelineStats +
+  goneQuietBids + huntResults. F52 #3/#5 remain open.
+PROGRESSED: B70 (archive sold-date mis-dating) — shared creditedSoldMonth() now used
+  by Call Log too; Sales Dash surface deleted. Root import-time stamp still open.
+FILED:
+  • F53 (T4) — Rebuild Cash Flow Forecast + Analytics in AR Command (server-gated).
+  • F54 (T3) — Opened/not-opened indicator on Sent PROPOSALS *and* INVOICES
+    (invoice_recipients.viewed_at is "parity only, not wired" — needs the public
+    invoice page to stamp it + the manual fallback). Do both together.
+  • R5 (T4) — 2 low-sev code-review hardening: dedupeBids null-customer_id sister
+    collapse; markRecipientReceived silent no-op.
+
+═══════════════════════════════════════════════════════════════════════════════
+VERIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+• `npx vite build` clean throughout. Three cold gates green (above).
+• buildvsplan verified: Home "Your Book" == Call Log pipeline row (same selector/rep);
+  all money non-stale; aggregates paginate; zero residual Sales Dash refs; QB-aligned
+  aging reconciles to Past Due; retention predicate preserved.
+• security-review queried live prod: /dashboard fully gone; viewed_at is display-only
+  + tenant-scoped (no IDOR); no new columns exposed vs main.
+• Chris smoke-verified each screen on Vercel preview through the session.
+• NOTE (buildvsplan): confirmed invoices.sent_at IS a date column, so dateMonth() is correct.
+
+═══════════════════════════════════════════════════════════════════════════════
+GATE RESULTS — full detail from the three cold terminals (their context lives
+only here now)
+═══════════════════════════════════════════════════════════════════════════════
+── T4 /buildvsplan ──  0 Tier-1 · 0 Tier-2 · 3 notes · SMOKE: GO
+  Halt criteria all clear, with proof:
+   • Money from stale proposals.total: NONE. All $ via bidValue/calcProposalTotal/
+     calcWtcPrice; archive → historical_billed_amount (followUp.js:99-104). The only
+     proposals.total hit in Proposals.jsx is the comment forbidding it (:162).
+   • Home/Call-Log number mismatch: IDENTICAL. One selector — Home→homeEngagement→
+     pipelineStats (followUp.js:483); Call Log→pipelineStats direct (CallLog.jsx:236);
+     rep scope is inside the selector (:114).
+   • Unpaginated aggregate: NONE. pagedSelect loops .range() for all 4 snapshot
+     fetches (followUp.js:180-224); Proposals/Invoices use fetchAll.
+   • Residual Sales Dash: ZERO. getPageNumber is loop-based so removing Ch.5 doesn't
+     break Directory numbering (TableOfContents.jsx:375-386).
+   • Lost capability (Home→Call Log): NONE. Dig/Hunt/Sleepers/Owe/log-outcome rewired
+     through SalesIntelligence.jsx; useAlerts suppression + LogOutcome onLogged→refresh
+     intact; Home imports only performance components.
+  Also verified: Sold this-month id-set (not all-time stage); dedupeBids key + sister
+   handling; Proposals Σ===All + Other remainder; TDZ fix (single module-level opened);
+   recipients embedded on the paginated select (no separate .in()); invoice date typing
+   (tsMonth local for timestamptz, dateMonth wall-clock for date sent_at; aging via
+   dayDiff; late buckets reconcile to Past Due; activeInvoices excludes deleted+voided);
+   retention predicate unchanged, aging gated !isRetentionView.
+  3 NOTES (non-defects): (1) Proposals "Sent" bucket adds defensive "Approved" — harmless;
+   (2) Invoices top bar is live-directed, plan doc was stale here → now reconciled in the
+   plan's As-shipped section; (3) sent_at date-vs-timestamptz watch-item → CONFIRMED a
+   date column, so dateMonth() is correct. All dismissed.
+
+── T5 /code-review (high) ──  0 ship-blockers · 2 should-fix (fixed) · 2 hardening (R5)
+   #1 SHOULD-FIX (FIXED): pipelineStats.soldProps de-duped before filtering Sold — a
+      newer non-Sold revision could drop the sale. Now filters Sold first. (~0 rows today.)
+   #2 HARDENING (R5): dedupeBids key call_log_id::customer_id??"" collapses two
+      null-customer_id sisters into one → undercount. Anomaly only; filed.
+   #3 SHOULD-FIX (FIXED): OWED_STAGES duplicated in CallLog + followUp → drift risk.
+      Now exported from followUp.js and reused.
+   #4 HARDENING (R5): markRecipientReceived writes viewed_at with no error surfacing
+      (silent no-op if blocked; only a UI badge fails to flip). Matches sibling
+      toggleSigner pattern; filed.
+   #5 no action: pipelineStats called 2x/render + unmemoized — sub-ms at current scale.
+   #6 no action: "Sold" id-set can include an archived job not in activeRows → banner
+      count is right, list may show fewer; cosmetic, no wrong data.
+   Verdict: ship. (Fixes landed in commit 533cbf8.)
+
+── T6 /security-review ──  0 exploitable-today · safe to ship  (all DB facts queried
+   live against prod pbgvgjjuhnpsumnowuym)
+   1. Deleted /dashboard + SalesDash.jsx + nav: NOT exploitable — fully gone; remaining
+      "dashboard" hits are marketing/help copy (no navigate/<Route>). Deletion CLOSES the
+      pre-existing unguarded financial URL → net security improvement.
+   2. markRecipientReceived → proposal_recipients.viewed_at: NOT exploitable — viewed_at
+      is display-only (scoreboard badges + "Almost Yes" filter; no money/permission reads
+      it). UPDATE tenant-scoped both ways: USING (tenant_id=get_user_tenant_id()) + WITH
+      CHECK same → cross-tenant id can't match, no IDOR. id from the rendered row. Same
+      .eq("id",id) pattern as 6 existing proposal_recipients writes on main.
+   3. loadSnapshot/pipelineStats added archived + proposal_wtc financial cols: NOT
+      exploitable — live ACL is authenticated=arwdDxtm table-level on proposals/
+      proposal_wtc/call_log, zero column grants/REVOKEs. Every added column was already
+      readable by any authenticated tenant user via select('*'), bounded only by row-level
+      tenant RLS. No privilege escalation vs main.
+   Scope note: the residual "tenant-only RLS, no per-role predicate — a rep can read
+   financial columns" fact is REAL but unchanged from main and owned by F53. At the DB
+   there is no lower-privilege role (all app users = the single authenticated PostgREST
+   role), so no role-based exposure delta exists for this diff to introduce.
+
+═══════════════════════════════════════════════════════════════════════════════
+NOT TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+Retention view columns + logic; void/audit-trail rows; every table's filters/sort/
+pagination/detail; New Inquiry / New Proposal / New Invoice / Pay App flows; QB sync;
+Customers/Team/Settings/History Locker; all edge functions; all RLS (zero migrations).
+
+═══════════════════════════════════════════════════════════════════════════════
+NEXT SESSION POINTERS
+═══════════════════════════════════════════════════════════════════════════════
+1. MERGE PR #36 → prod deploy (Vercel auto-deploys main to scmybiz.com). Chris to merge.
+2. After merge: delete the feat/screen-refresh-dash-retire branch.
+3. Deferred, when convenient: F54 (opened/unopened badge, proposals+invoices),
+   R5 (hardening), F52 #3/#5, F53 (needs AR Command to exist).
+4. If an OLDER "Sent" proposal has NO recipient rows, "Mark received" has nothing to
+   stamp — a proposal-level fallback could be added (flagged to Chris; not filed).
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TO KNOW
+═══════════════════════════════════════════════════════════════════════════════
+• src/lib/followUp.js — the engine: pipelineStats, dedupeBids, bidValue, digSummary,
+  creditedSoldMonth, loadSnapshot, OWED_STAGES (now exported).
+• src/components/PipelinePanel.jsx — NEW, shared dark hero panel (all 3 screens).
+• src/components/followup/SalesIntelligence.jsx — NEW, relocated Dig/Hunt/Sleepers.
+• src/pages/{Home,CallLog,Proposals,Invoices}.jsx — the four redesigned screens.
+• src/components/ProposalDetail.jsx — markRecipientReceived + the two Recipients UIs.
+
+═══════════════════════════════════════════════════════════════════════════════
+GIT STATE
+═══════════════════════════════════════════════════════════════════════════════
+Branch feat/screen-refresh-dash-retire, pushed, PR #36 open (base main).
+All three gates passed. Merge → prod. Zero migrations, no edge-fn changes.

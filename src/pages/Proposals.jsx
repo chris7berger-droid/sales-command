@@ -140,11 +140,14 @@ export default function Proposals({ teamMember, setSubPage }) {
   />;
 
   // ─── "Proposals" stat row + Needs-Attention (§2.3 / §3.2) ────────────────
-  // Scope the top-bar stats to the selected period (default: current month) via
-  // created_at. The list below is intentionally NOT scoped — it stays all-time.
+  // Scope the top-bar stats to the selected period (default: current month) by
+  // the proposal's activity date: sold → approved_at, else sent → sent_at, else
+  // created_at (drafts never sent). The list below is NOT scoped — it's all-time.
+  const periodDate = (p) => p.approved_at || p.sent_at || p.created_at;
   const inPeriod = (p) => {
-    if (!p.created_at) return false;
-    const d = new Date(p.created_at);
+    const raw = periodDate(p);
+    if (!raw) return false;
+    const d = new Date(raw);
     if (period.mode === "year") return d.getFullYear() === period.y;
     return d.getFullYear() === period.y && d.getMonth() === period.m;
   };
@@ -186,7 +189,7 @@ export default function Proposals({ teamMember, setSubPage }) {
   // month, newest first. Value "YYYY-M" maps back to a {y,m} month scope.
   const mKey = (y, m) => `${y}-${m}`;
   const mLabel = (y, m) => new Date(y, m, 1).toLocaleString("en-US", { month: "short", year: "numeric" });
-  const monthSet = new Set(proposals.filter(p => p.created_at).map(p => { const d = new Date(p.created_at); return mKey(d.getFullYear(), d.getMonth()); }));
+  const monthSet = new Set(proposals.map(periodDate).filter(Boolean).map(raw => { const d = new Date(raw); return mKey(d.getFullYear(), d.getMonth()); }));
   monthSet.add(mKey(_now.getFullYear(), _now.getMonth()));
   const monthOptions = [...monthSet].map(k => k.split("-").map(Number)).sort((a, b) => b[0] - a[0] || b[1] - a[1]);
   const isThisMonth = period.mode === "month" && period.y === _now.getFullYear() && period.m === _now.getMonth();

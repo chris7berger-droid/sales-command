@@ -134,11 +134,14 @@ export default function Proposals({ teamMember, setSubPage }) {
     if (+raw.slice(0, 4) !== period.y) return false;
     return period.mode === "year" || +raw.slice(5, 7) - 1 === period.m;
   };
-  // A multi-GC job (same bid sent to N GCs) counts as ONE $-value job everywhere
-  // on this top bar — you can only win one. First collapse re-bids to the same GC
-  // (canonical dedupeBids), then collapse a clone family (cloned_from_proposal_id
-  // || id) to one row, preferring the parent. This is the exact set every top-bar
-  // number is computed over, and — on a stat click — what the list drills into.
+  // Two views of the same period, on purpose:
+  //  • TOP-BAR NUMBERS (`scoped`): a multi-GC job (same bid to N GCs) counts as
+  //    ONE $-value job — you can only win one. Collapse re-bids to the same GC
+  //    (canonical dedupeBids), then collapse a clone family (cloned_from_proposal_id
+  //    || id) to one row, preferring the parent.
+  //  • LIST DRILL (`listScopedIds`): shows EVERY row in the period — all GC copies
+  //    stay visible. Chris: count once up top, but see all three in the list.
+  const periodMembers = proposals.filter(inPeriod);
   const collapseFamilies = (rows) => {
     const byFam = new Map();
     for (const p of rows) {
@@ -148,8 +151,8 @@ export default function Proposals({ teamMember, setSubPage }) {
     }
     return [...byFam.values()];
   };
-  const scoped = collapseFamilies(dedupeBids(proposals.filter(inPeriod)));
-  const scopedIds = new Set(scoped.map(p => p.id));
+  const scoped = collapseFamilies(dedupeBids(periodMembers));
+  const listScopedIds = new Set(periodMembers.map(p => p.id));
 
   const STATUS_TABS = ["All", "Draft", "Sent", "Signed", "Sold", "Lost"];
   // Lens from a clicked stat card (bucket or attention). Takes precedence over the
@@ -167,9 +170,10 @@ export default function Proposals({ teamMember, setSubPage }) {
     }
   };
   const filteredProposals = proposals.filter(p => {
-    // A stat-card click drills into exactly the N behind that number → restrict
-    // the (otherwise all-time) list to the current period's de-duped set.
-    if (propFilter && !scopedIds.has(p.id)) return false;
+    // A stat-card click drills into the current period → restrict the (otherwise
+    // all-time) list to that period's rows. Shows every GC copy (not the collapsed
+    // one-per-job set the numbers use), so a fan-out still lists all its bids.
+    if (propFilter && !listScopedIds.has(p.id)) return false;
     if (propFilter && !matchesLens(p)) return false;
     if (!propFilter && statusFilter !== "All" && p.status !== statusFilter) return false;
     if (filters.sales && p.call_log?.sales_name !== filters.sales) return false;
@@ -199,8 +203,8 @@ export default function Proposals({ teamMember, setSubPage }) {
   />;
 
   // ─── "Proposals" stat row + Needs-Attention (§2.3 / §3.2) ────────────────
-  // `scoped` / `scopedIds` (period-scoped, de-duped bids) are defined up top so
-  // the list can drill into them on a stat click. Each bucket carries both a
+  // `scoped` (period-scoped, one-per-job numbers) and `listScopedIds` (the list
+  // drill set) are defined up top. Each bucket carries both a
   // COUNT and a $ VOLUME (the value the count represents), via bidValue: archive
   // jobs → historical_billed_amount, everyone else → live WTC math.
   const bucketCounts  = { Draft: 0, Sent: 0, Sold: 0, Lost: 0, Other: 0 };

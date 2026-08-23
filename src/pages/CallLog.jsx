@@ -320,8 +320,8 @@ export default function CallLog({ teamMember, setSubPage }) {
           {navPill(`All Jobs · ${activeRows.length}`, atList, scrollToList)}
         </div>
         <PipelinePanel
-          label="Your Pipeline"
-          footnote="Pipeline shows Active Jobs assigned to you"
+          label={`Pipeline · ${scopeName || "All Reps"}`}
+          footnote={scopeName ? `Active jobs assigned to ${scopeName}` : "Active jobs — all reps"}
           items={pipelineItems}
           segments={pipelineSegments}
         />

@@ -144,7 +144,9 @@ export default function Proposals({ teamMember, setSubPage }) {
   //    || id) to one row, preferring the parent.
   //  • LIST DRILL (`listScopedIds`): shows EVERY row in the period — all GC copies
   //    stay visible. Chris: count once up top, but see all three in the list.
-  const periodMembers = proposals.filter(inPeriod);
+  // Rep filter scopes the WHOLE screen — the top-bar stats too, not just the list
+  // below (so a selected rep's boards show that rep's numbers). Empty = all reps.
+  const periodMembers = proposals.filter(p => (!filters.sales || p.call_log?.sales_name === filters.sales) && inPeriod(p));
   const scoped = collapseGcFamilies(dedupeBids(periodMembers));
   const listScopedIds = new Set(periodMembers.map(p => p.id));
 
@@ -291,10 +293,10 @@ export default function Proposals({ teamMember, setSubPage }) {
           </select>
         </div>
         {/* Top row (§2.3) — dark pipeline panel; click a bucket to filter the list */}
-        <PipelinePanel label="Proposal Flow" items={pipelineItems} segments={pipelineSegments} />
+        <PipelinePanel label={`Proposal Flow · ${filters.sales || "All Reps"}`} items={pipelineItems} segments={pipelineSegments} />
         {/* Needs-Attention (opened-aware) — clickable to filter */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {naLabel("Needs Attention")}
+          {naLabel(`Needs Attention · ${filters.sales || "All Reps"}`)}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 16 }}>
             <StatCard label="Sent – not opened"    value={loading ? "…" : sentNotOpened}   sub="No open yet"        accent={C.amber}  onClick={() => pickLens("sentNotOpened")} />
             <StatCard label="Opened – no response" value={loading ? "…" : openedNoResp}     sub="Opened, unresolved" accent={C.teal}   onClick={() => pickLens("openedNoResp")} />

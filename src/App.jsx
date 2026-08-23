@@ -16,7 +16,6 @@ import WTCCalculator from "./pages/WTCCalculator";
 import Proposals from "./pages/Proposals";
 import Invoices from "./pages/Invoices";
 import Managers from "./pages/Managers";
-import SalesDash from "./pages/SalesDash";
 import Customers from "./pages/Customers";
 import Team from "./pages/Team";
 import Settings from "./pages/Settings";
@@ -38,7 +37,6 @@ const NAV = [
   { id: "calllog",   label: "Call Log",   icon: "📋" },
   { id: "proposals", label: "Proposals",  icon: "📄" },
   { id: "invoices",  label: "Invoices",   icon: "💵" },
-  { id: "dashboard", label: "Sales Dash", icon: "📊", roles: ["Admin", "Manager"] },
   { id: "managers",  label: "Managers",   icon: "🏆", roles: ["Manager"] },
   { id: "customers", label: "Customers",  icon: "🏢" },
   { id: "team",      label: "Our Team",   icon: "👥" },
@@ -243,7 +241,6 @@ function SalesCommandApp() {
             <Routes>
               <Route path="/" element={<Navigate to="/home" replace />} />
               <Route path="/home" element={<Home displayName={displayName} displayRole={displayRole} repName={repName} />} />
-              <Route path="/dashboard" element={<SalesDash displayName={displayName} displayRole={displayRole} />} />
               <Route path="/calllog" element={<CallLog teamMember={teamMember} setSubPage={setSubPage} />} />
               <Route path="/calllog/:id" element={<CallLog teamMember={teamMember} setSubPage={setSubPage} />} />
               <Route path="/proposals" element={<Proposals teamMember={teamMember} setSubPage={setSubPage} />} />

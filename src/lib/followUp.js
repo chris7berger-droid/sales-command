@@ -21,6 +21,7 @@
 import { supabase, archiveDb } from "./supabase";
 import { tod } from "./utils";
 import { STAGES } from "./mockData";
+import { calcProposalTotal, usesExactPricing } from "./calc";
 
 // ── Thresholds (v1 consts; no admin UI yet — plan §4) ──────────────────────
 export const DORMANT_MONTHS = 6;
@@ -49,13 +50,131 @@ const day = (v) => (v ? String(v).slice(0, 10) : null); // normalize date | time
 // mixed formats — ISO 8601 ("2025-02-13T00:01:06.302Z") AND a US locale string
 // ("2/2/2026, 12:00:00 AM"). Return wall-clock YYYY-MM-DD (ISO: take the date
 // part directly to avoid a UTC→local month shift; locale: parse via Date).
-function parseArchiveSoldDate(v) {
+export function parseArchiveSoldDate(v) {
   if (!v) return null;
   const s = String(v);
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : ymd(d);
+}
+
+// The month (YYYY-MM) a Sold proposal is credited to — the ONE basis every
+// "sold this month" surface must share (B70). Archive-lineage jobs (pulled live
+// from the History Locker) credit to their REAL sold date
+// (raw_data['job/soldDate']); normal jobs to proposal.created_at. Unknown
+// archive sold date → null (not counted this month), so an old sale imported
+// this month is never miscounted as new. `archiveIdByJob` maps call_log_id →
+// archive_record_id; `archiveSoldDateById` maps archive id → YYYY-MM-DD (both
+// from loadSnapshot, or an equivalent archive fetch — see CallLog "Your Pipeline").
+export function creditedSoldMonth(proposal, { archiveIdByJob, archiveSoldDateById } = {}) {
+  const arc = archiveIdByJob?.get(proposal.call_log_id);
+  if (arc) { const d = archiveSoldDateById?.get(arc); return d ? d.slice(0, 7) : null; }
+  return day(proposal.created_at)?.slice(0, 7) || null;
+}
+
+// ── One bid per job (F52) ────────────────────────────────────────────────────
+// A job can carry multiple proposals: (a) REVISIONS — a re-bid to the SAME GC,
+// which increments proposal_number on the same customer_id; and (b) multi-GC
+// SISTERS — the same job bid to DIFFERENT GCs (different customer_id). Revisions
+// are one bid (keep the newest/live); sisters are separate bids (keep each).
+// Keying by (call_log_id, customer_id) and keeping the newest per key collapses
+// revisions while leaving sisters intact. Fixes the double-count that inflated
+// every "sum the job's proposals" site (Home Your Book + Call Log pipeline row).
+function dedupeBids(proposals) {
+  const byKey = new Map();
+  for (const p of proposals) {
+    const key = `${p.call_log_id}::${p.customer_id ?? ""}`;
+    const cur = byKey.get(key);
+    if (!cur) { byKey.set(key, p); continue; }
+    const newer = (p.proposal_number || 0) !== (cur.proposal_number || 0)
+      ? (p.proposal_number || 0) > (cur.proposal_number || 0)
+      : (p.created_at || "") > (cur.created_at || "");
+    if (newer) byKey.set(key, p);
+  }
+  return [...byKey.values()];
+}
+
+// Canonical bid $ for a proposal — real WTC math (rate cards excluded, F44),
+// NEVER proposals.total (stale, Data Rule #2). Archive proposals carry no WTC —
+// their value is the flat historical_billed_amount.
+function bidValue(p) {
+  if (p.is_archive_proposal) return parseFloat(p.historical_billed_amount) || 0;
+  return calcProposalTotal(p.proposal_wtc, parseFloat(p.markup_override_pct) || undefined, usesExactPricing(p));
+}
+
+// ── THE shared pipeline selector ─────────────────────────────────────────────
+// The single source of truth for the pipeline numbers on BOTH Home's "Your Book"
+// cards and Call Log's pipeline row, so they can never disagree. Rep-scoped by
+// `repName` (empty = company-wide). Wants Bid / Has Bid = all-time OPEN, valued
+// over de-duped bids; Sold = CURRENT MONTH (count AND $), credited to the real
+// sold month (archive-aware). All money via bidValue (never proposals.total).
+export function pipelineStats(snapshot, { repName = "" } = {}) {
+  const month = tod().slice(0, 7);
+  const inRep = c => c && (!repName || c.sales_name === repName);
+  const jobById = new Map(snapshot.callLog.map(c => [c.id, c]));
+  const archiveIdByJob = new Map(snapshot.callLog.map(c => [c.id, c.archive_record_id]));
+
+  // active (non-archived) jobs in scope
+  const activeJobs = snapshot.callLog.filter(c => !c.archived && inRep(c));
+
+  // one bid per (job, GC); value + group by job
+  const bidsByJob = new Map();
+  for (const p of dedupeBids(snapshot.proposals)) {
+    if (!bidsByJob.has(p.call_log_id)) bidsByJob.set(p.call_log_id, []);
+    bidsByJob.get(p.call_log_id).push(p);
+  }
+  const jobBidValue = jobId => (bidsByJob.get(jobId) || []).reduce((s, p) => s + bidValue(p), 0);
+  const stageAgg = stage => {
+    const js = activeJobs.filter(c => c.stage === stage);
+    return { count: js.length, amount: js.reduce((s, c) => s + jobBidValue(c.id), 0) };
+  };
+
+  // Sold = current month, credited to REAL sold month (B70), rep-scoped, de-duped.
+  // Filter to Sold FIRST, then de-dupe — otherwise a newer non-Sold revision of the
+  // same (job, GC) would win the de-dupe and drop the sale (code-review #1).
+  const soldProps = dedupeBids(snapshot.proposals.filter(p => p.status === "Sold")).filter(p =>
+    inRep(jobById.get(p.call_log_id)) &&
+    creditedSoldMonth(p, { archiveIdByJob, archiveSoldDateById: snapshot.archiveSoldDateById }) === month
+  );
+
+  return {
+    all: activeJobs.length,
+    wantsBid: stageAgg("Wants Bid"),
+    hasBid: stageAgg("Has Bid"),
+    sold: { count: soldProps.length, amount: soldProps.reduce((s, p) => s + bidValue(p), 0) },
+    soldProps,
+  };
+}
+
+// "Where to Dig" summary — the three at-a-glance priority buckets on Call Log
+// (bids due today, bids overdue, follow-ups this week), each with a count and
+// the $ of open bid on the table. Rep-scoped; reuses the same de-duped bid
+// valuation as pipelineStats. The detailed per-job list is owedItems (below).
+export function digSummary(snapshot, { repName = "" } = {}) {
+  const today = tod();
+  const wo = new Date(); wo.setDate(wo.getDate() + 7);
+  const weekOut = ymd(wo);
+  const inRep = c => !repName || c.sales_name === repName;
+
+  const bidsByJob = new Map();
+  for (const p of dedupeBids(snapshot.proposals)) {
+    if (!bidsByJob.has(p.call_log_id)) bidsByJob.set(p.call_log_id, []);
+    bidsByJob.get(p.call_log_id).push(p);
+  }
+  const jobBidValue = id => (bidsByJob.get(id) || []).reduce((s, p) => s + bidValue(p), 0);
+  const sum = js => js.reduce((s, c) => s + jobBidValue(c.id), 0);
+
+  const active = snapshot.callLog.filter(c => !c.archived && inRep(c));
+  const dueTodayJobs = active.filter(c => c.stage === "Wants Bid" && c.bid_due === today);
+  const overdueJobs  = active.filter(c => c.stage === "Wants Bid" && c.bid_due && c.bid_due < today);
+  const followupJobs = active.filter(c => c.follow_up && c.follow_up <= weekOut && OWED_STAGES.has(c.stage));
+
+  return {
+    dueToday: { count: dueTodayJobs.length, amount: sum(dueTodayJobs) },
+    overdue: { count: overdueJobs.length, amount: sum(overdueJobs) },
+    followupsWeek: { count: followupJobs.length },
+  };
 }
 
 // ── Error-surfacing paginated select (fetchAll swallows the error; P5/N7) ────
@@ -90,7 +209,7 @@ export async function loadSnapshot() {
   //    box (engagement redesign Box 5) — the column already exists, so this is a
   //    read-only select add, zero DB.
   const cl = await pagedSelect(supabase, "call_log",
-    "id, stage, sales_name, customer_id, bid_due, follow_up, created_at, updated_at, archive_record_id, display_job_number, customer_name, job_name",
+    "id, stage, sales_name, customer_id, bid_due, follow_up, created_at, updated_at, archived, archive_record_id, display_job_number, customer_name, job_name",
     { order: "id" });
   if (cl.error) return emptySnap("error", cl.error);
 
@@ -100,7 +219,9 @@ export async function loadSnapshot() {
   //    bids a customer opened but never signed. Never a flattening join (that
   //    double-counts $ across recipients — audit L3). Columns already exist.
   const pr = await pagedSelect(supabase, "proposals",
-    "id, call_log_id, customer_id, status, created_at, total, proposal_wtc(end_date), proposal_recipients(sent_at, viewed_at)",
+    "id, call_log_id, customer_id, status, created_at, pricing_anchor_at, markup_override_pct, proposal_number, cloned_from_proposal_id, is_archive_proposal, historical_billed_amount, total, " +
+      "proposal_wtc(end_date, is_rate_card, prevailing_wage, pw_rate, pw_ot_rate, burden_rate, ot_burden_rate, markup_pct, regular_hours, ot_hours, size, materials, travel, discount), " +
+      "proposal_recipients(sent_at, viewed_at)",
     { order: "id", filters: [["is", "deleted_at", null]] });
   if (pr.error) return emptySnap("error", pr.error);
 
@@ -286,7 +407,8 @@ export function goneQuietBids(snap, { repName } = {}) {
     if (signal && signal >= cutoff) continue; // recent → not gone quiet
     if (cl.customer_id && suppressed.has(cl.customer_id)) continue;
     const cx = cxById.get(cl.customer_id);
-    const value = jobProps.reduce((s, p) => s + (p.total || 0), 0);
+    // one bid per GC (F52) + real WTC math, never proposals.total
+    const value = dedupeBids(jobProps).reduce((s, p) => s + bidValue(p), 0);
     // opened-but-never-signed: any recipient with a viewed_at (embedded array, never flattened)
     const opened = jobProps.some(p => (p.proposal_recipients || []).some(r => r.viewed_at));
     out.push({
@@ -350,38 +472,28 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
   const jobSalesName = new Map(snap.callLog.map(c => [c.id, c.sales_name]));
   const jobArchiveId = new Map(snap.callLog.map(c => [c.id, c.archive_record_id]));
 
-  // The month a Sold proposal is credited to. Normal jobs: proposal.created_at.
-  // Archive-lineage jobs (pulled live from the History Locker): their REAL sold
-  // date (raw_data['job/soldDate']), so an old sale imported this month is NOT
-  // miscounted as a new one. Unknown archive date → null (not counted this month).
-  const soldMonthOf = (p) => {
-    const arc = jobArchiveId.get(p.call_log_id);
-    if (arc) { const d = snap.archiveSoldDateById?.get(arc); return d ? d.slice(0, 7) : null; }
-    return day(p.created_at)?.slice(0, 7) || null;
-  };
+  // The month a Sold proposal is credited to — shared with every other
+  // "sold this month" surface via creditedSoldMonth (B70). Normal jobs credit to
+  // proposal.created_at; archive-lineage jobs to their REAL sold date, so an old
+  // sale imported this month is NOT miscounted as new.
+  const soldMonthOf = (p) => creditedSoldMonth(p, { archiveIdByJob: jobArchiveId, archiveSoldDateById: snap.archiveSoldDateById });
 
-  // proposal totals grouped by job (for the Wants Bid / Has Bid $ tiles)
-  const propsByJob = new Map();
-  for (const p of snap.proposals) {
-    if (!propsByJob.has(p.call_log_id)) propsByJob.set(p.call_log_id, []);
-    propsByJob.get(p.call_log_id).push(p);
-  }
+  // ONE calculator — the same shared selector Call Log's pipeline row reads, so
+  // Home's "Your Book" and Call Log never disagree (de-duped bids, real WTC math,
+  // Sold = current month). Company thermometer uses the un-scoped selector.
+  const pipe = pipelineStats(snap, { repName });
+  const companySold = pipelineStats(snap, {}).sold.amount; // incl. orphans → thermometer
 
-  // ── Sold this month (credited by real sold-month; archive-aware) ──
-  const soldThisMonth = snap.proposals.filter(p => p.status === "Sold" && soldMonthOf(p) === month);
-  const companySold = soldThisMonth.reduce((s, p) => s + (p.total || 0), 0); // incl. orphans → thermometer
-
-  // rep's sold-this-month proposals (orphans excluded — no call_log_id → no rep)
-  const repSoldProps = soldThisMonth.filter(p => jobSalesName.get(p.call_log_id) === repName && repName);
-  const repSold = repSoldProps.reduce((s, p) => s + (p.total || 0), 0);
-  const repSoldCount = repSoldProps.length;
+  const repSoldProps = pipe.soldProps;
+  const repSold = pipe.sold.amount;
+  const repSoldCount = pipe.sold.count;
 
   // ── Best-month badge: ≥1 non-zero prior month AND strictly greater (C6/L1) ──
   const byMonth = new Map();
-  for (const p of snap.proposals) {
+  for (const p of dedupeBids(snap.proposals)) {
     if (p.status !== "Sold" || jobSalesName.get(p.call_log_id) !== repName || !repName) continue;
     const m = soldMonthOf(p);
-    if (m) byMonth.set(m, (byMonth.get(m) || 0) + (p.total || 0));
+    if (m) byMonth.set(m, (byMonth.get(m) || 0) + bidValue(p));
   }
   const priors = [...byMonth].filter(([m]) => m < month).map(([, v]) => v);
   const bestMonth = priors.some(v => v > 0) && repSold > Math.max(0, ...priors);
@@ -404,19 +516,14 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
   const behind = repSold < target * monthFrac;
   const gap = Math.max(0, target - repSold);
 
-  // ── Scoreboard (Box 4): rep's pipeline as money, per stage ──
-  const scoreboard = {};
-  for (const stage of SCOREBOARD_STAGES) {
-    if (stage === "Sold") { scoreboard.Sold = { amount: repSold, count: repSoldCount }; continue; }
-    const jobs = snap.callLog.filter(c => c.sales_name === repName && repName && c.stage === stage);
-    const amount = jobs.reduce((s, j) => s + (propsByJob.get(j.id) || []).reduce((t, p) => t + (p.total || 0), 0), 0);
-    scoreboard[stage] = { amount, count: jobs.length };
-  }
+  // ── Scoreboard (Box 4): rep's pipeline as money, per stage — the SHARED
+  // selector, identical to Call Log's pipeline row. ──
+  const scoreboard = { "Wants Bid": pipe.wantsBid, "Has Bid": pipe.hasBid, Sold: pipe.sold };
 
   // ── Donut data (2 views: booked-vs-left → by job size) ──
   let small = 0, medium = 0, large = 0;
   for (const p of repSoldProps) {
-    const t = p.total || 0;
+    const t = bidValue(p);
     if (t >= LARGE_JOB) large += t;
     else if (t >= MEDIUM_JOB) medium += t;
     else small += t;
@@ -427,7 +534,7 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
   const soldList = repSoldProps.map(p => {
     const cl = clById.get(p.call_log_id);
     return { callLogId: p.call_log_id, customerId: p.customer_id || cl?.customer_id || null,
-      name: cl?.customer_name || "—", sub: cl?.display_job_number || cl?.job_name || "", value: p.total || 0 };
+      name: cl?.customer_name || "—", sub: cl?.display_job_number || cl?.job_name || "", value: bidValue(p) };
   }).sort((a, b) => (b.value || 0) - (a.value || 0));
 
   return {
@@ -446,7 +553,7 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
 // set follow-up dates at intake that never get cleared, so without this guard a
 // won job keeps surfacing here forever. Allowlist (not a Sold/Lost blocklist) so
 // future post-sale stages can't leak back in.
-const OWED_STAGES = new Set(["New Inquiry", "Wants Bid", "Has Bid"]);
+export const OWED_STAGES = new Set(["New Inquiry", "Wants Bid", "Has Bid"]);
 
 // Box 5 "Where To Dig": bids due + self-set follow-up dates, this rep, one list.
 // Oldest / most-overdue first. A job that is both a due bid and has a follow-up
@@ -478,9 +585,9 @@ export function huntResults(snap, { repName } = {}) {
   const weekAgo = daysAgo(7);
   const clById = new Map(snap.callLog.map(c => [c.id, c]));
   const cxById = new Map(snap.customers.map(c => [c.id, c]));
-  const jobBidValue = new Map(); // call_log_id -> summed non-deleted proposal total
-  for (const p of snap.proposals) {
-    jobBidValue.set(p.call_log_id, (jobBidValue.get(p.call_log_id) || 0) + (p.total || 0));
+  const jobBidValue = new Map(); // call_log_id -> bid $ (one per GC, F52; real WTC math)
+  for (const p of dedupeBids(snap.proposals)) {
+    jobBidValue.set(p.call_log_id, (jobBidValue.get(p.call_log_id) || 0) + bidValue(p));
   }
   const calls = [];      // every logged call this week (Activity drill-in)
   const jobs = [];       // distinct bids re-engaged this week (Impact drill-in)

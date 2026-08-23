@@ -9,26 +9,21 @@
 //   5. What you owe (bids due + self-set follow-ups; celebrates when clear).
 //   6. Where to hunt (opportunity finder + dormant/quiet lists).
 // Style rules (CLAUDE.md): NO white backgrounds; teal buttons get BLACK text.
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { C, F, SP, R, FS } from "../lib/tokens";
 import { fmt$ } from "../lib/utils";
 import { useAlerts } from "../lib/alerts";
 import { useTenantConfig } from "../lib/TenantConfigContext";
-import { homeEngagement, owedItems, dormantCustomers, goneQuietBids, huntResults, SUPPRESSION_WINDOWS } from "../lib/followUp";
+import { homeEngagement } from "../lib/followUp";
 import MoneyDonut from "../components/followup/MoneyDonut";
 import GoalThermometer from "../components/followup/GoalThermometer";
-import HuntBox from "../components/followup/HuntBox";
-import HuntResultsPanel from "../components/followup/HuntResultsPanel";
-import HuntResultsModal from "../components/followup/HuntResultsModal";
 import JobListModal from "../components/followup/JobListModal";
-import LogOutcomeModal from "../components/followup/LogOutcomeModal";
 import heroImg from "../assets/hero/hero-01.jpg";
 
 const LIGHT = "#f3ede1";            // light ink on the dark hero / hunt panels
 const LIGHT_MUTED = "rgba(243,237,225,0.72)";
 const pctOf = (v, total) => (total > 0 ? Math.round((v / total) * 100) : 0);
-const OWED_PREVIEW = 8;             // What You Owe caps to the most-overdue few, rest behind an expander
 
 function BoxLabel({ children, right }) {
   return (
@@ -44,18 +39,7 @@ export default function Home({ displayName = "there", repName = "" }) {
   const cfg = useTenantConfig();
   const { snapshot, loading, hasSnapshot, firstLoadError, refresh } = useAlerts();
 
-  const [logTarget, setLogTarget] = useState(null);
-  const [showAllOwed, setShowAllOwed] = useState(false);
-  const [showRevivals, setShowRevivals] = useState(false);
   const [showSold, setShowSold] = useState(false);
-  const [toast, setToast] = useState(null);
-
-  // auto-dismiss the "logged" confirmation
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 4500);
-    return () => clearTimeout(t);
-  }, [toast]);
 
   const firstName = (repName || displayName).split(" ")[0];
   const h = new Date().getHours();
@@ -66,11 +50,6 @@ export default function Home({ displayName = "there", repName = "" }) {
     () => (snapshot ? homeEngagement(snapshot, { repName, monthlyGoal: cfg.monthly_billing_goal }) : null),
     [snapshot, repName, cfg.monthly_billing_goal]
   );
-  const owed = useMemo(() => (snapshot ? owedItems(snapshot, { repName }) : []), [snapshot, repName]);
-  const repGoneQuiet = useMemo(() => (snapshot ? goneQuietBids(snapshot, { repName }) : []), [snapshot, repName]);
-  const repDormant = useMemo(() => (snapshot ? dormantCustomers(snapshot, { repName }) : []), [snapshot, repName]);
-  const results = useMemo(() => (snapshot ? huntResults(snapshot, { repName }) : { callsThisWeek: 0, reengaged: 0 }), [snapshot, repName]);
-
   const loadingCore = !hasSnapshot && loading;
 
   const onGoTo = (card) => {
@@ -97,10 +76,7 @@ export default function Home({ displayName = "there", repName = "" }) {
     ? "Set a monthly goal in Settings to track your pace."
     : overTarget
       ? `Target crushed — ${pctOf(bar.sold, target)}% of your number. Now pile on.`
-      : (() => {
-          const sleepers = repGoneQuiet.length + repDormant.length;
-          return `${fmt$(bar.gap)} to go — land one good job${sleepers ? `, or revive a few of your ${sleepers} sleeper${sleepers === 1 ? "" : "s"}` : ""}.`;
-        })();
+      : `${fmt$(bar.gap)} to go — land one good job.`;
 
   // ── Donut views (2 only: booked-vs-left → big-vs-small) ──
   const soldTotal = donut.large + donut.medium + donut.small;
@@ -252,47 +228,6 @@ export default function Home({ displayName = "there", repName = "" }) {
         </div>
       </div>
 
-      {/* ── BOX 5 · WHAT YOU OWE (full-width) ────────────────────────────── */}
-      <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: R.card, padding: SP.xl, boxShadow: "0 2px 8px rgba(28,24,20,0.07)" }}>
-        <BoxLabel right={owed.length > 0 && <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>{owed.length} open · oldest first</span>}>Where To Dig</BoxLabel>
-        {owed.length === 0 ? (
-          <div style={{ fontSize: 15, fontWeight: 700, color: C.tealDark, fontFamily: F.body }}>All caught up — go hunt. 🎯</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: SP.sm }}>
-            {(showAllOwed ? owed : owed.slice(0, OWED_PREVIEW)).map(item => {
-              const overdue = item.date && item.date < new Date().toLocaleDateString("en-CA");
-              return (
-                <button key={`${item.kind}-${item.id}`} onClick={() => navigate(`/calllog/${item.id}`, { state: { from: "/home" } })}
-                  style={{ textAlign: "left", display: "flex", alignItems: "center", gap: SP.md, background: C.linen, border: `1px solid ${C.border}`, borderLeft: `3px solid ${overdue ? C.red : C.amber}`, borderRadius: R.chip, padding: "10px 14px", cursor: "pointer" }}>
-                  <span style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${C.borderStrong}`, flexShrink: 0 }} />
-                  <span style={{ fontSize: 13, fontWeight: 700, color: C.textHead, fontFamily: F.ui, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "45%" }}>{item.title}</span>
-                  <span style={{ fontSize: 12, color: C.textMuted, fontFamily: F.body, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.sub}</span>
-                  <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: overdue ? C.red : C.amber, fontFamily: F.ui, whiteSpace: "nowrap" }}>
-                    {item.kind === "bid" ? "bid" : "follow-up"} {overdue ? "· overdue" : ""}
-                  </span>
-                </button>
-              );
-            })}
-            {owed.length > OWED_PREVIEW && (
-              <button onClick={() => setShowAllOwed(s => !s)}
-                style={{ alignSelf: "flex-start", marginTop: SP.xs, background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.tealDark, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                {showAllOwed ? "Show fewer ▴" : `+ ${owed.length - OWED_PREVIEW} more ▾`}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── BOX 6 · WHERE TO HUNT + results companion ────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 300px", gap: SP.lg, alignItems: "start" }}>
-        <HuntBox goneQuiet={repGoneQuiet} dormant={repDormant} onGoTo={onGoTo} onLog={setLogTarget} />
-        <HuntResultsPanel callsThisWeek={results.callsThisWeek} reengaged={results.reengaged} onDrill={() => setShowRevivals(true)} />
-      </div>
-
-      {showRevivals && (
-        <HuntResultsModal calls={results.calls} jobs={results.jobs} onGoTo={onGoTo} onClose={() => setShowRevivals(false)} />
-      )}
-
       {showSold && (
         <JobListModal title="Sold This Month" subtitle="Closed" items={soldList} onGoTo={onGoTo} onClose={() => setShowSold(false)} />
       )}
@@ -302,28 +237,6 @@ export default function Home({ displayName = "there", repName = "" }) {
         <span style={{ fontSize: 12, color: C.textFaint, fontFamily: F.body, fontStyle: "italic" }}>Control the controllables. Pull the door.</span>
         <button onClick={refresh} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11.5, fontWeight: 700, color: C.tealDark, fontFamily: F.ui, textTransform: "uppercase", letterSpacing: "0.06em" }}>↻ Refresh</button>
       </div>
-
-      {logTarget && (
-        <LogOutcomeModal item={logTarget} loggedBy={repName || displayName} onClose={() => setLogTarget(null)}
-          onLogged={(outcome) => {
-            const days = SUPPRESSION_WINDOWS[outcome];
-            const who = logTarget?.name || "That job";
-            setToast(days ? `Logged — ${who} drops off your list, back in ${days} days.` : "Logged.");
-            setLogTarget(null);
-            refresh();
-          }} />
-      )}
-
-      {/* confirmation so a logged call never feels like a job vanished */}
-      {toast && (
-        <div style={{ position: "fixed", bottom: SP.xl, left: "50%", transform: "translateX(-50%)", zIndex: 200,
-          background: C.dark, color: C.teal, fontFamily: F.ui, fontSize: 13, fontWeight: 700,
-          padding: "12px 20px", borderRadius: R.chip, boxShadow: "0 8px 28px rgba(0,0,0,0.4)",
-          display: "flex", alignItems: "center", gap: SP.md }}>
-          <span>✓ {toast}</span>
-          <button onClick={() => setToast(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(48,207,172,0.55)", fontSize: 15, padding: 0 }}>✕</button>
-        </div>
-      )}
     </div>
   );
 }

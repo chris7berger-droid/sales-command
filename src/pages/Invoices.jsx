@@ -9,6 +9,7 @@ import { INV_C, PROP_C } from "../lib/mockData";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 import SectionHeader from "../components/SectionHeader";
 import StatCard from "../components/StatCard";
+import PipelinePanel from "../components/PipelinePanel";
 import DataTable from "../components/DataTable";
 import Checkbox from "../components/Checkbox";
 import Pill from "../components/Pill";
@@ -3189,6 +3190,8 @@ export default function Invoices({ setSubPage, teamMember }) {
   const [lastViewedId, setLastViewedId] = useState(null);
   const [qbConnected, setQbConnected] = useState(null);
   const [filters, setFilters] = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "", invoiceNumber: "" });
+  const [invFilter, setInvFilter] = useState(null); // stat-card lens: "drafted"|"invoiced"|"collected"|"overdue"|"dueWeek"|"paidMonth"
+  const listRef = useRef(null); // the "ALL INVOICES" divider — scroll target on a stat click
 
   const load = async () => {
     const data = await fetchAll(
@@ -3254,9 +3257,19 @@ export default function Invoices({ setSubPage, teamMember }) {
 
   // Voided rows still render in the list (audit trail) but are excluded from totals.
   const activeInvoices = invoices.filter(i => !i.voided_at);
-  const drafted = activeInvoices.filter(i => i.status === "New").reduce((a, i) => a + (i.amount || 0), 0);
-  const pending = activeInvoices.filter(i => ["Sent","Waiting for Payment","Past Due"].includes(i.status)).reduce((a, i) => a + (i.amount || 0), 0);
-  const paid    = activeInvoices.filter(i => i.status === "Paid").reduce((a, i) => a + (i.amount || 0), 0);
+
+  // ── This-month flow row (§2.4/§3.3) — monthly FLOWS, not a partition; they do
+  // NOT sum to a fixed total. Wall-clock month, column-type aware: `sent_at` /
+  // `due_date` are `date` cols (slice directly — already wall-clock); `created_at`
+  // / `paid_at` are `timestamptz` (convert to LOCAL date first, else a payment
+  // after 5pm PT misbuckets into next month). Never new Date().getMonth().
+  const thisMonth = tod().slice(0, 7);
+  const tsMonth   = v => (v ? new Date(v).toLocaleDateString("en-CA").slice(0, 7) : null); // timestamptz → local YYYY-MM
+  const dateMonth = v => (v ? String(v).slice(0, 7) : null);                                // date col → wall-clock YYYY-MM
+  const sumAmt    = list => list.reduce((a, i) => a + (i.amount || 0), 0);
+  const draftedMonth   = sumAmt(activeInvoices.filter(i => tsMonth(i.created_at) === thisMonth)); // created this month
+  const invoicedMonth  = sumAmt(activeInvoices.filter(i => dateMonth(i.sent_at) === thisMonth));  // sent this month
+  const collectedMonth = sumAmt(activeInvoices.filter(i => tsMonth(i.paid_at) === thisMonth));    // paid this month
 
   // Retention outstanding is a billing question, not a payment question: an invoice can be
   // fully Paid on its net while its retention has never been billed. Gate on retention_released
@@ -3264,13 +3277,63 @@ export default function Invoices({ setSubPage, teamMember }) {
   const retentionInvoices = activeInvoices.filter(i => parseFloat(i.retention_amount) > 0 && !i.retention_released);
   const totalRetentionHeld = retentionInvoices.reduce((a, i) => a + (parseFloat(i.retention_amount) || 0), 0);
 
+  // ── Needs-Attention (§2.4/§3.3) — actionable counts over activeInvoices.
+  // due_date is a `date` col → compare wall-clock strings directly (tod()).
+  const todayStr = tod();
+  const unpaidActive = activeInvoices.filter(i => i.status !== "Paid" && i.due_date);
+  const overdueList = unpaidActive.filter(i => i.due_date < todayStr);
+  const overdueCount = overdueList.length;
+  const overdueAmt   = overdueList.reduce((a, i) => a + (i.amount || 0), 0);
+
+  // ── AR aging (QuickBooks buckets) — unpaid, non-voided, with a due date.
+  // daysLate = dayDiff(due_date) (positive = past due). "Current" = not yet due.
+  // The late buckets (1–30…90+) sum to the top-bar "Past Due" total.
+  const AGE_META = [
+    { key: "aging_current", bkt: "current", label: "Current", color: C.teal },
+    { key: "aging_30",  bkt: "b30",  label: "1–30",  color: C.amber },
+    { key: "aging_60",  bkt: "b60",  label: "31–60", color: C.amber },
+    { key: "aging_90",  bkt: "b90",  label: "61–90", color: C.red },
+    { key: "aging_90p", bkt: "b90p", label: "90+",   color: C.red },
+  ];
+  const agingBuckets = { current: { count: 0, amt: 0 }, b30: { count: 0, amt: 0 }, b60: { count: 0, amt: 0 }, b90: { count: 0, amt: 0 }, b90p: { count: 0, amt: 0 } };
+  for (const i of unpaidActive) {
+    const d = dayDiff(i.due_date);
+    const b = d <= 0 ? "current" : d <= 30 ? "b30" : d <= 60 ? "b60" : d <= 90 ? "b90" : "b90p";
+    agingBuckets[b].count++; agingBuckets[b].amt += (i.amount || 0);
+  }
+
   const aging = (inv) => {
     if (!inv.due_date || inv.status === "Paid") return null;
     return dayDiff(inv.due_date);
   };
 
+  // Stat-card lens — matches the exact invoices a clicked stat counted. Voided
+  // rows excluded (they render for audit but aren't in these views' numbers).
+  const matchesInvLens = (inv) => {
+    if (!invFilter) return true;
+    if (inv.voided_at) return false;
+    const late = inv.status !== "Paid" && inv.due_date ? dayDiff(inv.due_date) : null;
+    switch (invFilter) {
+      case "drafted":   return tsMonth(inv.created_at) === thisMonth;
+      case "invoiced":  return dateMonth(inv.sent_at) === thisMonth;
+      case "collected": return tsMonth(inv.paid_at) === thisMonth;
+      case "overdue":   return late != null && late > 0;
+      case "aging_current": return late != null && late <= 0;
+      case "aging_30":  return late != null && late >= 1 && late <= 30;
+      case "aging_60":  return late != null && late >= 31 && late <= 60;
+      case "aging_90":  return late != null && late >= 61 && late <= 90;
+      case "aging_90p": return late != null && late > 90;
+      default: return true;
+    }
+  };
+  const INV_LENS_LABEL = {
+    drafted: "Drafted this month", invoiced: "Sent this month", collected: "Paid this month", overdue: "Past due",
+    aging_current: "Current (not due yet)", aging_30: "1–30 days late", aging_60: "31–60 days late", aging_90: "61–90 days late", aging_90p: "90+ days late",
+  };
+
   const baseList = isRetentionView ? retentionInvoices : invoices;
   const filteredInvoices = baseList.filter(inv => {
+    if (invFilter && !matchesInvLens(inv)) return false;
     const sales = inv.proposals?.call_log?.sales_name || "";
     const cust = inv.proposals?.call_log?.customer_name || inv.job_name || "";
     const jobNum = inv.proposals?.call_log?.display_job_number || inv.job_id || "";
@@ -3287,6 +3350,24 @@ export default function Invoices({ setSubPage, teamMember }) {
   useEffect(() => {
     if (setSubPage) setSubPage(sel ? "detail" : showModal ? "new" : null);
   }, [sel, showModal]);
+
+  // Reset the stat lens when switching between All Invoices and the Retention view.
+  useEffect(() => { setInvFilter(null); }, [isRetentionView]);
+
+  const scrollToList = () => requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  const pickInvLens = (key) => { setInvFilter(key); scrollToList(); };
+  const MUTED = "rgba(243,237,225,0.55)";
+  const flowItems = [
+    { key: "drafted",   glyph: "✎", color: C.teal,  value: loading ? "…" : fmt$c(draftedMonth),   label: "Drafted",  sub: "This month", subColor: MUTED, onClick: () => pickInvLens("drafted"),   active: invFilter === "drafted" },
+    { key: "invoiced",  glyph: "➤", color: C.amber, value: loading ? "…" : fmt$c(invoicedMonth),  label: "Sent",     sub: "This month", subColor: MUTED, onClick: () => pickInvLens("invoiced"),  active: invFilter === "invoiced" },
+    { key: "collected", glyph: "✓", color: C.green, value: loading ? "…" : fmt$c(collectedMonth), label: "Paid",     sub: "This month", subColor: MUTED, onClick: () => pickInvLens("collected"), active: invFilter === "collected" },
+    { key: "overdue",   glyph: "!", color: C.red,   value: loading ? "…" : fmt$c(overdueAmt),     label: "Past Due", sub: overdueCount ? `${overdueCount} invoice${overdueCount !== 1 ? "s" : ""}` : "All current", subColor: MUTED, onClick: () => pickInvLens("overdue"), active: invFilter === "overdue" },
+  ];
+  const retentionItems = [
+    { key: "held", glyph: "$", color: C.teal,  value: fmt$c(totalRetentionHeld), label: "Total Retention Held" },
+    { key: "open", glyph: "▤", color: C.amber, value: String(retentionInvoices.length), label: "Open Pay Apps w/ Retention" },
+    { key: "avg",  glyph: "⌀", color: C.green, value: fmt$c(retentionInvoices.length ? totalRetentionHeld / retentionInvoices.length : 0), label: "Avg per Invoice" },
+  ];
 
   // Remember the invoice you were just in so the list highlights + scrolls to it on the way back
   useEffect(() => { if (sel?.id) setLastViewedId(sel.id); }, [sel?.id]);
@@ -3358,21 +3439,41 @@ export default function Invoices({ setSubPage, teamMember }) {
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
-          {isRetentionView ? (
-            <>
-              <StatCard label="Total Retention Held" value={fmt$c(totalRetentionHeld)} accent={C.teal} />
-              <StatCard label="Open Pay Apps with Retention" value={String(retentionInvoices.length)} accent={C.amber} />
-              <StatCard label="Avg per Invoice" value={fmt$c(retentionInvoices.length ? totalRetentionHeld / retentionInvoices.length : 0)} accent={C.green} />
-            </>
-          ) : (
-            <>
-              <StatCard label="Total Drafted" value={fmt$c(drafted)} accent={C.teal} />
-              <StatCard label="Total Pending" value={fmt$c(pending)} accent={C.amber} />
-              <StatCard label="Total Paid"    value={fmt$c(paid)}    accent={C.green} />
-            </>
-          )}
+        {isRetentionView ? (
+          <PipelinePanel label="Retention" items={retentionItems} />
+        ) : (
+          <PipelinePanel label="This Month" items={flowItems} />
+        )}
+
+        {!isRetentionView && (() => {
+          const badge = txt => <span style={{ background: C.dark, color: C.teal, borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, fontFamily: F.ui }}>{txt}</span>;
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>Receivables Aging — how late is the money</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 16 }}>
+                {AGE_META.map(m => (
+                  <StatCard key={m.key} label={m.label} value={loading ? "…" : agingBuckets[m.bkt].count} accent={m.color}
+                    onClick={() => pickInvLens(m.key)}
+                    sub={agingBuckets[m.bkt].amt > 0 ? badge(fmt$c(agingBuckets[m.bkt].amt)) : (m.bkt === "current" ? "Not due yet" : "None")} />
+                ))}
+                <StatCard label="Awaiting retention" value={loading ? "…" : retentionInvoices.length} accent={C.purple} onClick={() => setSearchParams({ view: "retention" })}
+                  sub={retentionInvoices.length ? badge(`${fmt$c(totalRetentionHeld)} held`) : "None held"} />
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── ALL INVOICES workspace — deliberate second section ── */}
+        <div ref={listRef} style={{ display: "flex", alignItems: "baseline", gap: 12, borderTop: `2px solid ${C.borderStrong}`, paddingTop: 18, marginTop: 8, scrollMarginTop: 12 }}>
+          <span style={{ fontSize: 20, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>{isRetentionView ? "Retention" : "All Invoices"}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui, letterSpacing: "0.06em", textTransform: "uppercase" }}>{(isRetentionView ? retentionInvoices.length : activeInvoices.length)} {isRetentionView ? "open" : "active"}</span>
         </div>
+        {invFilter && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(48,207,172,0.10)", border: `1.5px solid ${C.tealBorder}`, borderRadius: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui }}>Showing: {INV_LENS_LABEL[invFilter]} ({filteredInvoices.length})</span>
+            <button onClick={() => setInvFilter(null)} style={{ background: "none", border: `1.5px solid ${C.tealBorder}`, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: C.tealDeep, cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
+          </div>
+        )}
 
         <FilterBar
           filters={filters}

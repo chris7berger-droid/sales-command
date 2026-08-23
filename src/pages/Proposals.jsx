@@ -1,17 +1,41 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { fmt$, fmtD } from "../lib/utils";
+import { calcProposalTotal, usesExactPricing } from "../lib/calc";
 import { PROP_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
+import StatCard from "../components/StatCard";
+import PipelinePanel from "../components/PipelinePanel";
 import DataTable from "../components/DataTable";
 import Pill from "../components/Pill";
 import Btn from "../components/Btn";
 import FilterBar from "../components/FilterBar";
 import NewProposalModal from "../components/NewProposalModal";
 import ProposalDetail from "../components/ProposalDetail";
+
+// Top-row buckets (§2.3) — EXHAUSTIVE: every live proposal status maps to
+// exactly one bucket, so Σ(buckets) === All. A status not listed here lands in
+// an explicit "Other" remainder (rendered + dev-warned), never silently dropped.
+const PROP_BUCKETS = {
+  Draft: ["Draft", "New", "In Progress", "Parked"],
+  Sent:  ["Sent", "Viewed", "Approved Internally", "Approved"],
+  Sold:  ["Signed", "Sold"],
+  Lost:  ["Lost"],
+};
+const STATUS_BUCKET = Object.fromEntries(
+  Object.entries(PROP_BUCKETS).flatMap(([b, ss]) => ss.map(s => [s, b]))
+);
+const opened = p => (p.proposal_recipients || []).some(r => r.viewed_at);
+
+// Human labels for the active-lens banner (bucket keys + attention keys).
+const LENS_LABEL = {
+  Draft: "Draft", Sent: "Sent", Sold: "Sold", Lost: "Lost", Other: "Other statuses",
+  sentNotOpened: "Sent – not opened", openedNoResp: "Opened – no response",
+  draftsToFinish: "Drafts to finish", winnable: "Winnable (Draft + Sent)",
+};
 
 export default function Proposals({ teamMember, setSubPage }) {
   const navigate = useNavigate();
@@ -26,8 +50,10 @@ export default function Proposals({ teamMember, setSubPage }) {
 
   const [preselectedJob, setPreselectedJob] = useState(navState.newJob || null);
   const [statusFilter, setStatusFilter]     = useState("All");
+  const [propFilter, setPropFilter]         = useState(null); // { key } — bucket/attention lens from the stat panel
   const [workTypes, setWorkTypes]           = useState([]);
   const [filters, setFilters]               = useState({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
+  const listRef = useRef(null); // the "ALL PROPOSALS" divider — scroll target on a stat click
 
   useEffect(() => {
     if (!routeProposalId) { setSel(null); return; }
@@ -45,7 +71,7 @@ export default function Proposals({ teamMember, setSubPage }) {
     const [data, invData, { data: wtData }] = await Promise.all([
       fetchAll(
         "proposals",
-        "*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id)",
+        "*, call_log(jobsite_address, jobsite_city, jobsite_state, jobsite_zip, display_job_number, customer_name, sales_name, job_name, customer_id, show_cents, qb_skip_sync, qb_customer_id, archive_record_id, customers(email, contact_email, business_address, business_city, business_state, business_zip)), proposal_wtc(start_date, end_date, work_type_id, is_rate_card, prevailing_wage, pw_rate, pw_ot_rate, burden_rate, ot_burden_rate, markup_pct, regular_hours, ot_hours, size, materials, travel, discount), proposal_recipients(viewed_at, role)",
         { filters: [["is", "deleted_at", null]], order: { column: "created_at", ascending: false } }
       ),
       fetchAll("invoices", "id, status, proposal_id"),
@@ -66,8 +92,23 @@ export default function Proposals({ teamMember, setSubPage }) {
   useEffect(() => { load(); }, []);
 
   const STATUS_TABS = ["All", "Draft", "Sent", "Signed", "Sold", "Lost"];
+  // Lens from a clicked stat card (bucket or attention). Takes precedence over the
+  // exact-status tab; the two clear each other (no second filter engine).
+  const matchesLens = (p) => {
+    if (!propFilter) return true;
+    switch (propFilter.key) {
+      case "Draft": case "Sent": case "Sold": case "Lost": return STATUS_BUCKET[p.status] === propFilter.key;
+      case "Other": return !STATUS_BUCKET[p.status];
+      case "sentNotOpened": return p.status === "Sent" && !opened(p);
+      case "openedNoResp": return opened(p) && !["Signed", "Sold", "Lost"].includes(p.status);
+      case "draftsToFinish": return STATUS_BUCKET[p.status] === "Draft";
+      case "winnable": return STATUS_BUCKET[p.status] === "Draft" || STATUS_BUCKET[p.status] === "Sent";
+      default: return true;
+    }
+  };
   const filteredProposals = proposals.filter(p => {
-    if (statusFilter !== "All" && p.status !== statusFilter) return false;
+    if (propFilter && !matchesLens(p)) return false;
+    if (!propFilter && statusFilter !== "All" && p.status !== statusFilter) return false;
     if (filters.sales && p.call_log?.sales_name !== filters.sales) return false;
     if (filters.dateFrom && (p.created_at || "").slice(0, 10) < filters.dateFrom) return false;
     if (filters.dateTo && (p.created_at || "").slice(0, 10) > filters.dateTo) return false;
@@ -87,12 +128,61 @@ export default function Proposals({ teamMember, setSubPage }) {
 
   if (sel) return <ProposalDetail
     p={sel}
-    onBack={() => { setSel(null); navigate("/proposals"); }}
+    onBack={() => { setSel(null); navigate("/proposals"); load(); }}
     onDeleted={() => { setSel(null); navigate("/proposals"); load(); }}
     teamMember={teamMember}
     onNavigateJob={id => navigate(`/calllog/${id}`)}
     onNavigateInvoice={id => navigate(`/invoices/${id}`)}
   />;
+
+  // ─── "Proposals" stat row + Needs-Attention (§2.3 / §3.2) ────────────────
+  // Global counts (matches the existing status-tab convention on this page).
+  const bucketCounts = { Draft: 0, Sent: 0, Sold: 0, Lost: 0, Other: 0 };
+  const otherStatuses = new Set();
+  for (const p of proposals) {
+    const b = STATUS_BUCKET[p.status];
+    if (b) bucketCounts[b]++;
+    else { bucketCounts.Other++; otherStatuses.add(p.status || "(none)"); }
+  }
+  const allCount = proposals.length;
+  // Build assertion: Σ(named buckets) === All (nothing fell through). In dev,
+  // scream the unmapped status set so a new status gets bucketed, not dropped.
+  const bucketSum = bucketCounts.Draft + bucketCounts.Sent + bucketCounts.Sold + bucketCounts.Lost;
+  if (import.meta.env?.DEV && bucketSum !== allCount) {
+    console.error(`[Proposals] bucket leak: Σ(Draft+Sent+Sold+Lost)=${bucketSum} ≠ All=${allCount}; unmapped statuses:`, [...otherStatuses]);
+  }
+
+  // Needs-Attention (opened-aware, via embedded proposal_recipients.viewed_at).
+  // `opened` is the module-level helper (also used by matchesLens above).
+  const sentNotOpened  = proposals.filter(p => p.status === "Sent" && !opened(p)).length;
+  const openedNoResp   = proposals.filter(p => opened(p) && !["Signed", "Sold", "Lost"].includes(p.status)).length;
+  const draftsToFinish = bucketCounts.Draft;
+  // $ potential = winnable pipeline $ (Draft + Sent buckets — not yet resolved),
+  // summed via calcProposalTotal over proposal_wtc (excludes rate cards, F44),
+  // never proposals.total (stale, Data Integrity Rule #2).
+  const dollarPotential = proposals
+    .filter(p => STATUS_BUCKET[p.status] === "Draft" || STATUS_BUCKET[p.status] === "Sent")
+    .reduce((s, p) => s + calcProposalTotal(p.proposal_wtc, parseFloat(p.markup_override_pct) || undefined, usesExactPricing(p)), 0);
+  const naLabel = t => <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textLight, fontFamily: F.ui }}>{t}</div>;
+
+  // Click a stat → set the lens, clear the status tab, scroll to the list.
+  const scrollToList = () => requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  const pickLens = (key) => { setPropFilter(key === "All" ? null : { key }); setStatusFilter("All"); scrollToList(); };
+
+  const pipelineItems = [
+    { key: "All",   glyph: "✳", color: C.teal,      value: loading ? "…" : allCount,           label: "All",   onClick: () => pickLens("All"),   active: !propFilter },
+    { key: "Draft", glyph: "✎", color: C.textLight, value: loading ? "…" : bucketCounts.Draft, label: "Draft", onClick: () => pickLens("Draft"), active: propFilter?.key === "Draft" },
+    { key: "Sent",  glyph: "➤", color: C.purple,    value: loading ? "…" : bucketCounts.Sent,  label: "Sent",  onClick: () => pickLens("Sent"),  active: propFilter?.key === "Sent" },
+    { key: "Sold",  glyph: "✓", color: C.green,     value: loading ? "…" : bucketCounts.Sold,  label: "Sold",  onClick: () => pickLens("Sold"),  active: propFilter?.key === "Sold" },
+    { key: "Lost",  glyph: "✕", color: C.red,       value: loading ? "…" : bucketCounts.Lost,  label: "Lost",  onClick: () => pickLens("Lost"),  active: propFilter?.key === "Lost" },
+  ];
+  if (bucketCounts.Other > 0) pipelineItems.push({ key: "Other", glyph: "?", color: C.amber, value: bucketCounts.Other, label: "Other", sub: [...otherStatuses].join(", "), onClick: () => pickLens("Other"), active: propFilter?.key === "Other" });
+  const pipelineSegments = [
+    { color: C.textLight, value: bucketCounts.Draft },
+    { color: C.purple,    value: bucketCounts.Sent },
+    { color: C.green,     value: bucketCounts.Sold },
+    { color: C.red,       value: bucketCounts.Lost },
+  ];
 
   return (
     <>
@@ -105,14 +195,37 @@ export default function Proposals({ teamMember, setSubPage }) {
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <SectionHeader title="Proposals" action={<Btn sz="sm" onClick={() => setShowModal(true)}>+ New Proposal</Btn>} />
+        {/* Top row (§2.3) — dark pipeline panel; click a bucket to filter the list */}
+        <PipelinePanel label="Proposal Flow" items={pipelineItems} segments={pipelineSegments} />
+        {/* Needs-Attention (opened-aware) — clickable to filter */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {naLabel("Needs Attention")}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 16 }}>
+            <StatCard label="Sent – not opened"    value={loading ? "…" : sentNotOpened}   sub="No open yet"        accent={C.amber}  onClick={() => pickLens("sentNotOpened")} />
+            <StatCard label="Opened – no response" value={loading ? "…" : openedNoResp}     sub="Opened, unresolved" accent={C.teal}   onClick={() => pickLens("openedNoResp")} />
+            <StatCard label="Drafts to finish"     value={loading ? "…" : draftsToFinish}   sub="Not yet sent"       accent={C.amber}  onClick={() => pickLens("draftsToFinish")} />
+            <StatCard label="$ Potential"          value={loading ? "…" : fmt$(dollarPotential)} sub="Draft + Sent (winnable)" accent={C.purple} onClick={() => pickLens("winnable")} />
+          </div>
+        </div>
+        {/* ── ALL PROPOSALS workspace — deliberate second section ── */}
+        <div ref={listRef} style={{ display: "flex", alignItems: "baseline", gap: 12, borderTop: `2px solid ${C.borderStrong}`, paddingTop: 18, marginTop: 8, scrollMarginTop: 12 }}>
+          <span style={{ fontSize: 20, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>All Proposals</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui, letterSpacing: "0.06em", textTransform: "uppercase" }}>{allCount} total</span>
+        </div>
+        {propFilter && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(48,207,172,0.10)", border: `1.5px solid ${C.tealBorder}`, borderRadius: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui }}>Showing: {LENS_LABEL[propFilter.key]} ({filteredProposals.length})</span>
+            <button onClick={() => setPropFilter(null)} style={{ background: "none", border: `1.5px solid ${C.tealBorder}`, borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: C.tealDeep, cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
+          </div>
+        )}
         <div style={{ display: "flex", gap: 6 }}>
           {STATUS_TABS.map(tab => {
-            const active = statusFilter === tab;
+            const active = statusFilter === tab && !propFilter;
             const count = tab === "All" ? proposals.length : proposals.filter(p => p.status === tab).length;
             return (
               <button
                 key={tab}
-                onClick={() => setStatusFilter(tab)}
+                onClick={() => { setStatusFilter(tab); setPropFilter(null); }}
                 style={{
                   padding: "6px 14px",
                   borderRadius: 8,

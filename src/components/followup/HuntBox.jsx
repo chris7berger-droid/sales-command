@@ -12,7 +12,7 @@ import { fmt$ } from "../../lib/utils";
 import Btn from "../Btn";
 import OutboundCard from "./OutboundCard";
 
-const LIST_CAP = 6;
+const LIST_CAP = 4;
 
 // Build the ordered angle list from this rep's quiet bids + dormant book. Each
 // angle yields one card (or null when it has no data — those are skipped, so a
@@ -77,7 +77,7 @@ export default function HuntBox({ goneQuiet, dormant, onGoTo, onLog }) {
               {served.crit}
             </span>
             {served.card.value > 0 && (
-              <span style={{ fontSize: 13, fontWeight: 800, color: C.teal, fontFamily: F.display }}>{fmt$(served.card.value)}</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: C.teal, fontFamily: F.display }}>{fmt$(served.card.value)}</span>
             )}
           </div>
           <div style={{ fontSize: 24, fontWeight: 800, color: "#f3ede1", fontFamily: F.display, letterSpacing: "0.02em", lineHeight: 1.1 }}>

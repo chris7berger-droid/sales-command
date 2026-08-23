@@ -4,7 +4,7 @@ import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { fmtD, fmt$, over, tod } from "../lib/utils";
-import { pipelineStats } from "../lib/followUp";
+import { pipelineStats, OWED_STAGES } from "../lib/followUp";
 import { STAGES, STAGE_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
 import PipelinePanel from "../components/PipelinePanel";
@@ -199,11 +199,10 @@ export default function CallLog({ teamMember, setSubPage }) {
   const todayStr = tod();
   const woDate = new Date(); woDate.setDate(woDate.getDate() + 7);
   const weekOutStr = woDate.toLocaleDateString("en-CA");
-  const OWED_STAGES = ["New Inquiry", "Wants Bid", "Has Bid"];
   const matchesDig = (r) => {
     if (digFilter === "dueToday") return r.stage === "Wants Bid" && r.bid_due === todayStr;
     if (digFilter === "overdue")  return r.stage === "Wants Bid" && r.bid_due && r.bid_due < todayStr;
-    if (digFilter === "followups") return r.follow_up && r.follow_up <= weekOutStr && OWED_STAGES.includes(r.stage);
+    if (digFilter === "followups") return r.follow_up && r.follow_up <= weekOutStr && OWED_STAGES.has(r.stage);
     return true;
   };
   const activeRows = rows.filter(r => !r.archived);

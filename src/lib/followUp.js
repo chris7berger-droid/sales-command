@@ -131,8 +131,9 @@ export function pipelineStats(snapshot, { repName = "" } = {}) {
   };
 
   // Sold = current month, credited to REAL sold month (B70), rep-scoped, de-duped.
-  const soldProps = dedupeBids(snapshot.proposals).filter(p =>
-    p.status === "Sold" &&
+  // Filter to Sold FIRST, then de-dupe — otherwise a newer non-Sold revision of the
+  // same (job, GC) would win the de-dupe and drop the sale (code-review #1).
+  const soldProps = dedupeBids(snapshot.proposals.filter(p => p.status === "Sold")).filter(p =>
     inRep(jobById.get(p.call_log_id)) &&
     creditedSoldMonth(p, { archiveIdByJob, archiveSoldDateById: snapshot.archiveSoldDateById }) === month
   );
@@ -552,7 +553,7 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
 // set follow-up dates at intake that never get cleared, so without this guard a
 // won job keeps surfacing here forever. Allowlist (not a Sold/Lost blocklist) so
 // future post-sale stages can't leak back in.
-const OWED_STAGES = new Set(["New Inquiry", "Wants Bid", "Has Bid"]);
+export const OWED_STAGES = new Set(["New Inquiry", "Wants Bid", "Has Bid"]);
 
 // Box 5 "Where To Dig": bids due + self-set follow-up dates, this rep, one list.
 // Oldest / most-overdue first. A job that is both a due bid and has a follow-up

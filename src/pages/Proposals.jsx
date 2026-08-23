@@ -124,7 +124,10 @@ export default function Proposals({ teamMember, setSubPage }) {
   // date-only value as UTC and can shift the month — Date Columns Are Wall-Clock).
   const periodYmd = (p) => {
     const arc = p.call_log?.archive_record_id;
-    if (arc && archiveSoldById.has(arc)) return archiveSoldById.get(arc); // already YYYY-MM-DD
+    // Archive-lineage job → its REAL sold date, or nothing. Never fall back to the
+    // import date (that's an entered date, not a sold date) — an undateable archive
+    // sale is dropped, exactly as Call Log / Home do (creditedSoldMonth → null).
+    if (arc) return archiveSoldById.get(arc) || null; // YYYY-MM-DD or null
     const raw = p.approved_at || p.sent_at || p.created_at;
     return raw ? String(raw).slice(0, 10) : null;
   };

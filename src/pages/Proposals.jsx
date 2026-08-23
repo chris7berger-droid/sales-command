@@ -4,7 +4,7 @@ import { C, F } from "../lib/tokens";
 import { supabase, archiveDb } from "../lib/supabase";
 import { fetchAll } from "../lib/supabaseHelpers";
 import { fmt$, fmtD } from "../lib/utils";
-import { dedupeBids, parseArchiveSoldDate, bidValue } from "../lib/followUp";
+import { dedupeBids, parseArchiveSoldDate, bidValue, collapseGcFamilies } from "../lib/followUp";
 import { PROP_C } from "../lib/mockData";
 import SectionHeader from "../components/SectionHeader";
 import StatCard from "../components/StatCard";
@@ -142,16 +142,7 @@ export default function Proposals({ teamMember, setSubPage }) {
   //  • LIST DRILL (`listScopedIds`): shows EVERY row in the period — all GC copies
   //    stay visible. Chris: count once up top, but see all three in the list.
   const periodMembers = proposals.filter(inPeriod);
-  const collapseFamilies = (rows) => {
-    const byFam = new Map();
-    for (const p of rows) {
-      const fam = p.cloned_from_proposal_id || p.id;
-      const cur = byFam.get(fam);
-      if (!cur || (!p.cloned_from_proposal_id && cur.cloned_from_proposal_id)) byFam.set(fam, p);
-    }
-    return [...byFam.values()];
-  };
-  const scoped = collapseFamilies(dedupeBids(periodMembers));
+  const scoped = collapseGcFamilies(dedupeBids(periodMembers));
   const listScopedIds = new Set(periodMembers.map(p => p.id));
 
   const STATUS_TABS = ["All", "Draft", "Sent", "Signed", "Sold", "Lost"];

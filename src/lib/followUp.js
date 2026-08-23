@@ -103,6 +103,23 @@ export function bidValue(p) {
   return calcProposalTotal(p.proposal_wtc, parseFloat(p.markup_override_pct) || undefined, usesExactPricing(p));
 }
 
+// Collapse a multi-GC fan-out to ONE job for VALUE sums — the same bid sent to N
+// GCs is one winnable job (you can only win one), so its $ counts once. Keep one
+// row per clone family (cloned_from_proposal_id || id), preferring the parent.
+// Genuinely-separate proposals on a job (different families) stay separate. Apply
+// only where a job's $ is SUMMED — never where individual bids are LISTED (a list
+// should still show every GC's copy). Job COUNTS are already per call_log, so
+// they're unaffected by this. Shared with Proposals.jsx so all screens agree.
+export function collapseGcFamilies(rows) {
+  const byFam = new Map();
+  for (const p of rows) {
+    const fam = p.cloned_from_proposal_id || p.id;
+    const cur = byFam.get(fam);
+    if (!cur || (!p.cloned_from_proposal_id && cur.cloned_from_proposal_id)) byFam.set(fam, p);
+  }
+  return [...byFam.values()];
+}
+
 // ── THE shared pipeline selector ─────────────────────────────────────────────
 // The single source of truth for the pipeline numbers on BOTH Home's "Your Book"
 // cards and Call Log's pipeline row, so they can never disagree. Rep-scoped by
@@ -118,9 +135,10 @@ export function pipelineStats(snapshot, { repName = "" } = {}) {
   // active (non-archived) jobs in scope
   const activeJobs = snapshot.callLog.filter(c => !c.archived && inRep(c));
 
-  // one bid per (job, GC); value + group by job
+  // one bid per (job, GC), then collapse a multi-GC fan-out to one job for $;
+  // group by job
   const bidsByJob = new Map();
-  for (const p of dedupeBids(snapshot.proposals)) {
+  for (const p of collapseGcFamilies(dedupeBids(snapshot.proposals))) {
     if (!bidsByJob.has(p.call_log_id)) bidsByJob.set(p.call_log_id, []);
     bidsByJob.get(p.call_log_id).push(p);
   }
@@ -133,7 +151,7 @@ export function pipelineStats(snapshot, { repName = "" } = {}) {
   // Sold = current month, credited to REAL sold month (B70), rep-scoped, de-duped.
   // Filter to Sold FIRST, then de-dupe — otherwise a newer non-Sold revision of the
   // same (job, GC) would win the de-dupe and drop the sale (code-review #1).
-  const soldProps = dedupeBids(snapshot.proposals.filter(p => p.status === "Sold")).filter(p =>
+  const soldProps = collapseGcFamilies(dedupeBids(snapshot.proposals.filter(p => p.status === "Sold"))).filter(p =>
     inRep(jobById.get(p.call_log_id)) &&
     creditedSoldMonth(p, { archiveIdByJob, archiveSoldDateById: snapshot.archiveSoldDateById }) === month
   );
@@ -158,7 +176,7 @@ export function digSummary(snapshot, { repName = "" } = {}) {
   const inRep = c => !repName || c.sales_name === repName;
 
   const bidsByJob = new Map();
-  for (const p of dedupeBids(snapshot.proposals)) {
+  for (const p of collapseGcFamilies(dedupeBids(snapshot.proposals))) {
     if (!bidsByJob.has(p.call_log_id)) bidsByJob.set(p.call_log_id, []);
     bidsByJob.get(p.call_log_id).push(p);
   }
@@ -407,8 +425,8 @@ export function goneQuietBids(snap, { repName } = {}) {
     if (signal && signal >= cutoff) continue; // recent → not gone quiet
     if (cl.customer_id && suppressed.has(cl.customer_id)) continue;
     const cx = cxById.get(cl.customer_id);
-    // one bid per GC (F52) + real WTC math, never proposals.total
-    const value = dedupeBids(jobProps).reduce((s, p) => s + bidValue(p), 0);
+    // one bid per GC (F52), fan-out collapsed to one job, real WTC math
+    const value = collapseGcFamilies(dedupeBids(jobProps)).reduce((s, p) => s + bidValue(p), 0);
     // opened-but-never-signed: any recipient with a viewed_at (embedded array, never flattened)
     const opened = jobProps.some(p => (p.proposal_recipients || []).some(r => r.viewed_at));
     out.push({
@@ -490,7 +508,7 @@ export function homeEngagement(snap, { repName = "", monthlyGoal = 0 } = {}) {
 
   // ── Best-month badge: ≥1 non-zero prior month AND strictly greater (C6/L1) ──
   const byMonth = new Map();
-  for (const p of dedupeBids(snap.proposals)) {
+  for (const p of collapseGcFamilies(dedupeBids(snap.proposals))) {
     if (p.status !== "Sold" || jobSalesName.get(p.call_log_id) !== repName || !repName) continue;
     const m = soldMonthOf(p);
     if (m) byMonth.set(m, (byMonth.get(m) || 0) + bidValue(p));
@@ -585,8 +603,8 @@ export function huntResults(snap, { repName } = {}) {
   const weekAgo = daysAgo(7);
   const clById = new Map(snap.callLog.map(c => [c.id, c]));
   const cxById = new Map(snap.customers.map(c => [c.id, c]));
-  const jobBidValue = new Map(); // call_log_id -> bid $ (one per GC, F52; real WTC math)
-  for (const p of dedupeBids(snap.proposals)) {
+  const jobBidValue = new Map(); // call_log_id -> bid $ (one per GC, fan-out collapsed)
+  for (const p of collapseGcFamilies(dedupeBids(snap.proposals))) {
     jobBidValue.set(p.call_log_id, (jobBidValue.get(p.call_log_id) || 0) + bidValue(p));
   }
   const calls = [];      // every logged call this week (Activity drill-in)

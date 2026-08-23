@@ -70,7 +70,10 @@ export function parseArchiveSoldDate(v) {
 export function creditedSoldMonth(proposal, { archiveIdByJob, archiveSoldDateById } = {}) {
   const arc = archiveIdByJob?.get(proposal.call_log_id);
   if (arc) { const d = archiveSoldDateById?.get(arc); return d ? d.slice(0, 7) : null; }
-  return day(proposal.created_at)?.slice(0, 7) || null;
+  // A sale lands in the month it was SOLD (approved_at), not the month its draft
+  // was created — the ONE rule shared with Proposals (B70). Fall back to
+  // created_at only for older Sold rows that predate approved_at tracking.
+  return day(proposal.approved_at || proposal.created_at)?.slice(0, 7) || null;
 }
 
 // ── One bid per job (F52) ────────────────────────────────────────────────────
@@ -237,7 +240,7 @@ export async function loadSnapshot() {
   //    bids a customer opened but never signed. Never a flattening join (that
   //    double-counts $ across recipients — audit L3). Columns already exist.
   const pr = await pagedSelect(supabase, "proposals",
-    "id, call_log_id, customer_id, status, created_at, pricing_anchor_at, markup_override_pct, proposal_number, cloned_from_proposal_id, is_archive_proposal, historical_billed_amount, total, " +
+    "id, call_log_id, customer_id, status, created_at, approved_at, pricing_anchor_at, markup_override_pct, proposal_number, cloned_from_proposal_id, is_archive_proposal, historical_billed_amount, total, " +
       "proposal_wtc(end_date, is_rate_card, prevailing_wage, pw_rate, pw_ot_rate, burden_rate, ot_burden_rate, markup_pct, regular_hours, ot_hours, size, materials, travel, discount), " +
       "proposal_recipients(sent_at, viewed_at)",
     { order: "id", filters: [["is", "deleted_at", null]] });

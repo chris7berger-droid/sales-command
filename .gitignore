@@ -26,3 +26,6 @@ dist-ssr
 .env
 .env.*
 supabase/.temp/
+
+# §4.3 backfill dry-run artifact (updated_at parity snapshot) — transient, never committed
+scripts/.backfill_relock_snapshot.json

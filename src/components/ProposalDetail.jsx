@@ -313,6 +313,22 @@ async function deletePropAttachment(fullName) {
     const wtc = wtcs.find(w => w.id === wtcId);
     if (!wtc) return;
     const newLocked = !wtc.locked;
+    // §4.2 direction-scoped unlock guard — ONLY the unlock direction is gated, so
+    // the lock direction still reaches the auto-create (:347) + total sync below.
+    // Guard-first: runs before any DB write / setState, so a blocked unlock leaves
+    // everything untouched. Fresh status fetch (not the render snapshot).
+    if (!newLocked) {
+      const { data: fresh } = await supabase.from("proposals").select("status").eq("id", p.id).single();
+      const status = fresh?.status || p.status;
+      if (["Sent", "Signed", "Sold"].includes(status)) {
+        alert(`This proposal is ${status}. Pull it back to Draft to edit pricing — unlocking is disabled after it's been sent.`);
+        return;
+      }
+      const { data: sched } = await supabase.from("billing_schedule").select("contract_sum").eq("proposal_id", p.id).maybeSingle();
+      if (sched) {
+        if (!window.confirm(`This job has a billing schedule at ${fmt$(sched.contract_sum)}. If you change pricing, update the schedule to match on the job's Billing Schedule section. Unlock?`)) return;
+      }
+    }
     // If locking, confirm the WTC checklist is complete enough
     if (newLocked) {
       const checks = getWtcChecks(wtc);
@@ -543,6 +559,8 @@ async function deletePropAttachment(fullName) {
   }
 
   const canDelete = teamMember && (["Admin","Manager"].includes(teamMember.role) || teamMember.name === p.call_log?.sales_name);
+  // §4.2 lock-at-sold: a committed proposal (Sent/Signed/Sold) cannot gain a WTC.
+  const isCommitted = ["Sent", "Signed", "Sold"].includes(p.status);
   async function handleDelete() {
     const { data: invoices } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null);
     if (invoices && invoices.length > 0) {
@@ -804,6 +822,20 @@ async function deletePropAttachment(fullName) {
     if (!approveBy.trim()) { alert("Approved By is required."); return; }
     if (!approveReason.trim()) { alert("Reason is required."); return; }
 
+    // §4.1 lock-at-sold: a proposal cannot become Sold/Signed with unlocked WTCs
+    // (the 10019 gap). Archive proposals have no WTCs — their approval semantics
+    // are untouched. Same standard as the Send gate, naming the offenders.
+    if (!p.is_archive_proposal) {
+      const unlocked = wtcs.filter(w => !w.locked);
+      if (wtcs.length === 0 || unlocked.length > 0) {
+        const names = wtcs.length === 0
+          ? "no Work Types on this proposal"
+          : unlocked.map(w => w.work_types?.name || `WTC ${wtcs.indexOf(w) + 1}`).join(", ");
+        alert(`Lock all Work Type Calculators before approving. Unlocked: ${names}.`);
+        return;
+      }
+    }
+
     const isSister = !!p.cloned_from_proposal_id;
     let hasChildSisters = false;
     if (!isSister && p.id) {
@@ -1045,7 +1077,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
                 </div>
               );
             })}
-            <Btn sz="sm" v="ghost" onClick={() => { setActiveWtcId(null); setShowWTC(true); }}>+ Add Work Type</Btn>
+            {!isCommitted && <Btn sz="sm" v="ghost" onClick={() => { setActiveWtcId(null); setShowWTC(true); }}>+ Add Work Type</Btn>}
           </div>
           )}
 

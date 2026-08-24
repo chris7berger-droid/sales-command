@@ -5,6 +5,7 @@ import { fetchAll } from "../lib/supabaseHelpers";
 import { calcLabor, calcMaterialRow, calcTravel, calcWtcPrice as calcWtcTotal, calcProposalTotal, roundPrice, usesExactPricing, PROPOSAL_ERA } from "../lib/calc";
 import { getTenantConfig, DEFAULTS } from "../lib/config";
 import { saveCatalogRow, catalogErrorMessage } from "../lib/materialsCatalog";
+import { fmt$ } from "../lib/utils";
 import Checkbox from "../components/Checkbox";
 
 // ── Design tokens ──────────────────────────────────────────────────────────
@@ -986,7 +987,7 @@ function DiscountTab({ data, onChange }) {
   );
 }
 
-function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDefaultSow, defaultSowAvailable, datesTbd, mobilizations = [], mobsLoaded = false }) {
+function SowTab({ data, onChange, locked, committed = false, wtcMaterials, onSave, saved, onLoadDefaultSow, defaultSowAvailable, datesTbd, mobilizations = [], mobsLoaded = false }) {
   const set  = k => v => onChange({ ...data, [k]: v });
   const setN = k => v => onChange({ ...data, [k]: parseFloat(v) || 0 });
 
@@ -1054,6 +1055,11 @@ function SowTab({ data, onChange, locked, wtcMaterials, onSave, saved, onLoadDef
 
   return (
     <div>
+      {committed && (
+        <div style={{ background: "#FFF8E1", border: "1px solid #F59E0B", borderRadius: 8, padding: "8px 14px", marginBottom: 14, fontSize: 12, fontWeight: 600, color: "#92400e" }}>
+          🔒 Pricing is locked — SOW edits save without touching price.
+        </div>
+      )}
       <SectionHeader label="Job Metrics" hint="Primary measurement feeds Field Command production tracking" />
 
       {/* Primary measurement */}
@@ -1895,7 +1901,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   useEffect(() => { isLoading.current = false; }, []);
   useEffect(() => {
     if (isLoading.current) return;
-    if (proposalSold) return;
+    if (isCommitted) return;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     pendingSave.current = true;
     autosaveTimer.current = setTimeout(() => {
@@ -2191,6 +2197,12 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const handleSave = async () => {
     if (!proposalId) return;
     if (!selectedWorkTypeId) return;
+    // §4.2 committed-freeze: never persist pricing (or locked:false) on a committed
+    // proposal. Covers autosave, unmount flush, and every manual full-save path.
+    // saveSowOnly is the ONLY committed-state write, and it touches no pricing/lock
+    // columns. (Reads the mount-time isCommitted — a proposal committed while the
+    // calculator is open stays editable until remount; accepted at ≤5-user concurrency.)
+    if (isCommitted) return;
     const payload = {
       proposal_id:     proposalId,
       work_type_id:    selectedWorkTypeId ?? null,
@@ -2253,8 +2265,42 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   };
   handleSaveRef.current = handleSave;
 
+  // §4.2 SOW carve-out: the ONLY write path allowed on a committed proposal.
+  // Writes an explicit column list (sales_sow / field_sow / sub_areas) — never a
+  // payload spread from state — so no pricing or lock column can ride along.
+  // size/unit stay frozen (a room change that alters size is a pricing change →
+  // Pull Back). Performs none of handleSave's sibling/total syncs (SOW ≠ price).
+  const saveSowOnly = async () => {
+    if (!proposalId || !wtcId) return;
+    await supabase.from("proposal_wtc").update({
+      sales_sow: sow.sales_sow,
+      field_sow: sow.field_sow,
+      sub_areas: sow.sub_areas ?? [],
+    }).eq("id", wtcId);
+    setSaved(true);
+  };
+
   // ── Lock in Supabase ─────────────────────────────────────────────────────
   const handleLock = async () => {
+    const newLocked = !locked;
+    // §4.2 direction-scoped unlock guard — ONLY the unlock direction is gated.
+    // The lock direction must still flush, snapshot locked_line_total, and run the
+    // proposals.total sync below (it is the repair path for sisters + backfill
+    // stragglers). Guard-first: runs before the handleSave() flush and before
+    // setLocked, so a blocked unlock leaves React state and the DB untouched.
+    if (!newLocked) {
+      // Fresh status fetch (not the mount snapshot) so a just-committed proposal blocks.
+      const { data: fresh } = await supabase.from("proposals").select("status").eq("id", proposalId).single();
+      const status = fresh?.status || proposalStatus;
+      if (["Sent", "Signed", "Sold"].includes(status)) {
+        alert(`This proposal is ${status}. Pull it back to Draft to edit pricing — unlocking is disabled after it's been sent.`);
+        return;
+      }
+      const { data: sched } = await supabase.from("billing_schedule").select("contract_sum").eq("proposal_id", proposalId).maybeSingle();
+      if (sched) {
+        if (!window.confirm(`This job has a billing schedule at ${fmt$(sched.contract_sum)}. If you change pricing, update the schedule to match on the job's Billing Schedule section. Unlock?`)) return;
+      }
+    }
     // Require discount reason when discount amount is set
     if (!locked && discount.amount > 0 && !discount.reason.trim()) {
       alert("A discount reason is required before locking.");
@@ -2263,7 +2309,6 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
     // Flush any unsaved changes before toggling lock
     await handleSave();
     const exact = await resolveExact(); // write-time era (review #1); cached by the handleSave call above
-    const newLocked = !locked;
     setLocked(newLocked);
     // Sync proposals.total on lock/unlock — sum ALL WTCs. Done first
     // (and then reused) so we have the just-saved row to snapshot
@@ -2296,10 +2341,14 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   const [proposalNumber, setProposalNumber] = useState(null);
   const [jobInfo, setJobInfo] = useState({ customerName: "", jobsiteAddress: "", customerAddress: "", jobName: "", displayJobNumber: "" });
   const [pricingEra, setPricingEra] = useState(null); // { created_at, pricing_anchor_at } from the parent proposal — drives exact pricing
-  const [proposalSold, setProposalSold] = useState(false);
+  const [proposalStatus, setProposalStatus] = useState(null);
   const [isFirstWtc, setIsFirstWtc] = useState(true);
   const [wtcNumber, setWtcNumber] = useState(null);
   const [pwAlert, setPwAlert] = useState(null);
+  // §4.2 lock-at-sold: a proposal committed to the customer (Sent/Signed/Sold)
+  // has frozen pricing — broader than the old proposalSold (Sold/Signed only) so a
+  // Sent proposal with unlocked WTCs is frozen too. Raw status kept for messages.
+  const isCommitted = ["Sent", "Signed", "Sold"].includes(proposalStatus);
 
   useEffect(() => {
     if (!proposalId) return;
@@ -2310,7 +2359,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
         .eq("id", proposalId)
         .single();
       if (data?.proposal_number) setProposalNumber(data.proposal_number);
-      if (["Sold","Signed"].includes(data?.status)) setProposalSold(true);
+      setProposalStatus(data?.status || null);
       if (data) {
         setPricingEra({ created_at: data.created_at, pricing_anchor_at: data.pricing_anchor_at });
         const cl = data.call_log;
@@ -2422,12 +2471,12 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
       {/* Content area */}
       <div data-wtc-no-print style={{ flex: 1, overflowY: "auto", paddingBottom: 60 }}>
       <div style={{ maxWidth: 940, margin: "0 auto", padding: "28px 20px" }}>
-        {(locked || proposalSold) && tab !== "summary" && (
+        {(locked || isCommitted) && tab !== "summary" && !(isCommitted && tab === "sow") && (
           <div style={{ background: "#FFF8E1", border: "1px solid #F59E0B", borderRadius: 10, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 20 }}>🔒</span>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e" }}>{proposalSold ? "This proposal is Sold — WTC is read-only" : "This WTC is locked"}</div>
-              <div style={{ fontSize: 12, color: "#92400e", marginTop: 2 }}>{proposalSold ? "Pull back the proposal to enable editing." : "Go to the Summary tab and click Unlock WTC to make edits."}</div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e" }}>{isCommitted ? `This proposal is ${proposalStatus} — WTC pricing is read-only` : "This WTC is locked"}</div>
+              <div style={{ fontSize: 12, color: "#92400e", marginTop: 2 }}>{isCommitted ? "Pull it back to Draft to edit pricing. Scope of work stays editable on the SOW tab." : "Go to the Summary tab and click Unlock WTC to make edits."}</div>
             </div>
           </div>
         )}
@@ -2441,15 +2490,15 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
           </div>
         )}
         <div style={{ background: "#c8bcaa", borderRadius: 14, border: `1px solid rgba(28,24,20,0.15)`, padding: "28px 32px", marginBottom: 20, position: "relative" }}>
-          {(locked || proposalSold) && tab !== "summary" && (
+          {(locked || isCommitted) && tab !== "summary" && !(isCommitted && tab === "sow") && (
             <div style={{ position: "absolute", inset: 0, borderRadius: 14, zIndex: 10, cursor: "not-allowed" }} onClick={() => {}} />
           )}
-          {tab === "bidding" && <BiddingTab data={bidding} onChange={proposalSold ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={proposalSold ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={proposalSold ? () => {} : handlePwToggle} showArchiveRateHint={parentIsArchive} />}
-          {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={proposalSold ? undefined : v => { setLabor(v); setSaved(false); }} />}
-          {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={proposalSold ? undefined : v => { setMaterials(v); setSaved(false); }} />}
-          {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={locked} wtcMaterials={materials} onSave={handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} datesTbd={bidding.dates_tbd} mobilizations={mobilizations} mobsLoaded={mobsLoaded} />}
-          {tab === "travel"  && <TravelTab data={travel} onChange={proposalSold ? undefined : v => { setTravel(v); setSaved(false); }} />}
-          {tab === "discount" && <DiscountTab data={discount} onChange={proposalSold ? undefined : v => { setDiscount(v); setSaved(false); }} />}
+          {tab === "bidding" && <BiddingTab data={bidding} onChange={isCommitted ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={isCommitted ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={isCommitted ? () => {} : handlePwToggle} showArchiveRateHint={parentIsArchive} />}
+          {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={isCommitted ? undefined : v => { setLabor(v); setSaved(false); }} />}
+          {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={isCommitted ? undefined : v => { setMaterials(v); setSaved(false); }} />}
+          {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={isCommitted ? false : locked} committed={isCommitted} wtcMaterials={materials} onSave={isCommitted ? saveSowOnly : handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} datesTbd={bidding.dates_tbd} mobilizations={mobilizations} mobsLoaded={mobsLoaded} />}
+          {tab === "travel"  && <TravelTab data={travel} onChange={isCommitted ? undefined : v => { setTravel(v); setSaved(false); }} />}
+          {tab === "discount" && <DiscountTab data={discount} onChange={isCommitted ? undefined : v => { setDiscount(v); setSaved(false); }} />}
           {tab === "summary" && <SummaryTab labor={laborComputed} materials={materials} travel={travel} discount={discount} sow={sow} bidding={bidding} onSave={handleSave} saved={saved} locked={locked} onLock={handleLock} onGeneratePDF={() => { if (onClose) onClose(true); }} exact={exact} />}
         </div>
 <Summary labor={laborComputed} materials={materials} travel={travel} discount={discount} size={sow.size} unit={sow.unit} exact={exact} />

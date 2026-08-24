@@ -1301,10 +1301,14 @@ function SowTab({ data, onChange, locked, committed = false, wtcMaterials, onSav
             </div>
           );
         })}
-        {(data.field_sow || []).length > 0 && (
+        {/* §4.2 SOW carve-out: on a committed proposal, autosave is off and handleSave
+            short-circuits, so this Save button is the ONLY way to persist a SOW edit.
+            Show it whenever committed (even with zero field-SOW day entries) so a
+            Sales-SOW-only wording edit can be saved — otherwise the edit vanishes on close. */}
+        {((data.field_sow || []).length > 0 || committed) && (
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
             <Btn onClick={addDay} variant="blue" small icon="＋" disabled={!mobsLoaded}>Add Day Entry</Btn>
-            <Btn onClick={onSave} variant="primary" small>{saved ? "✓ Saved" : "Save Field SOW"}</Btn>
+            <Btn onClick={onSave} variant="primary" small>{saved ? "✓ Saved" : (committed ? "Save Scope of Work" : "Save Field SOW")}</Btn>
             {!mobsLoaded && <span style={{ fontSize: 10.5, color: T.gray500, fontWeight: 600 }}>loading mobilizations…</span>}
           </div>
         )}

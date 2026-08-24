@@ -2272,11 +2272,15 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
   // Pull Back). Performs none of handleSave's sibling/total syncs (SOW ≠ price).
   const saveSowOnly = async () => {
     if (!proposalId || !wtcId) return;
-    await supabase.from("proposal_wtc").update({
+    const { error } = await supabase.from("proposal_wtc").update({
       sales_sow: sow.sales_sow,
       field_sow: sow.field_sow,
       sub_areas: sow.sub_areas ?? [],
     }).eq("id", wtcId);
+    // Fail safe, not fail silent (CLAUDE.md data-integrity #6). This is the ONLY
+    // committed-state write; a silent RLS no-op here would show "✓ Saved" while the
+    // crew's field SOW stayed stale. Surface the error and don't claim success.
+    if (error) { alert("Could not save the scope of work — nothing was written. " + error.message); return; }
     setSaved(true);
   };
 

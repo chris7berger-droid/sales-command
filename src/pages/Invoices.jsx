@@ -2012,7 +2012,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   // For a QB-synced edit, lock the number + every dollar field so an in-place edit can
   // only touch description / intro / due date — keeps the invoice number stable (the whole
   // point) and prevents amount drift under the live QB record + Stripe pay link (plan §2.3).
-  const syncedLock = !!inv.qb_invoice_id;
+  // Two locks, because a pulled-back invoice needs its NUMBER frozen but its
+  // DOLLARS open. numberLock freezes the invoice # whenever a QB record exists
+  // (keeps DocNumber stable — the whole point of same-number reissue). moneyLock
+  // freezes amount/retention/discount/lines only while the invoice is still LIVE
+  // in QB (not yet pulled back); once reset to New, the QB invoice is voided and
+  // the operator is correcting it, so dollars unlock and the resend reopens the
+  // same QB record with the new figures. (Chris 2026-08-25)
+  const numberLock = !!inv.qb_invoice_id;
+  const moneyLock = !!inv.qb_invoice_id && !isNew;
 
   // Invoice-side twin of the pay-app delete cascade (dcbee9f, PayAppDetailModal):
   // deleting a pay-app invoice must also remove the pay app row itself, or the
@@ -2105,13 +2113,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     // Recalculate line amounts based on new billing pcts.
     // Archive invoices have no proposal_wtc; preserve the directly-entered amount on the single line.
     const newLines = lines.map(l => {
-      // QB-synced invoice: every dollar field is locked in the UI (syncedLock) — GUARD THE
-      // WRITE too (CLAUDE.md #6/#7). Preserve the stored line amount + %; never recompute.
-      // A recompute (calcWtcPrice × pct) would silently drift the amount if the underlying
-      // proposal_wtc was edited after the invoice was sent, then full-replace that new
-      // number into QB (sparse:false). Preserving is the only thing that makes §2.3's
+      // QB-synced invoice still live (moneyLock): every dollar field is locked in the UI —
+      // GUARD THE WRITE too (CLAUDE.md #6/#7). Preserve the stored line amount + %; never
+      // recompute. A recompute (calcWtcPrice × pct) would silently drift the amount if the
+      // underlying proposal_wtc was edited after the invoice was sent, then full-replace that
+      // new number into QB (sparse:false). Preserving is the only thing that makes §2.3's
       // "amounts are locked" actually true. Covers WTC, archive, and SOV lines uniformly.
-      if (syncedLock) {
+      // A pulled-back (New) synced invoice has moneyLock false → dollars recompute from the
+      // edit inputs, exactly as for a brand-new invoice (same-number reissue). (2026-08-25)
+      if (moneyLock) {
         return { id: l.id, billing_pct: l.billing_pct, amount: parseFloat(l.amount) || 0 };
       }
       if (isArchiveInvoice) {
@@ -2157,11 +2167,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     // that flow; don't double-zero it). For a NON-pay-app invoice, recompute from the
     // edit inputs — EXCEPT a direct (non-pay-app) deposit, which carries no retention,
     // so force it to 0 (guard the write, not just the hidden UI — CLAUDE.md #6/#7).
-    // syncedLock takes precedence: preserve stored retention + discount (locked inputs) so
-    // a QB-synced edit can't drift the money via these either (mirrors the newLines branch).
-    const retPct   = syncedLock ? (parseFloat(inv.retention_pct) || 0)    : (linkedPayApp ? (parseFloat(inv.retention_pct) || 0)    : (isDepositInvoice ? 0 : (parseFloat(editRetentionPct) || 0)));
-    const retAmt   = syncedLock ? (parseFloat(inv.retention_amount) || 0) : (linkedPayApp ? (parseFloat(inv.retention_amount) || 0) : (isDepositInvoice ? 0 : Math.round(newAmount * (retPct / 100) * 100) / 100));
-    const discount = syncedLock ? (parseFloat(inv.discount) || 0)         : (linkedPayApp ? (parseFloat(inv.discount) || 0)         : (parseFloat(editDiscount) || 0));
+    // moneyLock takes precedence: preserve stored retention + discount (locked inputs) so
+    // a still-live QB-synced edit can't drift the money via these either (mirrors the
+    // newLines branch). A pulled-back (New) synced invoice has moneyLock false → retention
+    // + discount come from the edit inputs, which is exactly the correction path. (2026-08-25)
+    const retPct   = moneyLock ? (parseFloat(inv.retention_pct) || 0)    : (linkedPayApp ? (parseFloat(inv.retention_pct) || 0)    : (isDepositInvoice ? 0 : (parseFloat(editRetentionPct) || 0)));
+    const retAmt   = moneyLock ? (parseFloat(inv.retention_amount) || 0) : (linkedPayApp ? (parseFloat(inv.retention_amount) || 0) : (isDepositInvoice ? 0 : Math.round(newAmount * (retPct / 100) * 100) / 100));
+    const discount = moneyLock ? (parseFloat(inv.discount) || 0)         : (linkedPayApp ? (parseFloat(inv.discount) || 0)         : (parseFloat(editDiscount) || 0));
 
     // Update invoice
     const { error: invErr } = await supabase.from("invoices").update({
@@ -2379,7 +2391,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       if (!confirm(`Invoice #${inv.id} is recorded as a deposit (${what}). Remove the deposit mark? The job will show that much less deposit collected.`)) return;
     }
 
-    const zeroRetention = turningOn && !linkedPayApp && !syncedLock
+    const zeroRetention = turningOn && !linkedPayApp && !numberLock
       && ((parseFloat(inv.retention_pct) || 0) > 0 || (parseFloat(inv.retention_amount) || 0) > 0);
     const updates = zeroRetention
       ? { is_deposit: turningOn, retention_pct: 0, retention_amount: 0 }
@@ -2427,22 +2439,25 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       setVoidReason("");
       onDeleted && onDeleted();
     } else {
-      // Two-row design: mark original voided (preserve qb_invoice_id for QB audit
-      // linkage), then either branch on pay-app linkage or insert a replacement.
       const nowIso = new Date().toISOString();
       const reason = voidReason.trim();
-      const { error: voidErr } = await supabase.from("invoices").update({
-        voided_at: nowIso,
-        void_reason: reason,
-        stripe_payment_link_id: null,
-        stripe_checkout_id: null,
-        stripe_checkout_url: null,
-        stripe_payment_id: null,
-      }).eq("id", inv.id);
-      if (voidErr) { alert(voidErr.message); setSaving(false); return; }
 
       if (linkedPayApp) {
-        // Pay-app path: pay app to draft + clear FK. New invoice born on re-lock.
+        // Pay-app path (unchanged two-row design): mark the original voided
+        // (preserve qb_invoice_id for QB audit linkage), send the pay app back to
+        // draft + clear its FK. A fresh invoice is born on re-lock. Pay-app dollars
+        // are owned by the billing-schedule flow, not this editor, so a same-number
+        // reissue isn't the right correction path here.
+        const { error: voidErr } = await supabase.from("invoices").update({
+          voided_at: nowIso,
+          void_reason: reason,
+          stripe_payment_link_id: null,
+          stripe_checkout_id: null,
+          stripe_checkout_url: null,
+          stripe_payment_id: null,
+        }).eq("id", inv.id);
+        if (voidErr) { alert(voidErr.message); setSaving(false); return; }
+
         await supabase.from("billing_schedule_pay_apps")
           .update({ status: "draft", submitted_at: null, invoice_id: null })
           .eq("id", linkedPayApp.id);
@@ -2453,85 +2468,43 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         setVoidReason("");
         onUpdated && onUpdated();
       } else {
-        // Non-pay-app: insert replacement at next-free-ID with copied fields.
-        const { data: recent } = await supabase
-          .from("invoices")
-          .select("id")
-          .order("created_at", { ascending: false })
-          .limit(50);
-        const nums = (recent || []).map(r => parseInt(r.id, 10)).filter(n => !isNaN(n)).sort((a, b) => a - b);
-        const median = nums.length ? nums[Math.floor(nums.length / 2)] : 10000;
-        const seqNums = nums.filter(n => n <= median * 2);
-        const lastNum = Math.max(seqNums.length ? seqNums[seqNums.length - 1] : 0, 9999);
-        const nextId = String(lastNum + 1).padStart(5, "0");
-
-        const { data: newInv, error: newErr } = await supabase.from("invoices").insert([{
-          id: nextId,
-          tenant_id: inv.tenant_id,
-          job_id: inv.job_id,
-          job_name: inv.job_name,
-          call_log_id: inv.call_log_id,
-          proposal_id: inv.proposal_id,
-          amount: inv.amount,
-          discount: inv.discount,
-          retention_pct: inv.retention_pct,
-          retention_amount: inv.retention_amount,
-          retention_released: inv.retention_released, // carry release flag so the Bill Retention button can't reappear → double-bill
-          due_date: inv.due_date,
-          description: inv.description,
-          intro: inv.intro,
-          show_cents: inv.show_cents,
+        // Same-number reissue (Chris 2026-08-25). The QB invoice was just voided
+        // above; keep the SAME SC row and its qb_invoice_id and reset it to an
+        // editable New draft — do NOT set voided_at and do NOT mint a new number.
+        // The operator corrects amount/retention (moneyLock is now false because
+        // status is New), and the resend re-syncs the SAME qb_invoice_id: writing
+        // fresh lines onto a voided QB invoice REOPENS it, preserving its
+        // DocNumber (exactly what happens typing into it by hand in QuickBooks).
+        // Replaces the old void+new-number two-row design, which minted a new #.
+        // QB's PrivateNote (stamped by qb-void-invoice) carries the audit trail;
+        // void_reason is also kept on the row.
+        const { error: reissueErr } = await supabase.from("invoices").update({
           status: "New",
-          type: inv.type || "regular", // replacement inherits the voided invoice's kind
-          is_deposit: inv.is_deposit,  // ...including its deposit mark — without this a pulled-back
-                                       // deposit returns as a plain invoice and the job silently
-                                       // drops it from the deposit total
-          // nte_amount deliberately NOT carried: the cap describes a week of T&M
-          // hours, and those lines do not come across (see the filter below). A
-          // replacement holding a cap with no hours under it states a limit on
-          // nothing. It is re-entered with the re-transcribed rows.
-        }]).select().single();
-        if (newErr) { alert(`Replacement invoice insert failed: ${newErr.message}`); setSaving(false); return; }
+          sent_at: null,
+          void_reason: reason,
+          stripe_payment_link_id: null,
+          stripe_checkout_id: null,
+          stripe_checkout_url: null,
+          stripe_payment_id: null,
+          paid_at: null,
+        }).eq("id", inv.id);
+        if (reissueErr) { alert(reissueErr.message); setSaving(false); return; }
 
-        // T&M lines do NOT come across — not the rows, not the dollars.
-        //
-        // A day row is a TRANSCRIPTION of a signed paper ticket. If an invoice is
-        // being voided, the correctness of that transcription is exactly what may
-        // be in question, and carrying it forward copies a previous reading of the
-        // paper instead of re-reading the paper. Worse, a T&M line's hours are
-        // preserve-only once billed, so a carried-over wrong figure could not be
-        // corrected — you would void again into another copy of the same error.
-        //
-        // An earlier version of this copied them, on the assumption that voids are
-        // usually for reasons unrelated to the lines. There is no evidence for that
-        // assumption, and prefilling money data on a guess is the wrong default.
-        //
-        // Percent / SOV / archive lines still copy: those are derived from the work
-        // type or the billing schedule and cannot be independently wrong.
-        const carriedLines = (lines || []).filter(l => !l.proposal_wtc?.is_rate_card);
-        if (carriedLines.length > 0) {
-          const newLines = carriedLines.map(l => ({
-            invoice_id: nextId,
-            proposal_wtc_id: l.proposal_wtc_id || null,
-            billing_schedule_line_id: l.billing_schedule_line_id || null,
-            billing_pct: l.billing_pct,
-            amount: l.amount,
-            // `description` was being dropped here before T&M existed — a
-            // pre-existing gap, fixed while in the file. The nine day columns are
-            // deliberately NOT listed: no carried line can have them (rate-card
-            // lines are filtered out above), so copying them would be dead code
-            // implying a behaviour that does not happen.
-            description: l.description || null,
-          }));
-          const { error: linesErr } = await supabase.from("invoice_lines").insert(newLines);
-          if (linesErr) { alert(`Replacement invoice lines failed: ${linesErr.message}`); setSaving(false); return; }
-        }
-
+        setInv(prev => ({
+          ...prev,
+          status: "New",
+          sent_at: null,
+          void_reason: reason,
+          stripe_payment_link_id: null,
+          stripe_checkout_id: null,
+          stripe_checkout_url: null,
+          stripe_payment_id: null,
+          paid_at: null,
+        }));
         setSaving(false);
         setShowVoidModal(null);
         setVoidReason("");
         onUpdated && onUpdated();
-        if (onNavigateInvoice) onNavigateInvoice(nextId);
       }
     }
   }
@@ -2582,8 +2555,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         {editing ? (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display }}>Invoice #</span>
-            <input value={editId} onChange={e => setEditId(e.target.value)} disabled={syncedLock} title={syncedLock ? "Locked — keeps the QuickBooks invoice number stable" : undefined} style={{ ...inputStyle, width: 120, fontSize: 20, fontWeight: 800, fontFamily: F.display, padding: "6px 10px", ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
-            {syncedLock && <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>Locked — synced to QuickBooks</span>}
+            <input value={editId} onChange={e => setEditId(e.target.value)} disabled={numberLock} title={numberLock ? "Locked — keeps the QuickBooks invoice number stable" : undefined} style={{ ...inputStyle, width: 120, fontSize: 20, fontWeight: 800, fontFamily: F.display, padding: "6px 10px", ...(numberLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
+            {numberLock && <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>Locked — synced to QuickBooks</span>}
           </div>
         ) : (
           <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em" }}>
@@ -2614,9 +2587,14 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       {/* Edit fields (only in edit mode) */}
       {editing && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
-          {syncedLock && (
+          {moneyLock && (
             <div style={{ gridColumn: "1 / -1", background: C.linenDeep, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", fontSize: 12.5, lineHeight: 1.5, color: C.textBody, fontFamily: F.ui }}>
               This invoice is already sent and synced to QuickBooks. You can edit the <strong>work description</strong> (e.g. add a PO number — prints on the invoice and updates the QuickBooks memo), the <strong>email introduction</strong>, and the <strong>due date</strong>. The invoice number and dollar amounts are locked so the QuickBooks record stays stable. Saving re-syncs to QuickBooks with your reason as an audit note.
+            </div>
+          )}
+          {!moneyLock && numberLock && isNew && (
+            <div style={{ gridColumn: "1 / -1", background: C.linenDeep, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", fontSize: 12.5, lineHeight: 1.5, color: C.textBody, fontFamily: F.ui }}>
+              Pulled back from QuickBooks — its QB record is currently voided. Correct the <strong>amount</strong> and <strong>retention</strong> here, then <strong>resend</strong>: invoice <strong>#{inv.id}</strong> keeps its QuickBooks number and the voided record reopens with the new figures. The invoice number stays locked.
             </div>
           )}
           <div>
@@ -2630,13 +2608,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
             <>
               <div>
                 <div style={labelStyle}>Discount ($)</div>
-                <input type="number" min="0" step="1" value={editDiscount} onChange={e => setEditDiscount(e.target.value)} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
+                <input type="number" min="0" step="1" value={editDiscount} onChange={e => setEditDiscount(e.target.value)} disabled={moneyLock} title={moneyLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, ...(moneyLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
               </div>
               {/* Deposits carry no retention — hide the input AND force 0 in the save. */}
               {!isDepositInvoice && (
               <div>
                 <div style={labelStyle}>Retention (%)</div>
-                <input type="number" min="0" max="100" step="0.5" value={editRetentionPct} onChange={e => setEditRetentionPct(e.target.value)} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
+                <input type="number" min="0" max="100" step="0.5" value={editRetentionPct} onChange={e => setEditRetentionPct(e.target.value)} disabled={moneyLock} title={moneyLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, ...(moneyLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
                 {parseFloat(editRetentionPct) > 0 && (() => {
                   const gross = isArchiveInvoice ? (parseFloat(String(editArchiveAmount).replace(/[^0-9.\-]/g, "")) || 0) : (parseFloat(inv.amount) || 0);
                   return (
@@ -2652,8 +2630,8 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           {isArchiveInvoice && (
             <div style={{ gridColumn: "1 / -1" }}>
               <div style={labelStyle}>Invoice Amount ($)</div>
-              <input type="text" inputMode="decimal" value={editArchiveAmount} onChange={e => setEditArchiveAmount(e.target.value)} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
-              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>{syncedLock ? "Locked — synced to QuickBooks. Edit the description/intro only." : "Archive proposal — edit the invoice amount directly."}</div>
+              <input type="text" inputMode="decimal" value={editArchiveAmount} onChange={e => setEditArchiveAmount(e.target.value)} disabled={moneyLock} title={moneyLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, ...(moneyLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
+              <div style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 4 }}>{moneyLock ? "Locked — synced to QuickBooks. Edit the description/intro only." : "Archive proposal — edit the invoice amount directly."}</div>
             </div>
           )}
           <div style={{ gridColumn: "1 / -1" }}>
@@ -2779,7 +2757,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
                             ].filter(Boolean).join(" · ") || "hrs"}
                           </span>
                         ) : editing ? (
-                          <input type="number" min="0" max="100" step="1" value={editPcts[l.id] || ""} onChange={e => setEditPcts(prev => ({ ...prev, [l.id]: e.target.value }))} disabled={syncedLock} title={syncedLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, width: 70, padding: "4px 8px", fontSize: 12, textAlign: "right", ...(syncedLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
+                          <input type="number" min="0" max="100" step="1" value={editPcts[l.id] || ""} onChange={e => setEditPcts(prev => ({ ...prev, [l.id]: e.target.value }))} disabled={moneyLock} title={moneyLock ? "Locked on a QuickBooks-synced invoice" : undefined} style={{ ...inputStyle, width: 70, padding: "4px 8px", fontSize: 12, textAlign: "right", ...(moneyLock ? { opacity: 0.55, cursor: "not-allowed" } : {}) }} />
                         ) : (
                           <span style={{ background: C.dark, color: C.teal, padding: "2px 8px", borderRadius: 6, fontWeight: 800, fontSize: 12 }}>{l.billing_pct}%</span>
                         )}

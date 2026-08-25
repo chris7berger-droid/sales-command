@@ -133,9 +133,12 @@ useEffect(() => {
   if (pInit.customer_id && pInit.customer_id !== pInit.call_log?.customer_id) {
     supabase.from("customers").select("id, name, email, contact_email, business_address, business_city, business_state, business_zip").eq("id", pInit.customer_id).maybeSingle().then(({ data }) => setGcCustomer(data || null));
   }
-  // Check if already sent to Schedule Command
+  // Check if already sent to Schedule Command. A soft-deleted job (deleted='Yes')
+  // does NOT count as sent — Schedule Command's Delete frees the proposal to be
+  // pulled back or re-sent, so we filter it out here or the button stays locked
+  // forever after a delete.
   if (pInit.status === "Sold") {
-    supabase.from("jobs").select("job_id").eq("source_proposal_id", pInit.id).maybeSingle().then(({ data }) => { if (data) setSentToSchedule(true); });
+    supabase.from("jobs").select("job_id").eq("source_proposal_id", pInit.id).eq("deleted", "No").maybeSingle().then(({ data }) => { if (data) setSentToSchedule(true); });
   }
   // [DMS-1 §4.3] Read the revision stamp from job_wtcs (not a proposals column):
   // jobs by call_log_id → their job_wtcs → MAX(sow_revision_count). A job can have
@@ -591,6 +594,14 @@ async function deletePropAttachment(fullName) {
       alert(`This proposal has ${invoices.length} invoice${invoices.length > 1 ? "s" : ""} linked to it. Delete the invoice${invoices.length > 1 ? "s" : ""} before pulling back.`);
       return;
     }
+    // Same guard for a live scheduled job: pulling back while a job exists in
+    // Schedule Command leaves an orphaned job with no approved proposal. Delete the
+    // job on the schedule first (soft-deleted jobs are filtered out here).
+    const { data: schedJobs } = await supabase.from("jobs").select("job_id").eq("source_proposal_id", p.id).eq("deleted", "No");
+    if (schedJobs && schedJobs.length > 0) {
+      alert("This proposal has a job in Schedule Command. Delete the job from the schedule before pulling back.");
+      return;
+    }
     if (!window.confirm("Pull back this proposal? It will return to Draft status and WTCs will be unlocked for editing.")) return;
     const { error: sigErr } = await supabase.from("proposal_signatures").delete().eq("proposal_id", p.id);
     if (sigErr) { alert("Pull back failed clearing signatures: " + sigErr.message); return; }
@@ -625,8 +636,10 @@ async function deletePropAttachment(fullName) {
   async function openSendReview() {
     setSendingToSchedule(true);
     try {
-      // Check if already sent
-      const { data: existing } = await supabase.from("jobs").select("job_id").eq("source_proposal_id", p.id).maybeSingle();
+      // Check if already sent. A soft-deleted job (deleted='Yes') doesn't count —
+      // Schedule Command's Delete is meant to free the proposal for a re-send, so a
+      // tombstoned job must not block it here.
+      const { data: existing } = await supabase.from("jobs").select("job_id").eq("source_proposal_id", p.id).eq("deleted", "No").maybeSingle();
       if (existing) { alert("This proposal has already been sent to Schedule Command."); setSentToSchedule(true); setSendingToSchedule(false); return; }
 
       // Block if invoiced — don't schedule work that's already been billed

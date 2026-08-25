@@ -1556,14 +1556,25 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               })}
 
               {/* [K1] block state */}
-              {sendReview.failures.length > 0 && (
-                <div style={{ marginTop: 8, marginBottom: 4, padding: "12px 14px", background: "rgba(229,57,53,0.08)", border: `1px solid ${C.red}`, borderRadius: 10 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 800, color: C.red, fontFamily: F.ui, marginBottom: 4 }}>Can't send yet — {sendReview.failures.length} day{sendReview.failures.length === 1 ? "" : "s"} without a mobilization</div>
-                  <div style={{ fontSize: 12, color: C.textBody, fontFamily: F.ui }}>
-                    {sendReview.failures.map(f => `${f.wtcLabel} '${f.dayLabel}'`).join(", ")}. Open the WTC → Scope of Work, assign a mobilization to each day, and save before sending.
+              {sendReview.failures.length > 0 && (() => {
+                // Location-aware fix: if zero mobilizations are authored there is nothing
+                // to tag days to, so point to the Mobilizations panel first. Otherwise the
+                // mobs exist and the fix is just tagging each day in the WTC SowTab.
+                const noMobs = (sendReview.mobilizations || []).length === 0;
+                return (
+                  <div style={{ marginTop: 8, marginBottom: 4, padding: "12px 14px", background: "rgba(229,57,53,0.08)", border: `1px solid ${C.red}`, borderRadius: 10 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 800, color: C.red, fontFamily: F.ui, marginBottom: 4 }}>Can't send yet — {sendReview.failures.length} day{sendReview.failures.length === 1 ? "" : "s"} without a mobilization</div>
+                    <div style={{ fontSize: 12, color: C.textBody, fontFamily: F.ui, lineHeight: 1.5 }}>
+                      Unassigned: {sendReview.failures.map(f => `${f.wtcLabel} '${f.dayLabel}'`).join(", ")}.
+                      {noMobs ? (
+                        <> No mobilizations exist yet, so there's nothing to tag these days to. <strong>Cancel</strong> this, find the <strong>Mobilizations</strong> panel on this proposal, and click <strong>+ Add Mobilization</strong> for each trip to site. Then open each work type's <strong>Scope of Work</strong> tab (step 4), pick a mobilization on every day, and save before sending.</>
+                      ) : (
+                        <> <strong>Cancel</strong> this, open each work type's <strong>Scope of Work</strong> tab (step 4), pick a mobilization on every day, and save before sending.</>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* [DMS-1 §2] Spec-confirm block state */}
               {specFailures.length > 0 && (

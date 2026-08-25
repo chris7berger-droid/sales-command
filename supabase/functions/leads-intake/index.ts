@@ -21,6 +21,22 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const CHANNELS = ["facebook", "google", "twilio", "other"];
 
+// Constant-time compare so the secret check can't leak via response timing.
+function secretMatches(provided: string, expected: string): boolean {
+  const a = new TextEncoder().encode(provided);
+  const b = new TextEncoder().encode(expected);
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+// Cap untrusted string fields before the service-role insert. The sender holds
+// the secret, but a public endpoint shouldn't trust length — DB columns are
+// unbounded text, so this is the real backstop.
+const clip = (v: unknown, n: number): string | null =>
+  typeof v === "string" ? v.slice(0, n) : null;
+
 function json(body: unknown, status: number, req: Request) {
   return new Response(JSON.stringify(body), {
     status,
@@ -42,8 +58,8 @@ serve(async (req) => {
     return json({ ok: false, error: "not_configured" }, 500, req);
   }
 
-  // Auth: shared secret header must match.
-  if (req.headers.get("x-leads-secret") !== LEADS_INTAKE_SECRET) {
+  // Auth: shared secret header must match (constant-time).
+  if (!secretMatches(req.headers.get("x-leads-secret") || "", LEADS_INTAKE_SECRET)) {
     return new Response("unauthorized", { status: 401 });
   }
 
@@ -56,25 +72,28 @@ serve(async (req) => {
   }
 
   // Validate required fields.
-  const lead_id = typeof payload.lead_id === "string" ? payload.lead_id.trim() : "";
+  const lead_id = typeof payload.lead_id === "string" ? payload.lead_id.trim().slice(0, 200) : "";
   const channel = typeof payload.channel === "string" ? payload.channel : "";
   const received_at = typeof payload.received_at === "string" ? payload.received_at : "";
   if (!lead_id) return json({ ok: false, error: "missing lead_id" }, 400, req);
   if (!CHANNELS.includes(channel)) return json({ ok: false, error: "invalid channel" }, 400, req);
   if (!received_at || isNaN(Date.parse(received_at))) return json({ ok: false, error: "invalid received_at" }, 400, req);
 
+  // Keep raw only if it's a sane size; oversized payloads are dropped, not stored.
+  const RAW_MAX = 20000;
+  const rawStr = payload.raw != null ? JSON.stringify(payload.raw) : null;
   const row = {
     tenant_id: LEADS_INTAKE_TENANT_ID,
     lead_id,
     channel,
     received_at,
-    name: typeof payload.name === "string" ? payload.name : null,
-    phone: typeof payload.phone === "string" ? payload.phone : null,
-    email: typeof payload.email === "string" ? payload.email : null,
-    campaign: typeof payload.campaign === "string" ? payload.campaign : null,
-    ad_id: typeof payload.ad_id === "string" ? payload.ad_id : null,
-    message: typeof payload.message === "string" ? payload.message : null,
-    raw: payload.raw ?? null,
+    name: clip(payload.name, 200),
+    phone: clip(payload.phone, 50),
+    email: clip(payload.email, 320),
+    campaign: clip(payload.campaign, 200),
+    ad_id: clip(payload.ad_id, 100),
+    message: clip(payload.message, 5000),
+    raw: rawStr && rawStr.length <= RAW_MAX ? payload.raw : null,
   };
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);

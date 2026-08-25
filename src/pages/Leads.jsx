@@ -43,18 +43,7 @@ export default function Leads({ teamMember }) {
   const [convertLead, setConvertLead] = useState(null);
 
   const load = async () => {
-    const PAGE = 500;
-    let all = [], from = 0;
-    while (true) {
-      const { data } = await supabase
-        .from("leads").select("*")
-        .order("received_at", { ascending: false })
-        .range(from, from + PAGE - 1);
-      if (!data || data.length === 0) break;
-      all = all.concat(data);
-      if (data.length < PAGE) break;
-      from += PAGE;
-    }
+    const all = await fetchAll("leads", "*", { order: { column: "received_at", ascending: false } });
     setRows(all);
     setLoading(false);
   };
@@ -74,13 +63,17 @@ export default function Leads({ teamMember }) {
 
   useEffect(() => { load(); loadDeps(); }, []);
 
+  // Wait for tenant config to actually resolve before deciding. DEFAULTS has no
+  // id, so cfg.id is the "loaded" signal — without this, a deep-link or refresh
+  // to /leads bounces an enabled tenant home before the flag has arrived.
+  if (!cfg.id) return <div style={{ color: C.textFaint, fontFamily: F.ui, fontSize: 13, padding: 24 }}>Loading…</div>;
   // Bolt-on guard: this screen only exists for a tenant with the add-on enabled.
   if (!cfg.leads_enabled) return <Navigate to="/home" replace />;
 
   const setStatus = async (lead, statusLabel) => {
     const status = statusLabel.toLowerCase();
-    await supabase.from("leads").update({ status }).eq("id", lead.id);
-    load();
+    const { error } = await supabase.from("leads").update({ status }).eq("id", lead.id);
+    if (!error) setRows(rs => rs.map(r => (r.id === lead.id ? { ...r, status } : r)));
   };
 
   const filtered = rows.filter(r => {
@@ -173,17 +166,19 @@ export default function Leads({ teamMember }) {
                 )},
                 { k: "status", l: "Status", r: v => <Pill label={cap(v)} cm={STATUS_C} /> },
                 { k: "_a", l: "", sortable: false, r: (_, row) => (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <select value={cap(row.status)} onChange={e => setStatus(row, e.target.value)}
-                      style={{ padding: "6px 10px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, color: C.textBody, fontSize: 12.5, fontFamily: F.ui, cursor: "pointer" }}>
-                      {["New", "Contacted", "Qualified", "Junk"].map(s => <option key={s} value={s}>{s}</option>)}
-                      {/* Converted is set by the Convert action, not chosen manually */}
-                      {row.status === "converted" && <option value="Converted">Converted</option>}
-                    </select>
-                    {row.status !== "converted" && (
+                  row.status === "converted" ? (
+                    // Once converted, the lead is a real job — lock it so its status
+                    // can't be flipped back and resurface an already-worked job.
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#2f6d33", fontFamily: F.ui }}>✓ Converted to job</span>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <select value={cap(row.status)} onChange={e => setStatus(row, e.target.value)}
+                        style={{ padding: "6px 10px", borderRadius: 8, border: `1.5px solid ${C.borderStrong}`, background: C.linenDeep, color: C.textBody, fontSize: 12.5, fontFamily: F.ui, cursor: "pointer" }}>
+                        {["New", "Contacted", "Qualified", "Junk"].map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
                       <Btn sz="sm" onClick={() => setConvertLead(row)}>Convert to Job</Btn>
-                    )}
-                  </div>
+                    </div>
+                  )
                 )},
               ]}
               rows={filtered}

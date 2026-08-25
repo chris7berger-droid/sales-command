@@ -26,7 +26,7 @@ export default function CallLog({ teamMember, setSubPage }) {
   const navState = location.state || {};
   const { snapshot, refresh: refreshAlerts } = useAlerts();
   const cfg = useTenantConfig();
-  const [leads, setLeads]         = useState([]); // open campaign leads (bolt-on)
+  const [leadCount, setLeadCount] = useState(0); // open campaign lead count (bolt-on)
   const [rows, setRows]           = useState([]);
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -123,13 +123,13 @@ export default function CallLog({ teamMember, setSubPage }) {
       cl._gcCount = gcsByJob.get(cl.id)?.size || 0;
     }
 
-    // Open campaign leads (bolt-on) — surfaced as a tagged band above the job list.
+    // Open campaign lead count (bolt-on) — surfaced as a tagged band above the job
+    // list. Count-only (head:true) so it isn't capped by the 1000-row page limit.
     if (cfg.leads_enabled) {
-      const { data: ld } = await supabase
-        .from("leads").select("id, name, channel, campaign, received_at, status")
-        .not("status", "in", "(converted,junk)")
-        .order("received_at", { ascending: false });
-      setLeads(ld || []);
+      const { count } = await supabase
+        .from("leads").select("id", { count: "exact", head: true })
+        .not("status", "in", "(converted,junk)");
+      setLeadCount(count || 0);
     }
 
     setRows(allLog);
@@ -359,11 +359,11 @@ export default function CallLog({ teamMember, setSubPage }) {
         )}
         {/* Campaign Leads band (bolt-on) — leads live in one place but show here,
             uniquely tagged, so paid-campaign inquiries surface alongside the pipeline. */}
-        {cfg.leads_enabled && leads.length > 0 && (
+        {cfg.leads_enabled && leadCount > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", background: C.dark, border: `1.5px solid ${C.teal}`, borderRadius: 12 }}>
             <span style={{ fontSize: 10, fontWeight: 800, background: C.teal, color: C.dark, padding: "3px 9px", borderRadius: 10, fontFamily: F.ui, letterSpacing: "0.06em", whiteSpace: "nowrap" }}>CAMPAIGN LEADS</span>
             <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(243,237,225,0.92)", fontFamily: F.ui }}>
-              {leads.length} open lead{leads.length !== 1 ? "s" : ""} from paid marketing waiting to be worked
+              {leadCount} open lead{leadCount !== 1 ? "s" : ""} from paid marketing waiting to be worked
             </span>
             <button onClick={() => navigate("/leads")} style={{ marginLeft: "auto", background: C.teal, color: C.dark, border: "none", borderRadius: 8, padding: "7px 16px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase" }}>
               Review Leads →

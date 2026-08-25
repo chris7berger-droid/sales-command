@@ -92,3 +92,27 @@ lives in edge-fn env, never in the client.
 This feature will likely add DB migrations (new table or new call_log columns). Migrations hit the
 **shared Supabase DB** — author them in `command-suite-db`, not here, and rehearse before push.
 Coordinate so this doesn't collide with the migration in the currently-live fix.
+
+---
+
+## §6 Bolt-on structure [LOCKED — 2026-08-25]
+Leads is a **paid add-on**, not part of the base product. It must NOT ship on when we sell
+Sales Command to other customers.
+- Switch: `tenant_config.leads_enabled boolean NOT NULL DEFAULT false`. Off for everyone until
+  flipped per customer.
+- Receiver (leads-intake edge fn) refuses with 403 `leads_not_enabled` unless that customer's
+  flag is on — so even a correct webhook does nothing for a non-subscriber.
+- Screen: only renders when the current tenant's `leads_enabled` is true.
+- To bolt on for a customer: flip the flag on + set that customer's secret/tenant env on the
+  receiver. (Later: can attach to a Stripe add-on price like Sales/Schedule do.)
+
+## Build status (2026-08-25) — receiver built, NOT live
+Written on branch, nothing deployed:
+- `db/leads-table.draft.sql` — leads table + leads_enabled flag (DRAFT; move to command-suite-db
+  + rehearse before applying to the shared DB).
+- `supabase/functions/leads-intake/index.ts` — the receiver (secret check, bolt-on gate, dedupe,
+  store). Not deployed.
+Remaining before live: apply table via command-suite-db (rehearse first), deploy the function,
+set 3 secrets (LEADS_INTAKE_SECRET, LEADS_INTAKE_TENANT_ID, + flip leads_enabled), then hand the
+URL+secret to the marketing side. The inbox SCREEN is still to build (and the standalone-vs-
+call-log-view decision is still open).

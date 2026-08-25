@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Fragment } from "react";
 import { supabase } from "../lib/supabase";
 import { selectableWorkTypes } from "../lib/workTypes";
 import { fetchAll } from "../lib/supabaseHelpers";
@@ -505,6 +505,14 @@ function MaterialsTab({ items, taxRate, onChange }) {
   const [catalog, setCatalog] = useState([]);
   const [editingCatalog, setEditingCatalog] = useState(null);
   const [editingSaving, setEditingSaving] = useState(false);
+  // Per-material application-specs drawer (mils/mix time/mix speed/cure time).
+  // These live off the row to keep the cost line scannable; open on demand.
+  const [openSpecsIds, setOpenSpecsIds] = useState(() => new Set());
+  const toggleSpecs = id => setOpenSpecsIds(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
 
   const loadCatalog = async () => {
     const rows = await fetchAll("materials_catalog", "id, tenant_id, name, kit_size, price, coverage, supplier, mils, mix_time, mix_speed, cure_time, unit, specs_updated_at", {
@@ -626,8 +634,13 @@ function MaterialsTab({ items, taxRate, onChange }) {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item, idx) => (
-                  <tr key={item.id} style={{ borderBottom: `1px solid ${T.gray100}`, background: idx % 2 === 0 ? "rgba(28,24,20,0.04)" : "rgba(28,24,20,0.08)" }}>
+                {items.map((item, idx) => {
+                  const rowBg = idx % 2 === 0 ? "rgba(28,24,20,0.04)" : "rgba(28,24,20,0.08)";
+                  const specsOpen = openSpecsIds.has(item.id);
+                  const specCount = ["mils", "mix_time", "mix_speed", "cure_time"].filter(k => (item[k] ?? "").toString().trim()).length;
+                  return (
+                  <Fragment key={item.id}>
+                  <tr style={{ borderBottom: specsOpen ? "none" : `1px solid ${T.gray100}`, background: rowBg }}>
                     {cellInput(item, "product", "text", 130)}
                     {cellInput(item, "kit_size", "text", 80)}
                     {cellInput(item, "coverage_rate", "text", 90)}
@@ -639,6 +652,13 @@ function MaterialsTab({ items, taxRate, onChange }) {
                     {cellInput(item, "markup_pct", "number", 65)}
                     <td style={{ ...td, fontWeight: 700, color: T.greenDark, width: 90, fontSize: 13 }}>{fmt(totals[idx])}</td>
                     <td style={{ ...td, width: 32, whiteSpace: "nowrap" }}>
+                      <button
+                        onClick={() => toggleSpecs(item.id)}
+                        title="Application specs — mils, mix time, mix speed, cure time"
+                        style={{ background: specsOpen ? T.green : "none", border: `1px solid ${T.green}`, color: specsOpen ? "#fff" : T.greenDark, cursor: "pointer", fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 4, marginRight: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}
+                      >
+                        {specsOpen ? "Specs ▲" : `Specs${specCount ? ` ·${specCount}` : ""} ▾`}
+                      </button>
                       {justSavedId === item.id ? (
                         <span style={{ color: T.greenDark, fontSize: 9.5, fontWeight: 700, padding: "2px 6px", letterSpacing: "0.04em", textTransform: "uppercase", marginRight: 4 }}>
                           ✓ Saved
@@ -656,7 +676,35 @@ function MaterialsTab({ items, taxRate, onChange }) {
                       <button onClick={() => removeItem(item.id)} style={{ background: "none", border: "none", color: T.gray400, cursor: "pointer", fontSize: 16, padding: "2px 4px", lineHeight: 1 }}>×</button>
                     </td>
                   </tr>
-                ))}
+                  {specsOpen && (
+                    <tr style={{ borderBottom: `1px solid ${T.gray100}`, background: rowBg }}>
+                      <td colSpan={11} style={{ padding: "4px 10px 12px 10px" }}>
+                        <div style={{ fontSize: 9.5, fontWeight: 700, color: T.gray400, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>
+                          Application Specs — {item.product?.trim() || "material"} (flows to the crew's Field SOW)
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                          {[
+                            ["mils", "Mils", "e.g. 20-25"],
+                            ["mix_time", "Mix Time", "e.g. 3 min"],
+                            ["mix_speed", "Mix Speed", "e.g. Low"],
+                            ["cure_time", "Cure Time", "e.g. 24 hrs"],
+                          ].map(([key, lbl, ph]) => (
+                            <div key={key} style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 130, flex: "1 1 130px" }}>
+                              <label style={{ fontSize: 9.5, fontWeight: 700, color: T.gray400, letterSpacing: "0.05em", textTransform: "uppercase" }}>{lbl}</label>
+                              <input type="text" value={item[key] ?? ""} placeholder={ph}
+                                onChange={e => updateItem(item.id, key, e.target.value)}
+                                style={{ width: "100%", border: `1px solid ${T.gray200}`, borderRadius: 5, padding: "6px 8px", fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box", background: "#bfb3a1" }}
+                                onFocus={e => e.target.style.borderColor = T.green}
+                                onBlur={e => e.target.style.borderColor = T.gray200} />
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -66,10 +66,14 @@ const NavCircle = ({ onClick, disabled, children, primary }) => (
 );
 
 function buildStepList(jobType) {
-  const steps = ["jobType"];
-  if (jobType === "override") steps.push("manualNum");
-  if (jobType === "co") { steps.push("parentJob"); steps.push("coTreatment"); }
-  if (jobType !== "co") {
+  // All new inquiries are standard jobs — the "What type of job is this?" screen
+  // (and the manager-override path) is gone. Flow starts at commercial/residential.
+  // Change orders still reach this wizard via the "+ Add CO" button (jobType === "co").
+  const steps = [];
+  if (jobType === "co") {
+    steps.push("parentJob");
+    steps.push("coTreatment");
+  } else {
     steps.push("customerType");
     steps.push("customerSelect");
   }
@@ -86,7 +90,8 @@ function buildStepList(jobType) {
 
 function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workTypes, initialJobType = null, initialParentJobId = null }) {
   const preset = initialJobType === "co" && initialParentJobId;
-  const [step, setStep] = useState(preset ? 2 : 0);
+  // CO preset lands on coTreatment (parentJob is index 0, pre-filled, so skip it).
+  const [step, setStep] = useState(preset ? 1 : 0);
   const [saving, setSaving] = useState(false);
   const [wtSearch, setWtSearch] = useState("");
   const [error, setError] = useState(null);
@@ -101,7 +106,7 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
   }, []);
 
   const [data, setData] = useState({
-    jobType: initialJobType,
+    jobType: initialJobType || "standard",
     manualJobNum: "",
     parentJobId: initialParentJobId ? String(initialParentJobId) : "",
     coStandalone: false,

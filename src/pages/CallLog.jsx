@@ -438,11 +438,31 @@ export default function CallLog({ teamMember, setSubPage }) {
               );
             })}
           </div>
+          {/* One Clear for the whole job list — resets the search, the stage tab,
+              the dig/pipe lenses, and the FilterBar dropdowns. Shows whenever any
+              of them is active. (Restored after the engagement redesign moved the
+              search + stage row out and left the old FilterBar-only Clear hidden.) */}
+          {(q || filter !== "All" || digFilter || pipeFilter ||
+            filters.sales || filters.dateFrom || filters.dateTo || filters.workType || filters.customer || filters.jobNumber) && (
+            <button
+              onClick={() => {
+                setQ("");
+                setFilter("All");
+                setDigFilter(null);
+                setPipeFilter(null);
+                setFilters({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "" });
+              }}
+              style={{ padding: "7px 14px", borderRadius: 7, border: `1.5px solid ${C.borderStrong}`, background: "transparent", color: C.textMuted, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}
+            >
+              Clear
+            </button>
+          )}
         </div>
         <FilterBar
           filters={filters}
           onChange={setFilters}
           onClear={() => setQ("")}
+          hideClear
           salesOptions={[...new Set(rows.map(r => r.sales_name).filter(Boolean))].sort()}
           workTypeOptions={workTypes}
         />

@@ -13,7 +13,7 @@ const labelStyle = {
   color: C.textFaint, fontFamily: F.display, marginBottom: 3,
 };
 
-export default function FilterBar({ filters, onChange, onClear, salesOptions, customerOptions, workTypeOptions, showInvoiceNumber }) {
+export default function FilterBar({ filters, onChange, onClear, salesOptions, customerOptions, workTypeOptions, showInvoiceNumber, hideClear }) {
   const { sales, dateFrom, dateTo, workType, customer, jobNumber, invoiceNumber } = filters;
   const set = (k, v) => onChange({ ...filters, [k]: v });
 
@@ -61,7 +61,7 @@ export default function FilterBar({ filters, onChange, onClear, salesOptions, cu
           <input placeholder="Filter..." value={invoiceNumber || ""} onChange={e => set("invoiceNumber", e.target.value)} style={{ ...inputStyle, width: 110 }} />
         </div>
       )}
-      {hasFilters && (
+      {hasFilters && !hideClear && (
         <button
           onClick={() => { onChange({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "", invoiceNumber: "" }); onClear?.(); }}
           style={{

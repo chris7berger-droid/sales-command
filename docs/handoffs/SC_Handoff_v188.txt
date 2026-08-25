@@ -1,0 +1,130 @@
+SC Handoff v188 — Pull Back keeps the invoice number (QuickBooks reopen)
+Date: 2026-08-25
+Branch: fix/invoice-same-number-reissue → MERGED to main @ da5f91a (branch deleted)
+Deploy: pushed to main → Vercel auto-deploy to scmybiz.com (LIVE)
+
+═══════════════════════════════════════════════════════════════════════════════
+SESSION SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+Single /fix. Made "Pull Back" on a QuickBooks-synced REGULAR invoice a
+same-number reissue instead of a void+new-number replacement, so the operator
+can pull back invoice #567, correct the amount + retention, resend, and keep
+#567 — the voided QuickBooks invoice reopens with the new figures.
+
+This REVERSES the 2026-08-11 F45 "Won't Do" (Chris: "I'm not gonna edit invoices
+in place"). Chris re-requested it explicitly, grounded in QB behavior: a voided
+QB invoice reopens when you write data into it. Verified end-to-end on a REAL
+invoice (#10168, Lepori Construction) — see VERIFICATION. Frontend only, no
+migration, no edge-fn change. vite build green. Merged + live.
+
+Also this session (different repo, noted for traceability): sch-command Field SOW
+editor modal was squished into a 500px box — the `.mdl-lg` class was referenced
+but had no CSS rule. Added the rule (94vw/1040px, flush header). Merged to
+sch-command main @ 6f0bc5a. Not part of this SC handoff's scope beyond this note.
+
+═══════════════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED (src/pages/Invoices.jsx + docs/BACKLOG.md)
+═══════════════════════════════════════════════════════════════════════════════
+ROOT CAUSE: handleVoidConfirm's synced pull-back ran a TWO-ROW void+replacement —
+  voided #567 in QB (operation=void, keeps qb_invoice_id + DocNumber), marked the
+  SC row voided_at, and INSERTED a new invoice at the next free id as the
+  correction. So the corrected invoice always got a new number; 567 stayed voided.
+  Separately, syncedLock (= !!qb_invoice_id) locked EVERY dollar field whenever a
+  QB record existed, so amount/retention couldn't be edited in place either.
+
+FIX 1 — Same-number reissue (handleVoidConfirm, non-pay-app pullback branch):
+  Keep the SAME SC row and its qb_invoice_id; reset it to an editable New draft.
+  Do NOT set voided_at, do NOT mint a new number, do NOT insert a replacement row.
+  (Pay-app pullback path UNCHANGED — still two-row void; its dollars are owned by
+  the billing-schedule flow. T&M pullback path UNCHANGED — still delete+recreate.)
+
+FIX 2 — Split the one lock into two (was `syncedLock`):
+  • numberLock = !!inv.qb_invoice_id       → freezes the invoice # field (2585).
+  • moneyLock  = !!inv.qb_invoice_id && !isNew
+        → freezes amount/retention/discount/line-% ONLY while the invoice is still
+          live/Sent. A pulled-back invoice is status New → moneyLock false →
+          dollars unlock so the correction can be made; the number stays frozen.
+  All dollar-input `disabled=` + the handleSaveEdit money-preserve branches now key
+  on moneyLock; the invoice-# input + deposit-retention-zero guard key on numberLock.
+
+REOPEN MECHANISM (no code change — existing qb-sync-invoice isUpdate path):
+  On resend/save, qb-sync-invoice sees qb_invoice_id set → isUpdate → GETs the
+  (voided) QB invoice, takes its SyncToken, POSTs a full sparse:false update with
+  fresh Line data. QuickBooks REOPENS the voided invoice with the new lines, SAME
+  DocNumber. The SC row's voided_at is null, so qb-sync's "voided → skip" terminal
+  gate (index.ts:140) is NOT hit.
+
+UI: new edit-mode banner for the pulled-back (New + synced) state explaining the
+  number is kept and the voided QB record reopens on resend.
+
+═══════════════════════════════════════════════════════════════════════════════
+VERIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+Real invoice #10168 (job 7131 - Lepori Construction, Sky Vista Pkwy - Grind & Seal):
+  Pulled back (new same-row code, on preview) → kept #10168 in New/editable state →
+  added 5% retention → resent/saved from PROD (scmybiz.com, allowlisted origin).
+  Queried QuickBooks directly (DocNumber 10168, QB id 148413):
+    • balance $3,045.63 (ACTIVE — a voided invoice reads $0) — SAME DocNumber
+    • Services $3,205.93 gross
+    • "Retention (5%) — held back" −$160.30 on item "1121- Retention %"
+    • subtotal $3,045.63, due 2026-09-25, memo "[EDITED] 8/25 3:54 PM"
+  → The voided QB invoice reopened with the new retention, number preserved. PASS.
+
+GOTCHA (not a bug — cost time this session): the edge-function CORS allowlist
+  (_shared/cors.ts) trusts ONLY salescommand.app / scmybiz.com (+ PREVIEW_ORIGINS).
+  From a *.vercel.app PREVIEW URL every edge-fn call fails with "Failed to send a
+  request to the Edge Function," and handleSaveEdit keeps the edit form OPEN on a
+  QB-sync failure (by design, for retry) — which reads as "can't save." The SC
+  write DID commit each time ("saved in Sales Command"). To exercise ANY edge
+  function (send-invoice, qb-sync-invoice, etc.) you must be on scmybiz.com, or pin
+  the preview origin into PREVIEW_ORIGINS for a testing window. Preview + prod share
+  the one Supabase DB, so a save made on the preview is already in prod data.
+
+═══════════════════════════════════════════════════════════════════════════════
+DECISIONS
+═══════════════════════════════════════════════════════════════════════════════
+• F45 "Won't Do" (2026-08-11) is REVERSED for regular invoices at Chris's explicit
+  re-request. Backlog F45 row annotated with an "F45↩ Reversed + shipped" line.
+• Accepted trade-off: the synced pull-back no longer leaves a separate SC "voided
+  twin" row for the regular case. QuickBooks' PrivateNote (stamped [VOIDED/PULLED
+  BACK] by qb-void-invoice, then [EDITED] by qb-sync) carries the audit trail;
+  void_reason is also kept on the same SC row.
+• Scope held to REGULAR invoices. Pay-app and T&M pull-back behavior untouched.
+
+═══════════════════════════════════════════════════════════════════════════════
+BACKLOG
+═══════════════════════════════════════════════════════════════════════════════
+Touched F45 (Completed/Decision log): added the 2026-08-25 reversal + as-shipped
+  line. No new open items. No items closed (F45 was a decision row, not an open task).
+
+═══════════════════════════════════════════════════════════════════════════════
+NOT TOUCHED / NEXT SESSION POINTERS
+═══════════════════════════════════════════════════════════════════════════════
+• Pay-app pull-back still two-row (voids + spawns new invoice on re-lock). If Chris
+  ever wants same-number reissue there too, the billing-schedule/pay-app flow owns
+  those dollars — would need its own design, not a copy of this branch.
+• T&M pull-back still delete-and-rebuild (day-row hours are uneditable once billed).
+• The QB reopen relies on qb-sync's isUpdate full-replace working against a voided
+  invoice — proven on #10168. If a future QB API change ever refuses to update a
+  voided invoice, add an explicit un-void step to qb-sync-invoice before the update.
+• PR #36 (feat/screen-refresh-dash-retire, v187) was still OPEN as of v187's handoff
+  — unrelated to this session; confirm its state separately.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TO KNOW
+═══════════════════════════════════════════════════════════════════════════════
+src/pages/Invoices.jsx
+  • handleVoidConfirm — pull-back branch: pay-app (two-row) vs non-pay-app (same-row reissue)
+  • numberLock / moneyLock definitions (was syncedLock)
+  • handleSaveEdit — money-preserve branches key on moneyLock; re-syncs to QB
+  • pulled-back edit-mode banner
+supabase/functions/qb-sync-invoice/index.ts — isUpdate path (reopen), voided-skip gate :140
+supabase/functions/qb-void-invoice/index.ts — operation=void, keeps qb_invoice_id + DocNumber
+supabase/functions/_shared/cors.ts — exact-host allowlist + PREVIEW_ORIGINS (the preview gotcha)
+
+═══════════════════════════════════════════════════════════════════════════════
+GIT STATE
+═══════════════════════════════════════════════════════════════════════════════
+main @ da5f91a — merged, pushed, live on scmybiz.com.
+Branch fix/invoice-same-number-reissue deleted (local + remote).
+vite build green. No migration, no edge-fn deploy needed.

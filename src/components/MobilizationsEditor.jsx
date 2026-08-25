@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { C, F } from "../lib/tokens";
 import { supabase } from "../lib/supabase";
+import { fmtD } from "../lib/utils";
 import Btn from "./Btn";
 
 // Mobilizations editor (material_flow Screen 1 §4). Writes proposals.mobilizations
@@ -28,6 +29,11 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState(null);
+  // Which row is open in edit mode (its id), and which row just saved (brief ✓).
+  // A saved mobilization shows as a settled summary line; Edit / + Add open the fields.
+  const [editingId, setEditingId] = useState(null);
+  const [justSavedId, setJustSavedId] = useState(null);
+  const savedTimer = useRef(null);
   // Last array confirmed written to the DB — the revert target when a write fails, so
   // an optimistic edit that errors can't leave the UI ahead of the DB (audit #1).
   const savedRef = useRef([]);
@@ -78,15 +84,37 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
   function addMob() {
     // Monotonic seq = max(existing) + 1, floored at 0 so the empty-list reduce
     // never yields -Infinity (round-2 R5). Never length+1 — that would reuse a
-    // retired seq after a delete and mislabel the wire.
+    // retired seq after a delete and mislabel the wire. Add LOCALLY and open it in
+    // edit mode; nothing hits the DB (and the day dropdown never sees a blank mob)
+    // until Save. onChange is deliberately NOT called here for the same reason.
     const nextSeq = mobs.reduce((mx, m) => Math.max(mx, m.seq || 0), 0) + 1;
-    persist([...mobs, { id: uid(), seq: nextSeq, label: "", start_date: null, end_date: null }]);
+    const row = { id: uid(), seq: nextSeq, label: "", start_date: null, end_date: null };
+    setMobs(ms => [...ms, row]);
+    setEditingId(row.id);
   }
 
-  // Local-only edit (controlled input); DB write happens onBlur via commit() so we
-  // don't thrash the network / jump the cursor on every keystroke.
+  // Local-only field edit (controlled input); the DB write happens on Save.
   const setField = (id, key, val) => setMobs(ms => ms.map(m => m.id === id ? { ...m, [key]: val } : m));
-  const commit   = () => persist(mobs);
+
+  // Save the row being edited: persist the whole array, collapse to the summary
+  // view, and flash a per-row ✓. persist() handles the write + error-revert.
+  function saveRow(id) {
+    persist(mobs);
+    setEditingId(null);
+    setJustSavedId(id);
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+    savedTimer.current = setTimeout(() => setJustSavedId(cur => (cur === id ? null : cur)), 1800);
+  }
+
+  // Cancel: discard local edits by restoring the last DB-confirmed snapshot. Drops
+  // a brand-new unsaved row (it isn't in savedRef) and reverts field edits on an
+  // existing one. Keeps the day dropdown honest via onChange.
+  function cancelRow() {
+    setMobs(savedRef.current);
+    onChange?.(savedRef.current);
+    setEditingId(null);
+    setError(null);
+  }
 
   async function deleteMob(mob) {
     // In-use scan before delete (§4 B3/B1): count days across every WTC's field_sow
@@ -111,7 +139,7 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {saving && <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>Saving…</span>}
           {saved && !saving && <span style={{ fontSize: 11, color: C.green, fontFamily: F.ui }}>✓ Saved</span>}
-          {!readOnly && <Btn sz="sm" onClick={addMob} disabled={!loaded || saving}>+ Add Mobilization</Btn>}
+          {!readOnly && <Btn sz="sm" onClick={addMob} disabled={!loaded || saving || editingId != null}>+ Add Mobilization</Btn>}
         </div>
       </div>
       {/* Proposal-wide scope note — the editor lives inside a per-WTC tab, but the list
@@ -131,29 +159,55 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
         <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui, padding: "10px 0" }}>
           {readOnly ? "No mobilizations were authored before this job went live." : "No mobilizations yet. Add one to start grouping the field SOW."}
         </div>
-      ) : mobs.map(mob => (
-        <div key={mob.id} style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: "10px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6 }}>
-          <div style={{ width: 46, flexShrink: 0 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>Mob</div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: C.tealDark, fontFamily: F.display }}>{mob.seq}</div>
+      ) : mobs.map(mob => {
+        const editing = editingId === mob.id;
+        const anyEditing = editingId != null;
+        const dateText = (mob.start_date || mob.end_date)
+          ? `${mob.start_date ? fmtD(mob.start_date) : "—"} → ${mob.end_date ? fmtD(mob.end_date) : "—"}`
+          : "no dates set";
+
+        // Edit mode — inline fields + Save / Cancel. Teal border marks the open row.
+        if (editing) {
+          return (
+            <div key={mob.id} style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: "10px 12px", background: C.linen, border: `1.5px solid ${C.tealDark}`, borderRadius: 8, marginBottom: 6 }}>
+              <div style={{ width: 46, flexShrink: 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>Mob</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: C.tealDark, fontFamily: F.display }}>{mob.seq}</div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>Label</div>
+                <input autoFocus value={mob.label || ""} placeholder="e.g. Prep & mask" onChange={e => setField(mob.id, "label", e.target.value)} style={{ ...inp, width: "100%" }} />
+              </div>
+              <div style={{ width: 130, flexShrink: 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>Start</div>
+                <input type="date" value={mob.start_date || ""} onChange={e => setField(mob.id, "start_date", e.target.value || null)} style={{ ...inp, width: "100%" }} />
+              </div>
+              <div style={{ width: 130, flexShrink: 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>End</div>
+                <input type="date" value={mob.end_date || ""} min={mob.start_date || ""} onChange={e => setField(mob.id, "end_date", e.target.value || null)} style={{ ...inp, width: "100%" }} />
+              </div>
+              <Btn sz="sm" onClick={() => saveRow(mob.id)}>Save</Btn>
+              <button onClick={cancelRow} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, color: C.textBody, cursor: "pointer", fontFamily: F.display, flexShrink: 0 }}>Cancel</button>
+            </div>
+          );
+        }
+
+        // Display (saved) mode — settled summary + Edit / Delete, with a brief ✓.
+        return (
+          <div key={mob.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, minWidth: 52 }}>Mob {mob.seq}</span>
+            <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: C.textBody, fontFamily: F.ui }}>{mob.label || <span style={{ color: C.textFaint, fontWeight: 400 }}>(no label)</span>}</span>
+            <span style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{dateText}</span>
+            {justSavedId === mob.id && <span style={{ fontSize: 11, fontWeight: 700, color: C.green, fontFamily: F.ui }}>✓ Saved</span>}
+            {!readOnly && (
+              <>
+                <button onClick={() => setEditingId(mob.id)} disabled={anyEditing} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, color: C.textBody, cursor: anyEditing ? "default" : "pointer", opacity: anyEditing ? 0.4 : 1, fontFamily: F.display, flexShrink: 0 }}>Edit</button>
+                <button onClick={() => deleteMob(mob)} disabled={anyEditing} title="Delete mobilization" style={{ background: "none", border: `1px solid ${C.red}`, borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, color: C.red, cursor: anyEditing ? "default" : "pointer", opacity: anyEditing ? 0.4 : 1, fontFamily: F.display, flexShrink: 0 }}>Delete</button>
+              </>
+            )}
           </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>Label</div>
-            <input value={mob.label || ""} placeholder="e.g. Prep & mask" disabled={readOnly} onChange={e => setField(mob.id, "label", e.target.value)} onBlur={commit} style={{ ...inp, width: "100%", opacity: readOnly ? 0.7 : 1 }} />
-          </div>
-          <div style={{ width: 130, flexShrink: 0 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>Start</div>
-            <input type="date" value={mob.start_date || ""} disabled={readOnly} onChange={e => setField(mob.id, "start_date", e.target.value || null)} onBlur={commit} style={{ ...inp, width: "100%", opacity: readOnly ? 0.7 : 1 }} />
-          </div>
-          <div style={{ width: 130, flexShrink: 0 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>End</div>
-            <input type="date" value={mob.end_date || ""} min={mob.start_date || ""} disabled={readOnly} onChange={e => setField(mob.id, "end_date", e.target.value || null)} onBlur={commit} style={{ ...inp, width: "100%", opacity: readOnly ? 0.7 : 1 }} />
-          </div>
-          {!readOnly && (
-            <button onClick={() => deleteMob(mob)} title="Delete mobilization" style={{ background: "none", border: `1px solid ${C.red}`, borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, color: C.red, cursor: "pointer", fontFamily: F.display, flexShrink: 0 }}>Delete</button>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

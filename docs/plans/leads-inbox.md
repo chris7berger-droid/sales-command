@@ -116,3 +116,15 @@ Remaining before live: apply table via command-suite-db (rehearse first), deploy
 set 3 secrets (LEADS_INTAKE_SECRET, LEADS_INTAKE_TENANT_ID, + flip leads_enabled), then hand the
 URL+secret to the marketing side. The inbox SCREEN is still to build (and the standalone-vs-
 call-log-view decision is still open).
+
+## §7 Where leads show up [LOCKED — 2026-08-25]
+Both surfaces, stored once:
+- **Dedicated Leads screen** — a place to go look at just leads (reads the leads table).
+- **Inside the call log** — leads also appear in the call-log list, **tagged uniquely** as leads.
+- **Stored once, shown twice:** the call log surfaces leads by pulling from the leads table and
+  tagging them — it does NOT copy them into call_log as their own rows. Prevents double-entry:
+  converting a lead to a real job later must not leave two entries for the same lead.
+- On convert: lead becomes a single call_log inquiry, lead row marked status='converted'.
+- Open sub-question for the screen build: exact visual tag + whether the call-log list is a live
+  merged view (leads UNION call_log) or leads rendered as a distinct pinned band. (Build-time UX
+  call, not a data-model blocker.)

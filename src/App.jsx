@@ -36,8 +36,8 @@ import Archive from "./pages/Archive";
 const NAV = [
   { id: "home",      label: "Home",       icon: "⌂"  },
   { id: "calllog",   label: "Call Log",   icon: "📋" },
-  { id: "leads",     label: "Campaign Leads", icon: "🎯", flag: "leads_enabled" },
   { id: "proposals", label: "Proposals",  icon: "📄" },
+  { id: "leads",     label: "Campaign Leads", icon: "🎯", flag: "leads_enabled" },
   { id: "invoices",  label: "Invoices",   icon: "💵" },
   { id: "managers",  label: "Managers",   icon: "🏆", roles: ["Manager"] },
   { id: "customers", label: "Customers",  icon: "🏢" },

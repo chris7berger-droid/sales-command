@@ -363,7 +363,7 @@ export default function CallLog({ teamMember, setSubPage }) {
           <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", background: C.dark, border: `1.5px solid ${C.teal}`, borderRadius: 12 }}>
             <span style={{ fontSize: 10, fontWeight: 800, background: C.teal, color: C.dark, padding: "3px 9px", borderRadius: 10, fontFamily: F.ui, letterSpacing: "0.06em", whiteSpace: "nowrap" }}>CAMPAIGN LEADS</span>
             <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(243,237,225,0.92)", fontFamily: F.ui }}>
-              {leads.length} new lead{leads.length !== 1 ? "s" : ""} from paid marketing waiting to be worked
+              {leads.length} open lead{leads.length !== 1 ? "s" : ""} from paid marketing waiting to be worked
             </span>
             <button onClick={() => navigate("/leads")} style={{ marginLeft: "auto", background: C.teal, color: C.dark, border: "none", borderRadius: 8, padding: "7px 16px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase" }}>
               Review Leads →

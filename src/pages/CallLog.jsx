@@ -16,6 +16,7 @@ import CallLogDetail from "../components/CallLogDetail";
 import FilterBar from "../components/FilterBar";
 import NewInquiryWizard from "../components/NewInquiryWizard";
 import { useAlerts } from "../lib/alerts";
+import { useTenantConfig } from "../lib/TenantConfigContext";
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function CallLog({ teamMember, setSubPage }) {
@@ -24,6 +25,8 @@ export default function CallLog({ teamMember, setSubPage }) {
   const { id: routeJobId } = useParams();
   const navState = location.state || {};
   const { snapshot, refresh: refreshAlerts } = useAlerts();
+  const cfg = useTenantConfig();
+  const [leads, setLeads]         = useState([]); // open campaign leads (bolt-on)
   const [rows, setRows]           = useState([]);
   const [team, setTeam]           = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -118,6 +121,15 @@ export default function CallLog({ teamMember, setSubPage }) {
     }
     for (const cl of allLog) {
       cl._gcCount = gcsByJob.get(cl.id)?.size || 0;
+    }
+
+    // Open campaign leads (bolt-on) — surfaced as a tagged band above the job list.
+    if (cfg.leads_enabled) {
+      const { data: ld } = await supabase
+        .from("leads").select("id, name, channel, campaign, received_at, status")
+        .not("status", "in", "(converted,junk)")
+        .order("received_at", { ascending: false });
+      setLeads(ld || []);
     }
 
     setRows(allLog);
@@ -344,6 +356,19 @@ export default function CallLog({ teamMember, setSubPage }) {
             )}
             <SalesIntelligence repName={intelRepName} displayName={myName} onDig={onDig} />
           </>
+        )}
+        {/* Campaign Leads band (bolt-on) — leads live in one place but show here,
+            uniquely tagged, so paid-campaign inquiries surface alongside the pipeline. */}
+        {cfg.leads_enabled && leads.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", background: C.dark, border: `1.5px solid ${C.teal}`, borderRadius: 12 }}>
+            <span style={{ fontSize: 10, fontWeight: 800, background: C.teal, color: C.dark, padding: "3px 9px", borderRadius: 10, fontFamily: F.ui, letterSpacing: "0.06em", whiteSpace: "nowrap" }}>CAMPAIGN LEADS</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(243,237,225,0.92)", fontFamily: F.ui }}>
+              {leads.length} new lead{leads.length !== 1 ? "s" : ""} from paid marketing waiting to be worked
+            </span>
+            <button onClick={() => navigate("/leads")} style={{ marginLeft: "auto", background: C.teal, color: C.dark, border: "none", borderRadius: 8, padding: "7px 16px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+              Review Leads →
+            </button>
+          </div>
         )}
         {/* ── Strong break: this is the ALL JOBS workspace, a deliberate second section ── */}
         <div ref={listRef} style={{ display: "flex", alignItems: "baseline", gap: 12, borderTop: `2px solid ${C.borderStrong}`, paddingTop: 18, marginTop: 8, scrollMarginTop: 12 }}>

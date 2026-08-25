@@ -88,7 +88,7 @@ function buildStepList(jobType) {
   return steps;
 }
 
-function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workTypes, initialJobType = null, initialParentJobId = null }) {
+function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workTypes, initialJobType = null, initialParentJobId = null, initialLead = null }) {
   const preset = initialJobType === "co" && initialParentJobId;
   // CO preset lands on coTreatment (parentJob is index 0, pre-filled, so skip it).
   const [step, setStep] = useState(preset ? 1 : 0);
@@ -117,9 +117,11 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     lastName: "",
     businessName: "",
     projectName: "",
-    contactName: "",
-    contactPhone: "",
-    contactEmail: "",
+    // Prefill contact from a converting campaign lead (additive — the office still
+    // picks customer type; these values carry through once that step renders).
+    contactName: initialLead?.name || "",
+    contactPhone: initialLead?.phone || "",
+    contactEmail: initialLead?.email || "",
     billingSame: true,
     billingName: "",
     billingPhone: "",
@@ -448,7 +450,9 @@ function NewInquiryWizard({ onClose, onSaved, team, customers, allJobs, workType
     }
 
     setSaving(false);
-    onSaved();
+    // Pass the created job back so callers can link records to it (e.g. converting
+    // a campaign lead links leads.call_log_id). Existing callers ignore the arg.
+    onSaved(newJob);
   };
 
   const renderStep = () => {

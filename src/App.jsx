@@ -12,6 +12,7 @@ import FeatureDetailPage from "./pages/FeatureDetailPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import Home from "./pages/Home";
 import CallLog from "./pages/CallLog";
+import Leads from "./pages/Leads";
 import WTCCalculator from "./pages/WTCCalculator";
 import Proposals from "./pages/Proposals";
 import Invoices from "./pages/Invoices";
@@ -26,7 +27,7 @@ import QBCallbackPage from "./pages/QBCallbackPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import WelcomeScreen from "./components/WelcomeScreen";
 import RadarLoader from "./components/RadarLoader";
-import { TenantConfigProvider } from "./lib/TenantConfigContext";
+import { TenantConfigProvider, useTenantConfig } from "./lib/TenantConfigContext";
 import { AlertsProvider } from "./lib/alerts";
 import Import from "./pages/Import/Import";
 import UpdateBanner from "./components/UpdateBanner";
@@ -35,6 +36,7 @@ import Archive from "./pages/Archive";
 const NAV = [
   { id: "home",      label: "Home",       icon: "⌂"  },
   { id: "calllog",   label: "Call Log",   icon: "📋" },
+  { id: "leads",     label: "Campaign Leads", icon: "🎯", flag: "leads_enabled" },
   { id: "proposals", label: "Proposals",  icon: "📄" },
   { id: "invoices",  label: "Invoices",   icon: "💵" },
   { id: "managers",  label: "Managers",   icon: "🏆", roles: ["Manager"] },
@@ -243,6 +245,7 @@ function SalesCommandApp() {
               <Route path="/home" element={<Home displayName={displayName} displayRole={displayRole} repName={repName} />} />
               <Route path="/calllog" element={<CallLog teamMember={teamMember} setSubPage={setSubPage} />} />
               <Route path="/calllog/:id" element={<CallLog teamMember={teamMember} setSubPage={setSubPage} />} />
+              <Route path="/leads" element={<Leads teamMember={teamMember} />} />
               <Route path="/proposals" element={<Proposals teamMember={teamMember} setSubPage={setSubPage} />} />
               <Route path="/proposals/:id" element={<Proposals teamMember={teamMember} setSubPage={setSubPage} />} />
               <Route path="/invoices" element={<Invoices teamMember={teamMember} setSubPage={setSubPage} />} />
@@ -273,6 +276,7 @@ function sectionFromPath(pathname) {
 function AppShell({ open, setOpen, displayName, displayRole, displayInitials, onOpenDirectory, showTOC, setShowTOC, subPage, setSubPage, children }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const cfg = useTenantConfig();
   const active = sectionFromPath(location.pathname);
   return (
     <>
@@ -287,7 +291,7 @@ function AppShell({ open, setOpen, displayName, displayRole, displayInitials, on
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", padding: "8px 5px" }}>
-            {NAV.filter(n => !n.roles || n.roles.includes(displayRole)).map(n => {
+            {NAV.filter(n => (!n.roles || n.roles.includes(displayRole)) && (!n.flag || cfg[n.flag])).map(n => {
               const on = !n.action && active === n.id;
               return (
                 <button key={n.id} onClick={() => n.action === "directory" ? onOpenDirectory() : navigate(`/${n.id}`)} title={n.label} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: open ? "8px 11px" : "8px 14px", borderRadius: 7, border: "none", background: on ? C.tealGlow : "transparent", color: on ? C.teal : "rgba(255,255,255,0.42)", cursor: "pointer", textAlign: "left", marginBottom: 2, transition: "all 0.12s", fontFamily: F.display, borderLeft: on ? `2px solid ${C.teal}` : "2px solid transparent" }}

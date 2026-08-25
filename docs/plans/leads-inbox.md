@@ -128,3 +128,23 @@ Both surfaces, stored once:
 - Open sub-question for the screen build: exact visual tag + whether the call-log list is a live
   merged view (leads UNION call_log) or leads rendered as a distinct pinned band. (Build-time UX
   call, not a data-model blocker.)
+
+## §8 Screen built (2026-08-25) — verified build, NOT live
+On branch, `npm run build` passes:
+- `src/pages/Leads.jsx` — Campaign Leads screen (triage, status, search, convert-to-job).
+- `src/App.jsx` — nav item "Campaign Leads" + `/leads` route, gated on `leads_enabled`.
+- `src/pages/CallLog.jsx` — tagged "CAMPAIGN LEADS" band above the job list (shown, not copied).
+- `src/components/NewInquiryWizard.jsx` — `initialLead` prefill + returns created job so
+  convert links `leads.call_log_id` (campaign origin survives → acquisition-cost tracing via
+  existing tools).
+Tag wording: **"Campaign Lead"** (unique, signals paid-marketing origin), per Chris 2026-08-25.
+
+## §9 Go-live checklist (needs Chris go-ahead — touches shared DB)
+1. Apply `db/leads-table.draft.sql` via **command-suite-db** (rehearse first, per standing rule);
+   coordinate with the other in-flight job so migrations don't collide.
+2. Deploy the edge function: `supabase functions deploy leads-intake --no-verify-jwt`.
+3. Set function secrets: `LEADS_INTAKE_SECRET`, `LEADS_INTAKE_TENANT_ID` (HDSP tenant id).
+4. Flip `tenant_config.leads_enabled = true` for HDSP.
+5. Smoke-test the 5 acceptance cases, then hand the marketing side the URL + secret.
+URL (real after step 2): https://pbgvgjjuhnpsumnowuym.supabase.co/functions/v1/leads-intake
+Secret: generated 2026-08-25, shared with Chris out-of-band (NOT stored in git).

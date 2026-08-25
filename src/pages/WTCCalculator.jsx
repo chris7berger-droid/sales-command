@@ -7,6 +7,7 @@ import { getTenantConfig, DEFAULTS } from "../lib/config";
 import { saveCatalogRow, catalogErrorMessage } from "../lib/materialsCatalog";
 import { fmt$ } from "../lib/utils";
 import Checkbox from "../components/Checkbox";
+import MobilizationsEditor from "../components/MobilizationsEditor";
 
 // ── Design tokens ──────────────────────────────────────────────────────────
 const T = {
@@ -987,7 +988,7 @@ function DiscountTab({ data, onChange }) {
   );
 }
 
-function SowTab({ data, onChange, locked, committed = false, wtcMaterials, onSave, saved, onLoadDefaultSow, defaultSowAvailable, datesTbd, mobilizations = [], mobsLoaded = false }) {
+function SowTab({ data, onChange, locked, committed = false, wtcMaterials, onSave, saved, onLoadDefaultSow, defaultSowAvailable, datesTbd, mobilizations = [], mobsLoaded = false, proposalId = null, onMobilizationsChange }) {
   const set  = k => v => onChange({ ...data, [k]: v });
   const setN = k => v => onChange({ ...data, [k]: parseFloat(v) || 0 });
 
@@ -1151,6 +1152,14 @@ function SowTab({ data, onChange, locked, committed = false, wtcMaterials, onSav
           </div>
         </div>
 
+        {/* Step 1 of the field SOW: author the job's mobilizations (trips to site)
+            before laying out days. Proposal-level list shared by every WTC — the
+            editor's onChange keeps THIS tab's per-day dropdown in sync live. Read-only
+            once committed: post-send the live job owns its mobilizations in Schedule. */}
+        {proposalId && (
+          <MobilizationsEditor proposalId={proposalId} readOnly={committed} onChange={onMobilizationsChange} />
+        )}
+
         {(data.field_sow || []).length === 0 ? (
           <div style={{ background: "rgba(28,24,20,0.06)", borderRadius: 8, padding: "20px", textAlign: "center", color: T.gray500, fontSize: 13, border: `1px dashed rgba(28,24,20,0.3)` }}>
             No day entries yet. Add entries to define the production plan for Field Command.<br />
@@ -1195,7 +1204,7 @@ function SowTab({ data, onChange, locked, committed = false, wtcMaterials, onSav
                   <Label>Mobilization</Label>
                   {mobilizations.length === 0 ? (
                     <div style={{ fontSize: 10.5, color: T.gray500, padding: "6px 8px", border: `1.5px dashed ${T.gray300}`, borderRadius: 6, background: "rgba(28,24,20,0.04)", lineHeight: 1.2 }}>
-                      No mobilizations — add them on the proposal first
+                      No mobilizations yet — add one in Step 1 above
                     </div>
                   ) : (
                     <select value={entry.mobilization_id || ""} onChange={e => updateDay(entry.id, "mobilization_id", e.target.value)}
@@ -2504,7 +2513,7 @@ export default function WTCCalculator({ proposalId, wtcId: wtcIdProp, workTypeId
           {tab === "bidding" && <BiddingTab data={bidding} onChange={isCommitted ? undefined : v => { setBidding(v); setSaved(false); }} workTypes={workTypes} selectedWorkTypeId={selectedWorkTypeId} onWorkTypeChange={isCommitted ? undefined : handleWorkTypeChange} isFirstWtc={isFirstWtc} onPwToggle={isCommitted ? () => {} : handlePwToggle} showArchiveRateHint={parentIsArchive} />}
           {tab === "labor"   && <LaborTab data={labor} bidding={bidding} sow={sow} onChange={isCommitted ? undefined : v => { setLabor(v); setSaved(false); }} />}
           {tab === "materials" && <MaterialsTab items={materials} taxRate={bidding.tax_rate} onChange={isCommitted ? undefined : v => { setMaterials(v); setSaved(false); }} />}
-          {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={isCommitted ? false : locked} committed={isCommitted} wtcMaterials={materials} onSave={isCommitted ? saveSowOnly : handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} datesTbd={bidding.dates_tbd} mobilizations={mobilizations} mobsLoaded={mobsLoaded} />}
+          {tab === "sow"     && <SowTab data={sow} onChange={v => { setSow(v); setSaved(false); }} locked={isCommitted ? false : locked} committed={isCommitted} wtcMaterials={materials} onSave={isCommitted ? saveSowOnly : handleSave} saved={saved} onLoadDefaultSow={handleLoadDefaultSow} defaultSowAvailable={!!(workTypes.find(w => String(w.id) === String(selectedWorkTypeId))?.sales_sow)} datesTbd={bidding.dates_tbd} mobilizations={mobilizations} mobsLoaded={mobsLoaded} proposalId={proposalId} onMobilizationsChange={(m) => { setMobilizations(m); setMobsLoaded(true); }} />}
           {tab === "travel"  && <TravelTab data={travel} onChange={isCommitted ? undefined : v => { setTravel(v); setSaved(false); }} />}
           {tab === "discount" && <DiscountTab data={discount} onChange={isCommitted ? undefined : v => { setDiscount(v); setSaved(false); }} />}
           {tab === "summary" && <SummaryTab labor={laborComputed} materials={materials} travel={travel} discount={discount} sow={sow} bidding={bidding} onSave={handleSave} saved={saved} locked={locked} onLock={handleLock} onGeneratePDF={() => { if (onClose) onClose(true); }} exact={exact} />}

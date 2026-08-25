@@ -148,3 +148,18 @@ Tag wording: **"Campaign Lead"** (unique, signals paid-marketing origin), per Ch
 5. Smoke-test the 5 acceptance cases, then hand the marketing side the URL + secret.
 URL (real after step 2): https://pbgvgjjuhnpsumnowuym.supabase.co/functions/v1/leads-intake
 Secret: generated 2026-08-25, shared with Chris out-of-band (NOT stored in git).
+
+## §10 GO-LIVE DONE (2026-08-25) — receiver live, screen pending merge
+Keychain worked around via a Personal Access Token (stashed at ~/.config/supabase-access-token,
+chmod 600 — future pushes/deploys need no keychain).
+- ✅ Migration rehearsed from-scratch + pushed to shared DB (command-suite-db 20260825120000).
+- ✅ Edge function `leads-intake` deployed (--no-verify-jwt).
+- ✅ Secrets set: LEADS_INTAKE_SECRET, LEADS_INTAKE_TENANT_ID (HDSP 246f6551-…).
+- ✅ HDSP leads_enabled = true.
+- ✅ Smoke: 200 store / 200 dedupe / 401 bad secret / 400 bad payload / 403 switch-off. Test row deleted.
+LIVE URL: https://pbgvgjjuhnpsumnowuym.supabase.co/functions/v1/leads-intake
+
+**Still NOT in prod:** the Campaign Leads SCREEN (Leads.jsx + call-log band + nav) is built and
+build-verified but lives on `feat/leads-inbox`. It appears at scmybiz.com only after this branch
+merges to main. Recommend it go through the normal review gates before merge. Until then, real
+leads sent by the marketing bot WILL store (receiver is live) and will all appear once the screen ships.

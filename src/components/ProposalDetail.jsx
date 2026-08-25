@@ -663,7 +663,7 @@ async function deletePropAttachment(fullName) {
     const review = sendReview;
     // Belt-and-suspenders — the Confirm button is disabled when failures exist.
     if (!review || review.failures.length > 0) return;
-    const { wtcList, mobById } = review;
+    const { wtcList, mobById, mobilizations } = review;
     setSendingToSchedule(true);
     try {
       // Re-check invoiced at commit (audit #3): the review modal may have sat open
@@ -801,6 +801,48 @@ async function deletePropAttachment(fullName) {
           }
           setSendingToSchedule(false);
           return;
+        }
+
+        // ── F1 (Phase F): seed job_mobilizations from the proposal's mobilizations.
+        // Copy-at-Send (data contract §2/§3): the live job gets its own trips so
+        // Schedule can add/edit go-backs post-send without touching the frozen
+        // proposal. Source label/dates from review.mobilizations (the raw
+        // proposals.mobilizations rows — they carry label/start_date/end_date);
+        // mobById is only an id→seq map and would write null labels (audit F3).
+        //
+        // seq > 0: the job_mobilizations_seq_positive_chk CHECK aborts on seq 0.
+        // is_go_back:false — every seeded mob is original sold work (D3).
+        // Guard on p.call_log_id: the INSERT RLS scopes via jobs→call_log→
+        // tenant_id, so a null call_log_id fails closed (audit O4).
+        //
+        // NON-FATAL (D5/audit E): a seed failure warns and lets the job stand —
+        // mobs are backfillable; do NOT mirror the job_wtcs job-killing rollback
+        // above (job_wtcs is unrecoverable, mobs are not). Idempotency is the
+        // jobs 23505 guard above (a re-send bails before this re-runs);
+        // onConflict ignoreDuplicates is belt-and-suspenders only (audit E1/O5).
+        const mobRows = (mobilizations || [])
+          .filter(m => m && Number(m.seq) > 0)
+          .map(m => ({
+            job_id: newJobId,
+            seq: m.seq,
+            label: m.label || null,
+            start_date: m.start_date || null,
+            end_date: m.end_date || null,
+            is_go_back: false,
+          }));
+        if (mobRows.length > 0) {
+          if (!p.call_log_id) {
+            console.warn("[send] skipping job_mobilizations seed: proposal has no call_log_id (RLS would fail closed).");
+          } else {
+            const { error: mobErr } = await supabase
+              .from("job_mobilizations")
+              .upsert(mobRows, { onConflict: "job_id,seq", ignoreDuplicates: true });
+            if (mobErr) {
+              console.warn("[send] job_mobilizations seed failed (non-fatal, backfillable):", mobErr.message);
+              alert("Job sent to Schedule. Note: the mobilization list didn't copy over (" + mobErr.message +
+                ") — it can be added in Schedule Command; the job itself is fine.");
+            }
+          }
         }
 
       }

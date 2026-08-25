@@ -627,9 +627,17 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
                             type="number"
                             min="0"
                             max={remaining}
-                            step="1"
+                            step="any"
                             value={billingPcts[w.id]}
-                            onChange={e => { const v = Math.min(parseFloat(e.target.value) || 0, remaining); setBillingPcts(prev => ({ ...prev, [w.id]: v > 0 ? String(v) : e.target.value })); }}
+                            onChange={e => {
+                              // Preserve the raw typed string so decimals survive keystroke-by-keystroke
+                              // ("62." → "62.5"). Only override when the entered value exceeds what's
+                              // left to bill — clamp to remaining in that case.
+                              const raw = e.target.value;
+                              const n = parseFloat(raw);
+                              const next = (!isNaN(n) && n > remaining) ? String(remaining) : raw;
+                              setBillingPcts(prev => ({ ...prev, [w.id]: next }));
+                            }}
                             placeholder="0"
                             style={{ ...inputStyle, paddingRight: 28 }}
                           />

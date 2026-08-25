@@ -19,15 +19,54 @@ Chris is starting paid lead-gen via **Twilio** (calls/SMS), **Facebook Lead Ads*
 Need a screen in Sales Command to **capture, triage, and manage those inbound leads**, and either
 (a) manage them there and/or (b) **pull them into the call log** as real inquiries.
 
-## §2 Proposed change [TODO — DESIGN-OPEN]
-Open design questions to resolve before planning (this is what /detach is capturing for later):
+## §2 Proposed change [LOCKED — approach]
+**Intake decided: webhook push.** The marketing company (Chris's friend, greenfield on both
+sides) POSTs one lead per event to a Sales Command edge function. We own the contract; their bot
+fills our fields. No polling, no direct access into their Twilio account, no rebuilding their bot
+logic on our side. This keeps us decoupled from their internals — the webhook is the only seam.
 
-**Intake / channels**
-- Twilio: what exactly comes in — missed-call → SMS auto-reply? inbound SMS? a tracking number per campaign? Do we need call recording/voicemail transcription?
-- Facebook Lead Ads: pull via Facebook Lead Ads webhook / Graph API, or via a Zapier/Make bridge, or CSV?
-- Google Ads: Lead Form extensions (webhook) vs. landing-page form vs. call-only ads (routes back through Twilio)?
+Backend is small: **one edge function** that (1) validates a shared secret, (2) dedupes on a
+stable lead id, (3) writes a row. The screen sits on top.
 
-**Data model**
+### Webhook contract [LOCKED — send this to the friend]
+
+**Endpoint:** `POST https://<supabase-project>.functions.supabase.co/leads-intake`
+**Auth:** header `X-Leads-Secret: <shared secret>` — reject with 401 if missing/wrong. Secret
+lives in edge-fn env, never in the client.
+**Content-Type:** `application/json`
+
+**Body:**
+```json
+{
+  "lead_id": "abc-123",              // REQUIRED. Stable id from THEIR side. Dedupe key — a retry with
+                                     //   the same lead_id must NOT create a second row (upsert on this).
+  "channel": "facebook",            // REQUIRED. enum: "facebook" | "google" | "twilio" | "other"
+  "received_at": "2026-08-25T14:03:00Z", // REQUIRED. ISO-8601 UTC. When THEIR bot captured the lead.
+  "name": "Jane Contractor",        // contact — at least one of name/phone/email should be present
+  "phone": "+15551234567",          // E.164 preferred
+  "email": "jane@example.com",
+  "campaign": "fb-spring-reroof",   // attribution — free text or their campaign name
+  "ad_id": "1200456789",            // attribution — platform ad id, for ROI later
+  "message": "Need a quote on...",  // the lead's message / conversation text (may be long)
+  "raw": { }                        // OPTIONAL escape hatch: their full original payload, stored as
+                                     //   jsonb. Lets us recover fields we didn't model without a
+                                     //   re-integration. Never displayed raw.
+}
+```
+
+**Response contract (so their side can log/retry sensibly):**
+- `200 {"ok":true,"deduped":false}` — new lead stored
+- `200 {"ok":true,"deduped":true}` — already had this lead_id, no-op (safe retry)
+- `400 {"ok":false,"error":"..."}` — bad payload (missing required field); do NOT retry
+- `401` — bad/missing secret
+- `5xx` — our fault; **please retry with backoff** (this is why lead_id dedupe matters)
+
+**Field rules of thumb for the friend:**
+- Always send `lead_id`, `channel`, `received_at`. Everything else best-effort.
+- Send whatever you have even if partial — a lead with only a phone number is still a lead.
+- Never change the meaning of `lead_id` once assigned; it's our dedupe anchor.
+
+### Still DESIGN-OPEN (not blocking the contract)
 - New `leads` table vs. reuse/extend `call_log` with a `source` + `status` (new/contacted/qualified/junk/converted)?
 - Dedupe rule (same phone/email hitting multiple channels).
 - Attribution fields to keep (campaign, ad, channel, cost hooks for later ROI).

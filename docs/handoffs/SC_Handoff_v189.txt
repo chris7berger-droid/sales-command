@@ -1,0 +1,154 @@
+SC Handoff v189 — Campaign Leads (paid-marketing lead intake bolt-on)
+Date: 2026-08-25 (recorded on close 2026-08-26)
+Branch: feat/leads-inbox — ALREADY MERGED to main by a parallel session; branch deleted on close.
+Plan: docs/plans/leads-inbox.md   Partner spec: docs/plans/PARTNER-leads-intake-spec.md
+
+═══════════════════════════════════════════════════════════════════════════════
+MERGE NOTE (read first)
+═══════════════════════════════════════════════════════════════════════════════
+This session built the feature on feat/leads-inbox and paused before merging to run a
+desktop conflict check. On close it was discovered the leads code was ALREADY on
+origin/main (69c5628 is an ancestor of main; Campaign Leads nav + Call Log band + Leads.jsx
+all present and wired) — integrated by a parallel session, with main since advanced ~13
+commits of other work (invoice-number-keeps-on-pullback, customer notes/payment portal, WTC
+material specs drawer, pullback schedule guards). So no merge was performed here — the branch
+was a stale superset-of-nothing (only its own handoff was unique). This handoff is v189 because
+v188 was taken by the invoice-number fix. The stale feat/leads-inbox branch + worktree were
+deleted on close. NOTHING was force-pushed or reverted; main was untouched by this close-out
+except for adding this file.
+
+═══════════════════════════════════════════════════════════════════════════════
+SESSION SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+Built "Campaign Leads" — a bolt-on that receives paid-marketing leads (Facebook/Google/Twilio)
+from the marketing company's bot via a public webhook, stores them, and shows them on a
+dedicated screen + a tagged band in the Call Log. The RECEIVER side (webhook + DB table +
+off-by-default switch) is LIVE in prod and smoke-verified; the marketing company has the URL +
+secret and can send leads now. The SCREEN side is on main (see MERGE NOTE) and deploys via
+Vercel. Sold as a paid add-on: OFF by default for every tenant; only HDSP is enabled. All 7
+code-review findings were fixed on-branch (Chris chose fix-all). All three cold gates GREEN.
+
+═══════════════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED (11 commits, 252ffb2…69c5628 — now on main)
+═══════════════════════════════════════════════════════════════════════════════
+252ffb2 Park: scaffold plan for leads-inbox (via /detach).
+910d7de Lock webhook approach + payload contract (partner POSTs one lead/event; we own the JSON
+        contract; X-Leads-Secret; lead_id dedupe; raw jsonb escape hatch).
+cf087db Partner-facing integration spec (sender side) — the doc given to the marketing co.
+c0666ce Build receiver: supabase/functions/leads-intake/index.ts + db/leads-table.draft.sql;
+        bolt-on gated (403 leads_not_enabled), secret check, dedupe-on-insert.
+77abd9d Lock dual surface — own screen + tagged in Call Log, stored once (no copy).
+54c22ac Build Campaign Leads screen (src/pages/Leads.jsx) + tagged Call Log band + convert-to-job;
+        nav + /leads route gated on leads_enabled; NewInquiryWizard initialLead prefill +
+        onSaved(newJob) so convert links leads.call_log_id.
+0965e35 Record screen build + go-live checklist in the plan.
+809c838 Go-live done (receiver + DB live; screen pending merge).
+8472dcf Move Campaign Leads nav beneath Proposals (Chris).
+3abaf7c Band copy "new"→"open" (counts non-converted/junk) — buildvsplan T3.
+69c5628 Clear all 7 code-review findings (see VERIFICATION).
+
+═══════════════════════════════════════════════════════════════════════════════
+DEPLOYED (prod ref pbgvgjjuhnpsumnowuym)
+═══════════════════════════════════════════════════════════════════════════════
+• DB migration — command-suite-db/supabase/migrations/20260825120000_leads_intake.sql:
+  `leads` table (15 cols) + tenant_config.leads_enabled (boolean NOT NULL DEFAULT false).
+  Additive. Rehearsed from-scratch + anon-exposure gate (npm run db:push), pushed to shared DB.
+  Committed to command-suite-db main (c12d472, pushed).
+• Edge function `leads-intake` deployed (--no-verify-jwt); REDEPLOYED after code-review fixes.
+  Dashboard: https://supabase.com/dashboard/project/pbgvgjjuhnpsumnowuym/functions
+• Secrets set: LEADS_INTAKE_SECRET, LEADS_INTAKE_TENANT_ID (HDSP 246f6551-60de-4965-bb97-9a52971bc05d).
+• tenant_config.leads_enabled = true for HDSP only.
+• LIVE URL: https://pbgvgjjuhnpsumnowuym.supabase.co/functions/v1/leads-intake
+
+═══════════════════════════════════════════════════════════════════════════════
+DECISIONS (Chris, this session)
+═══════════════════════════════════════════════════════════════════════════════
+• Intake = webhook PUSH, not polling/direct Twilio access. Marketing co builds to OUR fixed JSON
+  contract → we stay decoupled from their bot internals.
+• Bolt-on, OFF by default. leads_enabled gates receiver (403) AND all UI. Never ships on to other
+  customers; enable per-tenant when sold. (Later: attach to a Stripe add-on price.)
+• Dual surface, stored once. Dedicated screen + Call Log band that READS the leads table and tags
+  it — does NOT copy rows into call_log (prevents double-entry on convert).
+• Convert reuses the real New Inquiry path (initialLead prefill); wizard returns the created
+  call_log row so the lead gets call_log_id + status='converted' → campaign origin survives onto
+  the job for acquisition-cost / margin tracing via existing tools.
+• Tag wording "Campaign Lead" — signals paid-marketing origin for CAC tracking.
+• Fix-all on code-review: all 7 findings fixed on-branch rather than backlogged.
+• Keychain workaround: CLI never had a real token (keychain held a go-keyring placeholder). Chris
+  generated a Personal Access Token; stashed at ~/.config/supabase-access-token (chmod 600,
+  LAPTOP-LOCAL — will not exist on the desktop; desktop needs its own PAT for any deploy).
+
+═══════════════════════════════════════════════════════════════════════════════
+NEW BACKLOG ITEMS
+═══════════════════════════════════════════════════════════════════════════════
+NOT YET WRITTEN TO docs/BACKLOG.md (both gates were read-only) — file next session:
+• leads-intake hardening [Sev 3 · Like 2 · Eff 1h] — pre-parse request-body-size cap + rate limit
+  on the public webhook; emit CORS Access-Control-Allow-Methods. Defense-in-depth; NOT currently
+  exploitable (anon stops at 401 before any parse/DB). From /security-review. Its #3 (pre-parse
+  cap) is reachable only by the secret holder = the trusted bot.
+
+CLOSED THIS SESSION: none (net-new feature; no existing backlog IDs touched).
+
+═══════════════════════════════════════════════════════════════════════════════
+VERIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+• npm run build clean throughout (4x).
+• RECEIVER smoke-tested LIVE against prod, twice:
+   - Go-live: 200 store / 200 dedupe / 401 bad secret / 400 bad payload / 403 switch-off. ✓
+   - After code-review fixes: store/dedupe/401/400 + length cap (9000-char message → stored 5000). ✓
+   - All test rows deleted both times; HDSP leads table is empty.
+• DB verified live: leads has 15 cols; UNIQUE index uq_leads_tenant_leadid on (tenant_id, lead_id)
+  EXISTS (so the 23505→deduped:true path is real); leads_enabled=true for HDSP only.
+• THREE COLD GATES GREEN:
+   - buildvsplan: 0 Tier-1 · 0 Tier-2 · 1 cosmetic (band copy) → FIXED (3abaf7c). Verified vs LIVE DB.
+   - code-review: 0 ship-blockers · 7 findings ALL FIXED (69c5628): deep-link redirect race; hand-
+     rolled pagination → fetchAll; un-convert footgun (status locked once converted); status change
+     patches local state; Call Log band count-only query (uncapped); constant-time secret compare;
+     length caps on untrusted fields + 20KB raw cap. Edge-fn fixes redeployed.
+   - security-review: 0 exploitable-today. Auth order clean (method→config→secret→parse→validate→
+     tenant-gate→insert); tenant_id env-pinned; RLS tenant-scoped both ways; no app-user INSERT/
+     DELETE; parameterized insert + React auto-escape.
+• SCREEN UI: Chris viewed on Vercel preview — "looks normal / all good." NOT smoke-tested with real
+  lead data (no lead existed). Band + convert are review-confirmed but not clicked live end-to-end.
+
+═══════════════════════════════════════════════════════════════════════════════
+NOT TOUCHED
+═══════════════════════════════════════════════════════════════════════════════
+Everything else in sales-command. Other tenants fully unaffected (leads_enabled=false → receiver
+403, nav hidden, /leads redirects home). Migration is purely additive (no existing tables/RLS/flows
+changed).
+
+═══════════════════════════════════════════════════════════════════════════════
+NEXT SESSION POINTERS
+═══════════════════════════════════════════════════════════════════════════════
+1. Feature is LIVE (receiver + DB in prod; screen on main → Vercel). No merge pending.
+2. SCREEN not yet smoke-tested with live data — once a real lead lands (or drop a sample into
+   HDSP), verify: nav item + /leads render for HDSP and stay hidden for other tenants; and a
+   Convert-to-Job writes call_log_id back onto the lead row.
+3. File the leads-intake hardening item into docs/BACKLOG.md (see NEW BACKLOG).
+4. The separate fix Chris detached from at session start is still parked elsewhere — untouched here.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TO KNOW
+═══════════════════════════════════════════════════════════════════════════════
+• src/pages/Leads.jsx — Campaign Leads screen (triage/status/search/convert).
+• src/pages/CallLog.jsx — tagged "CAMPAIGN LEADS" band + count-only lead query (gated).
+• src/App.jsx — nav item "Campaign Leads" + /leads route, gated on tenant_config.leads_enabled.
+• src/components/NewInquiryWizard.jsx — initialLead prefill; onSaved returns the created job.
+• supabase/functions/leads-intake/index.ts — the public webhook receiver.
+• command-suite-db/supabase/migrations/20260825120000_leads_intake.sql — leads table + flag
+  (SEPARATE REPO; already on its main + applied to prod).
+• docs/plans/leads-inbox.md — plan + full go-live record (§10).
+• docs/plans/PARTNER-leads-intake-spec.md — sender-side spec given to the marketing company.
+
+═══════════════════════════════════════════════════════════════════════════════
+GIT STATE ON CLOSE
+═══════════════════════════════════════════════════════════════════════════════
+All leads code already on origin/main (69c5628 is an ancestor); main has advanced past it with
+other features. feat/leads-inbox (local + origin) and its worktree
+/Users/chrisberger/sales-command-leads-inbox were DELETED on close (only unique content was this
+handoff, preserved here as v189). command-suite-db main has the migration (c12d472, pushed).
+Token stashed at ~/.config/supabase-access-token (laptop only).
+
+END STATE: Merged (by a parallel session) + deployed; receiver live and smoke-verified; screen
+on main via Vercel; live-data smoke of the screen deferred. Branch cleaned up. Ready for fresh session.

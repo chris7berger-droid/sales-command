@@ -49,6 +49,8 @@ function CustomerModal({ customer, onClose, onSaved }) {
     business_city:    customer?.business_city       || "",
     business_state:   customer?.business_state      || "",
     business_zip:     customer?.business_zip        || "",
+    payment_portal:   customer?.payment_portal      || "",
+    notes:            customer?.notes               || "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -68,6 +70,8 @@ function CustomerModal({ customer, onClose, onSaved }) {
       billing_terms: billingTerms, requires_pay_app: form.requires_pay_app,
       business_address: form.business_address || null,
       business_city: form.business_city || null, business_state: form.business_state || null, business_zip: form.business_zip || null,
+      payment_portal: form.payment_portal.trim() || null,
+      notes: form.notes.trim() || null,
     };
     let err;
     if (isNew) ({ error: err } = await supabase.from("customers").insert([payload]));
@@ -140,6 +144,12 @@ function CustomerModal({ customer, onClose, onSaved }) {
                 <input placeholder="Zip" value={form.business_zip} onChange={e => set("business_zip", e.target.value)} style={inputStyle} />
               </div>
             </div>
+          </Field>
+          <Field label="Payment Portal" wide>
+            <input value={form.payment_portal} onChange={e => set("payment_portal", e.target.value)} placeholder="e.g. Textura, GCPay, Procore" style={inputStyle} />
+          </Field>
+          <Field label="Notes" wide>
+            <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={4} placeholder="Account notes — billing quirks, who to ask for, PO requirements…" style={{ ...inputStyle, resize: "vertical", minHeight: 88, lineHeight: 1.4 }} />
           </Field>
         </div>
         {error && <div style={{ marginTop: 14, color: C.red, fontSize: 13, fontFamily: F.ui }}>{error}</div>}
@@ -567,8 +577,17 @@ function CustomerDetail({ customer, onBack, onEdit, onNavigateJob, onNavigatePro
         {customer.email && <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textBody }}><span style={{ color: C.textFaint, fontWeight: 700 }}>Email:</span> {customer.email}</div>}
         <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textBody }}><span style={{ color: C.textFaint, fontWeight: 700 }}>Terms:</span> {termsLabel}</div>
         {addr && <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textBody }}><span style={{ color: C.textFaint, fontWeight: 700 }}>Address:</span> {addr}</div>}
+        {customer.payment_portal && <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textBody }}><span style={{ color: C.textFaint, fontWeight: 700 }}>Portal:</span> {customer.payment_portal}</div>}
         {customer.requires_pay_app && <span style={{ fontSize: 10.5, fontWeight: 800, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", background: C.dark, color: C.teal, padding: "3px 10px", borderRadius: 6 }}>Pay App Required</span>}
       </div>
+
+      {/* Notes */}
+      {customer.notes && (
+        <div style={{ padding: "14px 18px", background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: C.textFaint, fontFamily: F.ui, marginBottom: 6 }}>Notes</div>
+          <div style={{ fontSize: 13, fontFamily: F.ui, color: C.textBody, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{customer.notes}</div>
+        </div>
+      )}
 
       {/* Contacts */}
       <div>

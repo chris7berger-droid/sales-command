@@ -223,16 +223,20 @@ export default function PublicInvoicePage() {
                   <div style={{ fontSize: 12, color: "#887c6e" }}>{String(invoice.job_id).split(" - ")[0]}</div>
                 </>
               )}
-              {invoice.sent_at && (
-                <>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Sent Date</div>
-                  <div style={{ fontSize: 12, color: "#887c6e" }}>{fmtD(invoice.sent_at)}</div>
-                </>
-              )}
               {invoice.due_date && (
                 <>
                   <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Due Date</div>
                   <div style={{ fontSize: 12, color: "#887c6e" }}>{fmtD(invoice.due_date)}</div>
+                </>
+              )}
+            </div>
+            {/* Right column: Sent Date sits here so it doesn't stretch the
+                center column taller. Empty when the invoice isn't sent yet. */}
+            <div style={{ textAlign: "right", minWidth: 0, paddingLeft: 24 }}>
+              {invoice.sent_at && (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Sent Date</div>
+                  <div style={{ fontSize: 12, color: "#887c6e" }}>{fmtD(invoice.sent_at)}</div>
                 </>
               )}
             </div>

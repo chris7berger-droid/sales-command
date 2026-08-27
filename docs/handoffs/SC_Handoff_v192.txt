@@ -106,20 +106,81 @@ NEW BACKLOG
   noon. All safe today; polish.
 
 ═══════════════════════════════════════════════════════════════════════════════
-GIT STATE
+CHANGES SHIPPED (all commits this session)
 ═══════════════════════════════════════════════════════════════════════════════
-sales-command feat/qb-payment-status-sync (pushed, NOT merged), commits since main:
-  43b1c91  T5/T6 review response — fix gate comment, file F55
-  4b1d9b7  steps 5+6: qb-webhook + QB badge + delay notice
-  1d4d2f4  step 3: _shared/reflectPayments.ts core + qb-reflect-payments sweep + config.toml
-  21950ab  step 2: local-only Mark-as-Paid + remove SC→QB pushes + tripwire + CLAUDE.md col ref
-  (+ 7 prior plan/audit commits)
-command-suite-db main (pushed): 61aeaa5, 07c177c (my migration + rehearse-gate work). LEAVE IT.
+sales-command — feat/qb-payment-status-sync, all now MERGED to main (merge 4d148bd):
+  21950ab  step 2: local-only Mark-as-Paid + remove SC→QB pushes + qb-record-payment tripwire
+           + CLAUDE.md col ref. Mark-as-Paid becomes local-only + hidden on QB-owned invoices;
+           both SC→QB pushes removed; tripwire hard-locks qb-record-payment to Stripe.
+  1d4d2f4  step 3: _shared/reflectPayments.ts reflect core (all eligibility guards, A1
+           require-Payment, atomic never-un-pay write) + qb-reflect-payments sweep + config.toml.
+  4b1d9b7  steps 5+6: qb-webhook (HMAC/base64/fail-closed/async) + QB badge + delay notice.
+  43b1c91  T5/T6 review response — fix gate comment, file F55.
+  64c9260 / 49fd33a  handoff v192 (draft + cron-live update).
+  4d148bd  Merge feat/qb-payment-status-sync → main (frontend goes live).
+  9a5569d  handoff v192 final.
+  d70ce7e  Closes B62 (marks the $128k-outstanding row shipped).
+command-suite-db — main (pushed):
+  07c177c  invoices.qb_reflected_at migration (20260827120000) + rehearse-gate catch-up for
+           customers.notes drift (baseline + EXPECT_COLUMN_GRANTS 9004→9028).
+  61aeaa5  post-push housekeeping: baseline + EXPECT 9028→9039 for qb_reflected_at.
+  09ee3e3  qb-reflect-payments 15-min cron schedule (20260827160000).
 
+═══════════════════════════════════════════════════════════════════════════════
+DEPLOYED
+═══════════════════════════════════════════════════════════════════════════════
+Shared prod project pbgvgjjuhnpsumnowuym:
+  - Migrations 20260827120000 (qb_reflected_at) + 20260827160000 (cron) applied to prod ledger.
+  - Edge functions deployed --no-verify-jwt: qb-reflect-payments (sweep), qb-webhook (real-time),
+    qb-record-payment (redeployed with tripwire). Secret QB_WEBHOOK_VERIFIER_TOKEN set (new).
+  - pg_cron 'qb-reflect-payments-sweep' active, */15 * * * *.
+  - Intuit portal: qb-webhook URL registered (Production), Invoice+Payment subscribed.
+sales-command frontend → Vercel prod deploy READY on main (4d148bd) → scmybiz.com.
+
+═══════════════════════════════════════════════════════════════════════════════
+CLOSED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════════
+- B62 (T1) — CLOSED (commit d70ce7e). The whole feature. Diagnosis retained in the row.
+- B63 noted UNBLOCKED (was Blocked-by B62) — not built, left for its own session.
+
+═══════════════════════════════════════════════════════════════════════════════
+VERIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+- All 4 gates: build → buildvsplan → code-review → security-review, 0 blockers.
+- Migration rehearsed green (--against-prod, throwaway); column confirmed NOT anon-exposed.
+- Backfill QB-verified: 53 flipped all Balance 0 + real Payment (3 spot-checked directly in QB,
+  incl. 2 retention invoices); all 58 left-unpaid have QB Balance > 0; 0 flipped without a paid_at.
+- Webhook smoked: no-token→500, bad-sig→401, valid-HMAC→200 (realm→tenant maps, no-op on fake id).
+- qb-record-payment tripwire: no-auth→401 (live). Cron: cron.job active, verified.
+- NOT live-tested (code-verified only): Stripe→QB payment recording after the tripwire (Stripe's
+  service-role pass-through was confirmed in T5/T6; next real Stripe payment confirms passively).
+  The A1 write-off skip wasn't exercised against live data (no write-off existed in the 111).
+
+═══════════════════════════════════════════════════════════════════════════════
+NOT TOUCHED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════════
+- ADJ-1 (qb-record-payment service-role idempotency) — its UI-caller surface is gone + S8
+  dedupes the webhook, so it no longer blocks reflection; left open as its own row.
+- F55 hardening (3 polish items). B63 retention-aging card (now unblocked, deferred).
+- Everything else in docs/BACKLOG.md.
+
+═══════════════════════════════════════════════════════════════════════════════
 FILES TO KNOW
+═══════════════════════════════════════════════════════════════════════════════
   supabase/functions/_shared/reflectPayments.ts   — the reflect core (all guards here)
   supabase/functions/qb-webhook/index.ts          — real-time webhook (HMAC, async)
   supabase/functions/qb-reflect-payments/index.ts — 15-min sweep
-  supabase/functions/qb-record-payment/index.ts   — tripwire added (NOT yet deployed)
-  src/pages/Invoices.jsx                           — local-only Mark-as-Paid, badge, notice
-  scratchpad DRAFT_qb_reflect_payments_cron.sql    — the parked cron migration
+  supabase/functions/qb-record-payment/index.ts   — Stripe-only tripwire (deployed)
+  src/pages/Invoices.jsx                           — local-only Mark-as-Paid, QB badge, notice
+  command-suite-db/supabase/migrations/20260827160000_qb_reflect_payments_cron.sql — the cron
+
+═══════════════════════════════════════════════════════════════════════════════
+GIT STATE ON CLOSE
+═══════════════════════════════════════════════════════════════════════════════
+- sales-command: on main, clean, synced with origin (head d70ce7e). feat/qb-payment-status-sync
+  and the superseded fix/qb-payment-sync-back spike both DELETED (local + remote).
+- command-suite-db: main, clean, synced (head 09ee3e3).
+- No open PRs for this work. No scratch projects created.
+
+END STATE: Merged, deployed, backend + frontend live and verified, branches cleaned. One passive
+live-confirm pending (next Stripe payment). Ready for a fresh session.

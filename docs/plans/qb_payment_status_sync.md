@@ -1,7 +1,7 @@
 # QuickBooks → Sales Command Payment Status Sync
 
 **Branch:** `feat/qb-payment-status-sync`
-**Status:** PLAN — not yet built
+**Status:** PLAN — build-ready (all decisions locked), not yet built
 **Mode:** plan (opus 4.8, xhigh) → build gate before any code
 **Author:** Chris + Claude, 2026-08-27
 
@@ -62,8 +62,8 @@ Coverage with no human ever "marking paid":
 - Verify no other caller of `qb-record-payment` remains except `supabase/functions/stripe-webhook/index.ts:173`.
 
 ### 4.2 `qb-record-payment` — scope to Stripe only [DERIVED]
-- Function body unchanged. It already tenant-binds and allows service-role internal calls (`_shared/tenantAuth.ts`). Once the two frontend callers are gone, Stripe is the sole caller.
-- Optional hardening (DESIGN-OPEN): reject non-service-role callers outright so a stray frontend call can never push a payment again. Low effort, closes the door permanently.
+- Function body unchanged except the guard below. It already tenant-binds and allows service-role internal calls (`_shared/tenantAuth.ts`). Once the two frontend callers are gone, Stripe is the sole caller.
+- **Hard-reject non-service-role callers [LOCKED: yes].** Add an early guard: if `caller.isServiceRole` is false, return 403. Stripe calls in as service-role; any app-side/user-JWT call is now impossible, so a stray or reintroduced frontend push can never double-record a payment in QB. Permanent belt over the "remove the two callers" suspenders.
 
 **Design: one reflect core, two triggers.** Instant webhook is the everyday path; the 15-min sweep is the backup that can't lose anything. Both call the same core so they never drift.
 
@@ -101,7 +101,7 @@ Current screen: `src/pages/Invoices.jsx` (list + detail modal). No layout restru
 
 - **"Mark as Paid" action** stays in the same status menu (`Invoices.jsx:2000-2002`), same label, same place — behavior only changes (local-only). Preserves the existing mental model.
 - **Delay notice [LOCKED]:** show a small, quiet line on the Invoices screen — e.g. "Payment statuses sync automatically from QuickBooks — usually within seconds, up to 15 minutes at most." Instant is the norm (webhook); the notice just makes a rare lag read as "syncing," not "broken." Placement TBD (near the list header or status filter).
-- **Consider (DESIGN-OPEN):** a small "Synced from QuickBooks" indicator or `paid_at` source tag on invoices the reader flipped, so Chris can tell QB-reflected Paid from manually-marked Paid. Not required for v1.
+- **"Synced from QuickBooks" badge [LOCKED: add now].** On invoices the reflection flipped, show a small tag (e.g. a "QB" pill next to the Paid status) so Chris can tell a QB-reflected Paid from a manually-marked (local-only) Paid. Driven by the `qb_reflected_at` column (§8): non-null → show the badge. Follow the C.dark bg + C.teal text pill convention.
 - No change to the Stripe-paid or send flows.
 
 ---
@@ -126,7 +126,7 @@ Chris chose the real payment date. QB's Invoice object gives `Balance` but not t
 
 ## 8. Schema
 
-No required new columns. Optional observability (DESIGN-OPEN): `invoices.qb_reflected_at timestamptz` to mark reader-driven flips and power the §5 indicator. Author any migration in **command-suite-db** (single source of truth since 2026-06-29), not in-repo.
+**Add `invoices.qb_reflected_at timestamptz` [LOCKED].** Set by the reflect core (§4.3a) whenever it flips an invoice to Paid; null on manually-marked or Stripe-paid rows. Powers the §5 "Synced from QuickBooks" badge and gives an audit trail of which flips came from QB. Author the migration in **command-suite-db** (single source of truth since 2026-06-29), not in-repo. Also add it to the `invoices` column reference in `CLAUDE.md` when shipped.
 
 ---
 
@@ -149,9 +149,10 @@ No required new columns. Optional observability (DESIGN-OPEN): `invoices.qb_refl
 - ~~Real-time vs. polling~~ → **both**: instant webhook primary + 15-min sweep backup, one shared reflect core (§4.3). Instant is the norm; the sweep guarantees nothing is ever lost. [LOCKED]
 - ~~Sweep cadence~~ → 15 min (§4.3c). [LOCKED]
 
-**Still open (resolve before build):**
-- **§4.2** hard-reject non-service-role callers of `qb-record-payment` so a stray app-side call can never push a payment again? (Recommend: yes — cheap, permanent safety.)
-- **§5/§8** add the "reflected from QuickBooks" badge + `qb_reflected_at` column now, or defer to v2? (Recommend: defer.)
+- ~~Hard-reject non-service-role callers of `qb-record-payment`~~ → **yes** (§4.2). [LOCKED]
+- ~~"Synced from QuickBooks" badge + `qb_reflected_at` column~~ → **add now** (§5, §8). [LOCKED]
+
+**Nothing open — plan is build-ready.**
 
 ---
 
@@ -161,4 +162,4 @@ No required new columns. Optional observability (DESIGN-OPEN): `invoices.qb_refl
 2. Shared reflect core (§4.3a) + 15-min sweep wrapper (§4.3c). Smoke the core via the sweep (§9.2). This alone makes the system correct.
 3. Backfill run (§4.4) + pg_cron schedule (§9.6). Backlog cleared even before the webhook lands.
 4. Instant webhook (§4.3b): `qb-webhook` fn, verifier-token secret, Intuit portal registration, webhook smoke (§9.3). This is the "amazing UX" layer — real-time on top of an already-correct base.
-5. Delay notice (§5). Optional badge/column (§5/§8) if kept.
+5. `qb_reflected_at` column (§8, in command-suite-db) + "Synced from QuickBooks" badge (§5) + delay notice (§5). Column should land with step 2 so the reflect core can populate it from the start.

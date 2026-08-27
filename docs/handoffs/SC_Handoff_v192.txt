@@ -1,26 +1,29 @@
-SC Handoff v192 — QuickBooks → Sales Command payment-status sync: BUILT, backend LIVE, 2 steps remain
+SC Handoff v192 — QuickBooks → Sales Command payment-status sync: FULLY SHIPPED (backend + frontend live)
 Date: 2026-08-27
-Branch: feat/qb-payment-status-sync (sales-command) — pushed, NOT merged to main.
+Branch: feat/qb-payment-status-sync — MERGED to main (merge 4d148bd) + branch deleted.
 Plan: docs/plans/qb_payment_status_sync.md (2-round audited, build-ready).
 
 ═══════════════════════════════════════════════════════════════════════════════
 PICK-UP (read first)
 ═══════════════════════════════════════════════════════════════════════════════
-The feature that reflects QuickBooks payment status back into Sales Command is BUILT and
-its BACKEND IS LIVE IN PROD. Real-time reflection works: a payment posts in QB → Intuit
-webhook → SC flips the invoice to Paid in seconds. The one-time backlog (53 stuck invoices)
-is already corrected. Nothing is broken or half-applied.
+COMPLETE. QuickBooks → Sales Command payment reflection is fully live in prod — backend AND
+frontend. A payment posts in QB → Intuit webhook → SC flips the invoice to Paid in seconds
+(15-min cron sweep as backup). The one-time backlog (53 stuck invoices) is corrected. The UI
+(QB badge, delay notice, hidden Mark-as-Paid on QB-owned invoices, H2 warn) is deployed via
+the merge to main. qb-record-payment is locked to Stripe (service-role) only.
 
-ONE step remains:
-  - FRONTEND MERGE + tripwire — the UI changes (QB badge, delay notice, hidden Mark-as-Paid,
-    H2 warn) go live only when this branch merges to main. The qb-record-payment tripwire
-    MUST deploy at the SAME moment as the merge (see ORDERING HAZARD below).
+NOTHING REMAINS to build/deploy. Two soft follow-ups only:
+  - Live-confirm (passive): the next real Stripe payment should still record a QB payment
+    (tripwire + Stripe service-role pass-through are code-verified in T5/T6; not live-smoked).
+  - F55 (docs/BACKLOG.md, T3): 3 non-blocking reflect-core hardening polish items.
 
-DONE since the first draft of this handoff:
-  - CRON backup sweep is now LIVE. Migration command-suite-db 20260827160000 pushed to prod
-    after the parallel session merged main up to prod; cron.job 'qb-reflect-payments-sweep'
-    active, schedule */15 * * * *, targeting qb-reflect-payments. No schema footprint (grants
-    stayed 9171, no baseline/EXPECT change). command-suite-db main @ 09ee3e3.
+DONE this session (full rollout):
+  - CRON backup sweep LIVE. Migration command-suite-db 20260827160000; cron.job
+    'qb-reflect-payments-sweep' active, */15 * * * *, targets qb-reflect-payments. No schema
+    footprint (grants stayed 9171). command-suite-db main @ 09ee3e3.
+  - FRONTEND MERGED to main (4d148bd) → Vercel prod deploy READY. UI live on scmybiz.com.
+  - qb-record-payment TRIPWIRE deployed (Stripe-only; non-service-role → 403). Health: no-auth
+    → 401 confirmed. Stripe's service-role call unaffected (verified T5/T6, code path unchanged).
 
 All four review gates PASSED: build → buildvsplan → code-review → security-review. 0 blockers.
 
@@ -83,15 +86,17 @@ CRON backup sweep — DONE (was Remaining Step 1)
   guard). Inherits project-global CRON_SECRET (never re-set).
 
 ═══════════════════════════════════════════════════════════════════════════════
-REMAINING — Frontend merge + tripwire (the only piece left; makes the UI live)
+Frontend merge + tripwire — DONE (was the last remaining piece)
 ═══════════════════════════════════════════════════════════════════════════════
-- Optional first: visual smoke on the Vercel preview of feat/qb-payment-status-sync — open an
-  invoice, confirm the "QB" badge shows on a reflected-Paid invoice, Mark-as-Paid is hidden on
-  a QB-linked invoice, the delay notice shows under "All Invoices."
-- Merge feat/qb-payment-status-sync → main (Vercel auto-deploys the frontend to prod).
-- AT THE SAME TIME: `supabase functions deploy qb-record-payment --no-verify-jwt --project-ref
-  pbgvgjjuhnpsumnowuym` (deploys the tripwire). Verify Stripe still records a QB payment after
-  (regression on stripe-webhook:173, the one legitimate service-role caller).
+- Merged feat/qb-payment-status-sync → main (--no-ff, merge 4d148bd), pushed; Vercel prod
+  deploy READY (frontend live on scmybiz.com). Clean merge (main had only the v191 handoff
+  since branch point, no conflicts).
+- Deployed qb-record-payment tripwire AFTER the frontend deploy went READY (frontend-first
+  ordering honored — the new frontend no longer calls qb-record-payment, so no silent-403
+  window). Health: no-auth → 401.
+- Deleted the merged feat/qb-payment-status-sync branch (local + remote).
+- Designer-as-user eyeball left to Chris (per solo-project norm): QB badge on a reflected-Paid
+  invoice (e.g. #10145), Mark-as-Paid hidden on QB-linked, delay notice under "All Invoices."
 
 ═══════════════════════════════════════════════════════════════════════════════
 NEW BACKLOG

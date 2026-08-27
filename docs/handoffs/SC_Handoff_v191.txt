@@ -1,0 +1,187 @@
+SC Handoff v191 — PB-1 pull-back → re-send teardown: SHIPPED + smoke-verified + closed
+Date: 2026-08-27
+Branch: main (fix shipped via merge 2275723). Handoff landed on main via a temp worktree —
+the primary ~/sales-command clone was checked out on feat/qb-payment-status-sync (a separate,
+newer QB-sync planning stream, 99f0507, local-only), so this clone's branch was left untouched.
+
+═══════════════════════════════════════════════════════════════════════════════
+PICK-UP (read first)
+═══════════════════════════════════════════════════════════════════════════════
+PB-1 is DONE — fix is live on prod (scmybiz.com), closed in both backlogs, branches deleted,
+smoke-test data torn down. Nothing from PB-1 is in flight. The /resume pointer is cleared
+(no active stream) — run /orient or /decide to pick the next thing.
+
+Note: the primary clone is currently on feat/qb-payment-status-sync (someone's QB-sync PLAN,
+commit 99f0507, 1 ahead of origin/main, not pushed). That is NOT PB-1 work — leave it for
+whoever owns that stream.
+
+═══════════════════════════════════════════════════════════════════════════════
+SESSION SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+Picked up PB-1 (pull-back → re-send teardown) at the "all gates green, not merged" state left
+by v190 and carried it across the finish line. Ran the §8 browser smoke on the Vercel preview
+against the shared prod DB: watched the fix work and the loud guard fire, then merged to main
+(auto-deployed to prod), closed PB-1 in both backlogs, registered the §6 shared-data-contract
+note, deleted both feature branches, filed one UX finding (SJC-3), tore down all smoke-test
+data from prod, and cleared the active-work pointer. Two unrelated invoice "Sent Date" commits
+that a parallel session had left on the PB-1 branch were shipped alongside the fix (Chris's
+call). Steps 4 and 5 of the smoke could not be staged live (see VERIFICATION) and rest on the
+banked proofs from v190.
+
+═══════════════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED
+═══════════════════════════════════════════════════════════════════════════════
+sales-command (all on main):
+  4f62340  Fixes: show Sent Date on customer-facing invoice — invoice-side change authored by
+           Chris in a parallel session that had landed on the PB-1 branch (Invoices.jsx,
+           PublicInvoicePage.jsx, invoicePdf.js). Unrelated to PB-1; shipped alongside per
+           Chris's explicit "ship both together".
+  2e17033  Fixes: move Sent Date to right column so invoice header stays short — same stream.
+  2275723  Merge fix/pullback-resend-teardown — the PB-1 fix (§4.1 free-the-slot + self-check,
+           §4.2 short-write rollback in ProposalDetail.jsx commitSendToSchedule) plus the two
+           Sent Date commits above. --no-ff merge → this is the merge SHA of record.
+  6d99394  Closes PB-1 — marked PB-1 Closed in docs/BACKLOG.md with the merge SHA + recorded
+           the §8 smoke result.
+
+sch-command (all on main):
+  53fa280  Merge fix/pullback-resend-teardown — PB-1 plan (canonical) into main (docs-only:
+           plan + audit log + backlog).
+  828dee9  Closes PB-1 — marked the canonical PB-1 row Closed with the sales-command merge SHA;
+           registered the §6 note in command_suite_shared_data_contract.md (re-send = clean
+           rebuild, not a merge into a live job).
+  (SJC-3)  Filed SJC-3 (Recovery Bin rows indistinguishable) — pushed to main.
+
+.claude-commands:
+  active-work.txt → cleared (PB-1 archived as a closed entry; no active stream).
+
+═══════════════════════════════════════════════════════════════════════════════
+DEPLOYED
+═══════════════════════════════════════════════════════════════════════════════
+sales-command main → Vercel auto-deploy to prod (scmybiz.com) on push of 6d99394/2275723.
+No edge functions, no DB migrations, no infra. The fix is 100% app-level PostgREST writes.
+
+═══════════════════════════════════════════════════════════════════════════════
+DECISIONS / CHOICES MADE
+═══════════════════════════════════════════════════════════════════════════════
+- SHIP BOTH TOGETHER: the PB-1 branch carried two unrelated invoice "Sent Date" commits (a
+  parallel session had committed them onto it). Rather than split them out, Chris chose to ship
+  them to prod with the fix. Flagged before merging; not silently merged.
+- STEP 6 STAGED WITH A LIVE-HOLDER RIG: the short-write guard (§4.2) only fires when a job that
+  is NOT this proposal's tombstone holds the slot. Staged it by inserting a throwaway live job
+  (source_proposal_id=null), moving the slot's job_wtcs row to it, and tombstoning the real job
+  — so §4.1 couldn't free it, self-check passed, and the upsert short-wrote into the §4.2 guard.
+  Chris ran the setup SQL (MCP DB access is read-only).
+- STEPS 4 & 5 NOT STAGED LIVE: step 4 (sibling untouched) needs a second proposal on the same
+  call_log to demonstrate — real setup, and it's already proven against the actual bug data
+  (v190 proofs A/C). Step 5 (RLS-no-op self-check) can only fire if a DELETE silently no-ops,
+  which requires removing an RLS policy on the shared prod DB — not worth the risk. Both rest on
+  banked proofs. Chris chose "call it good, merge" over building the step-4 demo.
+- FULL FIXTURE TEARDOWN over soft-delete: chose to erase the whole smoke fixture (proposal +
+  call_log + jobs) rather than just soft-delete the live test job, so nothing lingers on prod
+  and the Recovery Bin doesn't accumulate more identical rows.
+
+═══════════════════════════════════════════════════════════════════════════════
+NEW BACKLOG ITEMS
+═══════════════════════════════════════════════════════════════════════════════
+- SJC-3 (sch-command docs/BACKLOG.md, T3, Open) — Recovery Bin rows are indistinguishable:
+  deleted jobs sharing a name (re-send / pull-back cycles) render identically with only a
+  RESTORE button, so a user can't tell which to restore. Surfaced live during the PB-1 smoke
+  (four identical "10261 - working the sales to schedule pull back flow" rows). Fix: add a
+  distinguishing detail per row (deleted-at timestamp / job id / work types). Cosmetic, no data
+  risk. Not blocked by / blocking anything.
+
+═══════════════════════════════════════════════════════════════════════════════
+CLOSED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════════
+- PB-1 — CLOSED. sales-command merge 2275723 (fix commit 9266ae6), closed in sales-command
+  docs/BACKLOG.md (6d99394) and sch-command docs/BACKLOG.md (828dee9). Live on prod 2026-08-27.
+
+═══════════════════════════════════════════════════════════════════════════════
+VERIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+§8 browser smoke on the Vercel preview (sales-command-epqdpja20…vercel.app), against the shared
+prod DB (pbgvgjjuhnpsumnowuym). Each step confirmed by direct DB read (read-only MCP):
+  Step 2  PASS — first send: new job got its job_wtcs (1 WTC, 100% Solids Epoxy).
+  Step 3b PASS — delete (no pull-back) → re-send: new job full; the old tombstone's held slot
+          freed by §4.1.
+  Step 3a PASS — delete → pull back → re-lock → internal-approve → re-send: new job full; slot
+          freed. (Full pull-back → Draft → Sold cycle exercised.)
+  Step 6  PASS — with a live-holder rig, Confirm & Send fired the exact alert "Another live job
+          already holds these work types — resolve that job before re-sending. Nothing was
+          kept.", created NO job (clean rollback, DB-verified), left the proposal Sold.
+  Step 7  PASS — plain delete → restore from Recovery Bin: the restored job kept its work type
+          (SOW intact).
+
+NOT verified live (rest on v190's banked proofs — called out explicitly):
+  Step 4  (sibling/CO job untouched by the §4.1 delete) — proven at the DB level in v190
+          (scoping proofs A + C against the real bug data); NOT re-demonstrated in-app this
+          session. Would need a second proposal on the same call_log to stage.
+  Step 5  (self-check aborts on a silent RLS-no-op delete) — canNOT be staged with data alone;
+          it only fires if the DELETE actually no-ops, which needs an RLS policy removed on prod.
+          Left on the code proof (self-check is 6 lines; its sibling guard §4.2 fired live).
+
+Smoke-test data teardown VERIFIED: proposal 2726f89e / call_log 3861 / jobs 99·100·101·105 and
+all children — all counts confirmed 0 after Chris ran the teardown transaction.
+
+═══════════════════════════════════════════════════════════════════════════════
+NOT TOUCHED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════════
+- §5 data cleanup — the REAL empty jobs from before the fix (86, 87, 88, 89, 90, 98) are NOT
+  healed. Still a gated step to do WITH Chris: re-send each from Sales; jobs 88/89 need his
+  hand-verify first (they are not TEST-named). Only 98 was ever the tombstone-held bug; 86–90
+  heal on a plain re-send.
+- S13 (sales-command docs/BACKLOG.md, Security, Open) — jobs-table catch-all "Authenticated
+  users can do everything" ALL policy OR-overrides the tenant-scoped policies. Not exploitable
+  today (1 tenant). F7-gated, multi-tenant-hardening class. Untouched.
+- PB-2 (sch-command) — pull-back hard-teardown of dead tombstones; hygiene, needs its own plan.
+  Untouched.
+- feat/qb-payment-status-sync (99f0507) — a separate QB-sync planning stream on the primary
+  clone. Left entirely alone.
+
+═══════════════════════════════════════════════════════════════════════════════
+NEXT SESSION POINTERS
+═══════════════════════════════════════════════════════════════════════════════
+1. /resume shows "no active stream" now — run /orient or /decide to pick the next thing.
+2. If picking up the §5 cleanup: it's a WITH-Chris step. Hand-verify jobs 88/89 first, then
+   re-send each of 86–90 + 98 from the Sales proposal, confirming each new job gets its WTCs.
+   Do NOT batch-run without Chris.
+3. The primary ~/sales-command clone is on feat/qb-payment-status-sync — if you need main there,
+   confirm that QB stream is idle before switching the clone's branch (parallel-session
+   collision risk).
+4. SJC-3 is a quick Schedule Command UI fix if a small win is wanted.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+═══════════════════════════════════════════════════════════════════════════════
+- sales-command  src/components/ProposalDetail.jsx — commitSendToSchedule (~L675–905) holds the
+  PB-1 fix: §4.1 free-the-slot delete + self-check (L810–873), §4.2 short-write guard (L894–902).
+- sales-command  docs/BACKLOG.md — PB-1 now Closed; S13 still Open.
+- sch-command    docs/BACKLOG.md — canonical PB-1 Closed; SJC-3 new; PB-2 open.
+- sch-command    docs/plans/pullback_resend_teardown.md — the plan (§8 smoke steps live here).
+- sch-command    docs/plans/command_suite_shared_data_contract.md — decision #6 now carries the
+  §6 re-send note.
+
+═══════════════════════════════════════════════════════════════════════════════
+GIT STATE ON CLOSE
+═══════════════════════════════════════════════════════════════════════════════
+sales-command:
+  - origin/main tip: 6d99394 (Closes PB-1) — PB-1 fix + Sent Date invoice work live.
+  - Primary clone ~/sales-command is checked out on feat/qb-payment-status-sync @ 99f0507
+    (local-only, 1 ahead of origin/main, NOT this session's work).
+  - fix/pullback-resend-teardown: deleted (local + origin).
+  - Other worktrees exist (sales-command-*): archive-job-pay-app, home-follow-up-screen,
+    inquiry-modal-redesign, inquiry-wizard-drop-step-one, pay-app-standard-pdf,
+    summary-hours-size — untouched this session.
+  - This handoff (v191) was committed to main from a temp worktree so the primary clone's
+    checked-out branch was never disturbed. Temp worktree removed after commit.
+sch-command:
+  - origin/main tip: 828dee9 (+ the SJC-3 commit) — canonical PB-1 closed, §6 note, SJC-3 filed.
+  - fix/pullback-resend-teardown: deleted (local + origin).
+.claude-commands:
+  - active-work.txt cleared, committed + pushed.
+
+═══════════════════════════════════════════════════════════════════════════════
+END STATE
+═══════════════════════════════════════════════════════════════════════════════
+Merged, deployed to prod, smoke-verified (5 of 7 steps live, 2 on banked proofs), closed in
+both backlogs, branches deleted, fixture torn down, pointer cleared. Ready for a fresh session.

@@ -2017,8 +2017,11 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   // On a QB-owned invoice the reflect core sets Paid from a real QB Payment, so a
   // manual local Paid there would only let SC diverge from QB — HIDE it (Chris's
   // call, plan §5 / R2 D2) by filtering it out of the actions array here, not by
-  // CSS-hiding a still-callable menu item. Gate mirrors the reflect-core skip set
-  // exactly: `!qb_invoice_id || qb_skip_sync`.
+  // CSS-hiding a still-callable menu item. Gate = `!qb_invoice_id || qb_skip_sync`.
+  // The reflect core also skip-syncs via a display_job_number fallback, not just the
+  // proposal→call_log path used here — but a qb_skip_sync job never receives a
+  // qb_invoice_id in the first place (qb-sync-invoice returns early), so the
+  // `!!qb_invoice_id` term already covers that case. Same reachable set, simpler read.
   const qbReflectsThisInvoice = !!inv.qb_invoice_id && !inv.proposals?.call_log?.qb_skip_sync;
   const actions = (statusActions[inv.status] || []).filter(
     a => a.status !== "Paid" || !qbReflectsThisInvoice

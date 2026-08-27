@@ -1,0 +1,149 @@
+SC Handoff v190 — PB-1 pull-back → re-send teardown (empty-SOW lifecycle bug)
+Date: 2026-08-26 (recorded on machine switch to desktop 2026-08-27)
+Branch: fix/pullback-resend-teardown (sales-command) — PUSHED, NOT merged.
+Cross-repo: CODE lives in sales-command; PLAN + canonical backlog row live in sch-command.
+
+═══════════════════════════════════════════════════════════════════════════════
+PICK-UP-ON-DESKTOP (read first)
+═══════════════════════════════════════════════════════════════════════════════
+Everything needed is on origin — nothing local-only:
+- sales-command  branch fix/pullback-resend-teardown @ 769a06f (2 commits below), tracking origin.
+- sch-command    branch fix/pullback-resend-teardown @ 8836f81 (plan + PB-1), local==origin.
+On the desktop: `git fetch` both repos, check out fix/pullback-resend-teardown in each.
+The ONE remaining task: run the §8 browser smoke on the Vercel preview, then merge to main.
+
+═══════════════════════════════════════════════════════════════════════════════
+SESSION SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+Built the two-part app-level fix for PB-1: the pull-back → re-send cycle silently
+produced a job with zero job_wtcs (empty SOW that Field reads as blank). Root cause:
+Schedule's Delete is a SOFT delete that leaves job_wtcs holding the globally-UNIQUE
+proposal_wtc_id; the re-send upsert (ignoreDuplicates) skips the held slot → new job gets
+zero WTCs, and the old rollback caught only DB errors, not silent zero-row skips.
+
+Bug re-observed LIVE before writing any fix (§8.1 non-negotiable): prod project
+pbgvgjjuhnpsumnowuym, proposal 2cfb5167 / call_log 3855 —
+  job 96 (deleted 08-25 21:04) holds slot ae79beb7 (the only proposal_wtc)
+  job 97 (deleted 08-25 21:29) got 0 job_wtcs
+  job 98 (LIVE) got 0 job_wtcs  ← the empty-SOW job Field reads
+
+All three gates passed (each in its own cold terminal): T4 /buildvsplan PASS 0/0,
+T5 /code-review PASS 0 blockers, T6 /security-review PASS 0 exploitable-today.
+
+═══════════════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED (on branch, not merged)
+═══════════════════════════════════════════════════════════════════════════════
+Single logic file: src/components/ProposalDetail.jsx — commitSendToSchedule (send commit).
+
+§4.1 (free the slot + self-check) — placed after the jobs insert, before the job_wtcs upsert:
+  - pwIds = jobWtcRows.map(r => r.proposal_wtc_id) (== this proposal's full WTC set; wtcList
+    is the unfiltered .eq("proposal_id", p.id) fetch at ~L650).
+  - tombstoneJobIds = jobs WHERE source_proposal_id = p.id AND deleted='Yes'.
+  - If BOTH non-empty: job_wtcs.delete().in('proposal_wtc_id', pwIds).in('job_id', tombstoneJobIds).
+    Both predicates ALWAYS; if either empty, skip the delete entirely. NEVER scope by call_log_id.
+  - Self-check: re-query for any slot still held by a tombstone (RLS delete can silently
+    no-op). If any remain (or check errors): roll back the just-inserted jobs row, return
+    BEFORE the call_log Parked write. Hard precondition for §4.2.
+
+§4.2 (short-write guard) — at the upsert:
+  - Added .select('proposal_wtc_id'), captured as `written`.
+  - Assert written.length === jobWtcRows.length. Else roll back the jobs row, return before
+    Parked, alert unconditionally "Another live job already holds these work types — resolve
+    that job before re-sending." (by construction live-held, since §4.1 already caught any
+    tombstone hold). Scoped to job_wtcs ONLY; mob seed stays non-fatal.
+
+Rollback logic extracted to a local rollbackNewJobRow(problem, retry) helper (verified
+delete + RLS-no-op admin warning), reused by the existing wtcErr branch + both new guards.
+The original wtcErr path's behavior is preserved exactly.
+
+No migration. No edge function. No RLS change. All PostgREST writes from the app.
+
+═══════════════════════════════════════════════════════════════════════════════
+DECISIONS
+═══════════════════════════════════════════════════════════════════════════════
+- pwIds sourced from the in-memory jobWtcRows (== fresh wtcList), not a redundant re-fetch.
+- Rollback triplication resolved by one helper rather than three inline blocks; `retry` flag
+  controls the success-suffix ("please try again" only when a fresh re-send could succeed).
+- §5 data cleanup (the 6 empty jobs 86/87/88/89/90/98) NOT run — separate gated step. Only
+  job 98 is caused by this bug (slots_held_by_tombstone=1); 86–90 are unrelated (=0, heal on
+  a plain re-send). Jobs 88/89 ("Field Sow…", "Exterior Deck Waterproofing") need Chris's
+  hand-verify before any cleanup (plan §9 Q1).
+
+═══════════════════════════════════════════════════════════════════════════════
+NEW / CLOSED BACKLOG ITEMS
+═══════════════════════════════════════════════════════════════════════════════
+- PB-1 (sales-command docs/BACKLOG.md, Bugs) — pointer row added, In Progress. Canonical
+  home is PB-1 in sch-command docs/BACKLOG.md; plan sch-command
+  docs/plans/pullback_resend_teardown.md. (commit 9266ae6)
+- S13 (sales-command docs/BACKLOG.md, Security) — NEW, filed by T6 /security-review. The
+  jobs table's permissive "Authenticated users can do everything" ALL policy OR-overrides
+  its tenant-scoped policies → no real tenant isolation on jobs once a 2nd tenant onboards.
+  Non-exploitable today (1 tenant), NOT introduced by PB-1, NOT a gate on this merge.
+  F7-gated, multi-tenant-hardening class (sibling of S4/S5). (commit 769a06f)
+
+═══════════════════════════════════════════════════════════════════════════════
+VERIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+Done this session (read-only against live prod pbgvgjjuhnpsumnowuym):
+  - Bug premise re-observed (jobs 96/97/98 lineage above).
+  - Scoping proof A: the exact .in().in() predicate for proposal 2cfb5167 hits ONLY
+    tombstone job 96's row; live job 98 untouched → .in().in() is a true conjunction.
+  - Scoping proof C: 0 cross-proposal job_wtcs rows → proposal_wtc 1:1 ownership holds, so
+    the proposal_wtc_id predicate alone can never reach another proposal's rows.
+  - Finding #5 (T5): job_wtcs SELECT and INSERT RLS predicates are byte-identical, so the
+    new .select() after the upsert cannot false-positive into a rollback on a genuine write.
+  - eslint: no new errors in the edited region (all 12 pre-existing, unrelated lines).
+
+STILL PENDING — the §8 browser smoke on the Vercel preview (needs the running app + the
+cross-app flow Sales send → Schedule delete → Sales re-send; cannot be done headlessly):
+  Step 2  — apply fix, re-send → NEW job has full job_wtcs incl. materials; Field reads them.
+  Step 3  — both paths: (a) delete → pull back → edit → re-send; (b) delete → re-send with
+            NO pull-back. Both must yield a populated job.
+  Step 4  — scoping proof in-app: a live sibling/CO job sharing the call_log, and a DIFFERENT
+            proposal's tombstone, both untouched by the §4.1 delete.
+  Step 5  — self-check fires: simulate an RLS-no-op delete (leave the tombstone slot held) →
+            send ABORTS before insert, no partial job, alert shown.
+  Step 6  — count guard fires: force a short write using a LIVE-held slot → send rolls back
+            the jobs row, proposal NOT-sent, call_log stage NOT left at Parked.
+  Step 7  — unaffected: plain soft-delete → restoreJob → SOW intact (fix never touches restore).
+  Step 8  — (GATED, do NOT run without Chris) run the §5 re-sends; re-query the "empty live
+            job" set → 0. Job 98 needs the §4.1 path; 86–90 plain re-send; 88/89 hand-verify.
+
+═══════════════════════════════════════════════════════════════════════════════
+NOT TOUCHED / OUT OF SCOPE
+═══════════════════════════════════════════════════════════════════════════════
+- Former §4.3 pull-back hard-teardown — CUT this loop → PB-2 (false "no-FK" premise; 9 FKs,
+  mixed CASCADE/NO-ACTION; hygiene only). Do not re-derive.
+- §5 data cleanup — gated (see above).
+- S13 jobs-table RLS gap — filed, not fixed; F7-gated, do not gate this merge on it.
+- The mob seed (job_mobilizations) stays non-fatal — deliberately outside the §4.2 guard.
+
+═══════════════════════════════════════════════════════════════════════════════
+NEXT SESSION POINTERS (desktop)
+═══════════════════════════════════════════════════════════════════════════════
+1. git fetch both repos; check out fix/pullback-resend-teardown in each.
+2. Confirm the Vercel preview built for the branch; run §8 steps 2–7 on it (watch 4/5/6).
+3. Green smoke → merge sales-command fix/pullback-resend-teardown to main; delete branch.
+   On merge, mark PB-1 Closed in BOTH backlog files (sales-command pointer + sch-command
+   canonical) with the merge SHA, and register the §6 shared-data-contract note (re-send is
+   a clean rebuild, not a merge into a live job).
+4. Then, separately + with Chris: hand-verify jobs 88/89, run the §5 cleanup re-sends.
+5. S13 stays Open for the F7 multi-tenant hardening loop.
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TO KNOW
+═══════════════════════════════════════════════════════════════════════════════
+- sales-command  src/components/ProposalDetail.jsx — commitSendToSchedule, send commit (~L787–904).
+- sales-command  docs/BACKLOG.md — PB-1 (Bugs), S13 (Security).
+- sch-command    docs/plans/pullback_resend_teardown.md — the plan (§0 repro, §4.1/§4.2, §8 smoke).
+- sch-command    docs/BACKLOG.md — canonical PB-1 row.
+
+═══════════════════════════════════════════════════════════════════════════════
+GIT STATE
+═══════════════════════════════════════════════════════════════════════════════
+sales-command  fix/pullback-resend-teardown (tracking origin, pushed):
+  769a06f  Touches S13: file jobs-table catch-all RLS policy gap (T6 security-review of PB-1)
+  9266ae6  Touches PB-1: pull-back → re-send teardown — free tombstone-held WTC slots + short-write guard
+  542c33b  docs: session handoff v189 (Campaign Leads)   ← main fork point
+  (this handoff commit adds v190 on top)
+sch-command    fix/pullback-resend-teardown @ 8836f81 (plan + PB-1), local==origin, docs-only.

@@ -24,6 +24,21 @@ verify_jwt = false
 enabled = true
 verify_jwt = false
 
+# qb-reflect-payments is the 15-min CRON sweep for QB→SC payment reflection. Same
+# posture as follow-up-reminders: deployed WITH --no-verify-jwt so the scheduled
+# invoker needs no service-role key — the handler's x-cron-secret check is the gate
+# (inherits the project-global CRON_SECRET; see the cron migration in command-suite-db).
+[functions.qb-reflect-payments]
+enabled = true
+verify_jwt = false
+
+# qb-webhook receives Intuit Event Notifications — a server-to-server endpoint with
+# no caller JWT. Deployed WITH --no-verify-jwt; the handler's HMAC-SHA256 signature
+# check against QB_WEBHOOK_VERIFIER_TOKEN is the SOLE gate (fails closed if unset).
+[functions.qb-webhook]
+enabled = true
+verify_jwt = false
+
 [functions.qb-auth]
 enabled = true
 verify_jwt = false

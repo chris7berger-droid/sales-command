@@ -83,6 +83,20 @@ serve(async (req) => {
     const caller = await authenticateCaller(sb, req, SUPABASE_SERVICE_ROLE_KEY);
     if (!caller.ok) return unauthorizedResponse(caller.status, corsHeaders);
 
+    // ── INTENTIONAL TRIPWIRE (plan §4.2) — do NOT delete as "dead code". ──
+    // Payment status now flows QB → SC only (via the reflect core). Stripe is the
+    // ONE legitimate SC→QB payment write, and it calls in as service-role from
+    // stripe-webhook:173 (verified: internal service-role path in tenantAuth.ts —
+    // this guard does NOT break Stripe). The two former app-side callers in
+    // Invoices.jsx were removed this session. This hard 403 is the belt over that
+    // suspenders: any user-JWT / app-side call is now impossible, so a stray or
+    // reintroduced frontend push can never double-record a payment in QuickBooks.
+    // It is unreachable in normal flow and cannot be smoke-tested (§9.6) — that is
+    // by design. A future reader must not mistake it for dead code and delete it.
+    if (!caller.isServiceRole) {
+      return unauthorizedResponse(403, corsHeaders);
+    }
+
     const { invoiceId } = await req.json();
     if (!invoiceId) {
       return new Response(JSON.stringify({ error: "invoiceId is required" }), {

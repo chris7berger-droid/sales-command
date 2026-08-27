@@ -1033,7 +1033,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
               <div style={{ fontSize: 12, color: "#a07800", fontFamily: F.ui, marginTop: 2 }}>Add the job site address to the linked call log record to continue.</div>
             </div>
           </div>
-          <Btn sz="sm" v="secondary" onClick={onBack}>← Edit Job</Btn>
+          <Btn sz="sm" v="secondary" onClick={() => (onNavigateJob && p.call_log_id ? onNavigateJob(p.call_log_id) : onBack())}>← Edit Job</Btn>
         </div>
       )}
 

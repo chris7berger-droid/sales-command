@@ -1916,11 +1916,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     if (newStatus === "Paid" && !inv.paid_at) updates.paid_at = new Date().toISOString();
     const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
     if (error) { alert(error.message); return; }
-    // Sync payment to QuickBooks when marked as Paid (skip test jobs)
-    if (newStatus === "Paid" && inv.qb_invoice_id && !(inv.job_name || "").toLowerCase().includes("test")) {
-      supabase.functions.invoke("qb-record-payment", { body: { invoiceId: inv.id } })
-        .catch(() => {});
-    }
+    // Mark as Paid is now LOCAL-ONLY (plan §3.2/§4.1). QB is the source of truth
+    // for "is it paid": payment status flows QB → SC via the reflect core, never
+    // the reverse. So this sets SC status + paid_at and records NOTHING in QB.
+    // The action is only reachable on invoices QB won't reflect (unlinked /
+    // qb_skip_sync — gated out of `actions` below), so there is no QB payment to
+    // create here. (Removed the old qb-record-payment push — Stripe is now that
+    // function's only caller.)
     setInv(prev => ({ ...prev, ...updates }));
     onUpdated && onUpdated();
   }
@@ -1928,6 +1930,19 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   async function handleQBSync() {
     if (syncing) return;
     if (inv.voided_at) { setSyncError("This invoice is voided — re-sync is not allowed."); return; }
+    // H2 (plan §4.1): a locally-Paid invoice has no real QB payment behind it.
+    // Syncing pushes the INVOICE to QuickBooks but records NO payment (the reflect
+    // core is the only Paid path now, and it skips already-Paid rows), so QB will
+    // show it unpaid while SC shows Paid. Warn before letting the two diverge —
+    // don't silently push a "paid" invoice that QB will still consider open.
+    if (inv.status === "Paid") {
+      const proceed = window.confirm(
+        "This invoice is marked Paid locally but has no QuickBooks payment. Syncing " +
+        "will push the invoice to QuickBooks WITHOUT recording a payment — QuickBooks " +
+        "will still show it unpaid. Sync the invoice anyway?"
+      );
+      if (!proceed) return;
+    }
     setSyncing(true);
     setSyncError(null);
     setSyncReLink(false);
@@ -1961,17 +1976,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         if (data?.skipped) throw new Error(`QB sync skipped: ${data.reason}`);
       }
 
-      if (inv.status === "Paid") {
-        const { data: pData, error: pErr } = await supabase.functions.invoke("qb-record-payment", { body: { invoiceId: inv.id } });
-        if (pErr) throw new Error(pErr.message || "QB payment sync failed.");
-        if (pData?.error === "qb_customer_invalid") {
-          setSyncError(pData.message || "Linked QuickBooks customer no longer exists or is inactive.");
-          setSyncReLink(true);
-          setSyncing(false);
-          return;
-        }
-        if (pData?.error) throw new Error(pData.error);
-      }
+      // (Removed the old "if Paid, also record payment in QB" push — plan §4.1.
+      //  handleQBSync syncs the INVOICE only; payment reflection is the reader's
+      //  job now, flowing QB → SC. The H2 confirm above already warned the operator
+      //  that a locally-Paid sync records no QB payment.)
 
       const { data: refreshed } = await supabase
         .from("invoices")
@@ -1980,8 +1988,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         .maybeSingle();
       if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
       onUpdated && onUpdated();
-      const paidNote = inv.status === "Paid" ? " Payment also recorded." : "";
-      setSyncToast(`Invoice synced to QuickBooks (QB ID ${refreshed?.qb_invoice_id || "—"}).${paidNote}`);
+      // No "Payment also recorded." note — the SC→QB payment push is gone (plan
+      // §4.1); this action syncs the invoice only, so the toast must not claim a
+      // payment was recorded.
+      setSyncToast(`Invoice synced to QuickBooks (QB ID ${refreshed?.qb_invoice_id || "—"}).`);
       setTimeout(() => setSyncToast(null), 5000);
     } catch (e) {
       setSyncError(e.message || "QB sync failed.");
@@ -2002,7 +2012,20 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     "Past Due": [{ label: "Mark as Paid", status: "Paid" }],
   };
 
-  const actions = statusActions[inv.status] || [];
+  // "Mark as Paid" is local-only now and applies ONLY to invoices QB will NOT
+  // reflect automatically: unlinked (no qb_invoice_id) or a qb_skip_sync job.
+  // On a QB-owned invoice the reflect core sets Paid from a real QB Payment, so a
+  // manual local Paid there would only let SC diverge from QB — HIDE it (Chris's
+  // call, plan §5 / R2 D2) by filtering it out of the actions array here, not by
+  // CSS-hiding a still-callable menu item. Gate = `!qb_invoice_id || qb_skip_sync`.
+  // The reflect core also skip-syncs via a display_job_number fallback, not just the
+  // proposal→call_log path used here — but a qb_skip_sync job never receives a
+  // qb_invoice_id in the first place (qb-sync-invoice returns early), so the
+  // `!!qb_invoice_id` term already covers that case. Same reachable set, simpler read.
+  const qbReflectsThisInvoice = !!inv.qb_invoice_id && !inv.proposals?.call_log?.qb_skip_sync;
+  const actions = (statusActions[inv.status] || []).filter(
+    a => a.status !== "Paid" || !qbReflectsThisInvoice
+  );
   const canPullBack = inv.status !== "New" && inv.status !== "Paid";
   // A T&M invoice carries day-row lines (hours × rate on a rate card). Those hours
   // can't be edited once billed, so Pull Back deletes it and you rebuild from
@@ -2574,6 +2597,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           </h2>
         )}
         <Pill label={inv.status} cm={INV_C} />
+        {/* "Synced from QuickBooks" badge — set only on a QB-reflected Paid, so a
+            QB-driven Paid reads apart from a hand-marked (local-only) one. Teal
+            text on C.dark WITH an explicit teal border (CLAUDE.md style rule 4 —
+            without the border it falls back to C.dark and disappears). */}
+        {inv.status === "Paid" && inv.qb_reflected_at && (
+          <span title="Payment status synced automatically from QuickBooks">
+            <Pill label="QB" cm={{ QB: { bg: C.dark, text: C.teal, border: C.teal } }} />
+          </span>
+        )}
         {inv.voided_at && <Pill label="VOIDED" cm={INV_C} />}
         {!editing && !inv.voided_at && ageDays !== null && (
           <span style={{ fontSize: 12, fontWeight: 800, fontFamily: F.display, color: ageDays > 0 ? C.red : ageDays === 0 ? C.amber : C.green }}>
@@ -3464,6 +3496,13 @@ export default function Invoices({ setSubPage, teamMember }) {
           <span style={{ fontSize: 20, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>{isRetentionView ? "Retention" : "All Invoices"}</span>
           <span style={{ fontSize: 12, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui, letterSpacing: "0.06em", textTransform: "uppercase" }}>{(isRetentionView ? retentionInvoices.length : activeInvoices.length)} {isRetentionView ? "open" : "active"}</span>
         </div>
+        {/* Delay notice (plan §5) — instant is the norm (webhook); this quiet line
+            makes a rare lag read as "syncing," not "broken." */}
+        {!isRetentionView && (
+          <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui, marginTop: -2 }}>
+            Payment statuses sync automatically from QuickBooks — usually within seconds, up to 15 minutes at most.
+          </div>
+        )}
         {invFilter && (
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(48,207,172,0.10)", border: `1.5px solid ${C.tealBorder}`, borderRadius: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui }}>Showing: {INV_LENS_LABEL[invFilter]} ({filteredInvoices.length})</span>
@@ -3486,7 +3525,18 @@ export default function Invoices({ setSubPage, teamMember }) {
               { k: "id",       l: "Invoice #", r: v => <span style={{ fontWeight: 600, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{v}</span> },
               { k: "job_id",   l: "Job #",     r: v => <span style={{ fontWeight: 600, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{v}</span> },
               { k: "job_name", l: "Job Name",  r: v => <span style={{ fontWeight: 500, color: C.textMuted, fontFamily: F.display, maxWidth: 200, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span> },
-              { k: "status",   l: "Status",    r: (v, row) => row.voided_at ? <Pill label="VOIDED" cm={INV_C} /> : <Pill label={v} cm={{ ...PROP_C, ...INV_C }} /> },
+              { k: "status",   l: "Status",    r: (v, row) => row.voided_at ? <Pill label="VOIDED" cm={INV_C} /> : (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <Pill label={v} cm={{ ...PROP_C, ...INV_C }} />
+                  {/* QB-reflected Paid (see detail header note) — distinguishes it
+                      from a hand-marked Paid when scanning the list. */}
+                  {v === "Paid" && row.qb_reflected_at && (
+                    <span title="Payment status synced automatically from QuickBooks">
+                      <Pill label="QB" cm={{ QB: { bg: C.dark, text: C.teal, border: C.teal } }} />
+                    </span>
+                  )}
+                </span>
+              ) },
               { k: "amount",   l: isRetentionView ? "Gross Billed" : "Amount", r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$c(v)}</span> },
               isRetentionView
                 ? { k: "retention_amount", l: "Retention Held",

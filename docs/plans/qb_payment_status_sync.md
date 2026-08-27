@@ -37,7 +37,7 @@ Two non-human exceptions:
   1. **Instant webhook (primary):** QuickBooks pushes a notification the moment a payment posts → SC updates in seconds. This is the real experience 99% of the time.
   2. **15-min sweep (backup):** a self-healing safety net that catches anything a webhook ping missed, and clears the existing backlog.
 
-  Both call the *same* reflect logic (§4.3b), so they can never drift. The webhook says *which* invoices changed; the sweep re-checks *all* still-unpaid invoices.
+  Both call the *same* reflect logic (§4.3a), so they can never drift. The webhook says *which* invoices changed; the sweep re-checks *all* still-unpaid invoices.
 
 Coverage with no human ever "marking paid":
 - **Check / ACH** → bookkeeper records in QB → reader reflects → SC Paid.

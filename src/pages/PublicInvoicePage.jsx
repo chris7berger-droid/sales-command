@@ -40,7 +40,7 @@ export default function PublicInvoicePage() {
       // lives in migration 20260625130000. (plan §4.5)
       const { data: inv, error: invErr } = await supabase
         .from("invoices")
-        .select(`id, proposal_id, job_id, job_name, status, amount, discount, due_date, paid_at, description, show_cents, retention_amount, retention_pct, voided_at, viewing_token, is_deposit, nte_amount, proposals(total, is_archive_proposal, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))`)
+        .select(`id, proposal_id, job_id, job_name, status, amount, discount, sent_at, due_date, paid_at, description, show_cents, retention_amount, retention_pct, voided_at, viewing_token, is_deposit, nte_amount, proposals(total, is_archive_proposal, call_log(customer_name, sales_name, display_job_number, jobsite_address, jobsite_city, jobsite_state, jobsite_zip, show_cents, customers(billing_name, billing_email, contact_email, first_name, last_name, name, business_address, business_city, business_state, business_zip), job_work_types(work_types(name))))`)
         .eq("viewing_token", token)
         .single();
 
@@ -221,6 +221,12 @@ export default function PublicInvoicePage() {
                   {/* Number only — job_id carries "<number> - <job name>", and a
                       long job name wrapped to two ragged lines under the label. */}
                   <div style={{ fontSize: 12, color: "#887c6e" }}>{String(invoice.job_id).split(" - ")[0]}</div>
+                </>
+              )}
+              {invoice.sent_at && (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#1c1814", letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 10, marginBottom: 4 }}>Sent Date</div>
+                  <div style={{ fontSize: 12, color: "#887c6e" }}>{fmtD(invoice.sent_at)}</div>
                 </>
               )}
               {invoice.due_date && (

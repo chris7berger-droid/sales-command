@@ -33,7 +33,11 @@ What was mistaken for the reverse sync is a UI refresher in `src/pages/Invoices.
 
 Two non-human exceptions:
 - **Stripe:** money moves outside QB, so the Stripe webhook keeps pushing the payment *into* QB (`qb-record-payment`, Stripe-triggered). This is the only legitimate SC→QB payment write.
-- **QB → SC reader (NEW):** the missing feature — reflects QB payment status back into SC, and clears the backlog.
+- **QB → SC reflection (NEW):** the missing feature — reflects QB payment status back into SC. Built as **two mechanisms feeding one shared "reflect" core**:
+  1. **Instant webhook (primary):** QuickBooks pushes a notification the moment a payment posts → SC updates in seconds. This is the real experience 99% of the time.
+  2. **15-min sweep (backup):** a self-healing safety net that catches anything a webhook ping missed, and clears the existing backlog.
+
+  Both call the *same* reflect logic (§4.3b), so they can never drift. The webhook says *which* invoices changed; the sweep re-checks *all* still-unpaid invoices.
 
 Coverage with no human ever "marking paid":
 - **Check / ACH** → bookkeeper records in QB → reader reflects → SC Paid.
@@ -61,22 +65,33 @@ Coverage with no human ever "marking paid":
 - Function body unchanged. It already tenant-binds and allows service-role internal calls (`_shared/tenantAuth.ts`). Once the two frontend callers are gone, Stripe is the sole caller.
 - Optional hardening (DESIGN-OPEN): reject non-service-role callers outright so a stray frontend call can never push a payment again. Low effort, closes the door permanently.
 
-### 4.3 NEW edge function: `qb-reflect-payments` [DERIVED]
-Purpose: for each tenant with a QB connection, read QB payment status for the invoices SC still thinks are unpaid, and flip the fully-paid ones to Paid.
+**Design: one reflect core, two triggers.** Instant webhook is the everyday path; the 15-min sweep is the backup that can't lose anything. Both call the same core so they never drift.
 
-Algorithm (per tenant):
-1. Load `qb_connection` → fresh access token (reuse the existing `getQBToken` pattern from `qb-record-payment` / `qb-sync-invoice`).
-2. From SC: select invoices where `status not in ('Paid','New','Void')` AND `qb_invoice_id is not null` AND `deleted_at is null` AND `voided_at is null`. Collect `qb_invoice_id`s.
-3. Query QB in batches: `SELECT Id, Balance, DocNumber FROM Invoice WHERE Id IN ('...')` (QB `IN` + `MAXRESULTS 1000` paging). **Targeted** query on our ~108 ids, not a full-table scan of QB.
-4. For each returned QB invoice with `Balance == 0`: set SC `status = 'Paid'`, `paid_at = <payment date>`. Only flip if SC is currently unpaid (never un-pay).
-5. Skip `qb_skip_sync` and archive-unlinked invoices (mirror the guards already in `qb-record-payment`).
+### 4.3a Shared reflect core [DERIVED]
+A single function `reflectInvoicesFromQB(tenantId, qbInvoiceIds | "all-unpaid")` — the only code that writes Paid status from QB. Both triggers below call it.
 
-Wiring: scheduled via `pg_cron` → `net.http_post` to the function, service-role key pulled from **Vault** (shared-DB pattern; custom GUCs are blocked from SQL). Deploy with `--no-verify-jwt`; the function authenticates via service-role internally.
+Per invocation:
+1. Load `qb_connection` for the tenant → fresh access token (reuse the existing `getQBToken` pattern from `qb-record-payment` / `qb-sync-invoice`).
+2. Resolve the candidate set: either the specific `qb_invoice_id`s handed in (webhook), or all SC invoices where `status not in ('Paid','New','Void')` AND `qb_invoice_id is not null` AND `deleted_at is null` AND `voided_at is null` (sweep + backfill).
+3. Query QB in batches: `SELECT Id, Balance, DocNumber FROM Invoice WHERE Id IN ('...')` (QB `IN` + `MAXRESULTS 1000` paging). Targeted, never a full-table scan.
+4. For each QB invoice with `Balance == 0`: set SC `status = 'Paid'`, `paid_at = <real QB Payment date, §6>`. **Only flip if SC is currently unpaid — never un-pay** (§3.4).
+5. Skip `qb_skip_sync` and archive-unlinked invoices (mirror the guards in `qb-record-payment`).
 
-Frequency (DESIGN-OPEN, recommend): every **15 min**. Payment reflection isn't latency-sensitive; 15 min is invisible to users and cheap.
+### 4.3b Instant webhook `qb-webhook` — PRIMARY, v1 [DERIVED]
+New public edge function (deployed `--no-verify-jwt`) that receives Intuit **Event Notifications**.
+1. **Register** the webhook URL in the Intuit developer portal; subscribe to **Invoice** (fires when balance changes on payment) and **Payment** entities.
+2. **Verify** every request: HMAC-SHA256 the raw body with the webhook **verifier token** (new secret `QB_WEBHOOK_VERIFIER_TOKEN`) and compare to the `intuit-signature` header. Reject mismatches — this is the auth boundary for a public endpoint.
+3. Payload gives `realmId` + changed entity IDs (not full data). Map `realmId → tenant` via `qb_connection.realm_id`. Resolve to affected `qb_invoice_id`s (for a Payment event, read its `LinkedTxn` invoice ids).
+4. Call `reflectInvoicesFromQB(tenantId, thoseIds)`. Return 200 fast (do the QB read/flip inline; it's a tiny set).
+- **Idempotent:** re-delivered or duplicate pings just re-confirm Paid — the never-un-pay rule makes repeats harmless.
 
-### 4.4 Backfill = one run of the same reader [LOCKED principle]
-No separate throwaway script. The one-time backlog cleanup is `qb-reflect-payments` run once across all linked unpaid invoices. This is the whole point of building the reader first: the fix and the ongoing sync share one code path, so they can't drift. Expect it to resolve most of the 108.
+### 4.3c 15-min sweep `qb-reflect-payments` — BACKUP, v1 [DERIVED]
+Thin scheduled wrapper that calls `reflectInvoicesFromQB(tenant, "all-unpaid")` for each tenant with a QB connection.
+- Wiring: `pg_cron` → `net.http_post`, service-role key from **Vault** (shared-DB pattern; custom GUCs blocked from SQL). Deploy `--no-verify-jwt`; authenticates via service-role internally.
+- **Every 15 min [LOCKED].** Negligible cost (~96 runs/day, a few hundred QB reads/day vs a ~500-req/min limit). Self-healing: a failed run or a webhook ping that never arrived is swept up on the next pass — nothing is ever silently lost. This is why the webhook can be "fire-and-forget" without risk.
+
+### 4.4 Backfill = one sweep run [LOCKED principle]
+No separate throwaway script. The one-time backlog cleanup is the §4.3c sweep run once across all linked unpaid invoices — same code path as the ongoing sync, so they can't drift. Expect it to resolve most of the 108.
 
 ---
 
@@ -85,18 +100,15 @@ No separate throwaway script. The one-time backlog cleanup is `qb-reflect-paymen
 Current screen: `src/pages/Invoices.jsx` (list + detail modal). No layout restructure.
 
 - **"Mark as Paid" action** stays in the same status menu (`Invoices.jsx:2000-2002`), same label, same place — behavior only changes (local-only). Preserves the existing mental model.
+- **Delay notice [LOCKED]:** show a small, quiet line on the Invoices screen — e.g. "Payment statuses sync automatically from QuickBooks — usually within seconds, up to 15 minutes at most." Instant is the norm (webhook); the notice just makes a rare lag read as "syncing," not "broken." Placement TBD (near the list header or status filter).
 - **Consider (DESIGN-OPEN):** a small "Synced from QuickBooks" indicator or `paid_at` source tag on invoices the reader flipped, so Chris can tell QB-reflected Paid from manually-marked Paid. Not required for v1.
 - No change to the Stripe-paid or send flows.
 
 ---
 
-## 6. `paid_at` source [DESIGN-OPEN]
+## 6. `paid_at` source [LOCKED: real date from QuickBooks]
 
-QB's Invoice object gives `Balance` but not the payment date directly. Options:
-- **(a) Reader detection time** — simplest, but not the true payment date (accounting-inaccurate for aging/collected-this-month tiles).
-- **(b) Query the linked QB `Payment` TxnDate** — one extra QB read per flipped invoice; gives the real payment date. **Recommended.** Fallback to (a) if no linked payment is found.
-
-Decision needed before build.
+Chris chose the real payment date. QB's Invoice object gives `Balance` but not the payment date directly, so the reader queries the linked QB `Payment` transaction and uses its `TxnDate` as `paid_at`. Fallback to reader-detection time only if no linked payment is found. This keeps aging and "collected this month" numbers accurate.
 
 ---
 
@@ -120,28 +132,33 @@ No required new columns. Optional observability (DESIGN-OPEN): `invoices.qb_refl
 
 ## 9. Rollout & smoke
 
-1. Ship code deltas (§4.1–4.3) to a preview deploy.
-2. Deploy `qb-reflect-payments` with `--no-verify-jwt`.
-3. **Manual smoke before scheduling:** invoke the reader once by hand; verify it flips a *known* QB-paid invoice (cross-check by querying QB directly by DocNumber — ground truth, never infer QB state from SC fields) and does **not** touch a known-unpaid one.
+1. Ship code deltas (§4.1) + the shared reflect core (§4.3a) + both triggers (§4.3b webhook, §4.3c sweep) to a preview deploy. Deploy `qb-webhook` and `qb-reflect-payments` with `--no-verify-jwt`. Set secret `QB_WEBHOOK_VERIFIER_TOKEN`.
+2. **Core smoke (sweep), before scheduling:** invoke the sweep once by hand; verify it flips a *known* QB-paid invoice (cross-check by querying QB directly by DocNumber — ground truth, never infer QB state from SC fields) and does **not** touch a known-unpaid one.
+3. **Webhook smoke:** register the URL in the Intuit portal; record a test payment in QB against a linked invoice; confirm the ping arrives, signature verifies, and SC flips within seconds. Also confirm a forged/badly-signed request is rejected.
 4. Verify the "Mark as Paid" button no longer creates a QB payment (check QB — no new Payment txn).
 5. Verify Stripe path still records a QB payment (regression check on the one legitimate push).
-6. Only after smoke passes: schedule the pg_cron job (15 min) and run the full backfill.
+6. Only after smoke passes: schedule the pg_cron sweep (15 min) and run the full backfill.
 7. Re-count: QB-linked-unpaid should drop from 108 toward the true still-open set.
 
 ---
 
-## 10. Open questions (resolve before build)
+## 10. Open questions
 
-- **§6** `paid_at` source: linked QB Payment TxnDate (rec) vs. detection time?
-- **§4.3** cadence: 15 min ok?
-- **§4.2** hard-reject non-service-role callers of `qb-record-payment`?
-- **§5/§8** add the "reflected from QB" indicator + column, or defer to v2?
+**Resolved:**
+- ~~`paid_at` source~~ → real QB Payment date (§6). [LOCKED]
+- ~~Real-time vs. polling~~ → **both**: instant webhook primary + 15-min sweep backup, one shared reflect core (§4.3). Instant is the norm; the sweep guarantees nothing is ever lost. [LOCKED]
+- ~~Sweep cadence~~ → 15 min (§4.3c). [LOCKED]
+
+**Still open (resolve before build):**
+- **§4.2** hard-reject non-service-role callers of `qb-record-payment` so a stray app-side call can never push a payment again? (Recommend: yes — cheap, permanent safety.)
+- **§5/§8** add the "reflected from QuickBooks" badge + `qb_reflected_at` column now, or defer to v2? (Recommend: defer.)
 
 ---
 
 ## 11. Build order
 
 1. Local-only "Mark as Paid" + remove the two SC→QB pushes (§4.1). Smallest, self-contained, immediately correct.
-2. `qb-reflect-payments` function (§4.3) + manual smoke (§9.1–9.5).
-3. Backfill run (§4.4) + pg_cron schedule (§9.6).
-4. Optional indicator/column (§5/§8) if kept.
+2. Shared reflect core (§4.3a) + 15-min sweep wrapper (§4.3c). Smoke the core via the sweep (§9.2). This alone makes the system correct.
+3. Backfill run (§4.4) + pg_cron schedule (§9.6). Backlog cleared even before the webhook lands.
+4. Instant webhook (§4.3b): `qb-webhook` fn, verifier-token secret, Intuit portal registration, webhook smoke (§9.3). This is the "amazing UX" layer — real-time on top of an already-correct base.
+5. Delay notice (§5). Optional badge/column (§5/§8) if kept.

@@ -7,7 +7,7 @@ Cross-repo: CODE lives in sales-command; PLAN + canonical backlog row live in sc
 PICK-UP-ON-DESKTOP (read first)
 ═══════════════════════════════════════════════════════════════════════════════
 Everything needed is on origin — nothing local-only:
-- sales-command  branch fix/pullback-resend-teardown @ 769a06f (2 commits below), tracking origin.
+- sales-command  branch fix/pullback-resend-teardown @ 08741ce (tip; PB-1 fix + S13 + this handoff), tracking origin.
 - sch-command    branch fix/pullback-resend-teardown @ 8836f81 (plan + PB-1), local==origin.
 On the desktop: `git fetch` both repos, check out fix/pullback-resend-teardown in each.
 The ONE remaining task: run the §8 browser smoke on the Vercel preview, then merge to main.
@@ -141,9 +141,9 @@ FILES TO KNOW
 ═══════════════════════════════════════════════════════════════════════════════
 GIT STATE
 ═══════════════════════════════════════════════════════════════════════════════
-sales-command  fix/pullback-resend-teardown (tracking origin, pushed):
-  769a06f  Touches S13: file jobs-table catch-all RLS policy gap (T6 security-review of PB-1)
+sales-command  fix/pullback-resend-teardown (tracking origin, pushed) — tip 08741ce:
+  08741ce  docs: session handoff v190 (this file)
+  9842b20  Touches S13: file jobs-table catch-all RLS policy gap (T6 security-review of PB-1)
   9266ae6  Touches PB-1: pull-back → re-send teardown — free tombstone-held WTC slots + short-write guard
   542c33b  docs: session handoff v189 (Campaign Leads)   ← main fork point
-  (this handoff commit adds v190 on top)
 sch-command    fix/pullback-resend-teardown @ 8836f81 (plan + PB-1), local==origin, docs-only.

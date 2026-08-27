@@ -2594,6 +2594,15 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           </h2>
         )}
         <Pill label={inv.status} cm={INV_C} />
+        {/* "Synced from QuickBooks" badge — set only on a QB-reflected Paid, so a
+            QB-driven Paid reads apart from a hand-marked (local-only) one. Teal
+            text on C.dark WITH an explicit teal border (CLAUDE.md style rule 4 —
+            without the border it falls back to C.dark and disappears). */}
+        {inv.status === "Paid" && inv.qb_reflected_at && (
+          <span title="Payment status synced automatically from QuickBooks">
+            <Pill label="QB" cm={{ QB: { bg: C.dark, text: C.teal, border: C.teal } }} />
+          </span>
+        )}
         {inv.voided_at && <Pill label="VOIDED" cm={INV_C} />}
         {!editing && !inv.voided_at && ageDays !== null && (
           <span style={{ fontSize: 12, fontWeight: 800, fontFamily: F.display, color: ageDays > 0 ? C.red : ageDays === 0 ? C.amber : C.green }}>
@@ -3484,6 +3493,13 @@ export default function Invoices({ setSubPage, teamMember }) {
           <span style={{ fontSize: 20, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>{isRetentionView ? "Retention" : "All Invoices"}</span>
           <span style={{ fontSize: 12, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui, letterSpacing: "0.06em", textTransform: "uppercase" }}>{(isRetentionView ? retentionInvoices.length : activeInvoices.length)} {isRetentionView ? "open" : "active"}</span>
         </div>
+        {/* Delay notice (plan §5) — instant is the norm (webhook); this quiet line
+            makes a rare lag read as "syncing," not "broken." */}
+        {!isRetentionView && (
+          <div style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui, marginTop: -2 }}>
+            Payment statuses sync automatically from QuickBooks — usually within seconds, up to 15 minutes at most.
+          </div>
+        )}
         {invFilter && (
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(48,207,172,0.10)", border: `1.5px solid ${C.tealBorder}`, borderRadius: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: C.tealDeep, fontFamily: F.ui }}>Showing: {INV_LENS_LABEL[invFilter]} ({filteredInvoices.length})</span>
@@ -3506,7 +3522,18 @@ export default function Invoices({ setSubPage, teamMember }) {
               { k: "id",       l: "Invoice #", r: v => <span style={{ fontWeight: 600, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{v}</span> },
               { k: "job_id",   l: "Job #",     r: v => <span style={{ fontWeight: 600, color: C.teal, fontFamily: F.display, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{v}</span> },
               { k: "job_name", l: "Job Name",  r: v => <span style={{ fontWeight: 500, color: C.textMuted, fontFamily: F.display, maxWidth: 200, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span> },
-              { k: "status",   l: "Status",    r: (v, row) => row.voided_at ? <Pill label="VOIDED" cm={INV_C} /> : <Pill label={v} cm={{ ...PROP_C, ...INV_C }} /> },
+              { k: "status",   l: "Status",    r: (v, row) => row.voided_at ? <Pill label="VOIDED" cm={INV_C} /> : (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <Pill label={v} cm={{ ...PROP_C, ...INV_C }} />
+                  {/* QB-reflected Paid (see detail header note) — distinguishes it
+                      from a hand-marked Paid when scanning the list. */}
+                  {v === "Paid" && row.qb_reflected_at && (
+                    <span title="Payment status synced automatically from QuickBooks">
+                      <Pill label="QB" cm={{ QB: { bg: C.dark, text: C.teal, border: C.teal } }} />
+                    </span>
+                  )}
+                </span>
+              ) },
               { k: "amount",   l: isRetentionView ? "Gross Billed" : "Amount", r: v => <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", fontFamily: F.display }}>{fmt$c(v)}</span> },
               isRetentionView
                 ? { k: "retention_amount", l: "Retention Held",

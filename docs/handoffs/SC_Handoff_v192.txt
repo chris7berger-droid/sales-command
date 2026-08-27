@@ -11,14 +11,16 @@ its BACKEND IS LIVE IN PROD. Real-time reflection works: a payment posts in QB �
 webhook → SC flips the invoice to Paid in seconds. The one-time backlog (53 stuck invoices)
 is already corrected. Nothing is broken or half-applied.
 
-TWO steps remain, both cleanly parked:
-  1. CRON backup sweep — migration DRAFTED, blocked ONLY on command-suite-db `main` catching
-     up to prod (a parallel Sales/Schedule DB session pushed 2 migrations to prod without
-     merging to main). Do NOT work in command-suite-db until that clears — Chris said other
-     DB work is active there.
-  2. FRONTEND MERGE + tripwire — the UI changes (QB badge, delay notice, hidden Mark-as-Paid,
-     H2 warn) go live only when this branch merges to main. The qb-record-payment tripwire
-     MUST deploy at the SAME moment as the merge (see ORDERING HAZARD below).
+ONE step remains:
+  - FRONTEND MERGE + tripwire — the UI changes (QB badge, delay notice, hidden Mark-as-Paid,
+    H2 warn) go live only when this branch merges to main. The qb-record-payment tripwire
+    MUST deploy at the SAME moment as the merge (see ORDERING HAZARD below).
+
+DONE since the first draft of this handoff:
+  - CRON backup sweep is now LIVE. Migration command-suite-db 20260827160000 pushed to prod
+    after the parallel session merged main up to prod; cron.job 'qb-reflect-payments-sweep'
+    active, schedule */15 * * * *, targeting qb-reflect-payments. No schema footprint (grants
+    stayed 9171, no baseline/EXPECT change). command-suite-db main @ 09ee3e3.
 
 All four review gates PASSED: build → buildvsplan → code-review → security-review. 0 blockers.
 
@@ -70,26 +72,18 @@ swallows the 403). The tripwire + the button-hiding are two halves of one change
   → DEPLOY qb-record-payment (tripwire) AT THE SAME TIME AS the merge to main, not before.
 
 ═══════════════════════════════════════════════════════════════════════════════
-REMAINING STEP 1 — CRON backup sweep (blocked on command-suite-db main)
+CRON backup sweep — DONE (was Remaining Step 1)
 ═══════════════════════════════════════════════════════════════════════════════
-- The recurring 15-min sweep is NOT scheduled yet. Real-time reflection (webhook) covers the
-  everyday path; the cron is the self-healing backup for missed pings. Until it's scheduled,
-  a missed webhook would only be caught by a manual sweep run.
-- Migration DRAFTED at:
-    /private/tmp/claude-501/-Users-chrisberger/054ec4bd-980c-4799-a7ca-a29844191804/scratchpad/DRAFT_qb_reflect_payments_cron.sql
-  (mirrors command-suite-db/20260805223000 exactly — literal URL + Vault cron_secret +
-  to_regclass guard; NO schema footprint, so no EXPECT_* bump).
-- BLOCKED: command-suite-db `origin/main` is at 61aeaa5 (my commit) but PROD ledger head is
-  20260827140000 (parallel session's job_material_checks + fix_time_punches, pushed to prod
-  from feat/material-confirmation, NOT merged to main). So main's EXPECT (9039) is stale vs
-  prod (9171) and a rehearsal off main fails the freshness gate.
-  → WHEN main catches up: copy the draft into command-suite-db/supabase/migrations/ with a
-     timestamp > the prod ledger head at that moment, `./scripts/rehearse.sh <file>` (expect
-     green, no count change), then push. Then the cron is scheduled.
-- Do NOT touch command-suite-db until the parallel Sales/Schedule DB work has merged.
+- LIVE. command-suite-db main caught up to prod (parallel session merged feat/material-
+  confirmation → prod head 20260827150000), so the parked cron migration landed as
+  20260827160000_qb_reflect_payments_cron.sql: rehearsed green (DDL-free, grants unchanged
+  at 9171), pushed to prod, committed to main @ 09ee3e3.
+- Verified: cron.job 'qb-reflect-payments-sweep' active, schedule */15 * * * *, targets
+  qb-reflect-payments. Mirrors 20260805223000 (literal URL + Vault cron_secret + to_regclass
+  guard). Inherits project-global CRON_SECRET (never re-set).
 
 ═══════════════════════════════════════════════════════════════════════════════
-REMAINING STEP 2 — Frontend merge + tripwire (makes the UI live)
+REMAINING — Frontend merge + tripwire (the only piece left; makes the UI live)
 ═══════════════════════════════════════════════════════════════════════════════
 - Optional first: visual smoke on the Vercel preview of feat/qb-payment-status-sync — open an
   invoice, confirm the "QB" badge shows on a reflected-Paid invoice, Mark-as-Paid is hidden on

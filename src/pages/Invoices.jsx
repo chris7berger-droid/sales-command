@@ -1916,11 +1916,13 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     if (newStatus === "Paid" && !inv.paid_at) updates.paid_at = new Date().toISOString();
     const { error } = await supabase.from("invoices").update(updates).eq("id", inv.id);
     if (error) { alert(error.message); return; }
-    // Sync payment to QuickBooks when marked as Paid (skip test jobs)
-    if (newStatus === "Paid" && inv.qb_invoice_id && !(inv.job_name || "").toLowerCase().includes("test")) {
-      supabase.functions.invoke("qb-record-payment", { body: { invoiceId: inv.id } })
-        .catch(() => {});
-    }
+    // Mark as Paid is now LOCAL-ONLY (plan §3.2/§4.1). QB is the source of truth
+    // for "is it paid": payment status flows QB → SC via the reflect core, never
+    // the reverse. So this sets SC status + paid_at and records NOTHING in QB.
+    // The action is only reachable on invoices QB won't reflect (unlinked /
+    // qb_skip_sync — gated out of `actions` below), so there is no QB payment to
+    // create here. (Removed the old qb-record-payment push — Stripe is now that
+    // function's only caller.)
     setInv(prev => ({ ...prev, ...updates }));
     onUpdated && onUpdated();
   }
@@ -1928,6 +1930,19 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   async function handleQBSync() {
     if (syncing) return;
     if (inv.voided_at) { setSyncError("This invoice is voided — re-sync is not allowed."); return; }
+    // H2 (plan §4.1): a locally-Paid invoice has no real QB payment behind it.
+    // Syncing pushes the INVOICE to QuickBooks but records NO payment (the reflect
+    // core is the only Paid path now, and it skips already-Paid rows), so QB will
+    // show it unpaid while SC shows Paid. Warn before letting the two diverge —
+    // don't silently push a "paid" invoice that QB will still consider open.
+    if (inv.status === "Paid") {
+      const proceed = window.confirm(
+        "This invoice is marked Paid locally but has no QuickBooks payment. Syncing " +
+        "will push the invoice to QuickBooks WITHOUT recording a payment — QuickBooks " +
+        "will still show it unpaid. Sync the invoice anyway?"
+      );
+      if (!proceed) return;
+    }
     setSyncing(true);
     setSyncError(null);
     setSyncReLink(false);
@@ -1961,17 +1976,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         if (data?.skipped) throw new Error(`QB sync skipped: ${data.reason}`);
       }
 
-      if (inv.status === "Paid") {
-        const { data: pData, error: pErr } = await supabase.functions.invoke("qb-record-payment", { body: { invoiceId: inv.id } });
-        if (pErr) throw new Error(pErr.message || "QB payment sync failed.");
-        if (pData?.error === "qb_customer_invalid") {
-          setSyncError(pData.message || "Linked QuickBooks customer no longer exists or is inactive.");
-          setSyncReLink(true);
-          setSyncing(false);
-          return;
-        }
-        if (pData?.error) throw new Error(pData.error);
-      }
+      // (Removed the old "if Paid, also record payment in QB" push — plan §4.1.
+      //  handleQBSync syncs the INVOICE only; payment reflection is the reader's
+      //  job now, flowing QB → SC. The H2 confirm above already warned the operator
+      //  that a locally-Paid sync records no QB payment.)
 
       const { data: refreshed } = await supabase
         .from("invoices")
@@ -1980,8 +1988,10 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
         .maybeSingle();
       if (refreshed) setInv(prev => ({ ...prev, ...refreshed }));
       onUpdated && onUpdated();
-      const paidNote = inv.status === "Paid" ? " Payment also recorded." : "";
-      setSyncToast(`Invoice synced to QuickBooks (QB ID ${refreshed?.qb_invoice_id || "—"}).${paidNote}`);
+      // No "Payment also recorded." note — the SC→QB payment push is gone (plan
+      // §4.1); this action syncs the invoice only, so the toast must not claim a
+      // payment was recorded.
+      setSyncToast(`Invoice synced to QuickBooks (QB ID ${refreshed?.qb_invoice_id || "—"}).`);
       setTimeout(() => setSyncToast(null), 5000);
     } catch (e) {
       setSyncError(e.message || "QB sync failed.");
@@ -2002,7 +2012,17 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
     "Past Due": [{ label: "Mark as Paid", status: "Paid" }],
   };
 
-  const actions = statusActions[inv.status] || [];
+  // "Mark as Paid" is local-only now and applies ONLY to invoices QB will NOT
+  // reflect automatically: unlinked (no qb_invoice_id) or a qb_skip_sync job.
+  // On a QB-owned invoice the reflect core sets Paid from a real QB Payment, so a
+  // manual local Paid there would only let SC diverge from QB — HIDE it (Chris's
+  // call, plan §5 / R2 D2) by filtering it out of the actions array here, not by
+  // CSS-hiding a still-callable menu item. Gate mirrors the reflect-core skip set
+  // exactly: `!qb_invoice_id || qb_skip_sync`.
+  const qbReflectsThisInvoice = !!inv.qb_invoice_id && !inv.proposals?.call_log?.qb_skip_sync;
+  const actions = (statusActions[inv.status] || []).filter(
+    a => a.status !== "Paid" || !qbReflectsThisInvoice
+  );
   const canPullBack = inv.status !== "New" && inv.status !== "Paid";
   // A T&M invoice carries day-row lines (hours × rate on a rate card). Those hours
   // can't be edited once billed, so Pull Back deletes it and you rebuild from

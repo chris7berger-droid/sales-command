@@ -190,6 +190,10 @@ invoices: id (text), job_id, job_name, status, amount, discount, sent_at,
   retention_amount (numeric), retention_pct (numeric),
   retention_released (boolean), retention_release_of (text FK invoices — set
     on release invoices; see migration 20260601120000),
+  qb_reflected_at (timestamptz, NULL = never reflected from QB — set by the
+    QB→SC reflect core when it flips this invoice to Paid from a real QB
+    Payment; NULL on manual/Stripe-paid rows; internal, never anon-exposed;
+    see migration 20260827120000),
   tenant_id (uuid FK tenant_config)
   — verified against prod 2026-08-22; prior list omitted created_at/voided_at/
     retention_* and wrongly implied created_at was absent.

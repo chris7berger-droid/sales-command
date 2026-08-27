@@ -1,0 +1,126 @@
+SC Handoff v192 — QuickBooks → Sales Command payment-status sync: BUILT, backend LIVE, 2 steps remain
+Date: 2026-08-27
+Branch: feat/qb-payment-status-sync (sales-command) — pushed, NOT merged to main.
+Plan: docs/plans/qb_payment_status_sync.md (2-round audited, build-ready).
+
+═══════════════════════════════════════════════════════════════════════════════
+PICK-UP (read first)
+═══════════════════════════════════════════════════════════════════════════════
+The feature that reflects QuickBooks payment status back into Sales Command is BUILT and
+its BACKEND IS LIVE IN PROD. Real-time reflection works: a payment posts in QB → Intuit
+webhook → SC flips the invoice to Paid in seconds. The one-time backlog (53 stuck invoices)
+is already corrected. Nothing is broken or half-applied.
+
+TWO steps remain, both cleanly parked:
+  1. CRON backup sweep — migration DRAFTED, blocked ONLY on command-suite-db `main` catching
+     up to prod (a parallel Sales/Schedule DB session pushed 2 migrations to prod without
+     merging to main). Do NOT work in command-suite-db until that clears — Chris said other
+     DB work is active there.
+  2. FRONTEND MERGE + tripwire — the UI changes (QB badge, delay notice, hidden Mark-as-Paid,
+     H2 warn) go live only when this branch merges to main. The qb-record-payment tripwire
+     MUST deploy at the SAME moment as the merge (see ORDERING HAZARD below).
+
+All four review gates PASSED: build → buildvsplan → code-review → security-review. 0 blockers.
+
+═══════════════════════════════════════════════════════════════════════════════
+WHAT IS LIVE IN PROD RIGHT NOW
+═══════════════════════════════════════════════════════════════════════════════
+DB (shared project pbgvgjjuhnpsumnowuym):
+  - invoices.qb_reflected_at (timestamptz, nullable) — migration command-suite-db
+    20260827120000, pushed + ledger-recorded. Column confirmed NOT anon-exposed.
+  - Same command-suite-db PR folded a rehearse-gate catch-up for yesterday's customers.notes
+    drift (EXPECT_COLUMN_GRANTS 9004→9028→9039, baseline snapshot updated). Commits on
+    command-suite-db main: 07c177c + 61aeaa5 (pushed).
+
+Edge functions (deployed --no-verify-jwt):
+  - qb-reflect-payments (NEW) — the 15-min sweep. Deployed + x-cron-secret gate verified
+    (no/bad secret → 403). Inherits project-global CRON_SECRET (do NOT re-set it).
+  - qb-webhook (NEW) — real-time reflection. Deployed. QB_WEBHOOK_VERIFIER_TOKEN secret SET.
+    Smoked: no-token→500, bad-sig→401, valid-sig→200 (realm 9341452554176340 → tenant
+    246f6551-60de-4965-bb97-9a52971bc05d, no-op on fake id, no data touched).
+  - qb-record-payment — NOT yet redeployed. Still the OLD version (no tripwire). Held on
+    purpose (see ORDERING HAZARD).
+
+Intuit developer portal (Chris did this manually):
+  - Sales Command app → Webhooks → PRODUCTION tab.
+  - Endpoint URL = https://pbgvgjjuhnpsumnowuym.supabase.co/functions/v1/qb-webhook
+  - Subscribed entities: Invoice + Payment.
+  - Verifier token generated + set as QB_WEBHOOK_VERIFIER_TOKEN.
+
+BACKFILL (one-time, done + verified against QB):
+  - Ran the sweep once by hand via net.http_post in the Supabase SQL editor (the MCP role
+    can't read the Vault cron_secret, so it must run from the SQL editor).
+  - 111 candidates → 53 flipped to Paid, 58 left unpaid, 20 pre-existing Paid untouched.
+  - Verified: all 53 flipped have a real paid_at (0 flipped without a payment — A1 guard held);
+    3 spot-checked directly in QB all show Balance 0.00 (incl. 2 retention invoices); ALL 58
+    left-unpaid have QB Balance > 0 (min $0.38) so none were wrongly skipped. No write-off/
+    credit-memo existed in the data, so the "zero-balance-no-payment stays unpaid" case wasn't
+    exercised against live data (covered by code review + the require-Payment invariant).
+  - Note: 3 invoices have tiny residual balances (10059=$0.38, 10040=$0.40, 10050=$3.00) —
+    underpayments that will never auto-flip (Balance≠0). Documented v1 partial-payment behavior.
+
+═══════════════════════════════════════════════════════════════════════════════
+ORDERING HAZARD — read before deploying the tripwire or merging
+═══════════════════════════════════════════════════════════════════════════════
+qb-record-payment's new tripwire (`if !caller.isServiceRole → 403`) makes it reject app-side
+calls. But prod's CURRENT frontend (main) still has the OLD Invoices.jsx whose Mark-as-Paid
+calls qb-record-payment with a user JWT. If you deploy the tripwire BEFORE the frontend merges,
+a manual Mark-as-Paid on a QB-linked invoice silently stops recording in QB (the old .catch
+swallows the 403). The tripwire + the button-hiding are two halves of one change.
+  → DEPLOY qb-record-payment (tripwire) AT THE SAME TIME AS the merge to main, not before.
+
+═══════════════════════════════════════════════════════════════════════════════
+REMAINING STEP 1 — CRON backup sweep (blocked on command-suite-db main)
+═══════════════════════════════════════════════════════════════════════════════
+- The recurring 15-min sweep is NOT scheduled yet. Real-time reflection (webhook) covers the
+  everyday path; the cron is the self-healing backup for missed pings. Until it's scheduled,
+  a missed webhook would only be caught by a manual sweep run.
+- Migration DRAFTED at:
+    /private/tmp/claude-501/-Users-chrisberger/054ec4bd-980c-4799-a7ca-a29844191804/scratchpad/DRAFT_qb_reflect_payments_cron.sql
+  (mirrors command-suite-db/20260805223000 exactly — literal URL + Vault cron_secret +
+  to_regclass guard; NO schema footprint, so no EXPECT_* bump).
+- BLOCKED: command-suite-db `origin/main` is at 61aeaa5 (my commit) but PROD ledger head is
+  20260827140000 (parallel session's job_material_checks + fix_time_punches, pushed to prod
+  from feat/material-confirmation, NOT merged to main). So main's EXPECT (9039) is stale vs
+  prod (9171) and a rehearsal off main fails the freshness gate.
+  → WHEN main catches up: copy the draft into command-suite-db/supabase/migrations/ with a
+     timestamp > the prod ledger head at that moment, `./scripts/rehearse.sh <file>` (expect
+     green, no count change), then push. Then the cron is scheduled.
+- Do NOT touch command-suite-db until the parallel Sales/Schedule DB work has merged.
+
+═══════════════════════════════════════════════════════════════════════════════
+REMAINING STEP 2 — Frontend merge + tripwire (makes the UI live)
+═══════════════════════════════════════════════════════════════════════════════
+- Optional first: visual smoke on the Vercel preview of feat/qb-payment-status-sync — open an
+  invoice, confirm the "QB" badge shows on a reflected-Paid invoice, Mark-as-Paid is hidden on
+  a QB-linked invoice, the delay notice shows under "All Invoices."
+- Merge feat/qb-payment-status-sync → main (Vercel auto-deploys the frontend to prod).
+- AT THE SAME TIME: `supabase functions deploy qb-record-payment --no-verify-jwt --project-ref
+  pbgvgjjuhnpsumnowuym` (deploys the tripwire). Verify Stripe still records a QB payment after
+  (regression on stripe-webhook:173, the one legitimate service-role caller).
+
+═══════════════════════════════════════════════════════════════════════════════
+NEW BACKLOG
+═══════════════════════════════════════════════════════════════════════════════
+- F55 (docs/BACKLOG.md, T3, Open) — QB→SC reflect core hardening, 3 non-blocking T5/T6
+  findings: webhook work[] dedup, general IN-list escaping, paid_at noon-UTC vs literal local
+  noon. All safe today; polish.
+
+═══════════════════════════════════════════════════════════════════════════════
+GIT STATE
+═══════════════════════════════════════════════════════════════════════════════
+sales-command feat/qb-payment-status-sync (pushed, NOT merged), commits since main:
+  43b1c91  T5/T6 review response — fix gate comment, file F55
+  4b1d9b7  steps 5+6: qb-webhook + QB badge + delay notice
+  1d4d2f4  step 3: _shared/reflectPayments.ts core + qb-reflect-payments sweep + config.toml
+  21950ab  step 2: local-only Mark-as-Paid + remove SC→QB pushes + tripwire + CLAUDE.md col ref
+  (+ 7 prior plan/audit commits)
+command-suite-db main (pushed): 61aeaa5, 07c177c (my migration + rehearse-gate work). LEAVE IT.
+
+FILES TO KNOW
+  supabase/functions/_shared/reflectPayments.ts   — the reflect core (all guards here)
+  supabase/functions/qb-webhook/index.ts          — real-time webhook (HMAC, async)
+  supabase/functions/qb-reflect-payments/index.ts — 15-min sweep
+  supabase/functions/qb-record-payment/index.ts   — tripwire added (NOT yet deployed)
+  src/pages/Invoices.jsx                           — local-only Mark-as-Paid, badge, notice
+  scratchpad DRAFT_qb_reflect_payments_cron.sql    — the parked cron migration

@@ -71,7 +71,7 @@ Coverage with no human ever "marking paid":
 ## 3. Decisions locked [LOCKED]
 
 1. **QB is source of truth for payment status.** Reader flows QB → SC.
-2. **"Mark as Paid" becomes local-only, and is gated to non-QB invoices.** It sets SC `status = Paid` + `paid_at` and nothing else — no `qb-record-payment` call. It is a manual override **only for invoices that don't live in QB** (`qb_invoice_id is null` — test jobs, archive/pay-app-only edge cases). On a QB-linked invoice the action is hidden or warns (§5), because QB owns those (audit H1).
+2. **"Mark as Paid" becomes local-only, and is gated to invoices QB won't reflect.** It sets SC `status = Paid` + `paid_at` and nothing else — no `qb-record-payment` call. Gate = **`!inv.qb_invoice_id || job.qb_skip_sync`** (audit R2 D1): a QB-linked invoice on a `qb_skip_sync` job (archive / pay-app-only — the exact case this clause names) is *never* reflected by the core, so without the `qb_skip_sync` half it would have **no path to Paid at all**. The gate must mirror the reflect-core skip set exactly, not approximate it. On invoices QB *does* own, the action is **hidden** [Chris's call, 2026-08-27] — implemented by filtering the actions array (§5), not CSS-hiding a still-callable item.
 3. **`qb-record-payment` stays, but Stripe becomes its only caller.** Remove the two `Invoices.jsx` callers.
 4. **Precedence guardrail:** the reader only ever flips **unpaid → Paid**, never Paid → unpaid. Enforced *structurally* as an atomic `UPDATE … WHERE id = $1 AND status <> 'Paid'`, not just by a read-then-write check. A local manual Paid is never stomped; a QB payment is never lost.
 5. **[LOCKED: A1, ratified 2026-08-27] "Paid" requires a real QB Payment, not just a zero balance.** The reflect core flips to Paid only when the QB invoice has `Balance == 0` **and** a linked QB `Payment` transaction. A zero balance with no linked Payment (write-off, credit memo, bad-debt) is **not** flipped — it's left for a human. `paid_at` always comes from a real Payment; there is **no** detection-time fallback. Rationale: QB is the source of truth for *real payments*, not for *zero balances*; a write-off must never read as "collected."
@@ -96,28 +96,31 @@ Coverage with no human ever "marking paid":
 ### 4.3a Shared reflect core [DERIVED]
 **Module boundary (audit D1):** the reflect core is an **imported `_shared/*.ts` module** — e.g. `supabase/functions/_shared/reflectPayments.ts` exporting `reflectInvoicesFromQB(sb, tenantId, qbInvoiceIds | "all-unpaid")`. It is **NOT** its own edge function / `--no-verify-jwt` route. If it were a public endpoint it would be an unauthenticated invoice-flipper callable with `(tenantId, ids)`. Both triggers (§4.3b webhook, §4.3c sweep) import and call it *after* their own auth gate passes; the core never faces the internet.
 
+**Guard placement — ALL row-eligibility guards live in the core (audit R2 A1/A2, the load-bearing fix of round 2).** Every eligibility rule — `voided_at IS NULL`, `deleted_at IS NULL`, `tenant_id` scope, `qb_skip_sync`, and the A1 require-Payment rule — is enforced **inside `reflectInvoicesFromQB`, on both the candidate resolve and the final write**, never in a trigger's own query. The round-1 design left `voided_at/deleted_at` only in the sweep's step-2 SQL; the webhook passes ids straight to the core and would bypass it → a voided SC invoice (its QB invoice still live) could be resurrected to Paid by a later QB zero+Payment. Consolidating here makes that whole bug class ("webhook skips a sweep-only guard") impossible.
+
 Per invocation:
 1. Load `qb_connection` for the tenant → fresh access token (reuse the existing `getQBToken` pattern from `qb-record-payment` / `qb-sync-invoice`).
-2. Resolve the candidate set: either the specific `qb_invoice_id`s handed in (webhook), or all SC invoices where `status <> 'Paid'` AND `status <> 'New'` AND `qb_invoice_id is not null` AND `deleted_at is null` AND `voided_at is null` (sweep + backfill). *(Dropped the phantom `'Void'` literal — no invoice ever holds that status; void = `voided_at is not null`, already excluded. Audit adjacent.)*
+2. Resolve the candidate set — apply the SC-side eligibility filter **on both paths** (the specific `qb_invoice_id`s handed in by the webhook, OR all invoices for the sweep/backfill): `status <> 'Paid'` AND `status <> 'New'` AND `qb_invoice_id is not null` AND `deleted_at is null` AND `voided_at is null` AND `tenant_id = $tenantId`. The webhook does not skip this — its ids are filtered through the same query. *(Dropped the phantom `'Void'` literal — no invoice ever holds that status; void = `voided_at is not null`, already excluded. Audit adjacent.)* **Tenant scope (audit A2):** `AND tenant_id = $tenantId` matters because QB ids are realm-local — once a 2nd tenant onboards, a realm-A webhook must not flip tenant-B's same-numbered invoice.
 3. Query QB in batches: `SELECT Id, Balance, LinkedTxn, DocNumber FROM Invoice WHERE Id IN ('...')` (QB `IN` + `MAXRESULTS 1000` paging). Targeted, never a full-table scan.
 4. **`qb_skip_sync` filter (audit G1):** `qb_skip_sync` lives on **`call_log`, not `invoices`** — it cannot be in the step-2 SQL. Apply it as a **post-QB-read per-invoice join filter** (`invoice → proposal → call_log.qb_skip_sync`, and archive-unlinked), batched, mirroring `qb-record-payment:117` / `:123`. Skip those invoices.
 5. **Flip rule (audit A1 — the core contract):** flip an invoice to Paid **only when** the QB invoice has `Balance == 0` **AND** at least one linked QB `Payment`. Parse `Balance` from its string form defensively. A zero balance with **no** linked Payment (write-off / credit memo / bad-debt) is **skipped, not flipped** (§3.5).
 6. **`paid_at` (audit C1/C2):** QB SQL cannot filter `LinkedTxn.TxnId`, so read the invoice's `LinkedTxn`, fetch those `Payment` objects, and take `MAX(TxnDate)` across them (an invoice may have progress + final payments; a Payment may link several invoices). `Payment.TxnDate` is **date-only** — store it as **local noon** (`` `${txnDate}T12:00:00` ``), never a bare date cast into `timestamptz` (that lands on UTC-midnight → renders as the *prior* day in Pacific → month-boundary misstatement).
-7. **Write:** atomic, never-un-pay-structural (§3.4): `UPDATE invoices SET status='Paid', paid_at=<above>, qb_reflected_at=now() WHERE id=$1 AND status <> 'Paid'`. Setting `qb_reflected_at` here is what powers the §5 badge — so the column MUST exist before this runs (see §11 step 1).
+7. **Write:** atomic, guards repeated on the write so nothing slips between resolve and update (audit R2 A1/A2): `UPDATE invoices SET status='Paid', paid_at=<above>, qb_reflected_at=now() WHERE id=$1 AND status <> 'Paid' AND voided_at IS NULL AND deleted_at IS NULL AND tenant_id = $tenantId`. Never-un-pay is structural (§3.4); the voided/deleted/tenant predicates make resurrection and cross-tenant flips impossible even if a stale id reaches this line. Setting `qb_reflected_at` here powers the §5 badge — so the column MUST exist before this runs (see §11 step 1).
 
 ### 4.3b Instant webhook `qb-webhook` — PRIMARY, v1 [DERIVED]
 New public edge function (deployed `--no-verify-jwt`) that receives Intuit **Event Notifications**.
 1. **Register** the webhook URL in the Intuit developer portal; subscribe to **Invoice** (fires when balance changes on payment) and **Payment** entities.
 2. **Verify** every request — mirror `stripe-webhook` exactly (audit D2/D3):
    - `const body = await req.text()` **before any parse** (HMAC is over the raw body).
-   - HMAC-SHA256 the raw body with `QB_WEBHOOK_VERIFIER_TOKEN`; the `intuit-signature` header is **base64** (Stripe's is hex — don't copy the encoding blindly).
+   - HMAC-SHA256 the raw body with `QB_WEBHOOK_VERIFIER_TOKEN`; the `intuit-signature` header is **base64** (Stripe's is hex — don't copy the encoding blindly). **Base64-DECODE the header to raw bytes before `crypto.subtle.verify`** (audit R2 B2) — it needs bytes, not the base64 string; a builder mirroring Stripe's hex-decode would reject every ping.
    - Compare with `crypto.subtle.verify` / a constant-time check, **never `==`**.
    - **Fail closed:** if `QB_WEBHOOK_VERIFIER_TOKEN` is unset → `500`, reject all (mirror `stripe-webhook:67-70`). Never treat "no secret" as "signature valid."
    - This HMAC gate runs **before any DB read** — it is the sole auth on the public endpoint.
-3. Payload gives `realmId` + changed entity IDs (not full data). Map `realmId → tenant` via `qb_connection.realm_id`. **`realm_id` has no uniqueness constraint (audit E1):** handle 0 / 1 / many explicitly — `>1` rows → reject + log (ambiguous, don't guess a tenant); no match → drop with `200` (not our realm). Resolve to affected `qb_invoice_id`s (for a Payment event, read its `LinkedTxn` invoice ids).
-4. **Ack fast, work async (audit J1):** return `200` immediately, then do the QB round-trip + token refresh + flip inside `EdgeRuntime.waitUntil(...)`. Intuit times out at ~3s and retries on non-2xx → an inline QB call risks retry storms. The 15-min sweep is the safety net if the async work fails.
-5. Call the shared core `reflectInvoicesFromQB(sb, tenantId, thoseIds)` (§4.3a).
-- **Idempotent:** re-delivered or duplicate pings just re-confirm Paid — the never-un-pay rule makes repeats harmless. A signature-bypass still can't forge Paid, because the core re-queries live QB `Balance` + Payment before flipping.
+   - **CORS (audit R2 adjacent):** `qb-webhook` is a server-to-server endpoint — it must **NOT** inherit the `PREVIEW_ORIGINS` / exact-host CORS gating other edge fns use; Intuit is not a browser origin.
+3. **Pre-200, do realm→tenant mapping ONLY.** Payload gives `realmId` + changed entity IDs (not full data). Map `realmId → tenant` via `qb_connection.realm_id`. **`realm_id` has no uniqueness constraint (audit E1):** handle 0 / 1 / many explicitly — `>1` rows → reject + log (ambiguous, don't guess a tenant); no match → drop with `200` (not our realm). **Do not resolve invoice ids here** — that needs a QB read.
+4. **Ack fast, ALL QB work async (audit J1 + R2 B1):** return `200` immediately, then inside `EdgeRuntime.waitUntil(...)` do everything that touches QB — including resolving a Payment event's `LinkedTxn` → invoice ids (that's a QB read; leaving it pre-200 re-opens the ~3s Intuit-timeout/retry-storm J1 was meant to kill). Hand the core `(entityType, entityId, realmId)` and let it resolve ids after the ack. The 15-min sweep is the safety net if the async work fails.
+5. Inside `waitUntil`, call the shared core `reflectInvoicesFromQB(sb, tenantId, {entityType, entityId})` (§4.3a) — it resolves ids, then applies every eligibility guard.
+- **Idempotent, no dedup ledger needed (audit R2 adjacent):** re-delivered or duplicate pings just re-confirm Paid — the never-un-pay `UPDATE … WHERE status <> 'Paid'` makes repeats harmless, so no delivery-dedup table is required. A signature-bypass still can't forge Paid, because the core re-queries live QB `Balance` + Payment before flipping.
 
 ### 4.3c 15-min sweep `qb-reflect-payments` — BACKUP, v1 [DERIVED]
 Thin scheduled edge function (deployed `--no-verify-jwt`) that imports the §4.3a core and calls `reflectInvoicesFromQB(sb, tenant, "all-unpaid")` for each tenant with a QB connection.
@@ -126,7 +129,7 @@ Thin scheduled edge function (deployed `--no-verify-jwt`) that imports the §4.3
 - `pg_cron` → `net.http_post` with a **literal function URL** (`https://pbgvgjjuhnpsumnowuym.supabase.co/functions/v1/qb-reflect-payments`) — the URL isn't a secret.
 - Header `x-cron-secret` = `(SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret')` — the Vault secret that already exists (provisioned by `20260609120100`).
 - Guard the schedule in `DO $$ … IF to_regclass('cron.job') IS NULL THEN RAISE NOTICE … RETURN; …` so it stays rehearsable; unschedule-if-exists before re-scheduling.
-- The **`qb-reflect-payments` function verifies `x-cron-secret`** against its `CRON_SECRET` env as its gate (there is no service-role bearer). `CRON_SECRET` env must match Vault `cron_secret` — a mismatch is a silent outage.
+- The **`qb-reflect-payments` function verifies `x-cron-secret`** against its `CRON_SECRET` env as its gate (there is no service-role bearer). **`CRON_SECRET` is a project-global Supabase secret that already exists and already gates `follow-up-reminders` + `check-orphan-users` (audit R2 C1) — the new function INHERITS it. Do NOT `supabase secrets set CRON_SECRET`, or you silently 403 both existing jobs.** It already matches Vault `cron_secret`.
 - **Every 15 min [LOCKED]:** cron `*/15 * * * *`. Negligible cost (~96 runs/day, a few hundred QB reads/day vs a ~500-req/min limit). Self-healing: a failed run or a webhook ping that never arrived is swept up next pass — nothing is ever silently lost. This is why the webhook can be "fire-and-forget" without risk.
 
 ### 4.4 Backfill = one sweep run [LOCKED principle]
@@ -140,7 +143,7 @@ No separate throwaway script. The one-time backlog cleanup is the §4.3c sweep r
 
 Current screen: `src/pages/Invoices.jsx` (list + detail modal). No layout restructure.
 
-- **"Mark as Paid" action** stays in the same status menu (`Invoices.jsx:2000-2002`), same label, same place — but is **gated to `!inv.qb_invoice_id`** (audit H1). On a QB-linked invoice it's hidden (or, if kept visible, warns) because QB owns those; leaving it ungated causes permanent silent SC↔QB divergence. Preserves the existing mental model for the non-QB invoices it's actually for.
+- **"Mark as Paid" action** — shown only when **`!inv.qb_invoice_id || job.qb_skip_sync`** (mirrors the reflect-core skip set; audit R2 D1). When QB owns the invoice, the action is **hidden** [Chris's call] by **filtering it out of the actions array at `Invoices.jsx:2005`** — not CSS-hiding a still-callable menu item (audit R2 D2). Same label/place for the invoices it does apply to; preserves the mental model.
 - **Delay notice [LOCKED]:** show a small, quiet line on the Invoices screen — e.g. "Payment statuses sync automatically from QuickBooks — usually within seconds, up to 15 minutes at most." Instant is the norm (webhook); the notice just makes a rare lag read as "syncing," not "broken." Placement TBD (near the list header or status filter).
 - **"Synced from QuickBooks" badge [LOCKED: add now].** On invoices the reflection flipped, show a small tag (e.g. a "QB" pill next to the Paid status) so Chris can tell a QB-reflected Paid from a manually-marked (local-only) Paid. Driven by the `qb_reflected_at` column (§8): non-null → show the badge. Follow the pill convention — **`C.dark` bg with `C.teal` text AND an explicit `border: C.teal`** (CLAUDE.md style rule 4; without the explicit border it falls back to `C.dark` → invisible border. Audit adjacent).
 - No change to the Stripe-paid or send flows.
@@ -158,6 +161,7 @@ Current screen: `src/pages/Invoices.jsx` (list + detail modal). No layout restru
 - **Never un-pay:** structural — atomic `UPDATE … WHERE status <> 'Paid'` (§3.4, §4.3a step 7).
 - **Zero balance ≠ paid (A1):** write-offs / credit memos zero the balance with no Payment → **not** flipped (§3.5). This is the load-bearing guard.
 - **Partial payments:** QB `Balance > 0 but < total` = partially paid. SC has no "partially paid" status. v1: only flip on `Balance == 0`; leave partials as-is. (Future: a partial indicator.)
+- **Overpaid (`Balance < 0`):** a credit/overpayment leaves a negative balance; the `Balance == 0` rule never flips it. Documented v1 non-flip (audit R2 adjacent) — rare, left for a human, no silent misbehavior.
 - **Stripe coupling:** keep `qb-record-payment` on the Stripe path. If a Stripe-paid invoice were Paid in SC but not recorded in QB, the reader would see `Balance > 0` — but §3.4 forbids un-paying, so it still wouldn't corrupt SC. The coupling keeps QB *complete*, not just safe.
 - **Retention:** SC invoices net retainage; QB invoice totals may differ. Irrelevant to the reader — `Balance == 0` **plus a linked Payment** in QB is still ground truth for "fully paid." (Pressured in round 1, found sound.)
 - **Token refresh / rate limits:** reuse existing `getQBToken`; batch the `IN` query; throttle the backfill (§4.4).
@@ -172,7 +176,7 @@ Current screen: `src/pages/Invoices.jsx` (list + detail modal). No layout restru
 
 Ships **first** (build step 1) — the reflect core writes this column, and the backfill runs before the UI step, so if the column isn't there yet the reflect `UPDATE` throws `42703` for all 108 rows, or they flip untagged and the badge never shows for the backlog (audit F1). Migration requirements:
 - **Timestamp** pinned `> 20260826120000` (after the latest ledger entry; audit adjacent).
-- **Rehearse** it: `cd ~/command-suite-db && ./scripts/rehearse.sh <migration>` (global shared-DB rule). The additive column changes the grant count, so **bump `EXPECT_COLUMN_GRANTS` (currently 9004) in `rehearse.sh:100` in the same PR** or rehearsal hard-fails (audit I1).
+- **Rehearse** it: `cd ~/command-suite-db && ./scripts/rehearse.sh <migration>` (global shared-DB rule). The additive column changes the grant count, so **bump `EXPECT_COLUMN_GRANTS` in `rehearse.sh:100` from 9004 → 9015 (+11, not +12 — `invoices` has its anon `SELECT` revoked, so the new column adds 11 grants, audit R2 precision) in the same PR** or rehearsal hard-fails. Pin the exact number; confirm by rehearsal, don't assume.
 - Confirm `qb_reflected_at` is **NOT** added to `anon_hardened_allowlist.txt` — it's an internal-only badge field, never anon-exposed.
 - Add the new column to the `invoices` column reference in `CLAUDE.md` in the same PR (currently unlisted; audit adjacent).
 
@@ -180,8 +184,8 @@ Ships **first** (build step 1) — the reflect core writes this column, and the 
 
 ## 9. Rollout & smoke
 
-1. Migration first (§8) — `qb_reflected_at`, rehearsed with `EXPECT_COLUMN_GRANTS` bumped.
-2. Ship code deltas (§4.1) + the shared reflect core (§4.3a) + both triggers (§4.3b webhook, §4.3c sweep) to a preview deploy. Deploy `qb-webhook` and `qb-reflect-payments` with `--no-verify-jwt`. Set secrets `QB_WEBHOOK_VERIFIER_TOKEN` and `CRON_SECRET` (= Vault `cron_secret`).
+1. Migration first (§8) — `qb_reflected_at`: rehearse (`EXPECT_COLUMN_GRANTS` 9004→9015) → **`db push` the column to the shared prod DB** → *then* the functions can deploy. "Rehearse" ≠ "push" (audit R2 precision): the column must actually be live in prod before any function writes it.
+2. Ship code deltas (§4.1) + the shared reflect core (§4.3a) + both triggers (§4.3b webhook, §4.3c sweep) to a preview deploy. Deploy `qb-webhook` and `qb-reflect-payments` with `--no-verify-jwt`. Set **only** the new secret `QB_WEBHOOK_VERIFIER_TOKEN`. **Do NOT set `CRON_SECRET`** — it's project-global and already gates two live jobs; the new fn inherits it (audit R2 C1).
 3. **Core smoke (sweep), before scheduling:** invoke the sweep once by hand; verify it flips a *known* QB-paid invoice (cross-check by querying QB directly by DocNumber — ground truth, never infer QB state from SC fields), does **not** touch a known-unpaid one, and **does not flip a zero-balance-but-written-off invoice** (the A1 guard — create/borrow one credit-memo'd invoice and confirm it stays unpaid).
 4. **Webhook smoke:** register the URL in the Intuit portal; record a test payment in QB against a linked invoice; confirm the ping arrives, signature verifies (base64), and SC flips within seconds. Confirm a forged/badly-signed request is rejected, and that an unset verifier token fails closed.
 5. Verify the "Mark as Paid" button no longer creates a QB payment (check QB — no new Payment txn); confirm it's gated off QB-linked invoices (H1).
@@ -202,16 +206,17 @@ Ships **first** (build step 1) — the reflect core writes this column, and the 
 - ~~"Synced from QuickBooks" badge + `qb_reflected_at` column~~ → **add now** (§5, §8). [LOCKED]
 - ~~**A1** — does "Paid" mean zero balance, or a real payment?~~ → **real linked QB Payment required** (§3.5, §4.3a, §6). Ratified 2026-08-27. [LOCKED]
 - ~~**H2** — Mark-Paid-then-Sync behavior~~ → **warn/block** Sync-to-QB on a locally-Paid invoice (§4.1). [LOCKED]
+- ~~**D2 (R2)** — QB-linked "Mark as Paid": hide or warn?~~ → **hide** (filter actions array, §5). Ratified 2026-08-27. [LOCKED]
 
-**Nothing open — plan is build-ready (round-1 audit folded in).**
+**Nothing open — plan is build-ready (rounds 1 + 2 folded in; converged, no round 3).**
 
 ---
 
 ## 11. Build order
 
-1. **Migration first** — `qb_reflected_at` in command-suite-db (§8), rehearsed with `EXPECT_COLUMN_GRANTS` bumped + `CLAUDE.md` column-ref updated in the same PR (audit F1). Must precede the reflect core so the flip write and backfill don't `42703`/flip-untagged.
-2. Local-only "Mark as Paid" gated to `!qb_invoice_id` + remove the two SC→QB pushes + the lying toast (§4.1). Smallest, self-contained, immediately correct.
-3. Shared reflect core `_shared/reflectPayments.ts` (§4.3a) + 15-min sweep fn with the mirrored cron wiring (§4.3c). Smoke via the sweep incl. the write-off case (§9.3). This alone makes the system correct and honest.
+1. **Migration first** — `qb_reflected_at` in command-suite-db (§8): rehearse (`EXPECT_COLUMN_GRANTS` 9004→9015) + `CLAUDE.md` column-ref updated in the same PR (audit F1), then **`db push` to prod** (rehearse ≠ push). Must be live before the reflect core so the flip write and backfill don't `42703`/flip-untagged.
+2. Local-only "Mark as Paid" gated to `!qb_invoice_id || job.qb_skip_sync` (filter the actions array, §5) + remove the two SC→QB pushes + the lying toast (§4.1). Smallest, self-contained, immediately correct.
+3. Shared reflect core `_shared/reflectPayments.ts` (§4.3a) — ALL eligibility guards live here (voided/deleted/tenant/skip-sync/require-Payment) + 15-min sweep fn with the mirrored cron wiring (§4.3c; inherits `CRON_SECRET`, doesn't set it). Smoke via the sweep incl. the write-off case (§9.3). This alone makes the system correct and honest.
 4. Throttled backfill run (§4.4) + pg_cron schedule (§9.7). Backlog cleared (truly-paid subset) even before the webhook lands.
 5. Instant webhook (§4.3b): `qb-webhook` fn (HMAC/base64/fail-closed, realm 0/1/many, async ack), verifier-token secret, Intuit portal registration, webhook smoke (§9.4). The "amazing UX" layer — real-time on top of an already-correct base.
 6. "Synced from QuickBooks" badge (§5, explicit teal border) + delay notice (§5).
@@ -245,6 +250,25 @@ Ships **first** (build step 1) — the reflect core writes this column, and the 
 
 ---
 
+## Round 2 audit response (2026-08-27)
+
+**0 regressions — all round-1 fixes verified as taken** (A1 airtight, B1 verbatim, C1/C2, D1, D2/D3/E1, F1/G1/H1/H2/toast/badge/atomic/phantom-Void). Trend 14→11 findings, 2H→0H. 7 new caused-by (4M/3L) + 4 precision, all one theme: **guard placement** — the webhook bypassed sweep-only filters. Converged; audit recommends no round 3.
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| A1 | M | webhook can resurrect voided/deleted invoice to Paid (exclusion was sweep-only) | §4.3a — **all guards in the core**, on resolve + write (`voided_at/deleted_at IS NULL`) |
+| A2 | L | core lookup not tenant-scoped (2nd-tenant realm cross-flip) | §4.3a step 2/7 — `AND tenant_id = $tenantId` |
+| B1 | M | async-ack incomplete — `LinkedTxn` QB read still pre-200 | §4.3b step 3/4 — pre-200 = realm→tenant only; id resolution inside `waitUntil` |
+| C1 | M | `CRON_SECRET` re-set would 403 two live jobs | §4.3c/§9.2/§11 — **inherit, never set**; only `QB_WEBHOOK_VERIFIER_TOKEN` is new |
+| D1 | M | QB-linked + skip-sync invoice has no path to Paid | §3.2/§5 — gate = `!qb_invoice_id \|\| job.qb_skip_sync` (mirror skip set) |
+| B2 | L-M | header base64 not decoded to bytes before verify | §4.3b step 2 — base64-**decode** before `crypto.subtle.verify` |
+| D2 | L-M | "hide or warn" written 3 ways | §3.2/§5/§11 — **hide** (Chris); filter actions array at `2005`, not CSS |
+| Adj×4 | — | grant +11→9015 · rehearse≠push · overpaid(<0) v1 gap · no-CORS/no-dedup notes | folded: §8 · §9.1/§11 · §7 · §4.3b |
+
+**If a round 3 is ever run (not recommended):** confirm only that the guard consolidation (A1/A2) and the async-id-resolution (B1) landed. Otherwise: build.
+
+---
+
 ## Audit manifest
 
 _Generated by `/auditcriteria` on 2026-08-27. Consumed by `/runaudit` to size the adversarial audit pass._
@@ -254,14 +278,15 @@ This is a money-touching change that adds real new plumbing — two new backgrou
 
 ### Round
 - Plan type: feature
-- Current round: 1
-- Plan revision under audit: cb12d2f (+ §0 baseline and this manifest)
-- Findings trend: n/a — round 1
+- Current round: 2 — **CONVERGED, folded, build-ready** (no round 3 recommended)
+- Latest plan revision: pass 2 (this commit)
+- Findings trend: round 1 (14, 2H) → round 2 (11, 0H) — both HIGHs closed & verified; converging, no plateau
 
 ### Prior rounds
-none — this is round 1.
+- Round 1: `dde8441` · 14 caused-by (2H/9M/3L) + 5 adj · pattern: balance≠paid + wiring-drift → folded in `702baca` (revision pass 1)
+- Round 2: `702baca` · 7 new caused-by (4M/3L) + 4 adj · pattern: core-guard-consolidation → folded this commit (revision pass 2)
 
-**Briefing for agents**: this is the first audit. Attack the whole plan. Later rounds will restrict to new material.
+**Briefing (if a round 3 is ever run — not recommended):** attack ONLY the guard-consolidation (R2 A1/A2) and async-id-resolution (R2 B1); do not re-find rounds 1–2.
 
 ### Deployment context
 - **Live tenants**: 1 — HDSP only; multi-tenant onboarding is blocked/F-tier.

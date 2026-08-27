@@ -784,19 +784,14 @@ async function deletePropAttachment(fullName) {
           // picks the proposal's rounding era; calc.js stays the sole home for the math.
           bid_breakdown: calcBidStamp(wtc, usesExactPricing(p)),
         }));
-        // Idempotent on re-send: skip rows whose proposal_wtc_id already exists
-        // (the UNIQUE index), mirroring the jobs 23505 guard above.
-        const { error: wtcErr } = await supabase
-          .from("job_wtcs")
-          .upsert(jobWtcRows, { onConflict: "proposal_wtc_id", ignoreDuplicates: true });
-        if (wtcErr) {
-          // The frozen bid stamp IS the point of this write. A job with zero
-          // job_wtcs rows is unusable (empty Budget tab + SOW) and can never
-          // self-heal: re-send is blocked by the jobs 23505 guard above, and the
-          // backfill only fills rows that already exist. So a failed write here
-          // must NOT be swallowed as a "warning" that then marks the proposal
-          // sent. Roll back the just-inserted jobs row and bail so the user can
-          // retry cleanly. Verify the rollback (RLS delete can silently no-op).
+        // Roll back the just-inserted jobs row and alert. The `jobs` row is inserted
+        // first (needed for newJobId in jobWtcRows), so every abort below this point must
+        // undo it, else it strands an empty live job. RLS delete can silently no-op
+        // (CLAUDE.md) — verify and, on a failed rollback, warn the admin to clear it by
+        // hand. `retry` controls the success-path suffix: true when a fresh re-send could
+        // succeed (transient DB error), false when it can't until something is resolved
+        // outside this flow (stuck tombstone / live holder).
+        const rollbackNewJobRow = async (problem, retry) => {
           const { data: rbData, error: rbErr } = await supabase
             .from("jobs")
             .delete()
@@ -804,14 +799,106 @@ async function deletePropAttachment(fullName) {
             .select("job_id");
           const rolledBack = !rbErr && (rbData?.length || 0) > 0;
           if (rolledBack) {
-            alert("Send to Schedule failed while writing work types: " + wtcErr.message +
-              "\n\nNothing was kept — please try again.");
+            alert(problem + (retry ? "\n\nNothing was kept — please try again." : "\n\nNothing was kept."));
           } else {
-            alert("Send to Schedule failed while writing work types: " + wtcErr.message +
-              "\n\nAutomatic rollback did NOT complete" + (rbErr ? " (" + rbErr.message + ")" : "") +
+            alert(problem + "\n\nAutomatic rollback did NOT complete" + (rbErr ? " (" + rbErr.message + ")" : "") +
               ". A partial job may exist in Schedule for this proposal — do NOT retry; " +
               "have an admin remove job " + newJobId + " first.");
           }
+        };
+
+        // ── §4.1 (PB-1): free the unique proposal_wtc slots this proposal's OWN deleted
+        // jobs (tombstones) still hold, so the upsert below can attach fresh rows to the
+        // new job. Schedule's Delete is a SOFT delete that leaves job_wtcs holding the
+        // globally-UNIQUE proposal_wtc_id; without this, the re-send upsert skips the held
+        // slot (ignoreDuplicates) and the new job silently gets zero WTCs.
+        //
+        // Delete-then-insert (not just dropping ignoreDuplicates): the held rows point at
+        // the OLD tombstoned job_id; a plain overwrite-upsert would update rows still owned
+        // by the tombstone instead of attaching fresh rows to newJobId. Remove them first.
+        //
+        // Scope EXACTLY — BOTH predicates mandatory (data-loss guard):
+        //   • proposal_wtc_id ∈ this proposal's WTCs — proposal_wtc is 1:1 with a proposal,
+        //     so this alone can never touch another proposal's / sibling's / CO's rows.
+        //   • job_id ∈ this proposal's deleted='Yes' jobs — stops the delete from stripping
+        //     the slot off this same proposal's LIVE re-sent job.
+        // NEVER scope by call_log_id — siblings/CO jobs share a call_log, so a call_log-
+        // scoped delete would reach a live sibling's rows. If EITHER list is empty, skip
+        // the delete ENTIRELY — never drop one predicate to "defend" an empty list (that
+        // degrades to a single-predicate delete that can reach a live-held slot).
+        const pwIds = jobWtcRows.map(r => r.proposal_wtc_id);
+        const { data: tombstones, error: tombErr } = await supabase
+          .from("jobs")
+          .select("job_id")
+          .eq("source_proposal_id", p.id)
+          .eq("deleted", "Yes");
+        if (tombErr) {
+          await rollbackNewJobRow("Send to Schedule failed while checking for old deleted jobs: " + tombErr.message, true);
+          setSendingToSchedule(false);
+          return;
+        }
+        const tombstoneJobIds = (tombstones || []).map(t => t.job_id);
+        if (pwIds.length > 0 && tombstoneJobIds.length > 0) {
+          const { error: freeErr } = await supabase
+            .from("job_wtcs")
+            .delete()
+            .in("proposal_wtc_id", pwIds)
+            .in("job_id", tombstoneJobIds);
+          if (freeErr) {
+            await rollbackNewJobRow("Send to Schedule failed while releasing the old deleted job's work types: " + freeErr.message, true);
+            setSendingToSchedule(false);
+            return;
+          }
+
+          // Self-check — hard precondition for §4.2. The delete can silently no-op under
+          // RLS (CLAUDE.md). Re-query for any of this proposal's slots STILL held by a
+          // tombstone; if any remain (or the check errors), abort BEFORE the upsert — roll
+          // back the jobs row and return before the call_log Parked write, else we strand
+          // exactly the empty-job + Parked-call_log state this fix exists to kill. After
+          // this passes, any short-write in §4.2 is by construction LIVE-held.
+          const { data: stillHeld, error: checkErr } = await supabase
+            .from("job_wtcs")
+            .select("proposal_wtc_id")
+            .in("proposal_wtc_id", pwIds)
+            .in("job_id", tombstoneJobIds);
+          if (checkErr || (stillHeld && stillHeld.length > 0)) {
+            await rollbackNewJobRow(
+              checkErr
+                ? "Send to Schedule aborted: couldn't verify the old deleted job released its work types (" + checkErr.message + ")."
+                : "Send to Schedule aborted: a previously deleted job is still holding these work types and they couldn't be released automatically. An admin must clear the stale schedule rows before this proposal can be re-sent.",
+              false);
+            setSendingToSchedule(false);
+            return;
+          }
+        }
+
+        // Idempotent on re-send: skip rows whose proposal_wtc_id already exists (the UNIQUE
+        // index). §4.1 has released this proposal's OWN tombstone-held slots, so any
+        // conflict remaining here is a LIVE holder (§4.2). .select() is ADDED so we can
+        // count what was actually written — ON CONFLICT DO NOTHING omits skipped rows from
+        // RETURNING, so `written.length` is a sound short-write signal under ignoreDuplicates.
+        const { data: written, error: wtcErr } = await supabase
+          .from("job_wtcs")
+          .upsert(jobWtcRows, { onConflict: "proposal_wtc_id", ignoreDuplicates: true })
+          .select("proposal_wtc_id");
+        if (wtcErr) {
+          // The frozen bid stamp IS the point of this write. A job with zero job_wtcs rows
+          // is unusable (empty Budget tab + SOW) and can never self-heal. A failed write
+          // here must NOT be swallowed as a "warning" that then marks the proposal sent —
+          // roll back the just-inserted jobs row and bail so the user can retry cleanly.
+          await rollbackNewJobRow("Send to Schedule failed while writing work types: " + wtcErr.message, true);
+          setSendingToSchedule(false);
+          return;
+        }
+
+        // ── §4.2 short-write guard (MIG-1 invisible-failure discipline): a proposal with N
+        // WTCs that produced FEWER than N job_wtcs rows means a slot was silently skipped.
+        // §4.1's self-check already aborted on ANY tombstone-held slot, so a short-write
+        // here is by construction LIVE-held — alert unconditionally and roll back (leave
+        // the proposal NOT-sent, before the call_log Parked write). Scoped to job_wtcs
+        // ONLY; the mob seed below stays non-fatal (backfillable).
+        if ((written?.length || 0) !== jobWtcRows.length) {
+          await rollbackNewJobRow("Another live job already holds these work types — resolve that job before re-sending.", false);
           setSendingToSchedule(false);
           return;
         }

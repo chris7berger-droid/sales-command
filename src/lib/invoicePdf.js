@@ -209,6 +209,19 @@ export async function generateInvoicePdf({ invoice, lines = [], tenantConfig = {
     ry2 += 18;
   }
 
+  if (invoice.sent_at) {
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...dark);
+    doc.text("SENT DATE", rightColMid, ry2, { align: "center" });
+    ry2 += 14;
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...gray);
+    doc.text(fmtDate(invoice.sent_at), rightColMid, ry2, { align: "center" });
+    ry2 += 18;
+  }
+
   if (invoice.due_date) {
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");

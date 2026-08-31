@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:public-grants": "node scripts/check-public-select-grants.mjs",
+    "install-hooks": "bash scripts/install-git-hooks.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.0",

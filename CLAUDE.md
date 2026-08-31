@@ -353,3 +353,13 @@ incident) — that rule now lives with the tooling in `command-suite-db`.
    correct policy patterns, the 2026-04-26 incident anti-pattern, and the
    6-gate deploy requirements. The anti-pattern in `CLAUDE_RLS.md` is the
    most common RLS mistake — do not write policies that match it.
+
+2. **Public-page anon column grants** — the customer-facing pages run as the
+   `anon` role against an allow-list of columns. Adding a column to a public
+   page's `.select()` without granting it to `anon` silently breaks EVERY link
+   ("Invoice not found"). A pre-push guard rail enforces this:
+   `scripts/check-public-select-grants.mjs` (run `npm run check:public-grants`;
+   details in `docs/PUBLIC_PAGE_GRANTS.md`). On a fresh clone run
+   `npm run install-hooks` once so the pre-push hook is active. If you touch a
+   public page and the guard fires, honor it — grant the column in
+   `command-suite-db` — don't bypass it.

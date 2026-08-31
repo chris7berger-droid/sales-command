@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pre-push hook: guard the customer-facing pages against selecting a column the
+# anonymous DB role can't read (which silently breaks EVERY public link — see
+# scripts/check-public-select-grants.mjs and docs/PUBLIC_PAGE_GRANTS.md).
+#
+# Runs the guard ONLY when this push touches a public page, so ordinary pushes
+# never depend on the DB.
+
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Range of commits being pushed (fall back to origin/<branch>..HEAD, then to the
+# last commit) so we can tell whether a public page changed.
+RANGE=""
+if git rev-parse --verify --quiet '@{push}' >/dev/null 2>&1; then
+  RANGE='@{push}..HEAD'
+elif git rev-parse --verify --quiet "origin/$CURRENT_BRANCH" >/dev/null 2>&1; then
+  RANGE="origin/$CURRENT_BRANCH..HEAD"
+else
+  RANGE="HEAD~1..HEAD"
+fi
+
+CHANGED=$(git diff --name-only "$RANGE" -- 'src/pages/Public*.jsx' 'src/lib/supabasePublic.js' 2>/dev/null || echo "")
+
+if [ -z "$CHANGED" ]; then
+  exit 0   # no public-page change in this push — nothing to guard
+fi
+
+echo "Public page changed in this push — running anon-grant guard rail..."
+if ! node "$(git rev-parse --show-toplevel)/scripts/check-public-select-grants.mjs"; then
+  echo ""
+  echo "Push blocked by the public-page anon-grant guard rail (above)."
+  exit 1
+fi
+
+exit 0

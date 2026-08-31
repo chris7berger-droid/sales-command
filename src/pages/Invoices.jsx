@@ -1428,7 +1428,7 @@ async function mintNextInvoiceId() {
 }
 
 // ── Invoice Detail ────────────────────────────────────────────────────────
-function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, onNavigateProposal, onNavigateInvoice, teamMember }) {
+function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, onNavigateProposal, onNavigateInvoice, autoOpenSend, onSendOpened, teamMember }) {
   const money = fmt$c;
   const [inv, setInv] = useState(invoice);
   const [lines, setLines] = useState([]);
@@ -1468,6 +1468,21 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
   const [syncToast, setSyncToast] = useState(null);
   const [billing, setBilling] = useState(false);           // Bill Retention in-flight guard
   const [releaseInvoiceId, setReleaseInvoiceId] = useState(null); // id of the release invoice spawned off this source
+
+  // Bill Retention navigates here for the freshly-created release invoice and
+  // asks (via router state → autoOpenSend) to open the Send/Approve screen on
+  // arrival — the send-or-Approve→QB choice, never an auto-push. Wait for the
+  // detail's data to finish loading so the modal opens with the same content the
+  // manual "Send / Resend" button would, then consume the one-shot flag so a
+  // refresh/back doesn't reopen it.
+  const [pendingAutoSend, setPendingAutoSend] = useState(!!autoOpenSend);
+  useEffect(() => {
+    if (pendingAutoSend && !loading) {
+      setShowPDF(true);
+      setPendingAutoSend(false);
+      if (onSendOpened) onSendOpened();
+    }
+  }, [pendingAutoSend, loading]);
 
   // Recipients (main + viewers) — ported from the proposal Recipients card.
   const [recipients, setRecipients] = useState([]);
@@ -2352,7 +2367,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
       //    onNavigateInvoice also calls load(), so the source's flipped
       //    retention_released is reflected on return. No optimistic setInv —
       //    the key-based remount on navigation refetches.
-      if (onNavigateInvoice) onNavigateInvoice(nextId);
+      if (onNavigateInvoice) onNavigateInvoice(nextId, { openSend: true });
     } finally {
       setBilling(false);
     }
@@ -3409,7 +3424,9 @@ export default function Invoices({ setSubPage, teamMember }) {
     onDeleted={() => { setFilters(f => ({ ...f, invoiceNumber: "" })); navigate("/invoices"); load(); }}
     onNavigateJob={id => navigate(`/calllog/${id}`)}
     onNavigateProposal={id => navigate(`/proposals/${id}`)}
-    onNavigateInvoice={id => { navigate(`/invoices/${id}`); load(); }}
+    onNavigateInvoice={(id, opts) => { navigate(`/invoices/${id}`, opts?.openSend ? { state: { openSendForInvoiceId: id } } : undefined); load(); }}
+    autoOpenSend={location.state?.openSendForInvoiceId === sel.id}
+    onSendOpened={() => navigate(location.pathname, { replace: true, state: null })}
   />;
 
   return (

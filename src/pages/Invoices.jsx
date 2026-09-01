@@ -3037,7 +3037,7 @@ function InvoiceDetail({ invoice, onBack, onUpdated, onDeleted, onNavigateJob, o
           </>
         ) : (
           <>
-            <Btn sz="sm" onClick={() => setShowPDF(true)}>{linkedPayApp ? "Preview" : "Send / Resend"}</Btn>
+            <Btn sz="sm" onClick={() => setShowPDF(true)}>{linkedPayApp ? "Preview" : (isNew ? "Send" : "Review/Open")}</Btn>
             {linkedPayApp && <Btn sz="sm" v="secondary" onClick={() => setShowPayAppReview(true)}>Review Package</Btn>}
             {canEditInPlace && <Btn sz="sm" v="secondary" onClick={startEditing}>{isNew ? "Edit Invoice" : "Edit Sent Invoice"}</Btn>}
             {inv.retention_amount > 0 && !inv.retention_released && !inv.retention_release_of && (

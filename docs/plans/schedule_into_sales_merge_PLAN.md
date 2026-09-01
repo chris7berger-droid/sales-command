@@ -37,8 +37,17 @@ data + the Today list + the threshold plumbing, not the pixel layout of every dr
 
 Rewrites the navigation model in `src/App.jsx` from a **flat 11-item `NAV` array + flat routes**
 into **one grouped sidebar (Subcon Home + 4 Command groups + global Settings) + `/sales/*`-prefixed
-routes with redirects from every old flat URL**. No page component's internals change. No data
-migration. Schedule/Field/AR groups exist in the nav data but are gated OFF until their phase lands.
+routes with redirects from every old flat URL**. No data migration. Schedule/Field/AR groups exist in
+the nav data but are gated OFF until their phase lands.
+
+> **⚠️ ROUND 1 AUDIT REVISIONS APPLIED — 2026-09-01 (@8d3cff9 → this rev).** A 3-agent audit found 5
+> caused-by defects (1 Critical / 2 High / 2 Med) that would break **every Sales user on day one** —
+> all code, not data (prod is clean: 4/4 HDSP members have `sales`, `tenant_config.apps=["sales"]`).
+> Fixes folded in below, tagged **[R1-A]…[R1-E]**. **Design call ratified: Option B** — internal Sales
+> links repoint to `/sales/*` directly (touches ~7 Sales call sites); the §1j "no internals change" lock
+> is amended accordingly (§1j). Verified against live code before writing: `auth.js:40` select omits
+> `apps`; `config.js:3` DEFAULTS omits `apps`; 7 `navigate(..,{state})` sites target flat paths.
+> **This rev goes back for a Round 2 audit before any build.**
 
 ### 1a. The nav model (replaces the flat `NAV` at `src/App.jsx:36-48`)
 
@@ -54,7 +63,7 @@ export const SUBCON_HEADER = "SUBCON COMMAND";           // sidebar wordmark: SU
 export const AVAILABLE_APPS = ["sales"];
 
 export const GROUPS = [
-  { app: "sales", label: "Sales Command", prefix: "/sales", home: "/sales/home", items: [
+  { app: "sales", label: "Sales Command", prefix: "/sales", home: "/sales/home", icon: "🧾", items: [
     { id: "home",      label: "Home",           path: "/sales/home",      icon: "⌂"  },
     { id: "calllog",   label: "Call Log",       path: "/sales/calllog",   icon: "📋" },
     { id: "proposals", label: "Proposals",      path: "/sales/proposals", icon: "📄" },
@@ -66,8 +75,8 @@ export const GROUPS = [
     { id: "archive",   label: "History Locker", path: "/sales/archive",   icon: "🗄" },
     { id: "directory", label: "The Directory",  icon: "📖", action: "directory" }, // overlay, not a route
   ]},
-  { app: "schedule", label: "Schedule Command", prefix: "/schedule", home: "/schedule/home", items: [/* Phase 2, from §2 table */] },
-  { app: "field",    label: "Field Command",    prefix: "/field",    home: "/field/today", items: [
+  { app: "schedule", label: "Schedule Command", prefix: "/schedule", home: "/schedule/home", icon: "🗓", items: [/* Phase 2, from §2 table */] },
+  { app: "field",    label: "Field Command",    prefix: "/field",    home: "/field/today", icon: "👷", items: [
     { id: "today",     label: "Today",      path: "/field/today",     icon: "📆" },
     { id: "jobs",      label: "Jobs",       path: "/field/jobs",      icon: "🧱" },
     { id: "crews",     label: "Crews",      path: "/field/crews",     icon: "👷" },
@@ -75,8 +84,20 @@ export const GROUPS = [
     { id: "dailylogs", label: "Daily Logs", path: "/field/dailylogs", icon: "📓" },
     { id: "loadouts",  label: "Load-Outs",  path: "/field/loadouts",  icon: "📦" }, // opens Schedule's LoadOutModal — same component (Beat 1b)
   ]},
-  { app: "ar", label: "AR Command", prefix: "/ar", home: "/ar/home", items: [/* Phase 4, from §4 table */] },
+  { app: "ar", label: "AR Command", prefix: "/ar", home: "/ar/home", icon: "💰", items: [/* Phase 4, from §4 table */] },
 ];
+
+// [R1-D] The single visibility predicate — used by BOTH the sidebar group AND the Subcon Home quadrant
+// (one source, no drift). Fail-OPEN to Sales-only when apps are missing (Phase 1 has one real app), so a
+// not-yet-loaded/empty apps array never blanks the screen ([R1-A] — the Critical). Item-level roles/flag
+// gating is applied SEPARATELY, per item, after the group passes.
+export function groupVisible(group, { tenantApps, memberApps }) {
+  const tApps = (tenantApps?.length ? tenantApps : ["sales"]);
+  const mApps = (memberApps?.length ? memberApps : ["sales"]);
+  return AVAILABLE_APPS.includes(group.app) && tApps.includes(group.app) && mApps.includes(group.app);
+}
+export const itemVisible = (item, role, cfg) =>
+  (!item.roles || item.roles.includes(role)) && (!item.flag || cfg[item.flag]);
 
 // Top of the list (above the groups) and bottom (below):
 export const SUBCON_HOME = { id: "subcon-home", label: "Home", path: "/", icon: "◈" };
@@ -89,10 +110,18 @@ naming lock); umbrella wordmark is one word "SUBCON".
 
 ### 1b. Group visibility (the three-layer gate — Beat 4)
 
-A group renders **iff all three**:
-1. `AVAILABLE_APPS.includes(app)` — phase gate (Phase 1: only `sales`), and
-2. `tenantConfig.apps?.includes(app)` — company owns it, and
-3. `teamMember.apps?.includes(app)` — this person is assigned it.
+A group renders via `groupVisible()` (§1a) — **all three** of: `AVAILABLE_APPS` (phase gate; Phase 1
+= only `sales`) ∩ `tenantConfig.apps` (company owns it) ∩ `teamMember.apps` (person assigned it).
+
+**[R1-A] THE CRITICAL — the app doesn't load either input today, so a naïve gate fails CLOSED and
+blanks every user's sidebar + Home. Two required fixes + a fail-open default:**
+- `getCurrentTeamMember` (`auth.js:40`) selects `id, name, role, email, onboarded` — **add `apps`.**
+  Without it `teamMember.apps` is `undefined`.
+- `config.js` DEFAULTS (`:3`) has no `apps` key, and `getTenantConfig` returns `{...DEFAULTS, ...data}`
+  — **add `apps: ["sales"]` to DEFAULTS** so a tenant row lacking it still yields a usable value.
+- `groupVisible()` **fails OPEN to `["sales"]`** when either apps array is empty/missing — during the
+  async load window, or for any legacy row — a user is never shown a blank shell. Fail-open is safe in
+  Phase 1 because Sales is the only mounted app (nothing sensitive is exposed by defaulting to it).
 
 Same predicate hides its **quadrant** on Subcon Home. Individual items keep today's per-item
 `roles`/`flag` gating (`Managers` → Manager only; `Campaign Leads` → `leads_enabled`; `Settings` →
@@ -124,8 +153,37 @@ top-level Admin/import routes **do not move**.
 
 ### 1d. Redirect table — old bookmarks/emailed links survive (Beat 2)
 
-Old flat Sales URLs `Navigate replace` to their `/sales/*` home. **Path params and query strings must
-be preserved** (a `LegacyRedirect` helper: `const {id}=useParams(); return <Navigate to={\`/sales/${base}${id?'/'+id:''}${search}\`} replace/>`).
+Old flat Sales URLs `Navigate replace` to their `/sales/*` home. **[R1-B]** The redirect must carry the
+FULL location — path params, **query string, hash, AND React-Router `state`** (the earlier one-liner
+dropped `state` and referenced an undefined `search`, which would silently break in-app actions and
+fail smoke §1k.2). Correct helper reads `useLocation()`:
+
+```jsx
+function LegacyRedirect({ base }) {              // base e.g. "calllog"
+  const { id } = useParams();
+  const { search, hash, state } = useLocation();
+  return <Navigate replace state={state}
+    to={`/sales/${base}${id ? "/" + id : ""}${search}${hash}`} />;
+}
+```
+
+**[R1-B] Option B (ratified): the redirect layer is for EXTERNAL links only** (bookmarks, emailed
+customer links). In-app buttons must NOT rely on it — they carry `state` that a redirect hop is fragile
+around, and every future internal link would otherwise have to keep pointing at dead paths. So **repoint
+the 7 verified internal `navigate(..,{state})` sites to `/sales/*` directly** (this is the §1j amendment):
+
+| File:line | Button | Old target → New |
+|---|---|---|
+| `pages/Home.jsx:114` | dashboard stage-card (`stageFilter`,`sales`) | `/calllog` → `/sales/calllog` |
+| `pages/Home.jsx:56` | follow-up card (`from`) | `/calllog/:id` → `/sales/calllog/:id` |
+| `pages/CallLog.jsx:201` | New Proposal from job (`newJob`) | `/proposals` → `/sales/proposals` |
+| `components/ProposalDetail.jsx:1094` | + Create Invoice (`newInvoiceProposalId`) | `/invoices` → `/sales/invoices` |
+| `pages/Invoices.jsx:3427` | open-send (`openSendForInvoiceId`) | `/invoices/:id` → `/sales/invoices/:id` |
+| `components/followup/SalesIntelligence.jsx:62,101` | intel cards (`from`) | `/calllog/:id` → `/sales/calllog/:id` |
+
+Also update the `state.from` back-target values (`"/calllog"`, `"/home"`) in those sites to `/sales/*`
+so the Back affordance lands correctly. Non-`state` internal `navigate("/…")` calls survive the redirect
+but should be swept to `/sales/*` in the same pass for cleanliness (grep `navigate("/` after).
 
 | Old | → New |
 |---|---|
@@ -153,9 +211,17 @@ active highlighting, `getPageNumber`, and `TOCOverlay`'s `onNavigate` (which bui
 Phase 1 must:
 - Rewrite `sectionFromPath` to strip a known group prefix (`/sales|/schedule|/field|/ar`) and return
   the **second** segment (the item id), falling back to `"subcon-home"` for `/`.
-- `TOCOverlay.onNavigate(chapterId)` → navigate to the item's full `path` (look it up in `GROUPS`),
-  not `/${chapterId}`.
+- `TOCOverlay.onNavigate(chapterId)` → navigate to the item's full `path`, not `/${chapterId}`.
 - Confirm `getPageNumber`/TableOfContents still resolves Sales section ids (they're unchanged ids).
+
+**[R1-E] Consumers of the old flat `NAV` that also break — add to the fix list (not just `sectionFromPath`):**
+- **Header breadcrumb** (`App.jsx:333`) does `NAV.find(n => n.id === active)?.label` — goes blank once
+  `NAV` is deleted. Replace with a lookup over `GROUPS`/`SETTINGS`/`SUBCON_HOME`, and add a
+  `groupFromPath(pathname)` (match against each `GROUPS[].prefix`) to render `‹Group Label› › ‹Item›`.
+- **TOC / Directory lookups must consult `SETTINGS` and `SUBCON_HOME`, not only `GROUPS[].items`** —
+  Settings lives in the top-level `SETTINGS` const and Home in `SUBCON_HOME`; a GROUPS-only lookup
+  resolves them to `navigate("/undefined")` (`TableOfContents.jsx:512`). Build one resolver that unions
+  all three sources.
 
 ### 1f. Settings, grouped by app (Beat 2 §2)
 
@@ -167,25 +233,49 @@ render a "Available when <App> is enabled" placeholder (Field's real content = t
 Phase 3; Schedule/AR settings land with their moves). Only show a section if its app is in
 `tenant_config.apps` (Company always shown).
 
+**[R1-C] `/settings` has NO route-level role gate today** (`App.jsx:258` renders `<Settings/>` for any
+authed user — a pre-existing leak: burden rates, billing goals, financials readable by URL). Phase 1's
+guard **closes it**: add the `/import`-style role gate (Admin/Manager) on the `/settings` route, and
+render the "Not authorized" panel **inside the shell** so the user keeps nav to get back (not a bare
+full-page dead-end). **Inner gates must ride along the regroup** — do not lose them: Billing section =
+Admin only (`Settings.jsx:812`); catalog edits = `canManage` (`Settings.jsx:783,789`). Enumerate and
+re-assert each after moving content under the new section list.
+
+**[R1-D] Keep it one save, sections are a VIEW filter.** Settings today is a single form with one Save
+over all of `tenant_config` and does **not** read `apps`. The section list picks *which fields show*, not
+separate per-section saves — do not fragment the save (or, if per-section saves are wanted, spec them
+explicitly; default = keep the single save). Keep the existing `<Section>` accordions **additive** under
+Company / Sales Command ([[feedback_preserve_mental_models]]) — regroup, don't rebuild the form.
+
 ### 1g. Route guard (Beat 4 — "hiding a group ≠ security")
 
 A direct URL into a group the member is not entitled to (`tenant_config.apps` ∩ `team_members.apps`),
 or into a not-yet-available group (`/schedule/*` in Phase 1), renders a **"Not authorized"** panel —
 not a silent redirect, not merely a hidden menu item. Mirror the existing `/import` Admin gate pattern
-(`App.jsx:229-233`). This is CLAUDE.md's "hiding in the UI is not guarding the save," applied to routes.
+(`App.jsx:229-233`), but **render the panel INSIDE the shell** (sidebar + header present) so the user
+keeps a way back — not the bare full-page version `/import` uses.
+
+**[R1-A] The guard MUST use the same `groupVisible()` fail-open predicate (§1a)** — a naïve guard that
+reads raw `teamMember.apps`/`tenant_config.apps` fails closed during the async load and would block
+`/sales/*` for entitled users (same Critical as the sidebar). Entitlement check = `groupVisible(group,…)`
+for the URL's group; not-yet-available groups (`/schedule/*` in Phase 1) fail because `AVAILABLE_APPS`
+excludes them, which is correct.
 
 ### 1h. Files touched — Phase 1
 
 | File | Change |
 |---|---|
-| `src/lib/nav.js` | **new** — `GROUPS`, `AVAILABLE_APPS`, `SUBCON_HOME`, `SETTINGS`, `SUBCON_HEADER` |
-| `src/App.jsx` | flat `NAV` → import `GROUPS`; add `/sales/*` routes + `LegacyRedirect`s; new `sectionFromPath`; mount `<SubconHome/>`; group route-guard; `/schedule|/field|/ar/*` → guard |
-| `src/components/AppSidebar.jsx` | **new** (extract `AppShell`'s sidebar) — accordion groups, auto-expand from URL, one-open-at-a-time, visibility predicate (§1b) |
-| `src/pages/SubconHome.jsx` | **new** — quadrant landing (§1j); Phase 1 renders Sales quadrant only |
-| `src/components/Logo.jsx` | `AppWordmark` → "SUBCON COMMAND" (in-app sidebar only; login/marketing wordmark = Phase 5) |
-| `src/pages/Settings.jsx` | section-list frame (§1f); Sales/Company real, others placeholder |
-| `src/components/TableOfContents.jsx` | `onNavigate` → full item path (§1e) |
-| `src/pages/Team.jsx` | **no change needed** — apps checkboxes already exist (`APP_LABELS` = the 4 apps); confirm copy reads "which groups show," not "login" |
+| `src/lib/nav.js` | **new** — `GROUPS` (w/ group `icon`), `AVAILABLE_APPS`, `SUBCON_HOME`, `SETTINGS`, `SUBCON_HEADER`, `groupVisible()`, `itemVisible()` |
+| `src/lib/auth.js` | **[R1-A]** add `apps` to `getCurrentTeamMember` `.select()` (`:40`) — else the whole gate has no input |
+| `src/lib/config.js` | **[R1-A]** add `apps: ["sales"]` to `DEFAULTS` (`:3`) — safe fallback via `{...DEFAULTS,...data}` |
+| `src/App.jsx` | flat `NAV` → import `GROUPS`; `/sales/*` routes + `state`-aware `LegacyRedirect`s; new `sectionFromPath` + **`groupFromPath`**; **breadcrumb rewrite (`:333`)**; mount `<SubconHome/>`; group route-guard (uses `groupVisible`, renders inside shell); `/settings` role guard **[R1-C]**; `/schedule|/field|/ar/*` → guard |
+| `src/components/AppSidebar.jsx` | **new** (extract `AppShell`'s sidebar) — accordion groups w/ group icons + collapsed rail, auto-expand from URL, one-open-at-a-time, `groupVisible`+`itemVisible` filter; **carry the `action:"directory"` overlay branch + the drilled props** `onOpenDirectory / open / setOpen / signOut / displayName / displayRole / displayInitials` |
+| `src/pages/SubconHome.jsx` | **new** — quadrant landing (§1j); one quadrant per `groupVisible` app; Phase 1 renders Sales quadrant only |
+| `src/components/Logo.jsx` | `AppWordmark` → "SUBCON COMMAND" (in-app sidebar only; login/marketing = Phase 5). **[J4]** decide keep/drop the "Command Suite" subline (`:38`) + the embedded "SC" in `SalesCommandMark` (`:12`) |
+| `src/pages/Settings.jsx` | section-list frame (§1f); Sales/Company real, others placeholder; **[R1-C]** re-assert inner gates (Billing=Admin `:812`, catalogs=`canManage` `:783,789`); keep single save |
+| `src/components/TableOfContents.jsx` | **[R1-E]** `onNavigate` → full item path via a resolver that unions `GROUPS`+`SETTINGS`+`SUBCON_HOME` (`:512`) |
+| ~7 Sales call sites | **[R1-B]** repoint `navigate(..,{state})` to `/sales/*` (table in §1d) — the Option B amendment |
+| `src/pages/Team.jsx` | **no change needed** — apps checkboxes already exist (`APP_LABELS` = the 4 apps). **[J3]** note the `tenantApps.length > 1` gate (`:141`) hides the per-member picker while Sales-only — fine; document it |
 
 ### 1i. LAYOUT — Phase 1 (mockup is the target — [[feedback_ui_first_class]])
 
@@ -206,15 +296,27 @@ Build to the mockup (artboards: *Subcon Command Home* with Sales group expanded,
 ### 1j. Phase 1 does NOT
 
 - Move any Schedule/Field/AR *screen* in (structure only; groups gated off).
-- Touch page component internals, `queries`, calc, or any data/write path.
-- Change the login screen, `/suite` marketing page, domains, or any hardcoded URL (all Phase 5).
+- Touch page component **logic**, `queries`, calc, or any data/write path.
+- Change the login screen, `/suite` marketing page, domains, or any hardcoded external URL (all Phase 5).
 - Author any migration (Phase 1 is frontend-only; threshold columns are Phase 3).
+
+> **[R1-B] AMENDMENT (Option B ratified 2026-09-01) — the one carve-out to "don't touch Sales screens":**
+> Phase 1 **does** edit the navigation *target strings* in ~7 Sales call sites (§1d table) — repointing
+> `navigate(..,{state})` from flat paths to `/sales/*`. This is a link-target change only: no component
+> logic, no data path, no render change. It's required because the alternative (Option A — a redirect
+> that carries `state` for every in-app click forever) makes the redirect layer permanently load-bearing
+> for normal navigation. Everything else in this list still holds.
 
 ### 1k. Phase 1 verification / smoke (before it's called done)
 
-1. Logged-in Sales user lands on `/` = Subcon Home (Sales quadrant), one-click into `/sales/home`.
-2. Every old bookmark redirects: hit `/proposals/<real id>?x=1` → lands `/sales/proposals/<id>?x=1`,
-   detail renders. Repeat for calllog/:id, invoices/:id, customers/:id (params + query preserved).
+1. **[R1-A] A normal rep (role "Sales Rep") logs in and the sidebar Sales group AND the Home Sales
+   quadrant actually RENDER** — assert the elements are present, not merely that routes resolve (the
+   Critical was an *empty* shell). One-click `/` → `/sales/home`.
+2. Every old bookmark redirects with **query preserved**: `/proposals/<real id>?x=1` → lands
+   `/sales/proposals/<id>?x=1`, detail renders. Repeat calllog/:id, invoices/:id, customers/:id.
+3. **[R1-B] In-app actions still fire (not just load):** click a dashboard stage-card → CallLog opens
+   *filtered*; "New Proposal from job" → proposal modal *pops with the job*; "+ Create Invoice" → invoice
+   *pre-seeded*. (These are the `state`-carrying flows the redirect used to swallow.)
 3. Active highlight + page badge + Directory/TOC all resolve correctly under `/sales/*`.
 4. Public/token routes still open **logged out**: `/sign/<token>`, `/invoice/<token>`, `/invoice-paid`,
    `/suite`, `/login`, `/qb/callback` — none redirected, none behind auth.
@@ -426,7 +528,9 @@ what you can DO inside a group; unchanged). Guard rule (§1g) applies to every g
 2. **No dead bookmarks.** Every old flat URL in the §1d table redirects to `/sales/*`; **path params AND
    query strings preserved** through the redirect; detail pages render post-redirect.
 3. **Public/token surface untouched.** `/sign/:token`, `/invoice/:token`, `/invoice-paid`, `/qb/callback`,
-   `/suite`, `/login`, `/checkout`, `/features/:slug` are neither prefixed nor auth-gated nor redirected.
+   `/suite`, `/login` are neither prefixed nor auth-gated nor redirected. **[J1]** `/checkout` +
+   `/features/:slug` are **logged-out-only** routes today (a logged-in user already can't reach them) —
+   verify they still resolve in the logged-out tree; don't assert logged-in survival.
 4. **Visibility = the 3-way intersection** (`AVAILABLE_APPS` ∩ `tenant_config.apps` ∩ `team_members.apps`),
    and it governs BOTH the sidebar group AND the Subcon Home quadrant. A missing layer hides both.
 5. **`sectionFromPath` prefix fix** — active highlight, PageBadge, and TOC navigation all resolve under

@@ -347,12 +347,16 @@ function AppShell({ open, setOpen, displayName, displayRole, displayInitials, te
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {onSubconHome ? (
                 <span style={{ fontSize: 13, fontWeight: 800, color: C.textHead, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: F.display }}>Subcon Command Home</span>
-              ) : (
+              ) : group ? (
                 <>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textFaint, fontFamily: F.display }}>{group?.label ?? "Subcon Command"}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textFaint, fontFamily: F.display }}>{group.label}</span>
                   <span style={{ color: C.border, fontSize: 14 }}>›</span>
                   <span style={{ fontSize: 13, fontWeight: 800, color: C.textHead, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: F.display }}>{activeLabel}</span>
                 </>
+              ) : (
+                // Top-level global routes (/settings, /import) aren't under an app
+                // group — a single clean crumb, not the borrowed umbrella label.
+                <span style={{ fontSize: 13, fontWeight: 800, color: C.textHead, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: F.display }}>{activeLabel}</span>
               )}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

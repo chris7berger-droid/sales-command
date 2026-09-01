@@ -70,6 +70,24 @@ function GroupGuard({ app, teamMember, children }) {
   return ok ? children : <NotAuthorized />;
 }
 
+// Catch-all for authed paths that matched no explicit route. A URL under a known
+// app-group prefix (e.g. /schedule/home) runs the guard so an unavailable group
+// shows "Not authorized" instead of silently bouncing to Home (Beat 4 — hiding a
+// group ≠ security); a stray /sales/* subpath redirects to the Sales home; any
+// other unknown path goes to Subcon Home.
+function UnmatchedRoute({ teamMember }) {
+  const { pathname } = useLocation();
+  const group = groupFromPath(pathname);
+  if (group) {
+    return (
+      <GroupGuard app={group.app} teamMember={teamMember}>
+        <Navigate to={group.home} replace />
+      </GroupGuard>
+    );
+  }
+  return <Navigate to="/" replace />;
+}
+
 // [R1-B] Redirect old flat Sales URLs to their /sales/* equivalent. Carries the
 // FULL location — path param, query string, hash, AND React-Router state — so
 // external bookmarks/emailed links survive. In-app links are repointed directly
@@ -303,14 +321,14 @@ function SalesCommandApp() {
               {/* Settings — global/top-level, [R1-C] Admin/Manager gate closes the pre-existing leak */}
               <Route path="/settings" element={canManageSettings ? <Settings userRole={displayRole} /> : <NotAuthorized />} />
 
-              {/* Not-yet-available groups — structure present, screens absent in Phase 1.
-                  Guard fails (AVAILABLE_APPS excludes them) → "Not authorized". */}
-              <Route path="/schedule/*" element={<GroupGuard app="schedule" teamMember={teamMember}><Placeholder label="Schedule Command" /></GroupGuard>} />
-              <Route path="/field/*" element={<GroupGuard app="field" teamMember={teamMember}><Placeholder label="Field Command" /></GroupGuard>} />
-              <Route path="/ar/*" element={<GroupGuard app="ar" teamMember={teamMember}><Placeholder label="AR Command" /></GroupGuard>} />
-
-              {/* Any unknown authed path → Subcon Home */}
-              <Route path="*" element={<Navigate to="/" replace />} />
+              {/* Any unmatched authed path. If it's under a known app group
+                  (/schedule/*, /field/*, /ar/* in Phase 1, or a stray /sales/*),
+                  run the guard — not-yet-available groups render "Not authorized",
+                  not a silent redirect (Beat 4). Everything else → Subcon Home.
+                  Handled here rather than via a splat Route because a descendant
+                  <Routes> under a parent path="*" doesn't reliably match a nested
+                  splat on a fresh page load. */}
+              <Route path="*" element={<UnmatchedRoute teamMember={teamMember} />} />
             </Routes>
           </AppShell>
         } />

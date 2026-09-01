@@ -10,6 +10,25 @@ beats ratified. Beats are LOCKED; this plan may only *amend* via an appended blo
 
 ---
 
+> ## ⚠️ AMENDMENT — 2026-09-01 (Chris): ROLLOUT = ONE FLIP AT THE END, not phase-by-phase
+> This **amends §0a "How we ship"** (append-only, per [[feedback_schema_amendment_not_overwrite]]).
+> The original plan shipped each phase to production as it finished (Beat 3 stand-alone framing).
+> **Chris's call: do NOT expose the Subcon Command rebrand to live users incrementally.** Existing
+> Sales Command users should not see "Subcon Command" appear, then Schedule show up, then Field, etc.
+> — one transition, not a drip.
+>
+> **New rollout:** build every phase on the merge branch (`feat/schedule-merge-plan`), each still
+> passing its own build→buildvsplan→code-review→security-review + preview smoke, but **HOLD THE MERGE
+> TO MAIN.** Production stays on classic Sales Command until all phases are done, then flip live once.
+> - **Phase 1 (Shell) is BUILT + all four gates GREEN + preview-smoke PASSED (2026-09-01) — but NOT
+>   merged.** Do not merge it out of habit; it waits for the whole set.
+> - **Branch-drift upkeep:** while Phases 2–5 build, any hotfix shipped to live Sales Command on `main`
+>   must be pulled into this branch periodically so it doesn't rot. (Chosen over a feature-flag/off-switch
+>   in-code fork — one real tenant (HDSP), stable app, so the side-track branch is lowest-effort.)
+> - Everything else in the plan (phase contents, gates, per-phase quality bar) is unchanged.
+
+---
+
 ## 0. Scope & phase map
 
 Five phases, each ships and is useful alone (Beat 3). **Phase 1 (the shell) is the only build

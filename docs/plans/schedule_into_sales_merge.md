@@ -1,7 +1,8 @@
 # Schedule → Sales Merge (Sub Con Command)
 
-**Status:** IDEATE seed — 2026-09-01. Not a plan yet. No code, no migrations.
-**Mode:** ideate (opus 4.8 / xhigh) → plan → build. Build is gated until a verified plan exists.
+**Status:** IDEATE COMPLETE — 2026-09-01, all 8 beats ratified (see §4). Not a plan yet. No
+code, no migrations.
+**Mode:** ideate ✅ → **plan (next)** → build. Build is gated until a verified plan exists.
 **Repo:** sales-command (host shell). Sibling repo being absorbed: sch-command.
 
 ## 0. Why this doc exists
@@ -236,11 +237,39 @@ Both handle the 1000-row cap. Schedule uses realtime channels (`views/Jobs.jsx`,
 5. **Post-Phase-2 audit:** grep the combined app for unpaginated fetches, sweep 3× incl.
    Promise.all-wrapped ([[feedback_audit_pagination]]).
 
-### Beats not yet raised (in likely order)
-7. Field boundary — what Schedule surfaces Field mobile depends on (PowerSync sync rules,
-   `job_crew`) and how they're unaffected.
-8. Name/brand rollout — Sub Con Command login/wordmark/domain (schedulecommand.com redirect?).
+### Beat 7 — Field boundary  ← RATIFIED 2026-09-01 [LOCKED]
+Ground truth: Field mobile talks to exactly three things — Supabase directly (PowerSync +
+`upload-photo` edge fn), PowerSync cloud, open-meteo. It never calls a Sales/Schedule web URL.
+Schedule's reads of Field-written tables (`daily_production_reports` ×4, `daily_log_entries`,
+`job_material_checks`, `job_crew`) are plain table reads that move with Schedule's code.
+- **Zero phone changes in Phases 1, 2, 4, 5.**
+- **Phase 3 exception:** alert thresholds in `tenant_config` → phone must READ them, and
+  `tenant_config` is NOT in `powersync-sync-rules.yaml` today (9 tables). Phase 3 = one
+  sync-rule addition + one small phone release. Missing setting → phone keeps hardcoded
+  15 min / 4 hr; never a crash.
 
-## 4. Not in scope of this seed
-No layout section, no audit manifest, no migrations — those come in the plan pass after ideate
-closes.
+### Beat 8 — Name + addresses  ← RATIFIED 2026-09-01 [LOCKED]
+Ground truth: prod = `scmybiz.com` (Vercel `sales-command`) + `schmybiz.com` (Vercel
+`sch-command`). ~25 hardcoded URL refs in code: `salescommand.app` ×17, `schedulecommand.com`
+×3, `sccmybiz.com` ×1, `schmybiz.com` ×2, `scmybiz.com` ×5 (incl. edge fns / email links).
+- **Schedule Command has ONE user — Chris. It has never been live to anyone else.** So no
+  forwarding, no pause period, no protections: **Phase 2 turns the `sch-command` Vercel deploy
+  OFF once the merged `/schedule/*` is verified.** Old Schedule domains point at the umbrella
+  in Phase 5 or are dropped.
+- **Phase 5:** pick umbrella domain (check `subconcommand.com`); old domains → umbrella;
+  sweep the ~25 hardcoded links (edge fns included); rewrite `/suite`
+  (`SubConCommandPage.jsx`, still says "Sub Con Command"); login wordmark. Customer token
+  links (`/sign/:token`, `/invoice/:token`) never move, so old emails keep working.
+
+## 4. IDEATE CLOSED 2026-09-01 — next step
+
+All 8 beats ratified by Chris. This doc is the INPUT to the plan pass, not the plan.
+
+**Next:** a **plan** session (opus 4.8 / xhigh) that turns Beats 1–8 into
+`docs/plans/schedule_into_sales_merge_PLAN.md` (or grows this file) with, per Phase:
+concrete file moves, route table, redirect table, Settings section map, the `tenant_config`
+migration for Field thresholds (authored in command-suite-db), a **layout section** per
+[[feedback_ui_first_class]], and an `## Audit manifest` for `/runaudit`. Phase 1 (shell) is
+the first build target; it must be verified alone before Phase 2 starts.
+
+Mockup to build Phase 1 against: https://claude.ai/code/artifact/9349053f-3378-4089-8582-203fa46d554e

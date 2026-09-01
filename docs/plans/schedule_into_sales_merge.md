@@ -256,7 +256,12 @@ Ground truth: prod = `scmybiz.com` (Vercel `sales-command`) + `schmybiz.com` (Ve
   forwarding, no pause period, no protections: **Phase 2 turns the `sch-command` Vercel deploy
   OFF once the merged `/schedule/*` is verified.** Old Schedule domains point at the umbrella
   in Phase 5 or are dropped.
-- **Phase 5:** pick umbrella domain (check `subconcommand.com`); old domains → umbrella;
+- **Domains owned (Chris, 2026-09-01):** `subconcommand.com` (full name), `sccmybiz.com`
+  (short), `scmybiz.com` (current Sales prod — originally "sales command", reads equally as
+  "subcon command" with Subcon as one word). → **Umbrella stays at `scmybiz.com`: no domain
+  move in Phase 5.** `subconcommand.com` + `sccmybiz.com` forward to it. No availability check
+  needed.
+- **Phase 5:** old domains (`schmybiz.com`, `schedulecommand.com`, `salescommand.app`) → umbrella;
   sweep the ~25 hardcoded links (edge fns included); rewrite `/suite`
   (`SubConCommandPage.jsx`, still says "Sub Con Command"); login wordmark. Customer token
   links (`/sign/:token`, `/invoice/:token`) never move, so old emails keep working.

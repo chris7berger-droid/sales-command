@@ -53,8 +53,8 @@ export default function Home({ displayName = "there", repName = "" }) {
   const loadingCore = !hasSnapshot && loading;
 
   const onGoTo = (card) => {
-    if (card.callLogId) navigate(`/calllog/${card.callLogId}`, { state: { from: "/home" } });
-    else if (card.customerId) navigate(`/customers/${card.customerId}`);
+    if (card.callLogId) navigate(`/sales/calllog/${card.callLogId}`, { state: { from: "/sales/home" } });
+    else if (card.customerId) navigate(`/sales/customers/${card.customerId}`);
   };
 
   if (loadingCore) return <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui }}>Loading…</div>;
@@ -111,7 +111,7 @@ export default function Home({ displayName = "there", repName = "" }) {
     { stage: "Has Bid", data: scoreboard["Has Bid"], note: "out the door" },
     { stage: "Sold", data: scoreboard.Sold, note: "closed this month" },
   ];
-  const openTile = (stage) => navigate("/calllog", { state: { stageFilter: stage, sales: repName } });
+  const openTile = (stage) => navigate("/sales/calllog", { state: { stageFilter: stage, sales: repName } });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: SP.xxl, maxWidth: 1600 }}>

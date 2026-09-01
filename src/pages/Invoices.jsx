@@ -555,7 +555,7 @@ export function NewInvoiceModal({ onClose, onCreated, preselectedProposal, onOpe
                         Sold: {money(total)} · Already billed: {money(archiveBilled)} · Remaining: <span style={{ color: C.green, fontWeight: 700 }}>{money(remaining)}</span>
                         {" · "}
                         <button
-                          onClick={() => { onClose(); navigate(`/proposals/${selProposal.id}`); }}
+                          onClick={() => { onClose(); navigate(`/sales/proposals/${selProposal.id}`); }}
                           title="Open the proposal to edit the historical billed amount"
                           style={{ background: "none", border: "none", padding: 0, color: C.tealDark, fontWeight: 700, fontFamily: F.ui, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}
                         >
@@ -3419,12 +3419,12 @@ export default function Invoices({ setSubPage, teamMember }) {
     key={sel.id}
     invoice={sel}
     teamMember={teamMember}
-    onBack={() => { navigate("/invoices"); load(); }}
+    onBack={() => { navigate("/sales/invoices"); load(); }}
     onUpdated={async () => { const data = await load(); const fresh = (data || []).find(i => i.id === sel.id); if (fresh) setSel(fresh); }}
-    onDeleted={() => { setFilters(f => ({ ...f, invoiceNumber: "" })); navigate("/invoices"); load(); }}
-    onNavigateJob={id => navigate(`/calllog/${id}`)}
-    onNavigateProposal={id => navigate(`/proposals/${id}`)}
-    onNavigateInvoice={(id, opts) => { navigate(`/invoices/${id}`, opts?.openSend ? { state: { openSendForInvoiceId: id } } : undefined); load(); }}
+    onDeleted={() => { setFilters(f => ({ ...f, invoiceNumber: "" })); navigate("/sales/invoices"); load(); }}
+    onNavigateJob={id => navigate(`/sales/calllog/${id}`)}
+    onNavigateProposal={id => navigate(`/sales/proposals/${id}`)}
+    onNavigateInvoice={(id, opts) => { navigate(`/sales/invoices/${id}`, opts?.openSend ? { state: { openSendForInvoiceId: id } } : undefined); load(); }}
     autoOpenSend={location.state?.openSendForInvoiceId === sel.id}
     onSendOpened={() => navigate(location.pathname, { replace: true, state: null })}
   />;
@@ -3435,7 +3435,7 @@ export default function Invoices({ setSubPage, teamMember }) {
         <NewInvoiceModal
           preselectedProposal={preselectedProposal}
           onClose={() => { setShowModal(false); setPreselectedProposal(null); }}
-          onCreated={(inv) => { setShowModal(false); setPreselectedProposal(null); navigate(`/invoices/${inv.id}`); load(); }}
+          onCreated={(inv) => { setShowModal(false); setPreselectedProposal(null); navigate(`/sales/invoices/${inv.id}`); load(); }}
           onOpenPayApp={async (p) => {
             setShowModal(false);
             setPreselectedProposal(null);
@@ -3580,7 +3580,7 @@ export default function Invoices({ setSubPage, teamMember }) {
                 }},
             ]}
             rows={filteredInvoices}
-            onRow={row => navigate(`/invoices/${row.id}`)}
+            onRow={row => navigate(`/sales/invoices/${row.id}`)}
             focusKey={lastViewedId}
             defaultSort={isRetentionView ? { key: "retention_amount", dir: "desc" } : { key: "sent_at", dir: "desc" }}
           />

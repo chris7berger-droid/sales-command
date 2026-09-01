@@ -191,11 +191,11 @@ export default function Proposals({ teamMember, setSubPage }) {
 
   if (sel) return <ProposalDetail
     p={sel}
-    onBack={() => { setSel(null); navigate("/proposals"); load(); }}
-    onDeleted={() => { setSel(null); navigate("/proposals"); load(); }}
+    onBack={() => { setSel(null); navigate("/sales/proposals"); load(); }}
+    onDeleted={() => { setSel(null); navigate("/sales/proposals"); load(); }}
     teamMember={teamMember}
-    onNavigateJob={id => navigate(`/calllog/${id}`)}
-    onNavigateInvoice={id => navigate(`/invoices/${id}`)}
+    onNavigateJob={id => navigate(`/sales/calllog/${id}`)}
+    onNavigateInvoice={id => navigate(`/sales/invoices/${id}`)}
   />;
 
   // ─── "Proposals" stat row + Needs-Attention (§2.3 / §3.2) ────────────────
@@ -273,7 +273,7 @@ export default function Proposals({ teamMember, setSubPage }) {
       {showModal && (
         <NewProposalModal
           onClose={() => { setShowModal(false); setPreselectedJob(null); }}
-          onCreated={(newProposal) => { setShowModal(false); setPreselectedJob(null); navigate(`/proposals/${newProposal.id}`); load(); }}
+          onCreated={(newProposal) => { setShowModal(false); setPreselectedJob(null); navigate(`/sales/proposals/${newProposal.id}`); load(); }}
           preselectedJob={preselectedJob}
         />
       )}
@@ -415,7 +415,7 @@ export default function Proposals({ teamMember, setSubPage }) {
                 }},
               { k: "_a", l: "", sortable: false, r: (_, row) => (
                 <div style={{ display: "flex", gap: 5 }}>
-                  <Btn sz="sm" v="secondary" onClick={() => navigate(`/proposals/${row.id}`)}>Open</Btn>
+                  <Btn sz="sm" v="secondary" onClick={() => navigate(`/sales/proposals/${row.id}`)}>Open</Btn>
                   <Btn sz="sm" v="ghost">PDF</Btn>
                 </div>
               )},

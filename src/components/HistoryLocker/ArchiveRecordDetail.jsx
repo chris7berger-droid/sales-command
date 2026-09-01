@@ -74,8 +74,8 @@ export default function ArchiveRecordDetail({ record, onBack, onNavigateProposal
           onClose={() => setShowImport(false)}
           onSaved={({ jobId } = {}) => {
             setShowImport(false);
-            if (jobId) navigate(`/calllog/${jobId}`);
-            else navigate("/calllog");
+            if (jobId) navigate(`/sales/calllog/${jobId}`);
+            else navigate("/sales/calllog");
           }}
         />
       )}

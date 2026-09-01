@@ -142,7 +142,7 @@ export default function ReviewImport({ fileData, dataType, mappings }) {
         )}
 
         <div style={{ marginTop: 24 }}>
-          <Btn v="primary" sz="md" onClick={() => window.location.href = "/customers"}>
+          <Btn v="primary" sz="md" onClick={() => window.location.href = "/sales/customers"}>
             View Customers
           </Btn>
         </div>

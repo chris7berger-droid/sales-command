@@ -59,8 +59,8 @@ export default function SalesIntelligence({ repName = "", displayName = "", onDi
   if (!snapshot || !dig) return null;
 
   const onGoTo = (card) => {
-    if (card.callLogId) navigate(`/calllog/${card.callLogId}`, { state: { from: "/calllog" } });
-    else if (card.customerId) navigate(`/customers/${card.customerId}`);
+    if (card.callLogId) navigate(`/sales/calllog/${card.callLogId}`, { state: { from: "/sales/calllog" } });
+    else if (card.customerId) navigate(`/sales/customers/${card.customerId}`);
   };
 
   const label = (t, right) => (
@@ -98,7 +98,7 @@ export default function SalesIntelligence({ repName = "", displayName = "", onDi
             {(showAllOwed ? owed : owed.slice(0, OWED_PREVIEW)).map(item => {
               const overdue = item.date && item.date < new Date().toLocaleDateString("en-CA");
               return (
-                <button key={`${item.kind}-${item.id}`} onClick={() => navigate(`/calllog/${item.id}`, { state: { from: "/calllog" } })}
+                <button key={`${item.kind}-${item.id}`} onClick={() => navigate(`/sales/calllog/${item.id}`, { state: { from: "/sales/calllog" } })}
                   style={{ textAlign: "left", display: "flex", alignItems: "center", gap: SP.md, background: C.linen, border: `1px solid ${C.border}`, borderLeft: `3px solid ${overdue ? C.red : C.amber}`, borderRadius: R.chip, padding: "9px 14px", cursor: "pointer" }}>
                   <span style={{ fontSize: 12.5, fontWeight: 700, color: C.textHead, fontFamily: F.ui, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "48%" }}>{item.title}</span>
                   <span style={{ fontSize: 12, color: C.textMuted, fontFamily: F.body, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.sub}</span>

@@ -272,6 +272,29 @@ turned off (Beat 8), so old `schmybiz.com` URLs need no forwarding. New mounts o
 > Watch the label/path mismatches: "Crew Schedule"→`schedule`, "Logistics"→`materials`. Note the
 > literal `/schedule/schedule` for Crew Schedule (harmless, but flag it in review).
 
+**Phase 2 merge-collision pre-flight (read-only spillover look, 2026-09-01).** Both apps checked for
+"assumes it owns the whole page." Verdict: they fit; the interference surfaces are few, known, fixable.
+The items below are the Phase 2 safety gate — verify each is handled before the fence is called done:
+
+- **URL/tab-ownership booby-traps (NEW — most important).** Schedule assumes it owns the browser tab:
+  - `sch-command/src/views/Login.jsx:67` → `window.location.href = '/'` (kicks the user out of `/schedule`
+    to the umbrella root). Once login is the host's, this dies with Schedule's deleted auth — but verify.
+  - `sch-command/src/App.jsx:308` → `window.location.reload()` (reloads the WHOLE merged app). Re-scope
+    or drop.
+  - `sch-command/src/main.jsx:11` mounts its **own top-level `<BrowserRouter>`** — must be removed; the
+    host owns the single router. Schedule's routes become plain `<Route>`s under the host's `/schedule/*`.
+- **Cross-app jump links become internal.** `BillingCard.jsx:6` and `ForecastCard.jsx:10` hardcode
+  `SALES_HOST = 'https://salescommand.app'` and `window.open(\`${SALES_HOST}/calllog/:id\`)`. After merge
+  these are same-app links — repoint to `/sales/calllog/:id` (and they feed the Phase 5 URL sweep).
+- **Shared login token — do NOT create a second client.** Both apps use supabase-js against the same
+  project, so both would persist to the same `sb-pbgvgjjuhnpsumnowuym-auth-token` localStorage key. Beat 6
+  already deletes Schedule's client/auth/context and repoints to the host's — this look confirms *why*:
+  two default clients would fight over one login key. No second client, ever.
+- **Host side is clean.** Sales opens **no realtime channels** and runs **no service worker / global
+  background helper**, so the only host globals to respect are its `GLOBAL_CSS` reset + `body` background
+  (which the fence keeps out of Schedule) and its `sc_*` / supabase storage keys (no overlap with
+  Schedule's — Schedule writes none of its own).
+
 **Phase 2 gotchas the repo map found:**
 - **CSS fence is bigger than "wrap App.css."** Schedule's tokens + global element selectors live in
   `sch-command/src/index.css` (`:root`, plus `*`, `body`, `#root{min-height:100vh;display:flex…}`,

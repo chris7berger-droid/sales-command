@@ -108,9 +108,9 @@ sync — no new tables, no new sync rules:
   same row so they keep agreeing. **HDSP values: SOD = 90 min** (crews punch in at the shop
   ~6:30, ~30 min loading + ~30 min driving), MOD = 4 hr, EOD + PRT required. Other customers
   will have their own scenarios — defaults for new tenants TBD in plan.
-  - Option (not decided): a second setting `sod_counts_from` = clock-in | arrival on site. The
-    punch bar already has a driving → on_site state; counting from on-site arrival removes the
-    magic number, but only if crews reliably tap "on site". Ask Chris in plan.
+  - REJECTED 2026-09-01: counting SOD from "arrival on site" instead of clock-in. Drive time
+    (the driving → on_site punch) is only tracked on prevailing-wage jobs, so it can't be the
+    trigger. SOD always counts from clock-in.
 - **Job drill-in:** who's on it, hours, the three forms (status + open them), the load-out form.
 
 ### Beats not yet raised (in likely order)

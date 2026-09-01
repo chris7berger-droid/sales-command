@@ -215,9 +215,28 @@ purple, `--blu`, `--orn`, `--ylw`, `--grn`, `--cyan`, `--red`).
 5. **Full polish to the pay-app standard is a SEPARATE later UI pass**, not this migration
    ([[feedback_sc_pop_color_teal]] — global swap = deferred polish).
 
+### Beat 6 — Data layer / plumbing  ← RATIFIED 2026-09-01 [LOCKED]
+Ground truth: both read `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`; each has its own
+`lib/supabase.js`, `lib/auth.js`, and a logged-in context (Sales: `App.jsx` teamMember state +
+`TenantConfigContext.jsx`; Schedule: `lib/user.jsx`). Schedule's data layer =
+`lib/queries.js` (1,647 lines, 60 exports); Sales = scattered fetches + `supabaseHelpers.fetchAll()`.
+Both handle the 1000-row cap. Schedule uses realtime channels (`views/Jobs.jsx`, `views/Home.jsx`)
++ `lib/sync.jsx`.
+
+1. **One client, one login, one "who am I" — the host's (Sales).** Schedule's `supabase.js`,
+   `auth.js`, `user.jsx` deleted; its imports repointed. That is the ONLY edit inside Schedule's
+   code in Phase 2.
+2. **`queries.js` stays whole.** Not scattered to match Sales. (Sales drifting toward it is a
+   later, separate idea.)
+3. **Realtime keeps working** (same client/DB). Check: channel names can't collide once both
+   subtrees share a page.
+4. **Ownership unchanged.** Who writes which table is still the shared-data contract
+   (`sch-command/docs/plans/command_suite_shared_data_contract.md`). Merging repos merges
+   code, not responsibilities.
+5. **Post-Phase-2 audit:** grep the combined app for unpaginated fetches, sweep 3× incl.
+   Promise.all-wrapped ([[feedback_audit_pagination]]).
+
 ### Beats not yet raised (in likely order)
-6. Shared state/data layer — sch-command's `queries.js` data layer vs sales-command's fetch
-   patterns; the 1000-row pagination rule applies across both.
 7. Field boundary — what Schedule surfaces Field mobile depends on (PowerSync sync rules,
    `job_crew`) and how they're unaffected.
 8. Name/brand rollout — Sub Con Command login/wordmark/domain (schedulecommand.com redirect?).

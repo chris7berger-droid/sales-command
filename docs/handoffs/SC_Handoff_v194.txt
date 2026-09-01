@@ -1,0 +1,205 @@
+SC HANDOFF v194 — 2026-09-01
+Subcon Command merge · PHASE 1 (the Shell) BUILT + GATE-GREEN + SMOKE-PASSED · HELD (not merged)
+
+================================================================
+SESSION SUMMARY
+================================================================
+Built Phase 1 ("the Shell") of the Schedule→Sales merge per
+docs/plans/schedule_into_sales_merge_PLAN.md §1 (audit-clean through Round 2).
+Frontend-only: rebrands the app into "Subcon Command" — a grouped sidebar
+(Subcon Home + Sales Command group, with Schedule/Field/AR groups gated OFF
+until their phases), /sales/*-prefixed routes with redirects from every old
+flat URL, an app-visibility gate, and a Settings section-list. No data,
+query, calc, or migration changes.
+
+All four quality gates ran and passed with ZERO ship-blockers
+(buildvsplan → code-review → security-review), and Chris smoke-tested the
+Vercel preview himself — all checks pass.
+
+BIG DECISION THIS SESSION (changes the plan): do NOT roll the merge out
+phase-by-phase to production. Build every phase on the branch, but HOLD THE
+MERGE and flip all phases live at once at the very end, so existing Sales
+Command users don't watch the rebrand drip in. Phase 1 is therefore built and
+verified but deliberately NOT merged to main. Prod still runs classic Sales
+Command.
+
+================================================================
+CHANGES SHIPPED (on branch feat/schedule-merge-plan — NOT on main)
+================================================================
+NEW files:
+- src/lib/nav.js         — canonical nav model. GROUPS, AVAILABLE_APPS=["sales"],
+                           groupVisible() (fails OPEN to ["sales"] on empty/null
+                           apps [R1-A/R1-D]), itemVisible(), sectionFromPath()
+                           (prefix-aware [R2-3]), groupFromPath(), resolveNavTarget()
+                           (unions GROUPS+SETTINGS+SUBCON_HOME [R1-E]).
+- src/components/AppSidebar.jsx — extracted grouped sidebar: accordion groups,
+                           one-open-at-a-time auto-expanded from URL,
+                           groupVisible+itemVisible filter, receives teamMember+cfg
+                           [R2-1], zero-groups empty state, Directory overlay branch.
+- src/pages/SubconHome.jsx — "/" landing: one quadrant card per visible app
+                           (Phase 1 = Sales only), zero-groups empty state.
+
+CHANGED files:
+- src/lib/auth.js        — getCurrentTeamMember() select adds `apps` [R1-A].
+- src/lib/config.js      — DEFAULTS adds apps:["sales"] [R1-A] (fail-open is the
+                           real net, not this default).
+- src/App.jsx            — grouped shell; SubconHome at "/"; /sales/* routes behind
+                           GroupGuard (same fail-open predicate); state+search+hash
+                           -aware LegacyRedirect for old flat URLs [R1-B]; /settings
+                           Admin/Manager gate (closes pre-existing leak [R1-C]);
+                           breadcrumb via groupFromPath/resolveNavTarget; threads
+                           teamMember+cfg to sidebar AND guard [R2-1]; UnmatchedRoute
+                           catch-all (see FIX note below).
+- src/components/Logo.jsx — AppWordmark → "SUBCON COMMAND"; dropped redundant
+                           "Command Suite" subline [J4]. (SC glyph in
+                           SalesCommandMark kept — deferred to Phase 5 naming.)
+- src/pages/Settings.jsx — left-hand section list (Company / Sales Command;
+                           Schedule/Field/AR = placeholder), gated by
+                           tenant_config.apps with fail-open [R2-4], single save
+                           kept, inner gates preserved (Billing=Admin, catalogs=
+                           canManage) [R1-C].
+- Internal-nav sweep to /sales/* (Option B / R2-5, ~30 sites): CallLog, Home,
+  Proposals, Invoices, Customers, Archive, Leads, AlertsBanner, SalesIntelligence,
+  ProposalDetail, ArchiveRecordDetail, ReviewImport. CallLog back-nav reader
+  flipped in lockstep with the Home writer [R2-2]. Zero flat-path stragglers
+  remain except the sanctioned LegacyRedirect table.
+
+FIX during smoke: /schedule/home was silently bouncing to Subcon Home instead
+of showing "Not authorized." Cause: a descendant <Routes> under a parent
+path="*" doesn't reliably match a nested splat (/schedule/*) on a fresh page
+load. Replaced the 3 splat guard routes + blind catch-all with ONE
+UnmatchedRoute handler on path="*" that reads groupFromPath(pathname): a URL
+under a known app group runs GroupGuard (unavailable → "Not authorized"), a
+stray /sales/* redirects to Sales home, anything else → "/". Re-smoked: passes.
+
+================================================================
+DECISIONS
+================================================================
+1. ROLLOUT = ONE FLIP AT THE END (Chris). Hold the merge; build all phases on
+   the branch; flip live once when the whole set is done. Amended into the plan
+   (§0a amendment block) and saved to memory (project_subcon_merge_rollout).
+   Chose a long-lived side-track branch over an in-code off-switch (one tenant,
+   stable app). UPKEEP: pull main hotfixes into this branch periodically so it
+   doesn't rot.
+2. [J4] AppWordmark → SUBCON COMMAND, subline dropped; SC radar glyph kept for
+   now (full logo rework is Phase 5).
+3. Two review nits adjudicated: breadcrumb on /settings FIXED (single crumb);
+   resolveNavTarget("directory")→"/" left as correct-by-design (unreachable).
+
+================================================================
+BACKLOG
+================================================================
+NEW: B72 (T4, Open) — onboarding route branch omits /qb/callback + /suite; a
+     not-yet-onboarded member landing there sees WelcomeScreen. Pre-existing
+     (branch preserved verbatim by Phase 1), cosmetic, no data exposure.
+CLOSED: none.
+
+================================================================
+VERIFICATION
+================================================================
+- npm run build: exits 0 (only the pre-existing chunk-size warning).
+- Live DB probe: team_members.apps + tenant_config.apps both exist (200/200);
+  HDSP tenant_config.apps=["sales"], members carry sales → no blank shell.
+- /buildvsplan: GO (0 Tier-1 / 0 Tier-2).
+- /code-review: 0 blockers (1 nit fixed, 1 by-design).
+- /security-review: 0 exploitable-today (1 pre-existing cosmetic → B72).
+- Vercel preview smoke (Chris, 2026-09-01): sidebar group + Home quadrant
+  render; stat-card click lands filtered (state survived); New Proposal pops
+  with the job; Settings shows Company/Sales Command rail; old bookmark opens
+  the right page; /schedule/home → "Not authorized" (after the fix). ALL PASS.
+
+================================================================
+REVIEW-TERMINAL DETAIL (captured from the separate audit terminals)
+================================================================
+Three gates ran in their own terminals (build terminal does not self-review).
+Substance preserved here so it isn't lost with those sessions:
+
+/buildvsplan — 3 Explore reviewers + live probe + build. 0 Tier-1, 0 Tier-2.
+  - Nav/logic layer: fully green, incl. the two "break-the-world" spots —
+    groupVisible fail-open (nav.js:40-43) and sectionFromPath else-branch
+    (nav.js:58-64, so /settings + /import don't blank the breadcrumb).
+  - Redirect/sweep layer: fully green — zero straggler flat-path literals in
+    src/ (only the LegacyRedirect table remains flat, correct); all 7 state
+    repoints + the R2-2 reader/writer pair in lockstep.
+  - UI/shell layer: /settings Admin/Manager gate confirmed inside the shell;
+    breadcrumb correct; TableOfContents.jsx correctly SKIPPED — the [R1-E]
+    resolver belongs in the caller (App.jsx) and is there; TOC nav under
+    /sales/* not broken.
+  - 2 cosmetic nits only: (a) AppSidebar imports signOut vs receiving it as a
+    drilled prop — functionally identical, left as-is; (b) SC glyph kept [J4].
+
+/code-review — 0 ship-blockers. 2 filed:
+  - #1 resolveNavTarget("directory") is path-less → a TOC onNavigate to a
+    "directory" chapter would fall to navigate("/"). No such chapter/route
+    exists → unreachable. HARDENING. LEFT as correct-by-design (a path-less
+    item that can't navigate falling back to "/" is right).
+  - #2 breadcrumb on /settings read "Subcon Command > Settings" via the
+    group-label fallback. SHOULD-FIX. FIXED this session (single clean crumb
+    for top-level routes) — commit 4d2cd6a.
+  Confirmed holding: sweep complete; reader/writer lockstep; fail-open + real
+  inputs (auth.js apps, getTenantConfig select("*")); /settings leak closed;
+  Billing=Admin + catalog canManage gates preserved; /import + public/token
+  routes untouched; graceful edges (getPageNumber("subcon-home")→null→no badge).
+
+/security-review — 0 exploitable-today. Frame: single tenant (HDSP), frontend-
+  only, RLS untouched. 6 findings, all non-exploitable:
+  - #1 groupVisible fail-open to ["sales"]: safe — bounded by
+    AVAILABLE_APPS.includes (schedule/field/ar stay blocked even with the
+    fallback), and Sales never gated login so no actor gains anything.
+  - #2 /settings now Admin/Manager-gated: net security IMPROVEMENT — closes a
+    pre-existing leak (burden rates / billing goals were URL-readable by any
+    authed user at old App.jsx:258).
+  - #3 route guards are REAL element-level gates (GroupGuard wraps each route
+    element), not menu-hiding. Menu hiding is additive only.
+  - #4 public/token routes (/sign /invoice /qb/callback /suite /invoice-paid)
+    un-gated + un-redirected in both auth states; anon *→LandingPage, never the
+    shell.
+  - #5 onboarding (onboarded===false) branch omits /qb/callback + /suite →
+    WelcomeScreen. Cosmetic, no data exposure → filed B72.
+  - #6 App.jsx is the sole router; no competing <Routes>/createBrowserRouter,
+    no bypass path.
+  STANDING CAVEAT (not a finding, pre-existing, out of scope): every gate here
+  is client-side. The durable boundary for financial columns (tenant_config
+  burden rates, billing goals) is Supabase RLS. Worth confirming a Sales-role
+  JWT can't read those columns directly — but that's pre-existing and separate
+  from this frontend-only change (its own /decide → plan if pursued).
+
+================================================================
+NOT TOUCHED (out of scope this session)
+================================================================
+- Any Schedule/Field/AR SCREEN (Phase 2+). Groups exist in nav data, gated OFF.
+- Page component logic, queries, calc, data/write paths (§1j).
+- Login screen, /suite marketing, domains, hardcoded external URLs (Phase 5).
+- Any migration (Phase 1 is frontend-only; threshold columns are Phase 3).
+- Supabase RLS. Standing caveat (pre-existing, out of scope): these route/group
+  gates are client-side; the durable boundary for financial columns is RLS.
+
+================================================================
+NEXT SESSION POINTERS
+================================================================
+- DO NOT MERGE Phase 1 alone — it's held by design (see decision #1).
+- Next build = PHASE 2 (Schedule moves in): plan §2. Pre-flight per §2 "merge-
+  collision pre-flight" runs BEFORE Schedule's code merges in. Confirm
+  sch-command main is clean / nothing trapped on its branches first (§8).
+- Each phase still runs its own build→buildvsplan→code-review→security-review +
+  preview smoke on this branch before the final flip.
+- Keep this branch fresh vs main (pull any live Sales Command hotfix in).
+
+================================================================
+FILES TO KNOW
+================================================================
+- Plan: docs/plans/schedule_into_sales_merge_PLAN.md (see the §0a AMENDMENT at top).
+- Shell entry: src/App.jsx · src/lib/nav.js · src/components/AppSidebar.jsx ·
+  src/pages/SubconHome.jsx.
+
+================================================================
+GIT STATE
+================================================================
+- Branch: feat/schedule-merge-plan (pushed to origin, up to date).
+- HEAD: 00eebc9  Plan: amend rollout — hold merge, flip all phases live at once
+- Phase-1 commits: 1fde317 (shell) · 4d2cd6a (breadcrumb) · e0a818c (B72) ·
+  f4fa017 (guard fix) · 00eebc9 (plan amendment).
+- Working tree: clean (this handoff is the only addition).
+- Preview (branch alias, always latest):
+  https://sales-command-git-feat-sche-e7f62e-chris7berger-droids-projects.vercel.app
+- NOT merged to main. Production unchanged (classic Sales Command).

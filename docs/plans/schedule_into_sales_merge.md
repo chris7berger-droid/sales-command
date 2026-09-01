@@ -67,9 +67,18 @@ Option A (one unified sidebar, app groups that expand), with Chris's specifics:
 - Seam that survives v1: the job record still lives in two places (Sales Call Log job vs
   Schedule Jobs page). Folding them is a later beat.
 
-**Open confirmations:** (a) full names in the menu ("Sales Command") vs short ("Sales") —
-the 2026-08-25 note said short, Chris's picture today shows full; (b) spelling "Subcon Command"
-(one word) vs the note's "Sub Con Command".
+**Naming LOCKED 2026-09-01 (supersedes the 2026-08-25 note's "drop Command" / "Sub Con"):**
+- Umbrella = **Subcon Command** (one word "Subcon"; short for subcontractor). Wordmark:
+  SUBCON white / COMMAND teal, same treatment as today's SALES COMMAND header.
+- Menu groups KEEP "Command": **Sales Command / Schedule Command / Field Command / AR Command**.
+  "Taking command" is core brand; the family reads as one.
+- Rejected: "Sub Command" (reads submarine / sub-menu / software "sub-command"), "Sub Con
+  Command" (three words — "con" jumps out, hardest to read).
+
+**Mockup (2026-09-01):** https://claude.ai/code/artifact/9349053f-3378-4089-8582-203fa46d554e
+— artboards: Subcon Command Home (Sales group expanded) + Field Command "Today" list. Sample
+values throughout. Working files: session scratchpad `subcon-design/` (Main.dc.html,
+FieldToday.dc.html, canvas.json). Chris's review: pending.
 
 ### Beat 1b — Field Command on the web  ← ANSWERED 2026-09-01 [LOCKED]
 Field has NO web side today (phone-only: Home, Job List, Job Detail w/ Tasks / Time Clock /

@@ -194,8 +194,28 @@ Guard rule: hiding a group ≠ security. A direct URL into an unassigned group (
 renders "Not authorized" — route guard, not just a missing menu item (CLAUDE.md "hiding in UI
 is not guarding the save" applied to routes).
 
+### Beat 5 — Design tokens  ← RATIFIED 2026-09-01 [LOCKED]
+Ground truth: same palette DNA (linen #b5a896 / card #c8bcaa / deep #a89b88 / dark #1c1814,
+Barlow + Barlow Condensed). Different plumbing: Sales = inline styles from `src/lib/tokens.js`;
+Schedule = `src/App.css` (6,648 lines) + `index.css` with `:root` CSS variables + class names.
+Schedule accent = Command Green `#5BBD3F` (`--command-green`, `--neon`; ~20 uses) while teal
+`#30cfac` (`--teal`) already has ~88 uses. Schedule has its own job-status colors (`--pw`
+purple, `--blu`, `--orn`, `--ylw`, `--grn`, `--cyan`, `--red`).
+
+1. **Don't restyle Schedule in the merge.** `App.css` comes along as-is, FENCED to the
+   `/schedule` subtree (wrapper class / scoped selectors) so class names can't leak either way.
+   This is what makes Phase 2 "moves in as-is" true.
+2. **Colors defined once.** Schedule's `:root` variables (`--bg`, `--bg-card`, `--bg-deep`,
+   `--header-dark`, `--text-*`, `--teal`, fonts) get their VALUES from `tokens.js` at startup.
+   One source; no drifting twin ([[feedback_extend_canonical_not_twin]]).
+3. **Teal wins.** `--command-green` / `--neon` → `#30cfac`, black text on teal buttons
+   (brand rule). ~20 spots, mechanical.
+4. **Schedule's status colors stay Schedule's.** They carry meaning (PW purple, stage colors),
+   not brand. Untouched.
+5. **Full polish to the pay-app standard is a SEPARATE later UI pass**, not this migration
+   ([[feedback_sc_pop_color_teal]] — global swap = deferred polish).
+
 ### Beats not yet raised (in likely order)
-5. Design-token reconciliation (teal wins; pay-app screens are the palette gold standard).
 6. Shared state/data layer — sch-command's `queries.js` data layer vs sales-command's fetch
    patterns; the 1000-row pagination rule applies across both.
 7. Field boundary — what Schedule surfaces Field mobile depends on (PowerSync sync rules,

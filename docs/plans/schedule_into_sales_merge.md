@@ -173,8 +173,28 @@ Five phases; each ships alone and is useful alone:
    be a sign over a half-built store.
 Field mobile app (offline/PowerSync) untouched throughout.
 
+### Beat 4 — Who sees what  ← RATIFIED 2026-09-01 [LOCKED]
+Ground truth: Schedule gates LOGIN on `teamMember.apps.includes('schedule')`
+(`sch-command/src/App.jsx:111`); Sales lets any team member in (Admin-only `/import`).
+`pages/Team.jsx` already has per-member Apps checkboxes defaulting from `tenant_config.apps`.
+`/suite` → `pages/SubConCommandPage.jsx` is a marketing page still saying "Sub Con Command" /
+linking salescommand.app → Phase 5 rename list.
+
+Three layers, all in existing data, one login:
+1. **Company** — `tenant_config.apps`: which Commands the company has. Missing → group never
+   appears for anyone.
+2. **Person** — `team_members.apps`: which of those this person is assigned. Unchecked → group
+   absent from sidebar AND quadrant absent from Subcon Home. Same Team page checkboxes, no
+   new UI. Flips from login-gate to groups-shown.
+3. **Role** — Admin / Manager / other: what you can DO inside a group. Unchanged from today
+   (Sales role uploads docs; Admin/Manager configure money; Manager/Admin only writers on
+   Field screens).
+
+Guard rule: hiding a group ≠ security. A direct URL into an unassigned group (`/schedule/…`)
+renders "Not authorized" — route guard, not just a missing menu item (CLAUDE.md "hiding in UI
+is not guarding the save" applied to routes).
+
 ### Beats not yet raised (in likely order)
-4. Auth/nav flip — `team_members.apps` → show/hide sections; single session across surfaces.
 5. Design-token reconciliation (teal wins; pay-app screens are the palette gold standard).
 6. Shared state/data layer — sch-command's `queries.js` data layer vs sales-command's fetch
    patterns; the 1000-row pagination rule applies across both.

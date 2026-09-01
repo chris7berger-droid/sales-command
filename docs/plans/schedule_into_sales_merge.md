@@ -48,20 +48,50 @@ Both apps are React + react-router, single router in `src/App.jsx`.
   fold into it or namespace under it.
 - Everything else in Schedule needs a namespace (`/schedule/*`) or a home in the unified nav.
 
-## 3. Open ideate beats [DESIGN-OPEN]
+## 3. Ideate beats
 
-### Beat 1 — What does the merged top-level navigation feel like?  ← ASKED, NOT ANSWERED
-Two real forks:
+### Beat 1 — Top-level navigation  ← ANSWERED 2026-09-01 (Chris's picture) [LOCKED]
+Option A (one unified sidebar, app groups that expand), with Chris's specifics:
 
-- **A — One unified sidebar; sections are groups.** No mode switch. Sales group (Proposals,
-  Customers, Invoices…) + Schedule group (Calendar, Daily, Materials, Budget…), collapsible.
-  Job detail is one screen showing sales + schedule facts. Harder build; this is the reason for
-  the one-app pivot (dissolve the seam).
-- **B — Section switcher; each section keeps its own nav.** Closer to today, easier port, keeps
-  the seam. Re-creates four apps behind one login.
-- Possible middle: unified nav, but a job's schedule views still live under the job.
+- Sidebar header: **SUBCON COMMAND** replaces "Sales Command / Command Suite".
+- Menu order: **Home** → **Sales Command ▾** → **Schedule Command ▾** → **Field Command ▾** →
+  **AR Command ▾** → **Settings** (global, bottom).
+- Each app group expands (accordion) to that app's full existing menu, dropped in as-is for v1
+  (Sales: Call Log, Proposals, Campaign Leads, Invoices, Customers, Our Team, History Locker,
+  The Directory; Schedule: Calendar, Daily, Materials, Budget, Billing…).
+- **Subcon Command Home** = NEW landing screen after login: one dashboard split into four
+  quadrants, each a glanceable summary of one app with one-click-in to that app's own Home.
+  Sales Home (follow-up/engagement redesign) and Schedule Home keep existing underneath.
+- Behavior (Claude's proposal, not yet ratified): active group auto-expands from the URL; one
+  group open at a time; `team_members.apps` hides whole groups.
+- Seam that survives v1: the job record still lives in two places (Sales Call Log job vs
+  Schedule Jobs page). Folding them is a later beat.
 
-Claude's lean: A. **Chris's answer: pending.**
+**Open confirmations:** (a) full names in the menu ("Sales Command") vs short ("Sales") —
+the 2026-08-25 note said short, Chris's picture today shows full; (b) spelling "Subcon Command"
+(one word) vs the note's "Sub Con Command".
+
+### Beat 1b — Field Command on the web  ← ANSWERED 2026-09-01 [LOCKED]
+Field has NO web side today (phone-only: Home, Job List, Job Detail w/ Tasks / Time Clock /
+Report tabs). The Field group in the sidebar is new web screens over tables the phones already
+sync — no new tables, no new sync rules:
+
+| Office sees | Table |
+|---|---|
+| Jobs going today, crew on each | `jobs`, `job_crew` |
+| Hours | `time_punches` |
+| Work types | `job_wtcs` |
+| Daily forms SOD / MOD / EOD filled or not | `daily_log_entries` (type key SOD/MOD/EOD), `daily_production_reports` |
+| Load-out / material confirmation | `job_material_checks` |
+
+- **VIEW-ONLY for the office.** Writes (switch crew, change work types, correct a punch) only
+  for Manager/Admin, role-gated. This dissolves the office-vs-offline-phone write conflict for
+  everyone except managers; manager corrections should be marked *entered by office*.
+- **Daily job list = the at-a-glance screen.** One row per job going today: Job · Crew · Hrs ·
+  SOD · MOD · EOD · Load-out. Late-form coloring reuses the phone's own rule
+  (`field-command/src/components/PunchStatusBar.js`: 15 min after clock-in w/o SOD → amber;
+  clocked out w/o EOD → red) so desk and phone show the same "!".
+- **Job drill-in:** who's on it, hours, the three forms (status + open them), the load-out form.
 
 ### Beats not yet raised (in likely order)
 2. Route namespacing + the `/home` and `/settings` and `/jobs`-vs-`/calllog` reconciliations.

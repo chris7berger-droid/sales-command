@@ -112,6 +112,22 @@ sync — no new tables, no new sync rules:
     (the driving → on_site punch) is only tracked on prevailing-wage jobs, so it can't be the
     trigger. SOD always counts from clock-in.
 - **Job drill-in:** who's on it, hours, the three forms (status + open them), the load-out form.
+- **Field Command menu LOCKED 2026-09-01:** Today / Jobs / Crews / Time Clock / Daily Logs /
+  Load-Outs.
+  - Today = the at-a-glance list above. Jobs = all active field jobs → drill-in. Crews = one row
+    per crew member, where he is right now + which job + hrs today/week. Time Clock = timesheet
+    by person/day/week (in, out, lunch, PW drive, REG/OT) — feeds payroll + T&M billing.
+    Daily Logs = SOD/MOD/EOD write-ups + photos by job/day.
+  - **Load-Outs = a SHORTCUT, not a new screen.** Today "load-out" is exactly the crew's
+    per-material "loaded in truck" checkboxes (`job_material_checks`, phone Tasks tab); trucks /
+    equipment / power are office-assigned in Schedule's Logistics. Schedule already shows these
+    confirmations (`sch-command/src/components/LoadOutModal.jsx` off the job card LOAD-OUT
+    score). Chris keeps the menu item so office staff don't have to dig through Schedule to
+    find it. Build rule: it opens the SAME component Schedule uses — two doors, one room, no
+    drifting twin ([[feedback_extend_canonical_not_twin]]).
+  - Parked idea (not in scope): a fuller crew "truck is ready" check (materials + assigned
+    equipment + power) — that's a change to the phone form, own line later.
+  - Mockups of Jobs drill-in / Crews / Time Clock: offered, Chris to pick.
 
 ### Beats not yet raised (in likely order)
 2. Route namespacing + the `/home` and `/settings` and `/jobs`-vs-`/calllog` reconciliations.

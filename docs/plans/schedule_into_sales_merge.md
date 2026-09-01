@@ -97,9 +97,20 @@ sync — no new tables, no new sync rules:
   for Manager/Admin, role-gated. This dissolves the office-vs-offline-phone write conflict for
   everyone except managers; manager corrections should be marked *entered by office*.
 - **Daily job list = the at-a-glance screen.** One row per job going today: Job · Crew · Hrs ·
-  SOD · MOD · EOD · Load-out. Late-form coloring reuses the phone's own rule
-  (`field-command/src/components/PunchStatusBar.js`: 15 min after clock-in w/o SOD → amber;
-  clocked out w/o EOD → red) so desk and phone show the same "!".
+  SOD · MOD · EOD · PRT · Load-out. (PRT = end-of-shift Production Report, job lead submits;
+  added 2026-09-01.) Late-form coloring reuses the phone's own rule
+  (`field-command/src/components/PunchStatusBar.js`) so desk and phone show the same "!":
+  SOD late = N min after clock-in w/o SOD (amber); MOD late = N hrs after clock-in w/o MOD
+  (amber); EOD / PRT late = clocked out w/o them (red). No punch → no alerts.
+- **Alert thresholds are per-customer SETTINGS, not code [LOCKED 2026-09-01].** Phone hardcodes
+  15 min / 4 hr today. Merge moves them to `tenant_config` (Admin/Manager edit in Settings):
+  `sod_due_minutes`, `mod_due_hours`, `eod_required`, `prt_required`. Phone + web read the
+  same row so they keep agreeing. **HDSP values: SOD = 90 min** (crews punch in at the shop
+  ~6:30, ~30 min loading + ~30 min driving), MOD = 4 hr, EOD + PRT required. Other customers
+  will have their own scenarios — defaults for new tenants TBD in plan.
+  - Option (not decided): a second setting `sod_counts_from` = clock-in | arrival on site. The
+    punch bar already has a driving → on_site state; counting from on-site arrival removes the
+    magic number, but only if crews reliably tap "on site". Ask Chris in plan.
 - **Job drill-in:** who's on it, hours, the three forms (status + open them), the load-out form.
 
 ### Beats not yet raised (in likely order)

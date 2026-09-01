@@ -64,8 +64,8 @@ Option A (one unified sidebar, app groups that expand), with Chris's specifics:
   Sales Home (follow-up/engagement redesign) and Schedule Home keep existing underneath.
 - Behavior (Claude's proposal, not yet ratified): active group auto-expands from the URL; one
   group open at a time; `team_members.apps` hides whole groups.
-- Seam that survives v1: the job record still lives in two places (Sales Call Log job vs
-  Schedule Jobs page). Folding them is a later beat.
+- Sales Call Log job and Schedule Jobs page both stay — they are two different records by
+  design, not a seam to close (see Beat 2 §3).
 
 **Naming LOCKED 2026-09-01 (supersedes the 2026-08-25 note's "drop Command" / "Sub Con"):**
 - Umbrella = **Subcon Command** (one word "Subcon"; short for subcontractor). Wordmark:
@@ -129,8 +129,30 @@ sync — no new tables, no new sync rules:
     equipment + power) — that's a change to the phone form, own line later.
   - Mockups of Jobs drill-in / Crews / Time Clock: offered, Chris to pick.
 
+### Beat 2 — Route collisions  ← ANSWERED 2026-09-01 [LOCKED]
+1. **Every app gets its own URL prefix:** `/sales/*`, `/schedule/*`, `/field/*`, `/ar/*`;
+   `/` = Subcon Home. Old flat Sales URLs (`/proposals/123`, `/calllog/…`) redirect to
+   `/sales/…` so bookmarks + emailed links survive. **Public/token routes NEVER move:**
+   `/sign/:token`, `/invoice/:token`, `/invoice-paid`, `/qb/callback`, `/login`, `/checkout`,
+   `/features/:slug`, `/suite`. Sidebar group auto-expand = first URL segment.
+2. **One Settings screen, grouped by app.** Left-hand list of labeled sections: **Company ·
+   Sales Command · Schedule Command · Field Command · AR Command**; clicking a label shows only
+   that app's settings (Chris: today's Settings is already long and hard to navigate). Field
+   section = the alert thresholds (§Beat 1b). Same role gating as today.
+3. **Sales job and Schedule job are two DIFFERENT records, by design — never merged.**
+   - Sales job (`call_log`) = the customer's job. Permanent, first call → final invoice.
+   - Schedule job (`jobs`) = the production run. Exists only once Sales sends it; disposable
+     until the crew starts (pull-back deletes it, Sales edits, re-send rebuilds it clean — PB-1
+     flow). Once work begins it becomes permanent (existing guard).
+   - Chris (2026-09-01): "A job existing in Schedule Command is there for different reasons,
+     functionality, and statuses. They're not really the same." Earlier framing ("fold into one
+     job record later") is WRONG — deleted from scope.
+   - What the merge adds is visibility only: Sales job screen shows whether a production run
+     exists + its status (Not sent · Parked · Scheduled · In Progress) with one-click across;
+     Schedule job screen links back to the customer's job. Link = the existing send/pull-back
+     flow, not a new mechanism.
+
 ### Beats not yet raised (in likely order)
-2. Route namespacing + the `/home` and `/settings` and `/jobs`-vs-`/calllog` reconciliations.
 3. Sequencing — what ships first (a thin route-graft of whole Schedule pages vs. component-level
    port), and whether sch-command's Vercel deploy stays up during the transition.
 4. Auth/nav flip — `team_members.apps` → show/hide sections; single session across surfaces.

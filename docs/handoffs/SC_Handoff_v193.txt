@@ -1,0 +1,174 @@
+SC Handoff v193 — Schedule Command → Sales Command merge (Subcon Command): IDEATE COMPLETE, plan pass next
+Date: 2026-09-01
+Branch: feat/schedule-into-sales-merge — docs only, PUSHED, NOT merged (see GIT STATE).
+Seed doc: docs/plans/schedule_into_sales_merge.md (the input to the plan pass; NOT a plan yet).
+Mockup: https://claude.ai/code/artifact/9349053f-3378-4089-8582-203fa46d554e
+
+═══════════════════════════════════════════════════════════════════════════════
+PICK-UP (read first)
+═══════════════════════════════════════════════════════════════════════════════
+Chris opened the strategic migration of Schedule Command INTO Sales Command. No prior plan
+existed anywhere (searched sales-command, sch-command, command-suite-db plans/branches/
+handoffs) — only the 2026-08-25 one-app strategy note. This session ran the IDEATE pass:
+eight beats, each ratified by Chris, written into the seed doc as we went. No code, no
+migrations, no branches beyond the doc branch.
+
+NEXT SESSION = PLAN PASS (fresh terminal, opus 4.8 / xhigh — this session ran on Fable):
+  /decide → plan → read docs/plans/schedule_into_sales_merge.md → write the buildable plan
+  (per-phase file moves, route + redirect tables, Settings section map, tenant_config
+  migration authored in command-suite-db, LAYOUT section, `## Audit manifest`) → /runaudit →
+  build Phase 1 (shell) ALONE and live on it before Phase 2.
+
+What got locked (one line each; full detail + rationale in the seed doc):
+  1. NAV — one sidebar, header SUBCON COMMAND; Home → Sales Command ▾ / Schedule Command ▾ /
+     Field Command ▾ / AR Command ▾ (full names KEEP "Command") → Settings. Each group expands
+     to that app's existing menu as-is. Subcon Home = new landing, 4 quadrants.
+  1b. FIELD (office web) — VIEW ONLY; Manager/Admin writes only. Menu: Today / Jobs / Crews /
+     Time Clock / Daily Logs / Load-Outs. Today list columns SOD/MOD/EOD/PRT/Load-out; late
+     rule = the phone's own (PunchStatusBar.js). Late thresholds → tenant_config SETTINGS
+     (HDSP: SOD 90 min from clock-in; MOD 4 hr; EOD+PRT at clock-out). Load-Outs = shortcut
+     to Schedule's existing LoadOutModal, not a twin.
+  2. ROUTES — /sales /schedule /field /ar prefixes; / = Subcon Home; old flat Sales URLs
+     redirect; token/public routes NEVER move. ONE Settings grouped by app. Sales job
+     (call_log) ≠ Schedule job (jobs) BY DESIGN — never merged; link = existing send/pull-back.
+  3. SEQUENCE — 5 phases: shell → Schedule moves in AS-IS (same stack: Vite/React 19/router 7)
+     → Field web screens → AR moves in → name. Field mobile untouched.
+  4. ACCESS — company (tenant_config.apps) / person (team_members.apps) / role. One login.
+     Route guard, not just hidden nav.
+  5. TOKENS — Schedule's App.css fenced as-is; :root colors sourced from tokens.js; teal
+     wins (~20 green spots); Schedule status colors kept; full polish = later UI pass.
+  6. PLUMBING — one supabase client / auth / context (host's); queries.js stays whole;
+     ownership per shared-data contract unchanged; post-Phase-2 pagination sweep.
+  7. FIELD BOUNDARY — phones can't break (they never call a web URL). Phase 3 only: add
+     tenant_config to PowerSync sync rules + small phone release; hardcoded fallback.
+  8. NAME/DOMAINS — Schedule has ONE user (Chris) → Phase 2 just turns sch-command deploy
+     OFF, no forwarding ceremony. Umbrella stays at scmybiz.com (reads "subcon command");
+     subconcommand.com + sccmybiz.com already owned → forward. No Phase 5 domain move.
+
+═══════════════════════════════════════════════════════════════════════════════
+DECISIONS / CHOICES MADE
+═══════════════════════════════════════════════════════════════════════════════
+- Ideate before plan (per card) — Chris ratified; no jump to build. Beats run ONE AT A TIME.
+- "Subcon Command" one word, and "Command" stays in every menu name. Rejected "Sub Command"
+  (reads submarine / software sub-command) and "Sub Con Command" (three words, "con" jumps
+  out). Supersedes the 2026-08-25 note's "drop Command from sections" + "Sub Con" spelling.
+- Sales job vs Schedule job: my first framing ("fold into one record later") was WRONG; Chris
+  corrected — the Schedule job is a disposable production run until work begins (pull-back
+  deletes, re-send rebuilds). Two records by design. Removed from scope entirely.
+- SOD counted from clock-in, not arrival on site: drive/on-site punches only exist on
+  prevailing-wage jobs, so arrival can't be the trigger.
+- Alert thresholds are per-company Settings, not code — Chris: other customers will have
+  their own scenarios.
+- Load-Outs kept as a Field menu item even though it duplicates Schedule's LoadOutModal —
+  Chris: a shortcut for office staff who won't dig through Schedule. Build rule: same
+  component, two doors, no drifting twin.
+- Field screens (Jobs drill-in / Crews / Time Clock) NOT mocked — Chris: "run with them the
+  way they are, I'll adjust in UI sessions."
+- Model: Chris switched this session to Fable after a product banner ("Fable writes better
+  code"). Flagged that the card pins plan = opus 4.8 / xhigh; recommended fresh terminal on
+  opus for the plan pass, optionally trial Fable on a gated build slice later.
+- Memory index (MEMORY.md) was compacted from 21.5 KB → 17.0 KB (hook-flagged limit) and
+  synced to claude-personal-state (ead5270). project_domains.md rewritten for the umbrella.
+
+═══════════════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED (all commits this session — docs only)
+═══════════════════════════════════════════════════════════════════════════════
+sales-command — feat/schedule-into-sales-merge (pushed, NOT merged), all touching only
+docs/plans/schedule_into_sales_merge.md:
+  3056ae8  ideate seed — strategy note + route collisions + open Beat 1.
+  1d7d789  Beat 1 nav locked + Field web view-only spec.
+  13e0b8d  Subcon Command naming locked; mockup artifact linked.
+  8255bff  form-late rules → per-tenant settings (HDSP SOD=90 min); PRT column added.
+  85f2f03  SOD counts from clock-in only (drive punch is PW-jobs-only).
+  9544ac5  Field Command menu locked (6 items; Load-Outs = shortcut).
+  ce8fa0d  Beat 2 locked (URL prefixes + redirects, Settings by app, Sales job ≠ Schedule job).
+  99abe40  Beat 3 sequencing ratified (5 phases).
+  2ce73ae  Beat 4 ratified (company/person/role, route guard).
+  4ba4636  Beat 5 ratified (CSS fenced, colors from tokens.js, teal wins).
+  1a3d60f  Beat 6 ratified (one client/login/context, queries.js whole).
+  3dca5f9  Beats 7+8 ratified; IDEATE CLOSED; §4 next-step written.
+  16edbdb  domains owned; umbrella stays at scmybiz.com.
+claude-commands — main (pushed): 08fa024 active-work.txt → this stream, plan next (Chris
+  ran the commit; the classifier blocked me pushing that repo).
+claude-personal-state — main (pushed): ead5270 MEMORY.md compacted + project_domains.md.
+
+═══════════════════════════════════════════════════════════════════════════════
+NEW BACKLOG ITEMS
+═══════════════════════════════════════════════════════════════════════════════
+None filed in docs/BACKLOG.md this session. Two parked ideas live ONLY in the seed doc:
+  - crew "truck is ready" check (materials + equipment + power) — phone-form change, later.
+  - Sales drifting toward Schedule's queries.js data-layer pattern — separate idea, not the merge.
+
+═══════════════════════════════════════════════════════════════════════════════
+CLOSED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════════
+None (no backlog rows touched).
+
+═══════════════════════════════════════════════════════════════════════════════
+VERIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+Docs + mockup only — nothing to smoke. Ground truth was read from code, not assumed:
+  - Route maps of both apps (src/App.jsx each); package.json deps (same stack); src sizes.
+  - PunchStatusBar.js alert rules; job_material_checks migration (20260827130000);
+    powersync-sync-rules.yaml table list; Field's outbound URLs (none to web apps).
+  - sch-command :root CSS vars + green/teal counts; queries.js size; realtime channel sites.
+  - Apps gating: sch-command/src/App.jsx:111; Team.jsx apps checkboxes; /suite page.
+  - Domain refs grep across sales-command/src, sch-command/src, sales-command/supabase.
+Mockup files got a read-only second pass (tag balance, overflow budget, naming) — clean.
+NOT verified: nothing in the plan has been checked against a running app; that is the plan
+pass + buildvsplan's job.
+
+═══════════════════════════════════════════════════════════════════════════════
+NOT TOUCHED THIS SESSION
+═══════════════════════════════════════════════════════════════════════════════
+- Everything in docs/BACKLOG.md. No code in any repo.
+- Field screen mockups beyond Today (Chris deferred to UI sessions).
+- ERD: Chris did not run /erd-start for this stream; nothing written to ~/erd-loop/LOG.md
+  (by rule). Plan/build sessions should /erd-start.
+
+═══════════════════════════════════════════════════════════════════════════════
+NEXT SESSION POINTERS
+═══════════════════════════════════════════════════════════════════════════════
+1. FRESH terminal on opus 4.8 (`/model opus` if it opens on Fable). `/resume` lands here.
+2. `/decide` → plan. Input = docs/plans/schedule_into_sales_merge.md §1–§4. Do NOT re-open
+   ratified beats; amend via appended block if something is found wrong (schema-amendment
+   rule), never silent edits.
+3. Plan must include: per-phase file moves (proposed src/schedule/), route table + redirect
+   table, Settings section map, the tenant_config migration (sod_due_minutes, mod_due_hours,
+   eod_required, prt_required — authored in command-suite-db + rehearsed), PowerSync sync-rule
+   add for Phase 3, a LAYOUT section (mockup is the target), `## Audit manifest`.
+4. Build Phase 1 alone → /buildvsplan → /code-review → /security-review → preview smoke →
+   merge. Only then Phase 2.
+5. Pre-flight for Phase 2 planning: confirm sch-command main is clean and nothing is trapped
+   on its branches (it moves into this repo wholesale).
+
+═══════════════════════════════════════════════════════════════════════════════
+FILES TO KNOW
+═══════════════════════════════════════════════════════════════════════════════
+  docs/plans/schedule_into_sales_merge.md        — THE seed; all 8 beats + §4 next step
+  src/App.jsx                                     — Sales router + sidebar (lines ~284–333 =
+                                                    the sidebar Phase 1 replaces); /suite page
+  src/lib/tokens.js                               — C/F tokens the merged shell + Schedule
+                                                    :root vars source from
+  src/pages/Team.jsx                              — team_members.apps checkboxes (Beat 4)
+  src/pages/SubConCommandPage.jsx                 — /suite marketing page, Phase 5 rename
+  ~/sch-command/src/App.jsx                       — Schedule router + apps gate (:111)
+  ~/sch-command/src/App.css                       — 6,648-line stylesheet to fence (Beat 5)
+  ~/sch-command/src/lib/queries.js                — data layer that stays whole (Beat 6)
+  ~/sch-command/src/components/LoadOutModal.jsx   — the view Field's Load-Outs shortcut opens
+  ~/field-command/src/components/PunchStatusBar.js — late-form rules (Beat 1b)
+  ~/field-command/powersync-sync-rules.yaml       — add tenant_config in Phase 3
+  ~/.claude-commands/active-work.txt              — /resume pointer (updated)
+
+═══════════════════════════════════════════════════════════════════════════════
+GIT STATE ON CLOSE
+═══════════════════════════════════════════════════════════════════════════════
+- sales-command: on feat/schedule-into-sales-merge, 13 commits ahead of main, pushed to
+  origin. Working tree clean. main untouched this session.
+- sch-command, field-command, command-suite-db: untouched (read-only), all on main.
+- claude-commands main @ 08fa024; claude-personal-state main @ ead5270 — both pushed.
+- No PRs. No deploys. No migrations. Scratch: session scratchpad subcon-design/ (mockup
+  working files; the published artifact is the durable copy).
+
+END STATE: Ideate complete, docs pushed on feat/schedule-into-sales-merge (not merged), no
+code changed, ready for a fresh plan session on opus 4.8.

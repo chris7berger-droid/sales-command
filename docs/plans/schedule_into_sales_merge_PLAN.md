@@ -31,6 +31,26 @@ own before it builds. Field screen *interiors* (Jobs drill-in, Crews, Time Clock
 deliberately left to Chris's later UI sessions (his call, per the seed) — Phase 3 here specs the
 data + the Today list + the threshold plumbing, not the pixel layout of every drill-in.
 
+### 0a. How we ship (plain English)
+
+Two numbers that got conflated once, so pinning them here:
+- **"8 beats" = the 8 decisions** locked during ideate (naming, who-sees-what, etc.). Done — choices, not builds.
+- **"5 phases" = the 5 build steps** (the table above): Shell → Schedule in → Field web → AR in → Name.
+
+**We build and ship one phase at a time — we do NOT wait until all 5 are done.** Each phase is designed
+to stand alone and be useful the day it ships. Every phase runs the same finish line:
+
+> build it → `/buildvsplan` (check against this plan) → `/code-review` → `/security-review` →
+> preview-deploy smoke → **push + merge** → then start the next phase.
+
+- **Phase 1 (Shell) ships by itself first** — it only rearranges Sales' own menu/routes, so it's the safe
+  one and it goes live alone before Schedule ever comes in.
+- **The "Step 2 safety sweep" (the merge-collision pre-flight, §2 "Phase 2 merge-collision pre-flight")
+  runs at the START of Phase 2, before Schedule's code merges in** — that's the "protect the Sales shop
+  from the newcomer" check. It is separate from, and in addition to, the per-phase `/security-review`.
+- Nothing about Phases 2–5 needs deciding now; each gets its own short plan pass + audit + the finish
+  line above when its turn comes.
+
 ---
 
 ## 1. PHASE 1 — THE SHELL  (first build target)

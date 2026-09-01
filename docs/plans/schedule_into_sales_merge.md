@@ -152,9 +152,28 @@ sync — no new tables, no new sync rules:
      Schedule job screen links back to the customer's job. Link = the existing send/pull-back
      flow, not a new mechanism.
 
+### Beat 3 — Sequencing  ← RATIFIED 2026-09-01 [LOCKED]
+Ground truth: sales-command and sch-command are the SAME stack version-for-version (Vite,
+React 19, react-router-dom 7, supabase-js 2). Schedule = 57 files / ~14K lines; Sales = 98
+files / ~32K lines; AR-Command-Center = 25 src files. → Schedule's source moves INTO the Sales
+repo as-is and mounts under `/schedule/*`. One repo, one Vercel deploy, one login. No iframe,
+no two-deploy bridge, no rewrite.
+
+Five phases; each ships alone and is useful alone:
+1. **Shell.** New sidebar (Subcon Command header, 4 groups), Subcon Home, URL prefixes +
+   redirects, Settings grouped by app, `team_members.apps` flips from login-gate to
+   which-groups-show. Schedule group HIDDEN until Phase 2 — no link-outs to the old site.
+   Only phase that touches existing Sales users → goes first and alone.
+2. **Schedule moves in.** sch-command/src lands in sales-command (proposed `src/schedule/`),
+   mounted under `/schedule/*`; teal wins token reconciliation; one session across both.
+   `schmybiz.com` forwards to `scmybiz.com/schedule/…`; old Schedule deploy turned off.
+3. **Field web screens.** The six locked screens + alert-threshold Settings. Net-new build.
+4. **AR moves in.** Same move as Phase 2 for AR-Command-Center (small).
+5. **The name.** Subcon Command login, wordmark, domain. Last — until 2–4 land the name would
+   be a sign over a half-built store.
+Field mobile app (offline/PowerSync) untouched throughout.
+
 ### Beats not yet raised (in likely order)
-3. Sequencing — what ships first (a thin route-graft of whole Schedule pages vs. component-level
-   port), and whether sch-command's Vercel deploy stays up during the transition.
 4. Auth/nav flip — `team_members.apps` → show/hide sections; single session across surfaces.
 5. Design-token reconciliation (teal wins; pay-app screens are the palette gold standard).
 6. Shared state/data layer — sch-command's `queries.js` data layer vs sales-command's fetch

@@ -34,6 +34,7 @@ import Import from "./pages/Import/Import";
 import UpdateBanner from "./components/UpdateBanner";
 import Archive from "./pages/Archive";
 import { GROUPS, SUBCON_HOME, SETTINGS, groupVisible, sectionFromPath, groupFromPath, resolveNavTarget } from "./lib/nav";
+import ScheduleLayout from "./schedule/ScheduleLayout";
 
 function Placeholder({ label }) {
   return (
@@ -302,6 +303,10 @@ function SalesCommandApp() {
               <Route path="/sales/managers" element={<GroupGuard app="sales" teamMember={teamMember}>{displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />}</GroupGuard>} />
               <Route path="/sales/team" element={<GroupGuard app="sales" teamMember={teamMember}><Team teamMember={teamMember} /></GroupGuard>} />
               <Route path="/sales/archive" element={<GroupGuard app="sales" teamMember={teamMember}><Archive userRole={displayRole} /></GroupGuard>} />
+
+              {/* Schedule Command — group-guarded /schedule/* (Phase 2). ScheduleLayout
+                  owns its own nested <Routes> for the subtree, so this is a splat. */}
+              <Route path="/schedule/*" element={<GroupGuard app="schedule" teamMember={teamMember}><ScheduleLayout teamMember={teamMember} /></GroupGuard>} />
 
               {/* Legacy flat Sales URLs → /sales/* (external bookmarks/emailed links) */}
               <Route path="/home" element={<LegacyRedirect base="home" />} />

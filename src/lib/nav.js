@@ -6,7 +6,7 @@ export const SUBCON_HEADER = "SUBCON COMMAND"; // sidebar wordmark: SUBCON white
 
 // Which app groups are actually mounted THIS phase. Grow by one line per phase.
 // Phase 1 → ["sales"]; Phase 2 → +"schedule"; Phase 3 → +"field"; Phase 4 → +"ar".
-export const AVAILABLE_APPS = ["sales"];
+export const AVAILABLE_APPS = ["sales", "schedule"];
 
 export const GROUPS = [
   { app: "sales", label: "Sales Command", prefix: "/sales", home: "/sales/home", icon: "🧾", items: [
@@ -21,7 +21,17 @@ export const GROUPS = [
     { id: "archive",   label: "History Locker", path: "/sales/archive",   icon: "🗄" },
     { id: "directory", label: "The Directory",  icon: "📖", action: "directory" }, // overlay, not a route
   ]},
-  { app: "schedule", label: "Schedule Command", prefix: "/schedule", home: "/schedule/home", icon: "🗓", items: [/* Phase 2, from §2 table */] },
+  { app: "schedule", label: "Schedule Command", prefix: "/schedule", home: "/schedule/home", icon: "🗓", items: [
+    { id: "home",           label: "Home",            path: "/schedule/home",            icon: "⌂"  },
+    { id: "jobs",           label: "Jobs",            path: "/schedule/jobs",            icon: "🗂" },
+    { id: "schedule",       label: "Crew Schedule",   path: "/schedule/schedule",        icon: "👷" }, // literal /schedule/schedule (§2a) — harmless
+    { id: "calendar",       label: "Calendar",        path: "/schedule/calendar",        icon: "📅" },
+    { id: "daily",          label: "Daily",           path: "/schedule/daily",           icon: "📆" },
+    { id: "materials",      label: "Logistics",       path: "/schedule/materials",       icon: "🚚" }, // label/path mismatch (§2a)
+    { id: "billing",        label: "Billing",         path: "/schedule/billing",         icon: "💵" },
+    { id: "production-rate",label: "Production Rate",  path: "/schedule/production-rate", icon: "📈" },
+    { id: "schedules",      label: "Schedules",       path: "/schedule/schedules",       icon: "📇" },
+  ]},
   { app: "field",    label: "Field Command",    prefix: "/field",    home: "/field/today", icon: "👷", items: [
     { id: "today",     label: "Today",      path: "/field/today",     icon: "📆" },
     { id: "jobs",      label: "Jobs",       path: "/field/jobs",      icon: "🧱" },

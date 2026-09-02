@@ -1,0 +1,77 @@
+SC Handoff v195 — Schedule → Sales Merge, PHASE 2 (Schedule moves in)
+Repo: sales-command   Branch: feat/schedule-merge-plan   Date: 2026-09-02
+=======================================================================
+
+SESSION SUMMARY
+---------------
+Picked up Phase 2 of the Subcon Command merge. Ran the §2 merge-collision
+safety sweep (GREEN), then executed the core "Schedule moves in" build:
+sch-command/src → sales-command/src/schedule/*, mounted under /schedule/*
+inside the host Subcon shell. Compiles clean, browser-smoked in dev, and is
+HELD on the branch (rollout = one flip at the end, per the 2026-09-01 amendment).
+
+Canonical status + full detail: docs/plans/schedule_into_sales_merge_PLAN.md
+§2b "▶ PHASE 2 BUILD STATUS — 2026-09-02" (append-only block).
+
+CHANGES SHIPPED (uncommitted at time of writing → committed this session)
+-------------------------------------------------------------------------
+NEW  src/schedule/*  (57 files): views, components, lib, assets, App.css,
+     index.css from sch-command, PLUS new ScheduleLayout.jsx.
+EDIT src/App.jsx     — import ScheduleLayout; mount
+     <Route path="/schedule/*"><GroupGuard app="schedule"><ScheduleLayout/></GroupGuard>.
+EDIT src/lib/nav.js  — AVAILABLE_APPS += "schedule"; GROUPS[schedule].items filled from §2a.
+EDIT docs/plans/schedule_into_sales_merge_PLAN.md — §2b build-status block.
+
+KEY MOVES
+- Dropped on move: main.jsx, App.jsx, views/Login.jsx, lib/supabase.js, lib/auth.js
+  (host owns entry/router/login/client). lib/sowMaterials.verify.mjs dropped too.
+- lib/user.jsx KEPT and fed the HOST teamMember (deliberate divergence from Beat 6's
+  "delete user.jsx → TenantConfigContext" — that was a category error; user.jsx is a
+  pure teamMember context, not the tenant config). Single-client safety goal still met.
+- ScheduleLayout.jsx = Schedule's content-level chrome (+Job / Actions / StatsBar / 6
+  modals) reparented under the host content area; Schedule's own sidebar dropped.
+  Providers (Sync/Toast/User) wrap the subtree here. (Chris ratified content-toolbar
+  option 2026-09-02.)
+- CSS fence: index.css + App.css (6.6k lines) scoped under .schedule-root via a postcss
+  transform (scratchpad/scope-css.cjs). :root/body/#root/* → wrapper; @keyframes intact.
+- 7 collision fixes applied (see plan §2b): reload→soft refresh, SALES_HOST→/sales/calllog,
+  6 channels prefixed schedule-, all navigate()/TAB_REDIRECTS rebased to /schedule/*.
+
+DECISIONS
+- Shell reconciliation: content-level ScheduleLayout (host sidebar drives nav). [Chris]
+- Rollout: HOLD merge; build all phases on branch, one flip at go-live. [prior amendment]
+
+VERIFICATION
+- `npm run build` green (620 modules, no errors) before AND after the temp-bypass revert.
+- Browser smoke (localhost:5173, Chris authed as Admin): /schedule/home + /schedule/jobs
+  render correctly inside the host shell — SCHEDULE COMMAND group expands with all 9 items,
+  breadcrumb + active-state work, StatsBar shows on Jobs (hidden on Home), +Job/Actions
+  toolbar present, real data loads. /sales/home confirmed UNCHANGED (CSS fence holds both
+  ways). Zero console errors on all three routes.
+- Entitlement: tenant_config.apps (HDSP) = ["sales"], so groupVisible correctly blocks
+  Schedule (NOT AUTHORIZED). Smoke used a temporary local groupVisible bypass — REVERTED,
+  verified clean (grep + rebuild).
+
+NOT TOUCHED / DEFERRED (Phase 2 finish-line remainder — next session)
+1. Teal reconciliation (Beat 5): Schedule still Command-Green; do the green→teal + black-
+   text-on-teal as a POLISH pass with preview running (not blind sed).
+2. Settings fold: /schedule/settings reachable by URL, NOT in nav; fold into unified
+   /settings (Schedule section) is its own task.
+3. Post-move pagination sweep (3×, incl. Promise.all).
+4. Gates: /buildvsplan → /code-review → /security-review → preview smoke → HOLD merge.
+   Preview smoke needs a temporary schedule entitlement (test path) since HDSP isn't
+   entitled yet — do NOT flip HDSP tenant_config.apps (that's the held go-live action).
+
+NEXT SESSION POINTERS
+- Start with /buildvsplan against the merge PLAN, then the review gates.
+- The go-live flip (later, all phases done): tenant_config.apps → ["sales","schedule",...].
+
+FILES TO KNOW
+- src/schedule/ScheduleLayout.jsx  — the reparented Schedule shell
+- src/lib/nav.js                    — AVAILABLE_APPS + GROUPS (the entitlement/nav model)
+- src/App.jsx (GroupGuard, /schedule/* route)
+- docs/plans/schedule_into_sales_merge_PLAN.md §2 + §2b
+
+GIT STATE
+- Branch feat/schedule-merge-plan; Phase 2 committed this session (NOT merged, NOT pushed
+  unless Chris said to). Phase 1 shell remains built+gated+held on the same branch.

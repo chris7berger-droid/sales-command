@@ -485,6 +485,49 @@ The items below are the Phase 2 safety gate — verify each is handled before th
 
 ---
 
+### 2b. ▶ PHASE 2 BUILD STATUS — 2026-09-02 (append-only)
+
+**Safety sweep (§2 pre-flight): GREEN.** All 7 collision points re-verified against live code on both
+repos — every line number still matched the 2026-09-01 map; nothing drifted. Host side confirmed clean
+(no realtime channels, no service worker, single `BrowserRouter`).
+
+**Core move: BUILT on `feat/schedule-merge-plan` — compiles clean, browser-smoked, NOT merged (rollout HOLD).**
+- `sch-command/src/{views,components,lib,assets}` + `App.css`/`index.css` → `src/schedule/*`. Dropped
+  `main.jsx`, `App.jsx`, `views/Login.jsx`, `lib/supabase.js`, `lib/auth.js` (host owns entry/login/client).
+- **`lib/user.jsx` KEPT (plan divergence, deliberate):** it is a pure `teamMember` React context with zero
+  supabase/auth coupling — repointing it to `TenantConfigContext` (as Beat 6 listed) would be a category
+  error (that context carries tenant config, not the team member). Instead it is fed the **host's**
+  `teamMember` (`{id,name,role,email,onboarded,apps}`), which supplies every field its 7 consumers read
+  (`.name`, `.role`, `.apps`). Single-client safety goal fully met — no second `createClient` anywhere.
+- **Shell reconciliation (was open in §2; Chris ratified 2026-09-02):** Schedule's App-level chrome
+  (+Job / Actions menu / StatsBar / 6 modals) moved into a new content-level **`src/schedule/ScheduleLayout.jsx`**
+  that renders inside the host content area under the host sidebar. Schedule's own sidebar dropped; host
+  nav drives navigation. Providers (`SyncProvider`/`ToastProvider`/`UserProvider`) wrap the subtree there.
+- **7 collision fixes applied:** login redirect + own `BrowserRouter` gone with the dropped files;
+  `App.jsx:308` full-reload → soft `loadModalData()` refresh; `BillingCard`/`ForecastCard` `SALES_HOST`
+  links → internal `/sales/calllog/:id`; 6 realtime channels prefixed `schedule-`; all internal
+  `navigate()`/`TAB_REDIRECTS` rebased to `/schedule/*`; supabase imports repointed to host client.
+- **CSS fence:** `index.css` + `App.css` (6.6k lines) scoped under `.schedule-root` via a postcss transform
+  (`:root`/`body`/`#root`/`*` mapped to the wrapper; `@keyframes` internals left intact; `@media` children
+  scoped). Browser-verified: no leak either direction (Sales pages unchanged, Schedule theme intact).
+- **Host wiring:** `nav.js` `AVAILABLE_APPS += "schedule"` + `GROUPS[schedule].items` filled from §2a;
+  `App.jsx` mounts `<Route path="/schedule/*"><GroupGuard app="schedule"><ScheduleLayout/></GroupGuard>`.
+- **Entitlement gate working as designed:** `tenant_config.apps` for HDSP = `["sales"]`, so `groupVisible`
+  correctly blocks Schedule (NOT AUTHORIZED) until the go-live flip to `["sales","schedule"]` — that flip
+  is the HELD action, not done here. Smoke used a temporary local `groupVisible` bypass (reverted, verified clean).
+
+**Deferred (Phase 2 finish-line remainder — next session):**
+1. **Teal reconciliation (Beat 5 polish).** Schedule still renders its Command-Green (`--command-green`/`--neon`
+   `#5BBD3F`); the ~20 mechanical green→teal spots + black-text-on-teal are a POLISH pass to do with the
+   preview running ([[feedback_design_then_polish]]) — not blind-sed'd here (would create white-on-teal violations).
+2. **Settings fold.** `/schedule/settings` is reachable by URL but intentionally NOT in the host nav; folding
+   Schedule's `Settings.jsx` (109 lines) into the unified `/settings` (Schedule section, §2a) is its own task.
+3. **Post-move pagination sweep** (grep unpaginated fetches 3× incl. `Promise.all`, [[feedback_audit_pagination]]).
+4. **Remaining gates:** `/buildvsplan` → `/code-review` → `/security-review` → preview smoke (needs a temporary
+   schedule entitlement on a test path), then HOLD for the one-flip merge.
+
+---
+
 ## 3. PHASE 3 — FIELD WEB (net-new build)
 
 Six web screens over tables the phones already sync (Beat 1b) — **no new tables**. VIEW-ONLY for the

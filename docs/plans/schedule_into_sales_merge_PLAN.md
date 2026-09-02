@@ -622,6 +622,24 @@ Rationale is moot-by-no-users, not risk: nothing here is load-bearing for anyone
 
 Screen interiors (Jobs drill-in / Crews / Time Clock pixels) are explicitly NOT in this build.
 
+**BUILD STATUS — 2026-09-02 (append-only):** Steps 1+2 BUILT on feat/schedule-merge-plan.
+Field mounted at `/field/*` (AVAILABLE_APPS += field), 6 screens live. Today built for real
+(per-job SOD/MOD/EOD/PRT + load-out, late "!" ported from PunchStatusBar into
+`src/field/lib/lateForm.js`). The 4 "later UI" screens (Jobs/Crews/TimeClock/DailyLogs)
+do REAL reads (plain tables) — interiors still deferred. Load-Outs reuses Schedule's
+`LoadOutModal` via the CANONICAL `loadJobWithWTCs(job_id)` — the plan's proposed new
+`hydrateLoadOutJob(call_log_id)` was NOT needed (that hydrator already exists and is shared
+with StageJobCard via `normalizeJob`; intent met, no twin). Data model VERIFIED against prod:
+every child table (time_punches/job_crew/daily_log_entries/daily_production_reports/
+job_material_checks) anchors `job_id` on **call_log.id** (FK-confirmed), `jobs` links via
+`jobs.call_log_id`; `jobs` PK is `job_id` (no `id` column). /buildvsplan run (2 reviewers):
+0 Tier-1, 2 Tier-2 (EOD/PRT multi-crew over-flag; Load-Outs null-end drop) — BOTH FIXED
+(`0896aa2`), plus active-stage + soft-delete(`deleted='Yes'`) hardening.
+Step 3 (§3a migration + Settings editor + Today reads the cols) IN PROGRESS in command-suite-db
+(threshold migration authored `20260902120000`; rehearse blocked on a stale baseline — the
+Aug-31 `sent_at` anon grant drift — being reconciled in a separate DB terminal; see
+[[project_sent_at_grant_incident]]). Today runs on the phone hardcodes (15/4) until the cols land.
+
 ---
 
 ## 4. PHASE 4 — AR MOVES IN

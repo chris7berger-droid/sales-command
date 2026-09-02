@@ -9,7 +9,6 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import './App.css'
 import './index.css'
 import { supabase } from '../lib/supabase'
-import { SyncProvider, useSync } from './lib/sync'
 import { ToastProvider, useToast } from './lib/toast'
 import { UserProvider } from './lib/user'
 import { printWeekSchedule, printJobList, printMaterialsList, printDailyStatus } from './lib/exports'
@@ -35,26 +34,23 @@ function flipName(n) {
 }
 
 // Providers wrap the shell because the toolbar + modal handlers below consume
-// useSync / useToast, and the routed views consume useUser (host teamMember).
+// useToast, and the routed views consume useUser (host teamMember).
 export default function ScheduleLayout({ teamMember }) {
   // `.schedule-root` wraps the PROVIDERS (not just the shell) so the fence also
   // covers DOM they emit as siblings of the shell — notably ToastProvider's toast
   // node — which would otherwise render outside the scope and lose all its CSS.
   return (
     <div className="schedule-root">
-      <SyncProvider>
-        <ToastProvider>
-          <UserProvider teamMember={teamMember}>
-            <ScheduleShell />
-          </UserProvider>
-        </ToastProvider>
-      </SyncProvider>
+      <ToastProvider>
+        <UserProvider teamMember={teamMember}>
+          <ScheduleShell />
+        </UserProvider>
+      </ToastProvider>
     </div>
   )
 }
 
 function ScheduleShell() {
-  const { syncState, setSync } = useSync()
   const toast = useToast()
   const [modal, setModal] = useState(null)
   const [workTypes, setWorkTypes] = useState([])
@@ -118,10 +114,8 @@ function ScheduleShell() {
       prevailing_wage: f.prevailing_wage ? 'Yes' : 'No',
       status: 'Scheduled',
     }
-    setSync('ing')
     const { error } = await supabase.from('jobs').insert([row])
-    if (error) { console.error(error); setSync('bad'); toast('Error adding job', 'err'); return }
-    setSync('ok')
+    if (error) { console.error(error); toast('Error adding job', 'err'); return }
     toast('Job added', 'ok')
     closeModal()
   }
@@ -137,10 +131,8 @@ function ScheduleShell() {
   async function doAddCrew() {
     if (!crewForm.name) { toast('Name required', 'err'); return }
     const row = { name: crewForm.name, team: crewForm.team || 'Floater', phone: crewForm.phone || null }
-    setSync('ing')
     const { error } = await supabase.from('crew').insert([row])
-    if (error) { console.error(error); setSync('bad'); toast('Error', 'err'); return }
-    setSync('ok')
+    if (error) { console.error(error); toast('Error', 'err'); return }
     toast('Crew added', 'ok')
     await loadModalData()
     closeModal()
@@ -237,7 +229,6 @@ function ScheduleShell() {
     <>
       <div className="app-schedule-toolbar">
         <div className="app-header-actions">
-          <span className={`sync-dot sync-${syncState}`} title={`Sync: ${syncState}`} />
           <button className="app-act-btn app-act-primary" onClick={openAddJob}>+ Job</button>
           <div className="app-actions-menu" ref={actionsRef} onMouseLeave={() => setActionsOpen(false)}>
             <button className="app-act-btn" onClick={() => setActionsOpen(o => !o)}>Actions ▾</button>

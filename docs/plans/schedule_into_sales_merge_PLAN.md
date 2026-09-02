@@ -593,6 +593,35 @@ billing-goal fields. Instead sync **only the threshold columns** (a dedicated `f
 view, or a column-restricted sync rule). Missing setting → phone keeps hardcoded 15 min / 4 hr (never
 a crash). = one sync-rule addition + one small phone release; Phases 1/2/4/5 need zero phone changes.
 
+### 3c. ▶ PHASE 3 BUILD PLAN — locked 2026-09-02 (append-only, newest truth)
+
+**Scope decided (Chris ratified 2026-09-02):** the 6 web screens **+** the threshold settings.
+**Phone update (§3b) is OUT of this phase** — no users on Field Command yet, phones stay safe on
+their hardcoded 15min/4hr, so a mobile release buys nothing now. Do §3b only when a crew goes live.
+Rationale is moot-by-no-users, not risk: nothing here is load-bearing for anyone today.
+
+**Build order (my call — screens first, DB second, since screens don't depend on the columns):**
+
+1. **Scaffold + flip on.** New `src/field/FieldLayout.jsx` (mirrors `ScheduleLayout` but far simpler —
+   view-only, no toolbar-actions/modals). Owns nested `<Routes>` for the 6 screens. `App.jsx`: add one
+   `<Route path="/field/*" …><FieldLayout/>` line beside the schedule splat. `nav.js`:
+   `AVAILABLE_APPS += "field"` (group + items already defined). Screens authored fresh in HOST design
+   tokens (`src/lib/tokens.js`) — **no CSS-fence needed** (unlike Schedule; nothing foreign imported).
+2. **Screens.** `Today` built for real per §3 (row-per-job: `Job · Crew · Hrs · SOD · MOD · EOD · PRT ·
+   Load-out`; late "!" reuses the phone's rule from `field-command/src/components/PunchStatusBar.js` —
+   port the logic to a shared `src/field/lib/lateForm.js`, don't re-derive). Other 5 (`Jobs/Crews/
+   TimeClock/DailyLogs/LoadOuts`) = real routes + real reads over the existing tables, PLAIN layout —
+   interiors are Chris's later UI sessions. `LoadOuts` opens the SAME `src/schedule/components/
+   LoadOutModal.jsx` — extract its job-hydration (currently inline in `StageJobCard.jsx`) into a shared
+   `hydrateLoadOutJob(call_log_id)` so both doors call it ([[feedback_extend_canonical_not_twin]]).
+   All reads paginated (`fetchAll`, [[feedback_audit_pagination]]); tenant-scoped by RLS.
+3. **Thresholds (§3a).** Author the 4-col migration in `command-suite-db`, **rehearse before push**
+   (`./scripts/rehearse.sh`). Then a small Field Settings editor (4 numbers) + point Today's late rule
+   at `tenant_config` cols with the phone's hardcodes as fallback. HDSP sod=90 set via editor, not baked.
+4. **Gates on THIS branch:** buildvsplan → code-review → security-review → preview smoke. HOLD (no merge).
+
+Screen interiors (Jobs drill-in / Crews / Time Clock pixels) are explicitly NOT in this build.
+
 ---
 
 ## 4. PHASE 4 — AR MOVES IN

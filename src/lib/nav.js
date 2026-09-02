@@ -6,7 +6,7 @@ export const SUBCON_HEADER = "SUBCON COMMAND"; // sidebar wordmark: SUBCON white
 
 // Which app groups are actually mounted THIS phase. Grow by one line per phase.
 // Phase 1 → ["sales"]; Phase 2 → +"schedule"; Phase 3 → +"field"; Phase 4 → +"ar".
-export const AVAILABLE_APPS = ["sales", "schedule"];
+export const AVAILABLE_APPS = ["sales", "schedule", "field"];
 
 export const GROUPS = [
   { app: "sales", label: "Sales Command", prefix: "/sales", home: "/sales/home", icon: "🧾", items: [

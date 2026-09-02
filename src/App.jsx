@@ -35,6 +35,7 @@ import UpdateBanner from "./components/UpdateBanner";
 import Archive from "./pages/Archive";
 import { GROUPS, SUBCON_HOME, SETTINGS, groupVisible, sectionFromPath, groupFromPath, resolveNavTarget } from "./lib/nav";
 import ScheduleLayout from "./schedule/ScheduleLayout";
+import FieldLayout from "./field/FieldLayout";
 
 function Placeholder({ label }) {
   return (
@@ -307,6 +308,10 @@ function SalesCommandApp() {
               {/* Schedule Command — group-guarded /schedule/* (Phase 2). ScheduleLayout
                   owns its own nested <Routes> for the subtree, so this is a splat. */}
               <Route path="/schedule/*" element={<GroupGuard app="schedule" teamMember={teamMember}><ScheduleLayout teamMember={teamMember} /></GroupGuard>} />
+
+              {/* Field Command — group-guarded /field/* (Phase 3). FieldLayout owns
+                  its own nested <Routes> for the 6 view-only office screens. */}
+              <Route path="/field/*" element={<GroupGuard app="field" teamMember={teamMember}><FieldLayout teamMember={teamMember} /></GroupGuard>} />
 
               {/* Legacy flat Sales URLs → /sales/* (external bookmarks/emailed links) */}
               <Route path="/home" element={<LegacyRedirect base="home" />} />

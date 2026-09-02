@@ -37,17 +37,24 @@ export function jobFormStatus({
     .filter((p) => p.punch_type === "clock_in")
     .map((p) => new Date(p.punch_time).getTime())
     .filter((n) => !Number.isNaN(n));
+  const clockOutCount = punches.filter((p) => p.punch_type === "clock_out").length;
   const firstClockIn = clockInMs.length ? Math.min(...clockInMs) : null;
-  const clockedOut = punches.some((p) => p.punch_type === "clock_out");
   const msSince = firstClockIn != null ? now.getTime() - firstClockIn : null;
+
+  // EOD/PRT are ONE-per-job forms, due when the JOB wraps for the day — not when
+  // the first of a multi-person crew clocks out. "Wrapped" = everyone who clocked
+  // in has clocked out (clock_out count >= clock_in count). The phone flags per
+  // device (one user), so "any clock-out" there is fine; rolled up to a job it
+  // would fire a premature red "!" while the rest of the crew is still on site.
+  const wrapped = clockInMs.length > 0 && clockOutCount >= clockInMs.length;
 
   return {
     sod: deriveTimed(logTypes.has("SOD"), msSince, t.sodDueMinutes * 60 * 1000, "amber"),
     mod: deriveTimed(logTypes.has("MOD"), msSince, t.modDueHours * 60 * 60 * 1000, "amber"),
-    eod: deriveOnClockOut(logTypes.has("EOD"), clockedOut, t.eodRequired, "red"),
-    prt: deriveOnClockOut(prtDone, clockedOut, t.prtRequired, "red"),
+    eod: deriveOnClockOut(logTypes.has("EOD"), wrapped, t.eodRequired, "red"),
+    prt: deriveOnClockOut(prtDone, wrapped, t.prtRequired, "red"),
     clockedIn: firstClockIn != null,
-    clockedOut,
+    wrapped,
   };
 }
 
@@ -57,9 +64,9 @@ function deriveTimed(done, msSince, thresholdMs, level) {
   return { status: "pending" };
 }
 
-function deriveOnClockOut(done, clockedOut, required, level) {
+function deriveOnClockOut(done, wrapped, required, level) {
   if (!required) return { status: "off" };
   if (done) return { status: "done" };
-  if (clockedOut) return { status: "due", level };
+  if (wrapped) return { status: "due", level };
   return { status: "pending" };
 }

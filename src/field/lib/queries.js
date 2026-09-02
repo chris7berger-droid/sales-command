@@ -11,26 +11,44 @@ import { jobFormStatus } from "./lateForm";
 
 const ACTIVE_FIELD_STAGES = ["Scheduled", "In Progress", "mobilized", "in_progress"];
 
-// Does a scheduled window span `day`? scheduled_end may be null ("dates TBD") —
-// then the job counts only on its start day.
+// Does a scheduled window overlap [from, to]? scheduled_end may be null
+// ("dates TBD") — then the job counts only on its start day. PostgREST can't
+// COALESCE a null end in a filter, so all date windowing is done client-side.
 function spansDay(job, day) {
+  return overlapsWindow(job, day, day);
+}
+function overlapsWindow(job, from, to) {
   if (!job.scheduled_start) return false;
-  if (job.scheduled_start > day) return false;
+  const start = job.scheduled_start;
   const end = job.scheduled_end || job.scheduled_start;
-  return end >= day;
+  return start <= to && end >= from;
 }
 
-// One row per job scheduled to run today, with today's punch/log/PRT/load-out
-// rollup and the ported late-form flags.
-export async function fetchTodayRows({ today = tod(), thresholds, now = new Date() } = {}) {
-  // 1) Jobs scheduled to span today (small set — fetch active, filter client-side
-  //    because PostgREST can't COALESCE a null scheduled_end in a filter).
-  const jobs = await fetchAll(
-    "jobs",
-    "job_id, job_name, job_num, call_log_id, scheduled_start, scheduled_end, status, lead",
-    { filters: [["is", "deleted_at", null], ["not", "scheduled_start", "is", null]], order: "job_name" }
+// Active field-stage jobs (deleted-safe). `jobs` soft-deletes two ways — a
+// deleted_at stamp AND a deleted='Yes' flag (Schedule's canonical loadJobs
+// filters both); we exclude both. call_log stage embed drives the active-stage
+// filter so Today/Load-Outs match the phone's job list (JobListScreen).
+async function fetchActiveFieldJobs(extraSelect = "") {
+  const sel =
+    "job_id, job_name, job_num, call_log_id, scheduled_start, scheduled_end, deleted, call_log:call_log_id(stage, display_job_number)" +
+    (extraSelect ? ", " + extraSelect : "");
+  const jobs = await fetchAll("jobs", sel, {
+    filters: [["is", "deleted_at", null], ["not", "scheduled_start", "is", null]],
+    order: "scheduled_start",
+  });
+  return jobs.filter(
+    (j) =>
+      j.call_log_id != null &&
+      j.deleted !== "Yes" &&
+      ACTIVE_FIELD_STAGES.includes(j.call_log?.stage)
   );
-  const todayJobs = jobs.filter((j) => spansDay(j, today) && j.call_log_id != null);
+}
+
+// One row per active job scheduled to run today, with today's punch/log/PRT/
+// load-out rollup and the ported late-form flags.
+export async function fetchTodayRows({ today = tod(), thresholds, now = new Date() } = {}) {
+  const active = await fetchActiveFieldJobs("lead");
+  const todayJobs = active.filter((j) => spansDay(j, today));
   if (todayJobs.length === 0) return { rows: [], today };
 
   const clIds = [...new Set(todayJobs.map((j) => j.call_log_id))];
@@ -81,7 +99,11 @@ export async function fetchTodayRows({ today = tod(), thresholds, now = new Date
     const prtDone = jprt.some((r) => r.status === "submitted" || r.status === "approved");
     const forms = jobFormStatus({ punches: jp, logTypes, prtDone, now, thresholds });
 
-    const hours = jp.reduce((s, p) => s + (Number(p.hours_regular) || 0) + (Number(p.hours_ot) || 0), 0);
+    // hours_regular/hours_ot are stamped only on the clock_out row — sum those to
+    // avoid double-counting if intermediate rows ever carry a value.
+    const hours = jp
+      .filter((p) => p.punch_type === "clock_out")
+      .reduce((s, p) => s + (Number(p.hours_regular) || 0) + (Number(p.hours_ot) || 0), 0);
     const crewNames = jcrew
       .map((c) => c.team_members?.name)
       .filter(Boolean)
@@ -90,8 +112,8 @@ export async function fetchTodayRows({ today = tod(), thresholds, now = new Date
 
     return {
       jobId: id,
-      jobName: j.job_name || `Job ${j.job_num || id}`,
-      jobNum: j.job_num,
+      jobName: j.job_name || j.call_log?.display_job_number || `Job ${j.job_num || id}`,
+      jobNum: j.call_log?.display_job_number || j.job_num,
       lead: j.lead || null,
       crew: crewNames,
       hours,
@@ -112,25 +134,13 @@ export async function fetchLoadOutJobs({ today = tod(), windowDays = 7 } = {}) {
   end.setDate(end.getDate() + windowDays);
   const endStr = end.toLocaleDateString("en-CA");
 
-  const jobs = await fetchAll(
-    "jobs",
-    "job_id, job_name, job_num, call_log_id, scheduled_start, scheduled_end, call_log:call_log_id(stage, display_job_number)",
-    {
-      filters: [
-        ["is", "deleted_at", null],
-        ["not", "scheduled_start", "is", null],
-        ["gte", "scheduled_end", today],
-        ["lte", "scheduled_start", endStr],
-      ],
-      order: "scheduled_start",
-    }
-  );
-  const active = jobs.filter(
-    (j) => ACTIVE_FIELD_STAGES.includes(j.call_log?.stage) && j.call_log_id != null
-  );
-  if (active.length === 0) return { jobs: [], today };
+  const active = await fetchActiveFieldJobs();
+  // Window client-side so TBD-end jobs (null scheduled_end) aren't dropped — a
+  // server-side gte on a null column silently excludes the row.
+  const inWindow = active.filter((j) => overlapsWindow(j, today, endStr));
+  if (inWindow.length === 0) return { jobs: [], today };
 
-  const clIds = [...new Set(active.map((j) => j.call_log_id))];
+  const clIds = [...new Set(inWindow.map((j) => j.call_log_id))];
   const checks = await fetchAll("job_material_checks", "job_id, checked", {
     filters: [["in", "job_id", clIds]],
   });
@@ -141,7 +151,7 @@ export async function fetchLoadOutJobs({ today = tod(), windowDays = 7 } = {}) {
   }
 
   return {
-    jobs: active.map((j) => ({
+    jobs: inWindow.map((j) => ({
       jobPk: j.job_id, // jobs PK — feed to loadJobWithWTCs
       callLogId: j.call_log_id,
       jobName: j.job_name || j.call_log?.display_job_number || `Job ${j.job_num || j.call_log_id}`,
@@ -151,4 +161,94 @@ export async function fetchLoadOutJobs({ today = tod(), windowDays = 7 } = {}) {
     })),
     today,
   };
+}
+
+// ── Plain reads for the four "later UI session" screens ─────────────────────
+// Real data, minimal shape — polished layouts come in Chris's later UI sessions.
+
+// Jobs: every active field-stage job (the office's full field job list).
+export async function fetchFieldJobs() {
+  const active = await fetchActiveFieldJobs();
+  return active
+    .map((j) => ({
+      jobPk: j.job_id,
+      callLogId: j.call_log_id,
+      jobName: j.job_name || j.call_log?.display_job_number || `Job ${j.call_log_id}`,
+      jobNum: j.call_log?.display_job_number || j.job_num,
+      stage: j.call_log?.stage || null,
+      scheduledStart: j.scheduled_start,
+      scheduledEnd: j.scheduled_end,
+    }))
+    .sort((a, b) => (a.scheduledStart || "").localeCompare(b.scheduledStart || ""));
+}
+
+// Crews: crew assignments across active field jobs.
+export async function fetchFieldCrews() {
+  const active = await fetchActiveFieldJobs();
+  const clIds = [...new Set(active.map((j) => j.call_log_id))];
+  if (clIds.length === 0) return [];
+  const nameByCl = new Map(
+    active.map((j) => [j.call_log_id, j.job_name || j.call_log?.display_job_number || `Job ${j.call_log_id}`])
+  );
+  const crew = await fetchAll("job_crew", "job_id, role, team_members(name)", {
+    filters: [["in", "job_id", clIds]],
+  });
+  return crew
+    .map((c) => ({
+      member: c.team_members?.name || "—",
+      role: c.role || "",
+      job: nameByCl.get(c.job_id) || `Job ${c.job_id}`,
+    }))
+    .sort((a, b) => a.member.localeCompare(b.member));
+}
+
+// Time Clock: today's punches across active field jobs.
+export async function fetchFieldPunches({ today = tod() } = {}) {
+  const active = await fetchActiveFieldJobs();
+  const clIds = [...new Set(active.map((j) => j.call_log_id))];
+  if (clIds.length === 0) return { punches: [], today };
+  const nameByCl = new Map(
+    active.map((j) => [j.call_log_id, j.job_name || j.call_log?.display_job_number || `Job ${j.call_log_id}`])
+  );
+  const punches = await fetchAll(
+    "time_punches",
+    "job_id, punch_type, punch_time, employee_id, team_members:employee_id(name)",
+    { filters: [["in", "job_id", clIds], ["eq", "punch_date", today]] }
+  );
+  return {
+    today,
+    punches: punches
+      .map((p) => ({
+        member: p.team_members?.name || "—",
+        job: nameByCl.get(p.job_id) || `Job ${p.job_id}`,
+        type: p.punch_type,
+        time: p.punch_time,
+      }))
+      .sort((a, b) => (a.time || "").localeCompare(b.time || "")),
+  };
+}
+
+// Daily Logs: recent SOD/MOD/EOD entries across active field jobs (last `days`).
+export async function fetchFieldLogs({ today = tod(), days = 7 } = {}) {
+  const from = new Date(today + "T00:00:00");
+  from.setDate(from.getDate() - days);
+  const fromStr = from.toLocaleDateString("en-CA");
+
+  const active = await fetchActiveFieldJobs();
+  const clIds = [...new Set(active.map((j) => j.call_log_id))];
+  if (clIds.length === 0) return [];
+  const nameByCl = new Map(
+    active.map((j) => [j.call_log_id, j.job_name || j.call_log?.display_job_number || `Job ${j.call_log_id}`])
+  );
+  const logs = await fetchAll("daily_log_entries", "job_id, entry_type, notes, created_at", {
+    filters: [["in", "job_id", clIds], ["gte", "created_at", fromStr + "T00:00:00"]],
+  });
+  return logs
+    .map((e) => ({
+      job: nameByCl.get(e.job_id) || `Job ${e.job_id}`,
+      type: e.entry_type,
+      notes: e.notes || "",
+      at: e.created_at,
+    }))
+    .sort((a, b) => (b.at || "").localeCompare(a.at || ""));
 }

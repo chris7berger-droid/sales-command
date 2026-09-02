@@ -102,3 +102,53 @@ export async function fetchTodayRows({ today = tod(), thresholds, now = new Date
 
   return { rows, today };
 }
+
+// Load-Outs list: active field-stage jobs in the near-term window (today .. +7d),
+// each openable in Schedule's LoadOutModal. Returns the jobs PK (job_id) so the
+// modal door can call the canonical hydrator loadJobWithWTCs(job_id) — no drifting
+// fetch ([[feedback_extend_canonical_not_twin]]).
+export async function fetchLoadOutJobs({ today = tod(), windowDays = 7 } = {}) {
+  const end = new Date(today + "T00:00:00");
+  end.setDate(end.getDate() + windowDays);
+  const endStr = end.toLocaleDateString("en-CA");
+
+  const jobs = await fetchAll(
+    "jobs",
+    "job_id, job_name, job_num, call_log_id, scheduled_start, scheduled_end, call_log:call_log_id(stage, display_job_number)",
+    {
+      filters: [
+        ["is", "deleted_at", null],
+        ["not", "scheduled_start", "is", null],
+        ["gte", "scheduled_end", today],
+        ["lte", "scheduled_start", endStr],
+      ],
+      order: "scheduled_start",
+    }
+  );
+  const active = jobs.filter(
+    (j) => ACTIVE_FIELD_STAGES.includes(j.call_log?.stage) && j.call_log_id != null
+  );
+  if (active.length === 0) return { jobs: [], today };
+
+  const clIds = [...new Set(active.map((j) => j.call_log_id))];
+  const checks = await fetchAll("job_material_checks", "job_id, checked", {
+    filters: [["in", "job_id", clIds]],
+  });
+  const checkedBy = new Map();
+  for (const c of checks) {
+    const cur = checkedBy.get(c.job_id) || 0;
+    checkedBy.set(c.job_id, cur + (c.checked ? 1 : 0));
+  }
+
+  return {
+    jobs: active.map((j) => ({
+      jobPk: j.job_id, // jobs PK — feed to loadJobWithWTCs
+      callLogId: j.call_log_id,
+      jobName: j.job_name || j.call_log?.display_job_number || `Job ${j.job_num || j.call_log_id}`,
+      jobNum: j.call_log?.display_job_number || j.job_num,
+      scheduledStart: j.scheduled_start,
+      loaded: checkedBy.get(j.call_log_id) || 0,
+    })),
+    today,
+  };
+}

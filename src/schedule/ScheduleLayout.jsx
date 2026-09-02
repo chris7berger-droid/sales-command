@@ -37,24 +37,30 @@ function flipName(n) {
 // Providers wrap the shell because the toolbar + modal handlers below consume
 // useSync / useToast, and the routed views consume useUser (host teamMember).
 export default function ScheduleLayout({ teamMember }) {
+  // `.schedule-root` wraps the PROVIDERS (not just the shell) so the fence also
+  // covers DOM they emit as siblings of the shell — notably ToastProvider's toast
+  // node — which would otherwise render outside the scope and lose all its CSS.
   return (
-    <SyncProvider>
-      <ToastProvider>
-        <UserProvider teamMember={teamMember}>
-          <ScheduleShell />
-        </UserProvider>
-      </ToastProvider>
-    </SyncProvider>
+    <div className="schedule-root">
+      <SyncProvider>
+        <ToastProvider>
+          <UserProvider teamMember={teamMember}>
+            <ScheduleShell />
+          </UserProvider>
+        </ToastProvider>
+      </SyncProvider>
+    </div>
   )
 }
 
 function ScheduleShell() {
-  const { setSync } = useSync()
+  const { syncState, setSync } = useSync()
   const toast = useToast()
   const [modal, setModal] = useState(null)
   const [workTypes, setWorkTypes] = useState([])
   const [crewList, setCrewList] = useState([])
   const [showArchived, setShowArchived] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const location = useLocation()
   const path = location.pathname
@@ -213,10 +219,14 @@ function ScheduleShell() {
     await loadModalData()
   }
 
-  // --- Refresh --- (soft: reload modal data; realtime keeps the views live, so a
-  // full window.location.reload() of the whole merged app is intentionally dropped.)
+  // --- Refresh --- Reload modal data AND remount the routed view (via the key bump
+  // on <main> below) so it re-runs its mount-time fetches. This refetches whatever
+  // view you're on without a full window.location.reload() of the whole merged app
+  // (which the §2 pre-flight flagged to drop) — and, unlike a plain soft-refresh,
+  // it does NOT leave the non-realtime views (Calendar/Daily/Billing/…) stale.
   function handleRefresh() {
     loadModalData()
+    setRefreshKey(k => k + 1)
     toast('Refreshed', 'ok')
   }
 
@@ -224,9 +234,10 @@ function ScheduleShell() {
   const archivedCrew = crewList.filter(c => c.archived === 'Yes')
 
   return (
-    <div className="schedule-root">
+    <>
       <div className="app-schedule-toolbar">
         <div className="app-header-actions">
+          <span className={`sync-dot sync-${syncState}`} title={`Sync: ${syncState}`} />
           <button className="app-act-btn app-act-primary" onClick={openAddJob}>+ Job</button>
           <div className="app-actions-menu" ref={actionsRef} onMouseLeave={() => setActionsOpen(false)}>
             <button className="app-act-btn" onClick={() => setActionsOpen(o => !o)}>Actions ▾</button>
@@ -244,7 +255,7 @@ function ScheduleShell() {
         </div>
       </div>
       {!isHome && <StatsBar />}
-      <main className="app-main">
+      <main className="app-main" key={refreshKey}>
         <Routes>
           <Route index element={<Navigate to="/schedule/home" replace />} />
           <Route path="home" element={<Home />} />
@@ -448,6 +459,6 @@ function ScheduleShell() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }

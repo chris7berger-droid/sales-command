@@ -1,0 +1,116 @@
+SC_Handoff_v199 — T6 SECURITY REVIEW (Phase 3 Field Command web)
+Branch: feat/schedule-merge-plan
+Terminal role: T6 (Security Review), gated by /security-review-limiter
+Date: 2026-09-02
+Reviewer started cold; pulled latest (T5 f6a5d2d landed first — precondition met).
+
+============================================================
+VERDICT
+============================================================
+0 exploitable-today findings. SAFE TO SHIP (Phase 3 stays held for the one-flip
+rollout — this is a security clearance, not a merge instruction).
+
+Scope reviewed: the Phase 3 Field Command web build — src/field/* (6 view-only
+office screens + queries.js + lateForm.js), the mount edits (src/App.jsx /field/*
+route, src/lib/nav.js AVAILABLE_APPS += "field"), and the shared-DB migration
+command-suite-db/.../20260902120000_tenant_config_field_thresholds.sql.
+
+============================================================
+WHAT WAS VERIFIED (against LIVE prod pbgvgjjuhnpsumnowuym)
+============================================================
+
+1) The 4 new tenant_config columns are NOT anon-exposed — CONFIRMED SAFE.
+   - anon DOES hold TABLE-level SELECT on tenant_config, so at the grant layer it
+     inherits sod_due_minutes/mod_due_hours/eod_required/prt_required (has_column_
+     privilege = true for all four). The migration comment's phrasing "No anon
+     grant" is therefore imprecise — the columns ARE granted to anon.
+   - BUT RLS is ENABLED on tenant_config and there is NO anon policy on the table
+     (only authenticated: tenant_config_select USING id=get_user_tenant_id(),
+     and tenant_config_update USING id=get_user_tenant_id() AND is_admin_or_manager()).
+     No permissive anon policy => anon reads ZERO rows => the 4 columns are
+     unreachable by anon. Outcome is correct; the safety comes from RLS, not from
+     the (nonexistent) column-grant restriction.
+   - fetchFieldThresholds() reads them as the authenticated user with
+     .limit(1).maybeSingle() and no manual tenant filter; RLS scopes the select to
+     the caller's own tenant row. Safe.
+   - HARDENING (not blocking, filed only as this note): if you want the migration's
+     stated reasoning to be true by construction, convert anon's tenant_config grant
+     from table-level to a column allowlist (REVOKE SELECT on tenant_config FROM anon;
+     GRANT SELECT (company_name, logo_url, ... the public-page columns) TO anon).
+     Belt-and-suspenders only — RLS already blocks anon today.
+
+2) Field web is authenticated-only, view-only — CONFIRMED.
+   - App.jsx:206-210 renders only /login + customer-facing routes when !session, so
+     the entire /field/* tree is behind the auth gate. /field/* (App.jsx:314) is
+     wrapped in GroupGuard app="field" inside the authed AppShell.
+   - GroupGuard is client-side authz VISIBILITY (NotAuthorized if the group isn't in
+     tenant/member apps) — "hiding a group != security" (their own comment). The real
+     data boundary is RLS, verified below. Consistent with the architecture.
+   - grep of src/field for .insert/.update/.delete/.upsert/.rpc = NONE. No writes,
+     no new anon surface. Load-Outs reuses Schedule's LoadOutModal via the canonical
+     loadJobWithWTCs(job_id) — same trust boundary as the existing Schedule side.
+
+3) Tenant isolation on the 8 tables the field reads hit — RLS ENABLED on all 8.
+   Authenticated SELECT policies (verified in pg_policy):
+     call_log                  tenant_id = get_user_tenant_id()   OK
+     job_crew                  tenant_id = get_user_tenant_id()   OK
+     time_punches              tenant_id = get_user_tenant_id()   OK
+     job_material_checks       tenant_id = get_user_tenant_id()   OK
+     daily_production_reports  tenant_id = get_user_tenant_id()   OK
+     team_members              tenant_id = get_user_tenant_id()   OK
+     jobs                      tenant_id = get_user_tenant_id()   ...BUT see S13
+     daily_log_entries         USING (true)                       ...see S14 (NEW)
+
+============================================================
+ISOLATION GAPS SURFACED (both F7-gated, NEITHER exploitable today, NEITHER
+introduced by this branch — prod is SINGLE-TENANT: tenant_config count = 1,
+all 86 jobs + all 3 daily_log_entries rows belong to the one tenant, so there
+is no second tenant's data for an authenticated actor to read)
+============================================================
+
+- jobs: a permissive ALL policy "Authenticated users can do everything"
+  (auth.role()='authenticated') is OR'd alongside the tenant-scoped jobs_select
+  and WINS — jobs has no real tenant isolation. ALREADY TRACKED as S13 (filed by
+  the 2026-08-26 T6 review). Referenced, not duplicated.
+
+- daily_log_entries: authenticated SELECT policy daily_log_select_authenticated is
+  USING (true), and the table has NO tenant_id column to scope on. NOT previously
+  tracked — FILED THIS PASS as S14. anon has 0 policies on it (not anon-exposed).
+  Phase 3's Today + Daily Logs screens are the first Sales-side authenticated
+  readers, but the exploit path is direct PostgREST, independent of the UI. Fix
+  shape (S14): scope via EXISTS join to call_log.tenant_id, or add tenant_id +
+  backfill + trigger (mirror S4). command-suite-db, 6-gate RLS deploy.
+
+Both MUST close before tenant #2 onboards (the F7 gate). Do NOT gate the Phase 3
+merge on either — this branch neither introduces nor regresses them, and neither
+is reachable while prod is single-tenant.
+
+The Aug-31 invoices.sent_at anon grant was NOT flagged (settled/intended per brief).
+
+============================================================
+LIMITER TABLE
+============================================================
+# / finding / exploitable-today? / materiality / action
+1 / tenant_config 4 new cols anon-exposed? / NO — RLS on, no anon policy => anon
+    reads 0 rows / n/a / none (optional HARDENING: column-scope anon grant)
+2 / Field web writes/anon surface? / NO — auth-only, view-only, 0 writes / n/a / none
+3 / jobs blanket ALL policy defeats tenant scope / NO today — single tenant /
+    Sev8 latent / already tracked S13 (F7)
+4 / daily_log_entries USING(true), no tenant_id / NO today — single tenant /
+    Sev8 latent / FILED S14 (F7)
+
+Verdict: 0 exploitable-today; SAFE TO SHIP.
+
+============================================================
+CHANGES THIS SESSION
+============================================================
+- docs/BACKLOG.md: added S14 (daily_log_entries isolation gap, F7-gated).
+- docs/handoffs/SC_Handoff_v199.txt: this file.
+No code changed (0 BLOCKS-SHIP => nothing to fix, per the limiter's exit condition).
+
+============================================================
+NEXT
+============================================================
+- Phase 3 security gate is GREEN. Merge remains held for the one-flip rollout.
+- F7 onboarding (second tenant) must close S13 (jobs) + S14 (daily_log_entries)
+  alongside the existing S4/S5 — all in command-suite-db under the 6-gate deploy.

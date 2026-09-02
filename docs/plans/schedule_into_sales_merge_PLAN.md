@@ -635,10 +635,17 @@ job_material_checks) anchors `job_id` on **call_log.id** (FK-confirmed), `jobs` 
 `jobs.call_log_id`; `jobs` PK is `job_id` (no `id` column). /buildvsplan run (2 reviewers):
 0 Tier-1, 2 Tier-2 (EOD/PRT multi-crew over-flag; Load-Outs null-end drop) — BOTH FIXED
 (`0896aa2`), plus active-stage + soft-delete(`deleted='Yes'`) hardening.
-Step 3 (§3a migration + Settings editor + Today reads the cols) IN PROGRESS in command-suite-db
-(threshold migration authored `20260902120000`; rehearse blocked on a stale baseline — the
-Aug-31 `sent_at` anon grant drift — being reconciled in a separate DB terminal; see
-[[project_sent_at_grant_incident]]). Today runs on the phone hardcodes (15/4) until the cols land.
+Step 3 (§3a migration + Today reads the cols) DONE: threshold migration `20260902120000`
+rehearsed + pushed to prod (command-suite-db `ae461f0`; baseline reconciled — the block was the
+INTENDED Aug-31 `sent_at` grant, see [[project_sent_at_grant_incident]]); HDSP sod_due_minutes=90
+set as data; Today reads the cols via fetchFieldThresholds() with the phone hardcodes as fallback
+(verified HDSP=90 drives the SOD flag). Settings EDITOR deferred to the unified Settings session.
+
+**ALL GATES GREEN + SMOKE PASSED — 2026-09-02.** T4 /buildvsplan (2 bugs fixed), T5 /code-review
+(0 blockers, file F56), T6 /security-review (0 exploitable-today, file S14) — each in its own cold
+terminal. Preview smoke PASSED (lit via a TEMPORARY tenant+member `apps` flip to include "field",
+REVERTED after — HDSP baseline back to `["sales"]`). Phase 3 built + HELD (not merged); joins the
+one-flip stack with Phases 1–2. §3b PowerSync phone release still deferred until a crew goes live.
 
 ---
 

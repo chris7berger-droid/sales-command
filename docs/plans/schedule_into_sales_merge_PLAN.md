@@ -523,8 +523,20 @@ repos — every line number still matched the 2026-09-01 map; nothing drifted. H
 2. **Settings fold.** `/schedule/settings` is reachable by URL but intentionally NOT in the host nav; folding
    Schedule's `Settings.jsx` (109 lines) into the unified `/settings` (Schedule section, §2a) is its own task.
 3. **Post-move pagination sweep** (grep unpaginated fetches 3× incl. `Promise.all`, [[feedback_audit_pagination]]).
-4. **Remaining gates:** `/buildvsplan` → `/code-review` → `/security-review` → preview smoke (needs a temporary
-   schedule entitlement on a test path), then HOLD for the one-flip merge.
+4. **Preview smoke** — the one remaining gate (needs a temporary schedule entitlement on a test path;
+   do NOT flip HDSP), then HOLD for the one-flip merge.
+
+**Gates run (2026-09-02):**
+- **/buildvsplan → PASS** (3 reviewers + live probe). 1 fix applied: `Schedule.jsx:108` TDZ self-reference
+  (`changedBy = user?.name || changedBy`) → `|| 'unknown'` (commit `6b22c9d`).
+- **/code-review → 3 CAUSED-BY findings, all fixed** (commit `02e10ba`): (1) toasts rendered outside the
+  fence — moved `.schedule-root` up to wrap the providers; (2) Refresh no-op'd the 9 non-realtime views —
+  now bumps a `key` on `<main>` to remount + refetch the current view (no full-app reload); (3) orphaned
+  `syncState` — sync dot restored in the content toolbar.
+- **/security-review (limiter-gated) → 0 exploitable-today.** One authenticated client confirmed (zero
+  `createClient` in `src/schedule/`, all 12 supabase imports resolve to host); entitlement gate is
+  defense-in-depth over unchanged RLS; repoints same-origin + `noopener`; no migration, no new grant,
+  no service-role, no token/secret in logs. Multi-tenant isolation stays F7-gated (S4/S5/S10/S13), not re-flagged.
 
 ---
 

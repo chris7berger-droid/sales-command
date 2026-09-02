@@ -52,15 +52,26 @@ VERIFICATION
   Schedule (NOT AUTHORIZED). Smoke used a temporary local groupVisible bypass — REVERTED,
   verified clean (grep + rebuild).
 
+GATES RUN (2026-09-02) — all green
+- /buildvsplan: PASS (3 reviewers + live probe). Fixed 1: Schedule.jsx:108 TDZ
+  self-reference (commit 6b22c9d).
+- /code-review: 3 CAUSED-BY findings, all fixed (commit 02e10ba) —
+  (1) toasts outside the fence → .schedule-root moved up to wrap providers;
+  (2) Refresh no-op'd 9 non-realtime views → key-bump remount of <main>;
+  (3) orphaned syncState → sync dot restored in the toolbar.
+- /security-review (limiter-gated): 0 exploitable-today. One client confirmed,
+  gate = defense-in-depth over unchanged RLS, no migration/grant/service-role,
+  no token in logs. Multi-tenant items stay F7-gated (S4/S5/S10/S13).
+
 NOT TOUCHED / DEFERRED (Phase 2 finish-line remainder — next session)
 1. Teal reconciliation (Beat 5): Schedule still Command-Green; do the green→teal + black-
    text-on-teal as a POLISH pass with preview running (not blind sed).
 2. Settings fold: /schedule/settings reachable by URL, NOT in nav; fold into unified
    /settings (Schedule section) is its own task.
 3. Post-move pagination sweep (3×, incl. Promise.all).
-4. Gates: /buildvsplan → /code-review → /security-review → preview smoke → HOLD merge.
-   Preview smoke needs a temporary schedule entitlement (test path) since HDSP isn't
-   entitled yet — do NOT flip HDSP tenant_config.apps (that's the held go-live action).
+4. Preview smoke — the ONE remaining gate (buildvsplan/code-review/security-review
+   all PASSED 2026-09-02). Needs a temporary schedule entitlement (test path) since
+   HDSP isn't entitled yet — do NOT flip HDSP tenant_config.apps (held go-live action).
 
 NEXT SESSION POINTERS
 - Start with /buildvsplan against the merge PLAN, then the review gates.
@@ -73,5 +84,6 @@ FILES TO KNOW
 - docs/plans/schedule_into_sales_merge_PLAN.md §2 + §2b
 
 GIT STATE
-- Branch feat/schedule-merge-plan; Phase 2 committed this session (NOT merged, NOT pushed
-  unless Chris said to). Phase 1 shell remains built+gated+held on the same branch.
+- Branch feat/schedule-merge-plan, 4 Phase 2 commits (NOT merged, NOT pushed unless
+  Chris said to): 37bd6ca (move) → 6b22c9d (buildvsplan TDZ fix) → 02e10ba (code-review
+  fixes) [→ any handoff-doc commit]. Phase 1 shell remains built+gated+held on the same branch.

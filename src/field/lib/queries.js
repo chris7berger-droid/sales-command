@@ -44,9 +44,32 @@ async function fetchActiveFieldJobs(extraSelect = "") {
   );
 }
 
+// Read this tenant's field-log thresholds from tenant_config (RLS scopes the
+// select to the caller's own tenant row). Returns the lateForm threshold shape,
+// or null if the row/cols aren't readable — lateForm then falls back to the
+// phone's hardcodes (15min / 4hr / EOD+PRT required). Coerces numeric strings.
+export async function fetchFieldThresholds() {
+  const { data, error } = await supabase
+    .from("tenant_config")
+    .select("sod_due_minutes, mod_due_hours, eod_required, prt_required")
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const out = {};
+  const sod = Number(data.sod_due_minutes);
+  const mod = Number(data.mod_due_hours);
+  if (Number.isFinite(sod)) out.sodDueMinutes = sod;
+  if (Number.isFinite(mod)) out.modDueHours = mod;
+  if (typeof data.eod_required === "boolean") out.eodRequired = data.eod_required;
+  if (typeof data.prt_required === "boolean") out.prtRequired = data.prt_required;
+  return out; // partial ok — lateForm merges over DEFAULT_THRESHOLDS
+}
+
 // One row per active job scheduled to run today, with today's punch/log/PRT/
-// load-out rollup and the ported late-form flags.
+// load-out rollup and the ported late-form flags. If `thresholds` is omitted it
+// reads them from tenant_config (phone hardcodes as fallback).
 export async function fetchTodayRows({ today = tod(), thresholds, now = new Date() } = {}) {
+  if (thresholds === undefined) thresholds = (await fetchFieldThresholds()) || undefined;
   const active = await fetchActiveFieldJobs("lead");
   const todayJobs = active.filter((j) => spansDay(j, today));
   if (todayJobs.length === 0) return { rows: [], today };

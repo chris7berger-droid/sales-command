@@ -105,7 +105,7 @@ function gTagClass(t) {
 export default function Schedule({ embedded = false } = {}) {
   const user = useUser()
   const navigate = useNavigate()
-  const changedBy = user?.name || changedBy
+  const changedBy = user?.name || 'unknown'
   const [jobs, setJobs] = useState([])
   const [crew, setCrew] = useState([])
   const [assignments, setAssignments] = useState([])

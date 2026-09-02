@@ -1,0 +1,124 @@
+SC Handoff v197 — BUILD (T3): Subcon Merge PHASE 3 — Field Command web (screens + settings)
+Repo: sales-command   Branch: feat/schedule-merge-plan   Date: 2026-09-02
+=======================================================================
+This is the T3 (build) node handoff for Phase 3. It rides the branch for the
+T5 (code-review) and T6 (security-review) terminals to start cold. Build is done,
+pushed, and buildvsplan-clean. NOT merged (one-flip rollout holds).
+
+SESSION SUMMARY
+---------------
+Resumed onto feat/schedule-merge-plan (Phase 2 held/complete) and built Phase 3:
+the Field Command WEB side — 6 view-only office screens over tables the phones
+already sync, plus the tenant_config field-log thresholds. Roles blurred this
+session: this one window did T1 (wrote the Phase 3 plan §3c), T3 (built it), and
+T4 (ran /buildvsplan here). T2 (plan-audit) was SKIPPED. T5 + T6 are still owed,
+each in its own fresh terminal (prompts were handed to Chris).
+
+SCOPE DECIDED (Chris ratified)
+------------------------------
+- IN: the 6 screens + the 4 tenant_config threshold columns (live on prod).
+- OUT of this phase: the §3b PowerSync sync-rule / phone release (no crew on Field
+  yet, phones stay safe on hardcodes) — do it when a crew goes live.
+- DEFERRED: the Field Settings *editor* UI → folded into Chris's planned unified
+  Settings session (values are set + working; a standalone editor would be throwaway).
+
+CHANGES SHIPPED (this session, on feat/schedule-merge-plan)
+----------------------------------------------------------
+- 609a44d  Scaffold: AVAILABLE_APPS += "field"; /field/* route (GroupGuard app=field)
+           beside the schedule splat; new src/field/FieldLayout.jsx owns the 6 nested
+           routes. nav.js field group + items already existed.
+- 03be813  Today built for real. src/field/lib/lateForm.js = the phone's PunchStatusBar
+           late-rule PORTED and rolled up PER JOB. src/field/lib/queries.js fetchTodayRows.
+           Today.jsx = Job/Crew/Hrs/SOD/MOD/EOD/PRT/Load-out table w/ status pills.
+- 62d9644  Load-Outs reuses Schedule's LoadOutModal via canonical loadJobWithWTCs(job_id)
+           (no drifting fetch), rendered inside a .schedule-root wrapper (fenced CSS).
+- 0896aa2  /buildvsplan fixes (see VERIFICATION) + real reads for the 4 "later UI"
+           screens (Jobs/Crews/TimeClock/DailyLogs → plain tables). Dropped dead FieldStub.
+- 634c82b  Plan §3c build-status note.
+- 84e2574  Today reads tenant_config thresholds via fetchFieldThresholds() (phone
+           hardcodes fallback). Verified HDSP sod_due_minutes=90 drives the SOD flag.
+
+DB (shared) — done in a SEPARATE command-suite-db terminal (commit ae461f0 there)
+---------------------------------------------------------------------------------
+- tenant_config gained sod_due_minutes(15)/mod_due_hours(4)/eod_required(true)/
+  prt_required(true) — additive, NOT NULL, phone-hardcode defaults, zero behavior
+  change. Migration 20260902120000_tenant_config_field_thresholds.sql. Live on prod.
+- HDSP sod_due_minutes = 90 (crews punch in at the shop) — set as DATA, not baked.
+- Rehearse baseline reconciled (the block was the stale Aug-31 sent_at anon grant,
+  which is INTENDED and kept — see memory project_sent_at_grant_incident).
+
+KEY DATA-MODEL FACT (verified against prod, FK-confirmed — do not re-derive)
+---------------------------------------------------------------------------
+Every child table (time_punches, job_crew, daily_log_entries, daily_production_reports,
+job_material_checks) anchors job_id on **call_log.id** — NOT jobs.job_id
+(FKs: time_punches_job_id_fkey, job_crew_job_id_fkey → call_log). `jobs` PK is job_id
+(there is NO `id` column on jobs); jobs links to call_log via jobs.call_log_id. All
+these tables carry tenant_id → tenant_config (RLS-scoped).
+
+DECISIONS / CHOICES
+-------------------
+- The plan's proposed new hydrateLoadOutJob(call_log_id) was NOT written — the
+  canonical loadJobWithWTCs(job_id) already returns the exact LoadOutModal shape
+  (via normalizeJob, shared with StageJobCard). Intent met, no twin.
+- Today's "job going today" = active-field-stage call_log (Scheduled/In Progress/
+  mobilized/in_progress, matching the phone's JobListScreen) whose jobs.scheduled
+  window spans today. Windowing is client-side (PostgREST can't COALESCE null ends).
+- EOD/PRT are one-per-job forms → flagged red only when the JOB is "wrapped"
+  (clock_out count >= clock_in count), not when the first crew member clocks out.
+
+VERIFICATION
+------------
+- Build: npm run build green after every change (0 errors).
+- /buildvsplan (2 Explore reviewers, here): 0 Tier-1. 2 Tier-2 bugs FOUND + FIXED:
+  (a) EOD/PRT premature red on first-of-crew clock-out → now "wrapped";
+  (b) fetchLoadOutJobs dropped null-scheduled_end jobs → windowed client-side.
+  Plus hardening: active-stage filter + soft-delete (deleted='Yes') + Hrs sums only
+  clock_out rows. All re-validated against live prod data.
+- Live-data checks (Supabase): child joins anchor on call_log.id; 2 jobs span today
+  (both In Progress → show); 6 active field jobs (Jobs screen); all PostgREST embeds
+  FK-backed; tenant_config cols readable, HDSP=90.
+- NOT done: T5 code-review, T6 security-review (owed, fresh terminals). Preview NOT
+  smoke-tested with Field visible — needs "field" added to HDSP tenant_config.apps
+  (temporary flip, shared-DB — left to Chris/DB terminal).
+
+NOT TOUCHED / DEFERRED
+----------------------
+- §3b PowerSync sync-rule + phone release (out of phase).
+- Field Settings editor UI (→ unified Settings session).
+- Screen interiors for Jobs/Crews/TimeClock/DailyLogs (Chris's later UI sessions;
+  they do real reads now but plain layout).
+- Phase 2 deferred polish (teal reconciliation, Settings fold, pagination sweep) — unchanged.
+
+NEXT SESSION POINTERS
+---------------------
+- T5 (code-review) then T6 (security-review) on this branch, src/field — prompts
+  handed to Chris. T5: correctness/reuse/efficiency (esp. lateForm rollup + queries);
+  T6: RLS/tenant-isolation/anon (the 4 threshold cols have NO anon grant).
+- After T5+T6 pass + preview smoke: Phase 3 joins the held stack. DO NOT MERGE — the
+  full Subcon flip is one flip at the very end (Phases 1–5).
+- UPKEEP: pull any live Sales hotfix from main into this branch so it doesn't rot.
+
+FILES TO KNOW
+-------------
+- src/field/FieldLayout.jsx — /field/* nested routes (6 screens)
+- src/field/lib/lateForm.js — ported late-form rule (per-job rollup)
+- src/field/lib/queries.js — all Field reads (fetchTodayRows, fetchLoadOutJobs,
+  fetchFieldJobs/Crews/Punches/Logs, fetchFieldThresholds)
+- src/field/views/Today.jsx, LoadOuts.jsx (+ Jobs/Crews/TimeClock/DailyLogs)
+- src/field/components/FieldScreen.jsx — FieldScreen/PlainTable/useAsync/RefreshBtn
+- src/App.jsx (/field/* mount), src/lib/nav.js (field group)
+- docs/plans/schedule_into_sales_merge_PLAN.md §3 / §3c
+
+GIT STATE ON CLOSE
+------------------
+- Branch feat/schedule-merge-plan, pushed, EVEN with origin (HEAD 84e2574 at write;
+  a plan-doc commit for this handoff follows).
+- Phase 3 = 6 commits on top of held Phase 1+2. origin/main untouched (prod = classic
+  Sales Command). Working tree clean. No PRs opened.
+- Shared DB: 4 tenant_config cols live (command-suite-db ae461f0). No sales-command
+  edge fns / migrations deployed from here.
+
+END STATE
+---------
+In progress — Phase 3 built (screens + settings), buildvsplan-clean, pushed, HELD.
+Owed: T5 code-review, T6 security-review, preview smoke. Then it joins the one-flip stack.

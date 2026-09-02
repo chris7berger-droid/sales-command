@@ -69,9 +69,10 @@ NOT TOUCHED / DEFERRED (Phase 2 finish-line remainder — next session)
 2. Settings fold: /schedule/settings reachable by URL, NOT in nav; fold into unified
    /settings (Schedule section) is its own task.
 3. Post-move pagination sweep (3×, incl. Promise.all).
-4. Preview smoke — the ONE remaining gate (buildvsplan/code-review/security-review
-   all PASSED 2026-09-02). Needs a temporary schedule entitlement (test path) since
-   HDSP isn't entitled yet — do NOT flip HDSP tenant_config.apps (held go-live action).
+4. Preview smoke — PASSED 2026-09-02 (all 4 gates now green). Ran on the Vercel
+   preview with a TEMPORARY tenant_config.apps=["sales","schedule"] flip, reverted
+   after. All checklist items pass. NOTE: the go-live HDSP flip stays HELD.
+   Post-smoke: legacy sync dot + setSync/SyncProvider/sync.jsx removed (156dcd1).
 
 NEXT SESSION POINTERS
 - Start with /buildvsplan against the merge PLAN, then the review gates.
@@ -84,6 +85,9 @@ FILES TO KNOW
 - docs/plans/schedule_into_sales_merge_PLAN.md §2 + §2b
 
 GIT STATE
-- Branch feat/schedule-merge-plan, 4 Phase 2 commits (NOT merged, NOT pushed unless
-  Chris said to): 37bd6ca (move) → 6b22c9d (buildvsplan TDZ fix) → 02e10ba (code-review
-  fixes) [→ any handoff-doc commit]. Phase 1 shell remains built+gated+held on the same branch.
+- Branch feat/schedule-merge-plan PUSHED to origin (even). Phase 2 commits (NOT merged
+  — rollout hold): 37bd6ca (move) → 6b22c9d (TDZ) → 02e10ba (code-review fixes) →
+  8e7b5dc (gate-outcome docs) → 156dcd1 (drop sync dot) [→ this doc commit]. Phase 1
+  shell remains built+gated+held on the same branch. Vercel preview builds off it.
+- All 4 gates GREEN: buildvsplan, code-review, security-review, preview smoke.
+  Remaining before the one-flip merge: deferred polish only (teal / Settings fold / pagination sweep).

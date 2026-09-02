@@ -523,8 +523,12 @@ repos — every line number still matched the 2026-09-01 map; nothing drifted. H
 2. **Settings fold.** `/schedule/settings` is reachable by URL but intentionally NOT in the host nav; folding
    Schedule's `Settings.jsx` (109 lines) into the unified `/settings` (Schedule section, §2a) is its own task.
 3. **Post-move pagination sweep** (grep unpaginated fetches 3× incl. `Promise.all`, [[feedback_audit_pagination]]).
-4. **Preview smoke** — the one remaining gate (needs a temporary schedule entitlement on a test path;
-   do NOT flip HDSP), then HOLD for the one-flip merge.
+4. **Preview smoke → PASS (2026-09-02).** Vercel preview off `feat/schedule-merge-plan`; Schedule lit via a
+   TEMPORARY `tenant_config.apps=["sales","schedule"]` flip (reverted after). Chris walked the checklist
+   (all 9 nav screens load + styled, breadcrumb/active-state, +Job/Actions toolbar, Refresh + toast,
+   Billing→Sales cross-link, Sales untouched) — all items pass. Only the deferred polish remains, then the
+   HELD one-flip merge. (Post-smoke simplify: the legacy sync dot + its setSync/SyncProvider/sync.jsx
+   plumbing were removed — toasts already cover those events — commit `156dcd1`.)
 
 **Gates run (2026-09-02):**
 - **/buildvsplan → PASS** (3 reviewers + live probe). 1 fix applied: `Schedule.jsx:108` TDZ self-reference

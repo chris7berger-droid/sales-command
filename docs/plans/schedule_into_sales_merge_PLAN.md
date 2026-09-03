@@ -683,6 +683,99 @@ Phase 4 planning; don't let "moves in" imply the data is live.
 
 ---
 
+### 4b. ▶ PHASE 4 BUILD PLAN — locked 2026-09-02 (append-only, newest truth)
+
+> Same move pattern as Phase 2/3, **smaller** and lower-risk. This section is the buildable
+> spec; §4/§4a above are the prior sketch. Ideate was NOT re-run — the whole merge was
+> ideated (Beats 1–8 closed) and Phase 4 is the mechanical application of that pattern, so
+> the plan is obvious ([[feedback_ideate_before_plan]] — "skip only when the plan is already
+> obvious"). Build this on THIS branch, then hand each gate to its own cold terminal. DO NOT MERGE.
+
+**Ground-truth pre-flight (verified against live AR + host code, 2026-09-02):**
+- **AR uses NO react-router** — nav is `activeTab` state in `pages/Dashboard.jsx`, swapped by
+  `components/Topbar.jsx`. There are **no internal URLs to preserve** → routing-wise the lowest-risk phase.
+- **AR has no auth, no user/tenant context.** `src/lib/supabase.js` is **DEAD CODE — 0 importers
+  (grep-verified)**. AR runs entirely on **localStorage `ar7-*` keys** fed by Excel/CSV upload
+  (`ARContext` → `arStore.js`). Its own header says "will migrate to Supabase in Phase 2."
+- **Zero new dependencies.** Everything AR imports — `react`, `react-dom`, `xlsx` — is already in host
+  `package.json`. Host `xlsx` (sheetjs `0.20.3`) supersedes AR's npm `0.18.5`; AR uses only `XLSX.read`
+  + `sheet_to_json`, present in both. `@supabase/supabase-js` is referenced **only** by the dead client
+  being deleted. Nothing to add.
+- **No CSS fence needed** (unlike Schedule's 6.6k-line `App.css`). AR is almost entirely **inline-styled**;
+  its only global CSS is `lib/tokens.js` `GLOBAL_CSS` — the SAME family as the host reset (linen bg,
+  crosshatch `body::before`, Barlow fonts, teal scrollbar, autofill override). → **Drop AR's `GLOBAL_CSS`
+  injection**; the host's global CSS already covers `*`/`body`/fonts/scrollbar/autofill.
+
+**⚠️ Scope reality check — Phase 4 is a COSMETIC MOUNT, not a data integration.** "AR moves in" =
+mount the UI under `/ar/*`, green→teal the accent, gate the group by `apps`. AR data stays
+per-browser localStorage + Excel upload. **Wiring AR to live Supabase AR/invoices/aging data is a
+separate, larger effort (AR's own backend phase) and is OUT of this merge's scope** unless Chris
+pulls it in. Do not let "moves in" imply the data is live. (Once mounted, AR is at least reachable
+only behind the host login + `ar` entitlement — but its data is still client-local, un-tenanted.)
+
+**The move:**
+1. `AR-Command-Center/src/{components,lib,pages,assets}` → `sales-command/src/ar/*`. **DROP**
+   `main.jsx`, `App.jsx`, `lib/supabase.js` (host owns entry + client; the AR client is dead).
+2. **New `src/ar/ARLayout.jsx`** (mirror `FieldLayout`/`ScheduleLayout`) — replaces AR's dropped `App.jsx`:
+   - wraps `<ARProvider>` (its localStorage-backed context, kept whole);
+   - does **NOT** inject `GLOBAL_CSS` (host already provides reset/linen/fonts/scrollbar);
+   - owns a nested `<Routes>`: `path="/"` and `path=":tab"` both → `<Dashboard/>`;
+   - keeps AR's Upload gate: `loadAll()` on mount → `if (!loaded) return null; if (!customers.length) return <Upload/>; return <Dashboard/>`.
+   - receives host `teamMember` prop for signature uniformity (AR reads none of it today — passed-but-unused, fine).
+3. **`pages/Dashboard.jsx`** — derive `activeTab` from `useParams().tab` (default `"triage"`); make the
+   Topbar tab clicks AND the `DirectoryOverlay` `onNavigate` call `navigate('/ar/'+id)` instead of
+   `setActiveTab`. This puts AR's own tab bar and the host sidebar's `GROUPS[ar].items` on **one URL
+   source**, so both highlight in sync (the §4a minimal `/ar/:tab` add, no router rewrite).
+4. **Host `src/App.jsx`** — add, mirroring the `/field/*` line:
+   `<Route path="/ar/*" element={<GroupGuard app="ar" teamMember={teamMember}><ARLayout teamMember={teamMember}/></GroupGuard>} />`
+5. **Host `src/lib/nav.js`** — `AVAILABLE_APPS += "ar"`; fill `GROUPS[ar].items` from the table below;
+   fix the group `home` from the placeholder `/ar/home` → **`/ar/triage`** (the default tab).
+
+**`GROUPS[ar].items`** (from §4a; note label ≠ id — "Dashboard"=`aging`, "Chase"=`action`):
+
+| id | label | path |
+|---|---|---|
+| `triage` | Triage | `/ar/triage` |
+| `aging` | Dashboard | `/ar/aging` |
+| `action` | Chase | `/ar/action` |
+| `health` | Health Check | `/ar/health` |
+| `cff` | Cash Flow | `/ar/cff` |
+| `invoices` | Invoices | `/ar/invoices` |
+
+**Token reconciliation (Beat 5 green→teal) — DO in build (small + safe here, unlike Schedule's deferred sweep):**
+- `src/ar/lib/tokens.js`: `pop #5BBD3F → #30cfac`, and `popDark`/`popDim`/`popDeep`/`green` → teal
+  equivalents. AR uses `C.pop` almost only as **accent text/border on DARK backgrounds** (Topbar brand,
+  active tab underline, totals) — teal-on-dark IS the brand rule, no white/black-on-teal risk. **Code-review
+  must confirm** any spot where `pop` is a **fill** (e.g. `Scorecards`) still reads correctly (teal is
+  darker than green — check text contrast on those fills).
+
+**Phase 4 does NOT:**
+- Wire AR to live Supabase data (AR's backend phase — out of scope).
+- Merge — held on THIS branch for the one-flip rollout (stack becomes Phases 1+2+3+4).
+- Add any dependency or migration or grant or service-role or token — none needed.
+- Touch AR's Directory/PageBadge overlay internals (they stay as-is; only `onNavigate` is repointed to the URL).
+
+**Build sequence:** (1) move files + delete the 3 dropped; (2) write `ARLayout.jsx`, edit `Dashboard.jsx`
+for URL-driven tabs; (3) wire `nav.js` + `App.jsx`; (4) green→teal in `ar/lib/tokens.js`; (5) `npm run
+build` green; (6) hand off to cold terminals — /buildvsplan → /code-review → /security-review → preview
+smoke (temp `tenant_config.apps=["sales","ar"]` + member `apps` flip to light it, **revert after**), all
+on THIS branch. DO NOT MERGE.
+
+**Smoke checklist:**
+- `/ar` (no tab) renders Triage; each sidebar AR item deep-links its tab; sidebar + Topbar highlight in sync.
+- New Report Excel/CSV upload parses → Dashboard populates; grand total shows; Export / "Accountant Review" work.
+- Upload screen shows when localStorage is empty.
+- No CSS leak either way (host Sales/Schedule/Field pages unchanged; AR linen/crosshatch intact).
+- AR group is NOT AUTHORIZED until the entitlement flip; lit via the temp flip for smoke, reverted after.
+- Accents are **teal**, not green, in the AR Topbar + tabs.
+
+**For the security-review terminal:** AR adds no grant/migration/service-role/token; deleting the dead
+`supabase.js` removes a stray `createClient` (0 importers, build-safe); AR data is client-local (no RLS
+surface, no anon exposure). Multi-tenant isolation stays F7-gated — AR's localStorage store is not a
+cross-tenant DB surface, so nothing new to flag there.
+
+---
+
 ## 5. PHASE 5 — THE NAME + ADDRESSES
 
 Last (Beat 8). Umbrella **stays at `scmybiz.com`** (no domain move). `subconcommand.com` +

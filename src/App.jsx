@@ -5,7 +5,6 @@ import { C, F, GLOBAL_CSS } from "./lib/tokens";
 import { supabase } from "./lib/supabase";
 import { getSession, onAuthStateChange, getCurrentTeamMember } from "./lib/auth";
 import Login from "./pages/Login";
-import LandingPage from "./pages/LandingPage";
 import SubConCommandPage from "./pages/SubConCommandPage";
 import FeatureDetailPage from "./pages/FeatureDetailPage";
 import CheckoutPage from "./pages/CheckoutPage";
@@ -220,7 +219,7 @@ function SalesCommandApp() {
           <Route path="/invoice-paid" element={<InvoicePaidPage />} />
           <Route path="/invoice/:token" element={<PublicInvoicePage />} />
           <Route path="/qb/callback" element={<QBCallbackPage />} />
-          <Route path="*" element={<LandingPage />} />
+          <Route path="*" element={<SubConCommandPage />} />
         </Routes>
       </BrowserRouter>
     );

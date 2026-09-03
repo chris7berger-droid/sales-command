@@ -124,7 +124,7 @@ export default function Login() {
         
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: "Barlow Condensed, sans-serif", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-            Sales <span style={{ color: C.tealDark }}>Command</span>
+            Subcon <span style={{ color: C.tealDark }}>Command</span>
           </div>
           <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>{companyName}</div>
         </div>

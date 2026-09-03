@@ -9,21 +9,23 @@ const PRODUCTS = [
     tagline: "Run Your Sales. Command Your Revenue.",
     desc: "Leads, proposals, invoicing, QuickBooks sync, and Stripe payments — all in one system built for subcontractors.",
     status: "live",
-    href: "https://salescommand.app",
+    href: "https://www.scmybiz.com/login",
   },
   {
     icon: "📅",
     name: "Schedule",
     tagline: "Crew Scheduling. Zero Confusion.",
     desc: "Assign crews to jobs, manage availability, and keep everyone on the same page — from the office to the field.",
-    status: "coming-soon",
+    status: "live",
+    href: "https://www.scmybiz.com/login",
   },
   {
     icon: "🏗️",
     name: "Field",
     tagline: "Track Production. Own the Jobsite.",
     desc: "Daily logs, production tracking, photos, and punch lists — real-time visibility from the field to the front office.",
-    status: "coming-soon",
+    status: "live",
+    href: "https://www.scmybiz.com/login",
   },
   {
     icon: "📊",
@@ -55,7 +57,7 @@ export default function SubConCommandPage() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    document.title = "Sub Con Command";
+    document.title = "Subcon Command";
     const link = document.querySelector("link[rel='icon']");
     if (link) link.href = SCC_FAVICON;
   }, []);
@@ -102,7 +104,7 @@ export default function SubConCommandPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <SuiteLogoMark size={32} />
             <div style={{ fontFamily: F.display, fontWeight: 800, fontSize: 16, letterSpacing: "0.08em", textTransform: "uppercase", color: "#fff" }}>
-              Sub Con <span style={{ color: C.teal }}>Command</span>
+              Subcon <span style={{ color: C.teal }}>Command</span>
             </div>
           </div>
           <div className="scc-nav-links" style={{ display: "flex", alignItems: "center", gap: 32 }}>
@@ -110,7 +112,7 @@ export default function SubConCommandPage() {
             <a href="#vision" className="scc-nav-link" style={{ fontFamily: F.ui, fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.55)", textDecoration: "none", transition: "color 0.2s" }}>Vision</a>
             <a href="#about" className="scc-nav-link" style={{ fontFamily: F.ui, fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.55)", textDecoration: "none", transition: "color 0.2s" }}>About</a>
             <a
-              href="https://salescommand.app"
+              href="https://www.scmybiz.com/login"
               className="scc-btn"
               style={{
                 fontFamily: F.display, fontSize: 13, fontWeight: 700, letterSpacing: "0.06em",
@@ -119,7 +121,7 @@ export default function SubConCommandPage() {
                 transition: "all 0.2s", textDecoration: "none",
               }}
             >
-              Sales Command
+              Enter App
             </a>
           </div>
           <button
@@ -148,7 +150,7 @@ export default function SubConCommandPage() {
             <a href="#vision" onClick={() => setMenuOpen(false)} style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)", textDecoration: "none" }}>Vision</a>
             <a href="#about" onClick={() => setMenuOpen(false)} style={{ fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)", textDecoration: "none" }}>About</a>
             <a
-              href="https://salescommand.app"
+              href="https://www.scmybiz.com/login"
               style={{
                 fontFamily: F.display, fontSize: 14, fontWeight: 700, letterSpacing: "0.06em",
                 textTransform: "uppercase", padding: "12px 24px", borderRadius: 8,
@@ -156,7 +158,7 @@ export default function SubConCommandPage() {
                 marginTop: 4, textDecoration: "none", textAlign: "center",
               }}
             >
-              Sales Command
+              Enter App
             </a>
           </div>
         )}
@@ -183,14 +185,14 @@ export default function SubConCommandPage() {
                 fontFamily: F.body, fontSize: 17, lineHeight: 1.65, color: C.textMuted,
                 maxWidth: 480,
               }}>
-                Sub Con Command is the software platform built by subcontractors,
+                Subcon Command is the software platform built by subcontractors,
                 for subcontractors. Sales, scheduling, field operations, and
                 accounts receivable — connected tools designed for the way you
                 actually run your business.
               </p>
               <div className="scc-fade scc-fade-d3 scc-cta-buttons" style={{ display: "flex", gap: 16, marginTop: 8 }}>
                 <a
-                  href="https://salescommand.app"
+                  href="https://www.scmybiz.com/login"
                   className="scc-btn"
                   style={{
                     fontFamily: F.display, fontSize: 15, fontWeight: 700, letterSpacing: "0.06em",
@@ -199,7 +201,7 @@ export default function SubConCommandPage() {
                     cursor: "pointer", transition: "all 0.25s", textDecoration: "none",
                   }}
                 >
-                  Launch Sales Command
+                  Launch Subcon Command
                 </a>
                 <a
                   href="#products"
@@ -367,9 +369,9 @@ export default function SubConCommandPage() {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
               {[
-                { step: "01", title: "Sell the Work", desc: <><a href="https://salescommand.app" style={{ color: C.teal, fontWeight: 600, textDecoration: "none" }}>Sales Command</a> handles your pipeline from first call to signed proposal. Leads, proposals, e-signatures, and invoicing — all connected.</> },
-                { step: "02", title: "Schedule the Crews", desc: "Schedule Command will give you drag-and-drop crew scheduling, availability tracking, and job assignments — no more spreadsheets or whiteboards." },
-                { step: "03", title: "Run the Jobsite", desc: "Field Command will bring daily logs, production tracking, photos, and punch lists into one place — real-time updates from the field to the front office." },
+                { step: "01", title: "Sell the Work", desc: <><a href="https://www.scmybiz.com/login" style={{ color: C.teal, fontWeight: 600, textDecoration: "none" }}>Sales Command</a> handles your pipeline from first call to signed proposal. Leads, proposals, e-signatures, and invoicing — all connected.</> },
+                { step: "02", title: "Schedule the Crews", desc: "Schedule Command gives you drag-and-drop crew scheduling, availability tracking, and job assignments — no more spreadsheets or whiteboards." },
+                { step: "03", title: "Run the Jobsite", desc: "Field Command brings daily logs, production tracking, photos, and punch lists into one place — real-time updates from the field to the front office." },
                 { step: "04", title: "Collect the Money", desc: "AR Command will track every dollar owed, automate follow-ups, and give you aging visibility across all jobs — so nothing slips through the cracks." },
               ].map((s, i) => (
                 <div key={i} style={{ display: "flex", gap: 28, padding: "32px 0", borderBottom: i < 3 ? `1px solid ${C.border}` : "none", alignItems: "flex-start" }}>
@@ -397,7 +399,7 @@ export default function SubConCommandPage() {
             </h2>
             <p style={{ fontFamily: F.body, fontSize: 17, lineHeight: 1.7, color: C.textMuted, marginBottom: 16 }}>
               The software you've been using wasn't built by someone who's run crews,
-              chased change orders, or waited 90 days on a check. Sub Con Command was.
+              chased change orders, or waited 90 days on a check. Subcon Command was.
             </p>
             <p style={{ fontFamily: F.body, fontSize: 17, lineHeight: 1.7, color: C.textMuted, marginBottom: 0 }}>
               We're building a connected platform where every tool talks to the others —
@@ -412,10 +414,10 @@ export default function SubConCommandPage() {
             Ready to Take <span style={{ color: C.teal, WebkitTextStroke: `1px ${C.dark}` }}>Command</span>?
           </h2>
           <p style={{ fontFamily: F.body, fontSize: 16, color: C.textMuted, marginBottom: 28 }}>
-            Start with Sales Command today. The rest of the suite is on the way.
+            Sales, Schedule, and Field are live today — with AR Command on the way.
           </p>
           <a
-            href="https://salescommand.app"
+            href="https://www.scmybiz.com/login"
             className="scc-btn"
             style={{
               fontFamily: F.display, fontSize: 16, fontWeight: 700, letterSpacing: "0.06em",
@@ -425,7 +427,7 @@ export default function SubConCommandPage() {
               display: "inline-block",
             }}
           >
-            Launch Sales Command
+            Launch Subcon Command
           </a>
         </section>
 
@@ -438,11 +440,11 @@ export default function SubConCommandPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <SuiteLogoMark size={24} />
             <span style={{ fontFamily: F.display, fontWeight: 800, fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", color: C.textFaint }}>
-              Sub Con <span style={{ color: C.teal }}>Command</span>
+              Subcon <span style={{ color: C.teal }}>Command</span>
             </span>
           </div>
           <div style={{ fontFamily: F.ui, fontSize: 11, color: C.textFaint }}>
-            &copy; {new Date().getFullYear()} Sub Con Command. All rights reserved.
+            &copy; {new Date().getFullYear()} Subcon Command. All rights reserved.
           </div>
         </footer>
 

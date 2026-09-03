@@ -71,7 +71,7 @@ function ProposalPDFModal({ proposal, onClose, mode = "send", onInternalApprove 
       if (primaryEmail) setSignerEmail(primaryEmail);
     })();
   }, []);
-  const signingUrl = `https://salescommand.app/sign/${proposal.signing_token}`;
+  const signingUrl = `https://www.scmybiz.com/sign/${proposal.signing_token}`;
 
   const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 

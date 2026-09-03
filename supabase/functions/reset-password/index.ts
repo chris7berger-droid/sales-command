@@ -62,11 +62,12 @@ serve(async (req) => {
       });
     }
 
-    // Determine app context from calling origin
-    const isSchedule = origin.includes("schmybiz") || origin.includes("schedulecommand");
-    const appName = isSchedule ? "Schedule Command" : "Sales Command";
-    const redirectUrl = isSchedule ? "https://schedulecommand.com" : "https://salescommand.app";
-    const fromEmail = isSchedule ? "noreply@schedulecommand.com" : "noreply@salescommand.app";
+    // Post-merge there is one app (not a separate Schedule site), so no per-origin
+    // branching — the reset always lands on the unified app. Sender left on the
+    // verified backup domain (Bucket B, unchanged this phase).
+    const appName = "Sales Command";
+    const redirectUrl = "https://www.scmybiz.com";
+    const fromEmail = "noreply@salescommand.app";
 
     // Generate recovery link via admin API
     const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({

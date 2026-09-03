@@ -9,7 +9,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const SITE_URL = "https://salescommand.app";
+const SITE_URL = "https://www.scmybiz.com";
 const VERIFIED_DOMAINS = ["hdspnv.com", "scmybiz.com", "schmybiz.com", "salescommand.app"];
 
 serve(async (req) => {

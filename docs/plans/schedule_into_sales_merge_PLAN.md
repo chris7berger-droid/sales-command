@@ -847,114 +847,130 @@ parity exact. **No re-audit needed** unless Finding B's approach changes (it did
 
 ## 5. PHASE 5 — THE NAME + ADDRESSES  (final build target)
 
-Last phase (Beat 8, LOCKED). The whole product becomes **Subcon Command** everywhere it shows, and
-the old web addresses get pointed at the one real address. No new features, no data changes.
+Last phase (Beat 8, LOCKED — amended below). This phase is a **rename + a cleanup**, NOT an address
+move. The product's public home is **`scmybiz.com`** and has been the whole time — it does not change.
+Nobody who uses the app logs in anywhere new. No new features, no data changes.
 
-> **Plan pass — 2026-09-03 (Chris, plain-English decisions locked this session):**
-> 1. **Rename scope = everything.** Rename "Sales Command" both where people see it (login, marketing
->    page, emails) AND in the hidden code notes (comments) — stale names cause confusion later. **One
->    protected exception:** the `"sales"` *group id / tab* stays `sales` (Beat 8 names the sections
->    Sales / Schedule / Field / AR). Careful edits, **never a blind find-and-replace.**
-> 2. **Fix email link-targets NOW, ahead of the merge** — safe, they only repoint to the address
->    customers already use. **The email *sender* address is a separate, careful step** (see §5c trap).
-> 3. **Logo = keep both** — the "Command Suite" subline and the "SC" badge both stay on the
->    login/marketing logo.
+> **THE FRAME (say it plainly):** `scmybiz.com` = the live URL, always has been, stays. `salescommand.app`
+> is **leftover cruft** — an old/secondary domain that leaked into some code (mainly *invoice* emails;
+> *proposal* emails already use `scmybiz.com`). The "address sweep" is deleting those stale strings and
+> pointing them at the address that was already real. It is not a migration and it does not disrupt any user.
+
+> **Plan pass — decisions LOCKED 2026-09-03 (Chris, this session):**
+> 1. **Rename scope = everything.** Rename the old *umbrella* name where people see it (marketing pages,
+>    email body text) AND in the hidden code comments — stale names confuse later. Careful per-file edits,
+>    **never a blind find-and-replace.**
+> 2. **KEEP the "Command" suffix on every section** — Sales Command, Schedule Command, Field Command,
+>    AR Command — in the sidebar AND on marketing. This **AMENDS Beat 8** (which had said drop the suffix).
+>    Rationale: differentiates *Sales inside our software* from generic "sales," and reserves "Command" as
+>    a future named protocol/process. See [[project_command_suffix_is_the_brand]]. Only the umbrella spelling
+>    changes: **"Sub Con Command" → "Subcon Command"** (one word).
+> 3. **Fix email link-targets now, ahead of the merge** (Bucket A) — safe, they only repoint to the address
+>    customers already use. The email *sender* address is a rarely-used backup — **left alone** (§5c).
+> 4. **Logo:** the "Command Suite" subline is **already gone** (Phase 1 removed it) — leave it gone. Keep the
+>    "SC" badge. There is **no product wordmark on the login screen** to change (login shows the tenant's
+>    company name), so "login wordmark" is dropped from scope (§5e).
 
 ### 5a. Ground truth (verified against code, 2026-09-03)
 
-Real counts (the old "~25" estimate was low):
 - **Web-address refs:** `salescommand.app` ×28 · `scmybiz.com` ×8 · `schmybiz.com` ×4 · `schedulecommand.com` ×3 · `sccmybiz.com` ×2 · `subconcommand.com` ×0.
-- **Brand-name text:** `"Sales Command"` ×68 across ~30 files (login, `/suite` marketing, email bodies,
-  Settings, plus hidden code comments and moved-in `schedule/` comments).
-- **Umbrella stays `scmybiz.com`** — no domain move. `subconcommand.com` + `sccmybiz.com` forward in;
-  old `schmybiz.com` / `schedulecommand.com` / `salescommand.app` forward to it.
-- **Customer token links (`/sign/:token`, `/invoice/:token`) NEVER move** — old already-sent emails keep working.
+- **Umbrella spelling:** `"Sub Con Command"` appears in `SubConCommandPage.jsx` (`/suite`) — change to `"Subcon Command"`. The `"Sales Command"` ×68 hits are mostly the **kept** section brand or code comments; only the umbrella-name and stale-URL ones change (see §5d).
+- **`scmybiz.com` is the unchanged live URL.** `subconcommand.com` + `sccmybiz.com` forward in; old `schmybiz.com` / `schedulecommand.com` / `salescommand.app` forward to it (§5f).
+- **Customer token routes (`/sign/:token`, `/invoice/:token`) NEVER change.** Already-sent emails keep working **because `salescommand.app` keeps forwarding to `scmybiz.com`** — that forward is load-bearing (§5f), do not unplug it.
 
 ### 5b. The web-address sweep — split into THREE buckets by risk
 
 The refs are not all the same thing. Sorting them is the whole safety of this phase.
 
-**Bucket A — LINK TARGETS (where a button/link points). SAFE to fix now, deploy ahead of merge.**
-Repoint each to `https://www.scmybiz.com`. These are what a customer clicks:
-| File | Line | What it is |
-|---|---|---|
-| `src/components/ProposalPDFModal.jsx` | 74 | proposal signing link `…/sign/{token}` |
-| `supabase/functions/send-invoice/index.ts` | 12 | `SITE_URL` (invoice email links) |
-| `supabase/functions/create-billing-session/index.ts` | 13 | `SITE_URL` |
-| `supabase/functions/_shared/repNotify.ts` | 20 | `SITE_URL` (internal rep-notify links) |
-| `supabase/functions/invite-user/index.ts` | 125, 168 | invite redirect + "log in at" link |
-| `supabase/functions/reset-password/index.ts` | 68 | reset redirect (Sales branch) |
-| `src/pages/SubConCommandPage.jsx` | 12,113,151,193,370,418 | marketing "Enter App" buttons |
-> `send-proposal/index.ts:120` already uses `www.scmybiz.com` — leave it. Signing/invoice **token
-> routes themselves do not change** — only the domain in front of them.
+**Bucket A — LINK TARGETS (where a button/link points). Repoint to `https://www.scmybiz.com`. Deployable now.**
+| File | Line | What it is | Note |
+|---|---|---|---|
+| `supabase/functions/send-invoice/index.ts` | 12 (`SITE_URL`) | invoice email link `…/invoice/{token}` + Stripe `…/invoice-paid` redirect (`:339,:358`) | customer-facing |
+| `supabase/functions/create-billing-session/index.ts` | 13 (`SITE_URL`) | Stripe billing portal success/cancel/return (`:119,:120,:152`) | Chris-facing |
+| `supabase/functions/_shared/repNotify.ts` | 20 (`SITE_URL`) | internal rep-notify link → **also fix the stale route** `…/proposals/{id}` → `/sales/proposals/{id}` (`:164`) | internal |
+| `supabase/functions/invite-user/index.ts` | 125 (`redirectTo`), 168 (email link) | new-user magic-link landing | **auth-redirect dep — see §5c-ii** |
+| `supabase/functions/reset-password/index.ts` | 68 (`redirectUrl`) | password-reset landing | auth-redirect dep; also **simplify the `isSchedule` branch** (`:66-69`) — post-merge there is one app, not a separate Schedule site |
+| `src/components/ProposalPDFModal.jsx` | 74 (`signingUrl`) | **display-only** copy-link shown to Chris (`:513`); the *sent* proposal email builds its own `scmybiz.com` link server-side | not the customer's email link, but still correct it |
+| `src/pages/SubConCommandPage.jsx` | 12,113,151,193,370,418 | `/suite` marketing "enter app" links | see §5d copy |
+> `send-proposal/index.ts:120` already uses `www.scmybiz.com` — leave it. Token routes do not change — only the domain in front of them.
 
-**Bucket B — SENDER "FROM" ADDRESS (`noreply@salescommand.app`). DO NOT touch in this phase — see §5c.**
+**Bucket B — SENDER "FROM" ADDRESS (`noreply@salescommand.app`). LEAVE ALONE this phase.**
 `PayAppDetailModal.jsx:353`, `Invoices.jsx:1012`, `stripe-webhook:47`, `send-pay-app:323`,
 `send-invoice:281`, `invite-user:153`, `send-proposal:147`, `reset-password:69`,
-`check-orphan-users:47`, plus the `VERIFIED_DOMAINS` allow-lists.
+`check-orphan-users:47`, plus the `VERIFIED_DOMAINS` allow-lists. Why leave it: see §5c.
 
 **Bucket C — INCOMING ALLOW-LIST (`_shared/cors.ts`, `VERIFIED_DOMAINS`). ADD, never REMOVE.**
-`scmybiz.com` is already present. Keep `salescommand.app` in the lists through the transition so
-nothing still pointing there breaks. Removing an old address is a *later* cleanup, not this phase.
+`scmybiz.com` is already present (`cors.ts:18-19`). Keep `salescommand.app` in the lists through the
+transition so nothing still pointing there breaks. Removing an old address is a *later* cleanup.
 
-### 5c. ⚠️ THE TRAP — the email "from" address (Bucket B)
+### 5c. Two real cautions (both were over/under-stated in the first draft — corrected)
 
-`noreply@salescommand.app` is the *sender* address on your automatic emails. That address only works
-because `salescommand.app` is **verified with the email service (Resend).** If we change the sender to
-`noreply@scmybiz.com` **before** `scmybiz.com` is verified there, **every automatic email silently
-stops sending** — no error the customer sees, invoices/proposals just never arrive. This is the exact
-invisible-failure class the standing disciplines exist for ([[project_sent_at_grant_incident]] cousin).
-- **This phase does NOT change the sender address.** Link-targets (Bucket A) move now; the sender
-  stays `salescommand.app` until a deliberate, verified cutover.
-- **Pre-req for the sender cutover (own step, later):** confirm `scmybiz.com` (or a chosen
-  `noreply@` domain) is verified in Resend, then flip sender + `VERIFIED_DOMAINS` together and
-  **smoke a real test send** before calling it done.
+**i. The email "from" address is a minor backup, not a trap.** Real sends go **from the user's own
+address** (`chris@hdspnv.com` / John's) — the code sends from the sender's email when its domain is
+verified (`hdspnv.com` is). `noreply@salescommand.app` is only the fallback if a sender has no valid
+verified email, which for HDSP **basically never fires.** So there is no customer email branded "Sales
+Command." We **leave the fallback address alone** — changing it to an unverified domain is the only way
+it could quietly break a send, and there's no upside to touching it in a rename. (Its eventual cleanup is
+its own tiny step: verify the new domain in Resend first, then flip + test-send.)
 
-### 5d. The name sweep (Beat 8 — "Sales Command" → "Subcon Command")
+**ii. Auth-redirect allow-list (the genuinely invisible one).** The reset-password and invite-user
+landing URLs (`reset-password:68`, `invite-user:125`) must be **registered in Supabase Auth's allowed
+redirect URLs**, or the reset/invite link silently fails. `scmybiz.com` is almost certainly already
+listed (it's the live site) — but the build **must confirm it in the Supabase Auth settings before**
+swapping these two, and smoke one reset + one invite on a preview.
 
-Rename everywhere, in this order of care:
-1. **People-facing brand (must change):**
-   - `src/pages/SubConCommandPage.jsx` — the `/suite` marketing page (still says "Sub Con Command"; make it "Subcon Command", one word).
-   - `src/pages/LandingPage.jsx`, `src/pages/FeatureDetailPage.jsx` — marketing copy.
-   - Login wordmark / logo — see §5e.
-   - Email bodies/sender display names in edge fns (e.g. `check-orphan-users:47` "Sales Command Alerts", `send-proposal` display name) — the *text*, not the sender address (Bucket B).
-2. **Hidden code comments (change too — Chris's call):** the `"Sales Command"` mentions in comments
-   across `src/` and `supabase/`, done as careful per-file edits.
-3. **PROTECTED — do NOT rename:**
-   - `src/lib/nav.js` — the `"sales"` app **id** and route prefix stay `sales`. The group **label**
-     currently reads `"Sales Command"` (`nav.js:12`); per Beat 8 the section is just **"Sales"** — change
-     the *label* to `"Sales"`, keep the *id*. (Confirm this wasn't already done in Phase 1.)
-   - `/sales/*` URLs, token routes, DB column names, `salescommand.app` inside Bucket C allow-lists.
+### 5d. The name sweep — what changes vs what's kept
 
-### 5e. Logo / wordmark (J4 → RESOLVED: keep both)
+**Umbrella name → change:** `"Sub Con Command"` → `"Subcon Command"` (one word) everywhere in
+`src/pages/SubConCommandPage.jsx` (nav `:105`, hero `:186`, about `:400`, footer `:441,:445`, tab title
+`:58`), plus any `"Sub Con Command"` in `LandingPage.jsx` / `FeatureDetailPage.jsx`.
 
-- **Login + marketing logo:** keep the "Command Suite" subline and the "SC" badge (`SalesCommandMark`,
-  `src/components/Logo.jsx:3,12`). Wordmark text → **SUBCON COMMAND** (SUBCON white / COMMAND teal).
-- **Note / reconcile at build:** the *in-app sidebar* wordmark (`AppWordmark`, `Logo.jsx:17-32`) was
-  built in Phase 1 with the subline **dropped** (see the `[J4]` comment there). J4's "keep both" was
-  about the **login/marketing** logo. Decide at build whether the in-app sidebar also restores the
-  subline or the two intentionally differ — small visual call, flag for Chris in the build session.
+**Section brand → KEEP "Command"** (per decision #2): "Sales Command / Schedule Command / Field Command /
+AR Command" stay as-is — in the sidebar (`nav.js:12,24,35,43` — **no change**) and on marketing. This
+reverses the first draft's "change the sidebar label to Sales"; it is now **left as "Sales Command."**
 
-### 5f. Domain forwarding (NOT code — ops checklist)
+**`/suite` marketing copy (APPROVED by Chris 2026-09-03) — `SubConCommandPage.jsx`:**
+- Enter-app buttons: hero `:202` + final `:428` "Launch Sales Command" → **"Launch Subcon Command"**; top-nav pill `:122` + mobile `:159` "Sales Command" → **"Enter App"**.
+- Vision section tense (Schedule + Field are real now): `:371` "Schedule Command **will give**" → "**gives**"; `:372` "Field Command **will bring**" → "**brings**"; `:373` AR Command stays future ("will track").
+- Status badges (`PRODUCTS` array, top of file): **Schedule Command + Field Command → "live"**; AR Command stays "coming soon". Their live `href` now points into the one app (`scmybiz.com/schedule`, `/field`), not separate sites.
+- Final CTA line `:415`: → **"Sales, Schedule, and Field are live today — with AR Command on the way."**
+- KEEP: "The Command Suite for SubContractors" tagline (`:173`) and "4 Command Products" stat (`:277`) — they describe the suite, not the product name.
 
-Done in the hosting/DNS dashboards, not in this repo. Track as a go-live checklist item, not a build step:
+**Hidden code comments → change too** (decision #1): `"Sales Command"` in comments across `src/` +
+`supabase/`, careful per-file edits. **Protected — never rename:** the `"sales"` app id + `/sales/*`
+routes, token routes, DB column names, `salescommand.app` inside Bucket C allow-lists.
+
+### 5e. Logo / wordmark (J4 → RESOLVED)
+
+- **Subline: already gone, leave gone.** Phase 1 removed the "Command Suite" subline from `Logo.jsx` (see
+  the `[J4]` comment, `Logo.jsx:17-20`). Nothing to do.
+- **SC badge: keep** (`SalesCommandMark`, `Logo.jsx:3-14`).
+- **No login wordmark change:** `Login.jsx` renders the **tenant company name** (`getTenantConfig().company_name`),
+  not a product wordmark — there is no "Sales Command" on the login to rename. Dropped from scope.
+- In-app sidebar wordmark (`AppWordmark`) already reads "Subcon Command" — correct, no change.
+
+### 5f. Domain forwarding (NOT code — ops checklist, not a build step)
+
+Done in the hosting/DNS dashboards:
 - `subconcommand.com` + `sccmybiz.com` → forward to `scmybiz.com`.
-- `schmybiz.com` / `schedulecommand.com` / `salescommand.app` → forward to `scmybiz.com`.
-- Turn OFF the old standalone Schedule deploy (`sch-command` Vercel) once `/schedule/*` is verified
-  (Phase 2 already folded Schedule in; this is the final "unplug the old site" step).
+- `schmybiz.com` / `schedulecommand.com` / `salescommand.app` → forward to `scmybiz.com`. **Keep
+  `salescommand.app` forwarding** so old already-sent invoice links survive (§5a).
+- Turn OFF the old standalone Schedule deploy (`sch-command` Vercel) once `/schedule/*` is verified.
 
 ### 5g. Layout / UI check ([[feedback_ui_first_class]])
 
-No new screens. Visual verification points: login screen wordmark reads "SUBCON COMMAND" with subline +
-SC badge; `/suite` marketing page reads "Subcon Command" throughout; sidebar "Sales" group label; a test
-proposal/invoice email button lands on `scmybiz.com`. No white backgrounds, teal buttons black text.
+No new screens. Verify in a browser: `/suite` reads "Subcon Command" throughout, sections still read
+"X Command", Schedule/Field show "Live", "Launch Subcon Command" button works; sidebar unchanged
+("Sales Command" etc.); a test invoice email button lands on `scmybiz.com`. No white backgrounds, teal
+buttons black text.
 
 ### 5h. Finish line
 
-Bucket A + name sweep + logo build → `/buildvsplan` → `/code-review` → `/security-review` →
-preview smoke (§5g points) → **this is the last phase, so its finish also feeds the one-flip go-live**
-(entitlement flip to light Sales+Schedule+Field, AR held per §4b). Bucket B sender cutover and §5f
-domain forwards are **separate ops steps**, not gated on the merge.
+Bucket A + umbrella-rename + `/suite` copy + comment sweep → `/buildvsplan` → `/code-review` →
+`/security-review` → preview smoke (§5g, incl. the §5c-ii reset + invite check) → **this is the last
+phase, so its finish also feeds the one-flip go-live** (entitlement flip to light Sales+Schedule+Field,
+AR held per §4b). The §5f domain forwards and the §5c-i sender cleanup are **separate ops steps**, not
+gated on the merge.
 
 ---
 

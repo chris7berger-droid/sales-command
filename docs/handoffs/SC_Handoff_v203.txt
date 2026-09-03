@@ -1,0 +1,207 @@
+SC Handoff v203 — SESSION CLOSEOUT: Subcon Merge PHASE 5 complete (the name + addresses) + all three code gates green + frontend rename preview-smoked, held
+Repo: sales-command   Branch: feat/schedule-merge-plan   Date: 2026-09-03
+=======================================================================
+Session-close artifact for the FINAL merge phase. Phase 5 = "the name + addresses"
+(plan §5 + the §5 AMENDMENT). This was a pure copy / URL / rename sweep — no schema,
+no new logic, no data changes. All three review gates ran (relayed back by Chris) and
+came back clean; the frontend rename was smoke-verified on a live Vercel preview.
+Everything is HELD on feat/schedule-merge-plan for the one-flip go-live. Nothing merged,
+nothing deployed, no entitlement flip. With Phase 5 built, all five merge phases
+(Shell + Schedule + Field + AR + Name) are now built and held — the branch is
+go-live-ready pending the operational flip.
+
+SESSION SUMMARY
+---------------
+Built Subcon merge PHASE 5 to the §5 AMENDMENT spec (amendment wins over §5a–§5h where
+they conflict). Renamed the umbrella product "Sub Con Command" → "Subcon Command"
+everywhere customer-facing, repointed stale salescommand.app link-targets to
+https://www.scmybiz.com, and made the logged-out homepage serve the Subcon Command
+marketing page (AM-7). Kept the "Command" suffix on every section (Sales/Schedule/Field/
+AR Command) per the locked call — only the umbrella name changed. The login front door
+now reads "Subcon Command" (AM-3, split-JSX text-node edit). Two entity strings were
+ruled KEEP by Chris (Settings.jsx:647 "Sub Con Command LLC" = registered entity;
+FeatureDetailPage "Sales Command" wordmark+copyright = Sales feature pages); the code-
+comment sweep was CUT (AM-5, zero valid targets). buildvsplan flagged one Tier-2 (the
+invite + reset onboarding emails still said "Sales Command" while the login they land on
+now says "Subcon Command") → Chris ruled REBRAND, done in a follow-up commit. All gates
+green. Frontend rename preview-smoked on a real Vercel preview. Chris's forward call this
+session: leave entitlements as-is (HDSP = ["sales"]) and flip everything at launch — do
+NOT flip early. Held, NOT merged.
+
+CHANGES SHIPPED (this session, on feat/schedule-merge-plan)
+----------------------------------------------------------
+- 0a824a2  Phase 5: rename + address sweep — HELD for one-flip merge.
+           AM-7: App.jsx logged-out catch-all "*" → SubConCommandPage (was LandingPage);
+           LandingPage import + file removed (dead once unrouted). AM-3: Login.jsx:127
+           text node "Sales " → "Subcon " (kept <span>Command</span>). AM-4 umbrella:
+           SubConCommandPage "Sub Con Command" → "Subcon Command" at title/nav/hero/about/
+           both footers (nav+footer are JSX-split, edited at the text node). §5d /suite
+           copy: Schedule+Field → "live"; nav/mobile pills → "Enter App"; hero+final CTA →
+           "Launch Subcon Command"; vision tense "will give/bring" → "gives/brings" (AR
+           keeps "will track"); final CTA line updated. Bucket A link targets →
+           www.scmybiz.com: send-invoice:12, create-billing-session:13, repNotify:20
+           (+ stale route /proposals → /sales/proposals:164), invite-user:125 redirectTo +
+           :168 anchor href AND text (AM-6-F), reset-password:68 (+ isSchedule branch
+           collapsed to one app), ProposalPDFModal:74. Sender FROM untouched (Bucket B);
+           cors/VERIFIED_DOMAINS untouched (Bucket C, add-never-remove). Build green.
+- 7650bf0  Phase 5: rebrand onboarding auth emails to "Subcon Command" (buildvsplan Tier-2).
+           invite-user subject/H2/body "join ..." and reset-password appName (drives
+           subject+H2) → "Subcon Command". Sender FROM still untouched. Internal/Sales-
+           section "Sales Command" strings (send-proposal fallback, send-pay-app
+           confirmation, check-orphan-users alert name) correctly KEPT.
+- (this handoff) — docs: session handoff v203.
+
+Note: dc00c83 / f06e15c / a40e710 / 3e9c2ea / 1787145 (the Phase 5 PLAN + round-1 audit
++ AM-7 resolution) are PRIOR planning-session commits that were still local-only at this
+session's start; they were published when this session pushed the branch for the preview.
+
+GATE RESULTS (each ran in its own cold terminal, relayed back by Chris)
+----------------------------------------------------------------------
+- /buildvsplan: 0 Tier-1 blockers, "SMOKE: GO." Verified all AM-3/AM-4/AM-7/§5d/Bucket-A
+  edits at file:line; both deliberate deviations (see DECISIONS) evaluated and judged
+  sound, not rubber-stamped. One Tier-2 raised (auth-email branding) → ruled + fixed in
+  7650bf0.
+- /code-review (high): 0 ship-blockers. All watch items clean — LandingPage dead-refs
+  (zero hits), /login resolves before the AM-7 catch-all (no self-loop), repNotify route
+  matches /sales/proposals/:id, reset-password `origin` fully gone (no dead var), Bucket
+  B/C untouched, JSX-split wordmarks edited at the text node with <span>Command</span>
+  intact. Style rules clean.
+- /security-review (limiter-gated): 0 exploitable-today, safe to ship. Auth-redirect
+  targets are hardcoded literals (no open-redirect); CORS/VERIFIED_DOMAINS unchanged
+  (nothing removed/added); no send-path sends from an unverified domain. One filed item:
+  the AM-2 config dependency (below) — a pre-flip checklist item, not a code bug.
+
+DEPLOYED
+--------
+Nothing deployed. No edge functions, no DB migrations, no infra, no entitlement flip.
+The branch WAS pushed to origin this session (to build the Vercel preview) — a preview
+deploy only, not prod, not a merge. Edge-function code edits are held on the branch and
+ride the one-flip merge per AM-1.
+
+DECISIONS / CHOICES MADE
+------------------------
+- /login link targets (NOT bare root or /schedule,/field): the AM-7 change makes the
+  logged-out root render the marketing page, so a root/section target would self-loop for
+  logged-out visitors. All app-entry links on SubConCommandPage (nav pills, hero/final
+  buttons, live product cards, the vision inline link) point to
+  https://www.scmybiz.com/login — Login resolves before the catch-all, and a logged-in
+  user has no /login route so falls through to Subcon Home. This refines §5d's literal
+  "scmybiz.com/schedule,/field"; buildvsplan + code-review both verified it's correct.
+- Auth onboarding emails rebranded to "Subcon Command" (Chris ruled, this session):
+  invite + reset are account/umbrella flows, and leaving "Sales Command" there while the
+  login says "Subcon Command" is the exact rename-groundtruth-gap the plan named for
+  itself. Rebranded the display headings; sender FROM still left alone (Bucket B).
+- Two entity strings KEPT (Chris ruled): Settings.jsx:647 "Sub Con Command LLC" =
+  registered LLC, verbatim; FeatureDetailPage :192/:443 wordmark + :447 copyright "Sales
+  Command" = these are Sales-Command feature pages, kept section-brand.
+- Comment sweep CUT (AM-5): the "rename hidden comments too" intent had zero valid
+  targets — the shell comments already say "Subcon", and the "Sales Command" comments are
+  correct kept section-brand. Honored by finding nothing to do, not by ignoring it.
+- reset-password isSchedule branch collapsed to one app (§5b): removed the Schedule/Sales
+  ternary + the unbound `origin` global reference; redirectUrl → www.scmybiz.com, fromEmail
+  stays noreply@salescommand.app (Bucket B), appName → "Subcon Command" (Tier-2 ruling).
+  Side effect (per security-review): this also MOOTS the mechanism of backlog ADJ-2
+  (reset-password no longer reads an `origin` global for branding). ADJ-2's stated fix was
+  tenant-based branding, not a hardcode, so left OPEN for the backlog owner to confirm/close
+  — not closed unilaterally here.
+- ENTITLEMENT: leave HDSP tenant_config.apps = ["sales"] — flip everything at launch, not
+  early (Chris, this session). Schedule/Field/AR stay switched off; they light up at the
+  one flip. Declined a temporary preview-flip (would briefly affect prod on the same
+  shared DB). Restates AM-1.
+
+NEW BACKLOG ITEMS
+-----------------
+None filed this session. (B75 + B76 — Stripe billing-return params, and the §5f vs code
+sccmybiz.com hard-route mismatch — were filed during the PRIOR Phase-5 planning/audit
+session, are pre-existing, and were explicitly NOT part of this build.)
+
+CLOSED THIS SESSION
+-------------------
+None.
+
+VERIFICATION
+------------
+- npm run build: GREEN (only the pre-existing >500kB chunk-size advisory).
+- /buildvsplan 0 blockers · /code-review 0 blockers · /security-review 0
+  exploitable-today — all read-only cold-terminal gates (relayed).
+- FRONTEND RENAME PREVIEW-SMOKED (live Vercel preview + local dev, in-browser):
+  * logged-out root serves the Subcon Command marketing page (AM-7) — confirmed on the
+    real preview URL, not just localhost.
+  * /suite reads "Subcon Command" throughout (nav, hero, about, footer, copyright, tab
+    title); every product card reads "X Command" (section brand kept); Schedule+Field show
+    LIVE with "Launch App", AR "Coming Soon"; vision tense correct; final CTA line correct;
+    "Enter App"/"Launch Subcon Command" buttons present. No white bg, teal-on-dark.
+  * logged-in shell + SubconHome read "Subcon Command"; section group reads "Sales Command".
+- NOT verified (deferred, by design):
+  * The reset + invite HARD smoke (AM-2 gate): can't run on a preview without deploying the
+    edited edge functions, which AM-1 forbids ahead of the merge. It becomes the FIRST
+    post-flip verification at go-live (edge-fn deploy + merge together, then smoke one real
+    reset + one real invite against a test recipient).
+  * Login-heading + logged-out-root were confirmed via the /suite render (same component)
+    + code/audit, not by signing Chris out of his live session.
+- AM-2 allow-list NOT yet confirmed: the exact value https://www.scmybiz.com/** (www, NOT
+  apex) must be present in Supabase Auth → URL Configuration → Redirect URLs before flip.
+  Dashboard setting, Chris to confirm; if missing, reset/invite links silently misdirect.
+
+NOT TOUCHED THIS SESSION
+------------------------
+- Entitlements — HDSP tenant_config.apps stays ["sales"]; Schedule/Field/AR render for
+  nobody until the flip.
+- Sender FROM addresses (Bucket B) — noreply@salescommand.app left alone everywhere.
+- CORS / VERIFIED_DOMAINS allow-lists (Bucket C) — unchanged (add-never-remove).
+- Settings.jsx:647 LLC + FeatureDetailPage brand — kept (ruled).
+- B75 / B76 — pre-existing, not this build.
+- No merge to main. All five merge phases (1–5) held on feat/schedule-merge-plan.
+
+NEXT SESSION POINTERS
+---------------------
+1. Phase 5 is DONE. All five merge phases are built + gated-green + held. There is no
+   more merge BUILD work — the next real action is the one-flip GO-LIVE, which is a
+   separate operational session (NOT a build-terminal action).
+2. GO-LIVE sequence (all at the one flip, in a go-live terminal):
+   a. Confirm the AM-2 allow-list (Supabase Auth → Redirect URLs → https://www.scmybiz.com/**,
+      www not apex). This can be done any time before — dashboard only.
+   b. Merge feat/schedule-merge-plan → main (frontend prod deploy).
+   c. Flip entitlement to ["sales","schedule","field"] — NOT "ar" (AR held per v202 §4b).
+   d. Deploy the edited edge functions (send-invoice, create-billing-session, repNotify,
+      invite-user, reset-password) — they carry the URL/route changes.
+   e. HARD SMOKE (gate): one real password-reset + one real invite → confirm the links
+      land on www.scmybiz.com and work. Plus: scmybiz.com loads the Subcon page, sections
+      read "X Command", login reads "Subcon Command".
+   f. Ops (not gated on merge, separate steps): §5f domain forwards; the §5c-i sender
+      cleanup (verify new domain in Resend first). See plan §5f / §5h.
+3. Do NOT flip entitlement or deploy edge fns ahead of the merge (AM-1) — early = dead
+   /sales,/schedule,/field links + misdirected auth emails in the in-between window.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+- src/App.jsx ........................ AM-7 catch-all → SubConCommandPage; LandingPage
+                                       import removed.
+- src/pages/SubConCommandPage.jsx .... umbrella rename + /suite copy + live badges +
+                                       /login app-entry links. (Now served at the root.)
+- src/pages/Login.jsx ................ front-door heading "Subcon Command" (split-JSX).
+- src/pages/LandingPage.jsx .......... DELETED (was only reachable via the old catch-all).
+- src/components/ProposalPDFModal.jsx  display-only signing copy-link → www.scmybiz.com.
+- supabase/functions/{send-invoice,create-billing-session,invite-user,reset-password}/
+  index.ts, _shared/repNotify.ts ..... Bucket A URL + route edits; auth-email rebrand.
+                                       HELD — deploy at go-live (ride the merge).
+- docs/plans/schedule_into_sales_merge_PLAN.md — §5 + §5 AMENDMENT (the spec this built to);
+  §5 revised finish line = the go-live sequence above.
+
+GIT STATE ON CLOSE
+------------------
+- Branch: feat/schedule-merge-plan (tracks origin/feat/schedule-merge-plan).
+- Pushed this session: branch published to origin (was at 2ee84f6; now 7650bf0) to build
+  the Vercel preview. This is a preview deploy, NOT a merge.
+- origin/main: 0a43131 — unchanged this session (nothing merged to main).
+- Session code commits: 0a824a2, 7650bf0 (+ this v203 handoff commit).
+- Vercel preview (branch alias, stays live on the branch):
+  https://sales-command-git-feat-sche-e7f62e-chris7berger-droids-projects.vercel.app
+- No open PRs opened this session. Working tree clean after this handoff commit.
+
+END STATE
+---------
+Phase 5 built + all three code gates green + frontend rename preview-smoked + HELD on
+feat/schedule-merge-plan; reset/invite hard smoke + AM-2 allow-list deferred to go-live;
+NOT merged. All five merge phases now built and held — the branch is go-live-ready. Next
+real work is the one-flip GO-LIVE (a separate operational session), not more building.

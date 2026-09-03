@@ -657,6 +657,7 @@ export default function Settings({ userRole }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState(null);
+  const [selectedApp, setSelectedApp] = useState("company");
 
   useEffect(() => {
     getTenantConfig().then(cfg => setForm({ ...cfg }));
@@ -694,8 +695,23 @@ export default function Settings({ userRole }) {
 
   if (!form) return <div style={{ color: C.textFaint, fontFamily: F.ui, fontSize: 13, padding: 20 }}>Loading...</div>;
 
+  // [R2-4] Section list is gated by tenant_config.apps, run through the SAME
+  // empty-array fail-open as groupVisible — a raw form.apps.includes(...) throws
+  // on a null column (Settings crash) or vanishes the Sales section. Company is
+  // always shown. Phase 1: apps=["sales"] → Company + Sales Command only.
+  const enabledApps = (Array.isArray(form.apps) && form.apps.length) ? form.apps : ["sales"];
+  const APP_SECTIONS = [
+    { app: "company",  label: "Company" },
+    { app: "sales",    label: "Sales Command" },
+    { app: "schedule", label: "Schedule Command" },
+    { app: "field",    label: "Field Command" },
+    { app: "ar",       label: "AR Command" },
+  ];
+  const visibleSections = APP_SECTIONS.filter(s => s.app === "company" || enabledApps.includes(s.app));
+  const sel = visibleSections.some(s => s.app === selectedApp) ? selectedApp : "company";
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 0, maxWidth: 900 }}>
+    <div style={{ maxWidth: 1040 }}>
       <SectionHeader title="Settings" action={
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {saved && <span style={{ fontSize: 12, fontWeight: 700, color: C.green, fontFamily: F.ui }}>Saved</span>}
@@ -704,7 +720,29 @@ export default function Settings({ userRole }) {
         </div>
       } />
 
-      <Section title="Company Info">
+      <div style={{ display: "flex", gap: 28, marginTop: 8, alignItems: "flex-start" }}>
+        {/* Left-hand section list (§1f). A single save spans all fields — these
+            are a VIEW filter over one form, not per-section saves. */}
+        <div style={{ width: 176, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, position: "sticky", top: 0 }}>
+          {visibleSections.map(s => {
+            const on = s.app === sel;
+            return (
+              <button key={s.app} onClick={() => setSelectedApp(s.app)}
+                style={{ textAlign: "left", padding: "9px 13px", borderRadius: 7, cursor: "pointer", fontFamily: F.display, fontSize: 12, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase",
+                  background: on ? C.dark : "transparent",
+                  color: on ? C.teal : C.textMuted,
+                  border: on ? `1px solid ${C.tealBorder}` : "1px solid transparent" }}>
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Content column — only the selected app's settings show */}
+        <div style={{ flex: 1, minWidth: 0, maxWidth: 900 }}>
+
+          {sel === "company" && (<>
+      <Section title="Company Info" defaultOpen>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <Field label="Company Name" wide>
             <input style={inputStyle} value={form.company_name} onChange={e => set("company_name", e.target.value)} />
@@ -744,7 +782,29 @@ export default function Settings({ userRole }) {
         </div>
       </Section>
 
-      <Section title="Financial Defaults">
+      {userRole === "Admin" && (
+        <Section title="Billing">
+          <BillingSection />
+        </Section>
+      )}
+
+      <Section title="Integrations">
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          <QBIntegrationCard />
+          <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, padding: "16px 20px", flex: 1, minWidth: 200 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textFaint, fontFamily: F.ui }}>Stripe</div>
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.green, background: C.dark, borderRadius: 4, padding: "2px 8px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Connected</span>
+            </div>
+            <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textMuted }}>Customers can pay invoices online via Stripe.</div>
+          </div>
+        </div>
+      </Section>
+          </>)}
+
+          {sel === "sales" && (<>
+
+      <Section title="Financial Defaults" defaultOpen>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <Field label="Default Burden Rate ($/hr)">
             <input style={inputStyle} type="number" step="0.01" value={form.default_burden_rate} onChange={e => set("default_burden_rate", e.target.value)} />
@@ -809,26 +869,28 @@ export default function Settings({ userRole }) {
         </div>
       </Section>
 
-      {userRole === "Admin" && (
-        <Section title="Billing">
-          <BillingSection />
-        </Section>
-      )}
+          </>)}
 
-      <Section title="Integrations">
-        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-          <QBIntegrationCard />
-          <div style={{ background: C.linenCard, borderRadius: 10, border: `1px solid ${C.borderStrong}`, padding: "16px 20px", flex: 1, minWidth: 200 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.textFaint, fontFamily: F.ui }}>Stripe</div>
-              <span style={{ fontSize: 10, fontWeight: 700, color: C.green, background: C.dark, borderRadius: 4, padding: "2px 8px", fontFamily: F.ui, letterSpacing: "0.05em", textTransform: "uppercase" }}>Connected</span>
-            </div>
-            <div style={{ fontSize: 12, fontFamily: F.ui, color: C.textMuted }}>Customers can pay invoices online via Stripe.</div>
-          </div>
+          {(sel === "schedule" || sel === "field" || sel === "ar") && (
+            <AppSettingsPlaceholder label={visibleSections.find(s => s.app === sel)?.label || "This app"} />
+          )}
+
+          <div style={{ height: 40 }} />
         </div>
-      </Section>
+      </div>
+    </div>
+  );
+}
 
-      <div style={{ height: 40 }} />
+// Placeholder for an enabled-but-not-yet-built app's settings (Schedule/Field/AR).
+// Never shows in Phase 1 (only "sales" is in tenant_config.apps); rides in ready
+// for later phases. Field's real content = threshold editors in Phase 3.
+function AppSettingsPlaceholder({ label }) {
+  return (
+    <div style={{ background: C.linenCard, border: `1px dashed ${C.borderStrong}`, borderRadius: 12, padding: "40px 28px", textAlign: "center", marginTop: 20 }}>
+      <div style={{ fontSize: 30, marginBottom: 10 }}>🧰</div>
+      <div style={{ fontSize: 15, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase" }}>{label} settings</div>
+      <div style={{ fontSize: 13, color: C.textMuted, fontFamily: F.ui, marginTop: 6 }}>Available when {label} is enabled.</div>
     </div>
   );
 }

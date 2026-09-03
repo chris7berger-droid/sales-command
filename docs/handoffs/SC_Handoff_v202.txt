@@ -1,0 +1,152 @@
+SC Handoff v202 — SESSION CLOSEOUT: Subcon Merge PHASE 4 complete (AR Command moves in) + all code gates green, smoke deferred
+Repo: sales-command   Branch: feat/schedule-merge-plan   Date: 2026-09-03
+=======================================================================
+Session-close artifact. The per-step build detail is in v201 (this same session's
+build handoff). This v202 is the full picture + close state, folding in the results
+of the three review gates that ran in their own cold terminals after v201.
+
+SESSION SUMMARY
+---------------
+Built Subcon merge PHASE 4 — "AR Command moves in" — to the locked §4b spec, then
+ran it through the full gate chain. Phase 4 is a COSMETIC MOUNT: AR-Command-Center's
+UI moved to src/ar/* and mounts under the host shell at /ar/*, green→teal accent,
+gated by the "ar" entitlement. AR's data stays per-browser localStorage + Excel/CSV
+upload — wiring AR to live Supabase data is a separate future phase, explicitly out
+of scope. No DB/migration/RLS/edge-fn/grant/token/dep. All three code gates came back
+green (buildvsplan 7/7, code-review 0 blockers, security-review 0 exploitable-today);
+B74 + S15 filed as non-blocking hardening. The preview smoke was DEFERRED by Chris's
+call — AR is underdeveloped and slated for rework, and the mount is cosmetic +
+entitlement-dark (renders for nobody), so smoking pixels now has no value. Held on
+feat/schedule-merge-plan (NOT merged) for the one-flip rollout. Key forward decision:
+at the eventual suite go-live, AR stays OUT of the entitlement flip until it's built
+out (light Sales+Schedule+Field only).
+
+CHANGES SHIPPED (this session, on feat/schedule-merge-plan)
+----------------------------------------------------------
+- 830d535  Phase 4 build: AR moves in — cosmetic mount, held. Moved
+           AR-Command-Center/src/{components,lib,pages,assets} → src/ar/*; dropped
+           dead main.jsx/App.jsx/lib/supabase.js; new src/ar/ARLayout.jsx (mirrors
+           Field/Schedule, .ar-root crosshatch-only scoped CSS, /ar/:tab routes,
+           Upload gate, index/*→triage); Dashboard.jsx URL-driven tabs; host
+           App.jsx /ar/* route under GroupGuard app="ar"; nav.js AR group wired +
+           home /ar/triage; tokens.js green→teal exact hexes. Build green.
+- 0879d9b  Build handoff v201 (Phase 4 built, held, owed gates).
+- 7234dbb  Filed B74 — code-review hardening nits (docs-only; the T5 cold terminal
+           left the row uncommitted per its fence, folded in here).
+- 0d5a9b5  Filed S15 — security-review notes (docs-only; consolidated the T6
+           terminal's 3 future-backend-gated findings into one row).
+- 13897b2  Docs: Phase 4 gates all green, preview smoke deferred, go-live pointer
+           (BACKLOG last-updated line + plan §4b BUILD+GATE STATUS block).
+
+GATE RESULTS (each ran in its own cold terminal, relayed back)
+--------------------------------------------------------------
+- T4 /buildvsplan: 7/7 PASS, 0 blockers, build green. Spec-vs-code clean across all
+  six §4b moves. SMOKE TEST: GO.
+- T5 /code-review (limiter-gated): 0 ship-blockers. 2 HARDENING findings → B74:
+  (1) ARLayout <Route path=":tab"> matches any single segment, so a hand-typed
+  /ar/<junk> renders Dashboard with a blank content area (every IN-APP path is
+  guarded; only stale-bookmark/typed URLs hit it); (2) src/ar/lib/tokens.js
+  GLOBAL_CSS + green:"#43a047" are now 0-consumer dead exports. Both backlogged.
+- T6 /security-review (limiter-gated): 0 exploitable-today, safe to ship. 3
+  defense-in-depth notes → S15, all gated on AR's future live-Supabase phase:
+  (1) exportUtils.js print HTML interpolates uploaded data unescaped → self-XSS
+  only (own upload, own window); (2) client-side GroupGuard is the only mount
+  control (no server-side AR data to protect yet); (3) localStorage unencrypted
+  (same-origin/same-user). None reachable by an unauthorized actor today.
+
+DEPLOYED
+--------
+Nothing deployed. No edge functions, no DB migrations, no infra. No entitlement
+flip performed (the smoke-setup flip was never run — smoke deferred).
+
+DECISIONS / CHOICES MADE
+------------------------
+- SMOKE DEFERRED (not failed): AR is underdeveloped + will be reworked; the mount
+  is cosmetic and entitlement-dark, so a preview smoke would only confirm pixels on
+  a screen that's going to change. No value now — re-smoke when AR is actually built.
+- GO-LIVE ROLLOUT: hold AR OUT of the suite one-flip entitlement (light
+  ["sales","schedule","field"] only, NOT "ar") until AR's backend phase lands.
+  "Moved in" ≠ "turn on." Recorded in plan §4b + BACKLOG so the go-live terminal
+  doesn't reflexively include AR. This is the one non-obvious forward call.
+- Scoped crosshatch as JSX <style> in ARLayout (auto-cleans, no head pollution)
+  rather than AR's original useEffect head-injection; host GLOBAL_CSS left untouched
+  (Finding B Option 1). Only the crosshatch is kept — host reset covers everything
+  else AR's GLOBAL_CSS used to provide.
+- B74/S15 filed as backlog rather than fixed in-branch — both are non-blocking
+  hardening, and S15's items only become real when AR gets a live backend.
+
+NEW BACKLOG ITEMS
+-----------------
+- B73 (T4, Open) — AR print/export HTML hardcodes #5BBD3F (screen teal / paper
+  green mismatch); exportUtils.js:19,21,114. Filed during build (the §4b "Adjacent"
+  finding). No blocker.
+- B74 (T4, Open) — AR mount cosmetic nits from /code-review: junk-tab URL blank
+  content + dead GLOBAL_CSS export. Both HARDENING.
+- S15 (T4, Open) — AR live-backend security hardening (3 defense-in-depth notes
+  from /security-review), all gated on AR's future live-Supabase phase; 0
+  exploitable today.
+
+CLOSED THIS SESSION
+-------------------
+None. (Phase 4 build work; no prior backlog rows closed.)
+
+VERIFICATION
+------------
+- npm run build: GREEN (651 modules, no errors; only the pre-existing >500kB
+  chunk-size advisory).
+- /buildvsplan 7/7 PASS · /code-review 0 blockers · /security-review 0
+  exploitable-today — all read-only cold-terminal gates.
+- grep -rn supabase src/ar → nothing (dead client fully removed, no dangling
+  importer); verified in build + both reviews.
+- NOT verified: preview smoke / live browser behavior — DEFERRED by Chris's call
+  (see DECISIONS). No pixels were confirmed in a running app this session. When AR
+  is next worked, run the §4b smoke checklist against a preview deploy with a
+  temporary ["sales","ar"] entitlement flip, reverted after.
+
+NOT TOUCHED THIS SESSION
+------------------------
+- Live Supabase AR/invoices/aging wiring — AR's own backend phase, out of scope.
+- AR Directory/PageBadge overlay internals — only onNavigate repointed to the URL.
+- Host GLOBAL_CSS — deliberately not edited.
+- The entitlement flip — HDSP tenant_config.apps stays ["sales"]; member apps
+  unchanged. AR renders for nobody.
+- No merge to main. Phases 1+2+3+4 all held on feat/schedule-merge-plan.
+
+NEXT SESSION POINTERS
+---------------------
+1. Phase 4 is DONE for this merge's purposes (built + all code gates green + held).
+   No further Phase 4 build work is required unless AR itself gets reworked.
+2. If/when the suite goes live in the one-flip rollout: HOLD AR OUT of the
+   entitlement — light ["sales","schedule","field"] only. Flip AR on later, in its
+   own step, once its backend phase lands. (Plan §4b BUILD+GATE STATUS pointer.)
+3. If AR gets built out later: run the deferred §4b preview smoke first (temp
+   ["sales","ar"] flip, revert after), and fold in B73/B74/S15 while in the code.
+4. Phase 5 (§5 — the name + addresses) is the next unbuilt phase of the merge, if
+   that's where focus goes next.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+- src/ar/ARLayout.jsx ......... the AR mount point (mirror of Field/Schedule layouts).
+- src/ar/pages/Dashboard.jsx .. URL-driven tabs (useParams/navigate/TAB_IDS guard).
+- src/ar/lib/tokens.js ........ teal token values; dead GLOBAL_CSS/green exports (B74).
+- src/ar/lib/exportUtils.js ... B73 (hardcoded green) + S15 finding-1 (unescaped print HTML).
+- src/App.jsx ................. /ar/* route + ARLayout import.
+- src/lib/nav.js .............. AVAILABLE_APPS + GROUPS[ar] + home /ar/triage.
+- docs/plans/schedule_into_sales_merge_PLAN.md — §4b BUILD+GATE STATUS block (this
+  session's results + the go-live pointer); §5 is the next unbuilt phase.
+
+GIT STATE ON CLOSE
+------------------
+- Branch: feat/schedule-merge-plan (tracks origin/feat/schedule-merge-plan).
+- origin/main: unchanged this session (nothing merged to main).
+- Session commits: 830d535, 0879d9b, 7234dbb, 0d5a9b5, 13897b2 (+ this v202 handoff).
+- Pre-close: 1 commit (13897b2) ahead of origin/feat/schedule-merge-plan; this
+  handoff commit makes 2. Push destination decided at closeout.
+- No open PRs opened this session. No scratch projects. Working tree clean after
+  this handoff commit.
+
+END STATE
+---------
+Phase 4 built + all code gates green + held on feat/schedule-merge-plan; preview
+smoke deferred by Chris's call; NOT merged. Ready for a fresh session — next real
+work is Phase 5, or AR rework (which triggers the deferred smoke).

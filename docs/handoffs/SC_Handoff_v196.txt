@@ -1,0 +1,148 @@
+SC Handoff v196 — SESSION CLOSEOUT: Subcon Merge PHASE 2 complete (Schedule moves in)
+Repo: sales-command   Branch: feat/schedule-merge-plan   Date: 2026-09-02
+=======================================================================
+(v195 is the mid-session Phase-2 build handoff — read it for deep build detail.
+ This v196 is the session-close artifact: full picture + close state + Phase 3 pointer.)
+
+SESSION SUMMARY
+---------------
+Picked up Phase 2 of the Subcon Command merge and carried it end to end. Ran the
+§2 merge-collision safety sweep (GREEN, nothing drifted), then executed the core
+"Schedule moves in" build: sch-command/src → sales-command/src/schedule/*, mounted
+under /schedule/* inside the host Subcon shell via a new content-level
+ScheduleLayout.jsx. CSS fenced under .schedule-root; one client/login; the 7 §2
+collision fixes applied. Took it through all four gates — /buildvsplan (PASS, 1
+fix), /code-review (3 findings, all fixed), /security-review (0 exploitable-today),
+and a Vercel preview smoke (PASS, all checklist items). Post-smoke simplify: dropped
+the legacy sync dot and its plumbing. Merge is HELD on the branch per the one-flip
+rollout. Set the /resume pointer to land the next terminal on Phase 3 (Field web).
+
+CHANGES SHIPPED (this session, on feat/schedule-merge-plan)
+----------------------------------------------------------
+- 37bd6ca  Phase 2: Schedule moves into the Subcon shell (src/schedule/*, /schedule/*)
+    The core move: 57 files from sch-command copied to src/schedule/; new
+    ScheduleLayout.jsx (reparented toolbar/StatsBar/modals); dropped Schedule's
+    supabase.js/auth.js/Login.jsx/main.jsx/App.jsx; kept lib/user.jsx fed by host
+    teamMember; CSS fenced under .schedule-root (postcss transform); 7 collision
+    fixes; nav.js turns schedule on + fills GROUPS[schedule]; App.jsx guarded route.
+- 6b22c9d  Fix TDZ self-reference in Schedule.jsx changedBy (buildvsplan finding)
+    `const changedBy = user?.name || changedBy` (read its own TDZ binding) → `|| 'unknown'`.
+- 02e10ba  Phase 2 code-review fixes: toast fence, refresh remount, sync dot
+    (1) toast node sat outside the fence → moved .schedule-root up to wrap providers;
+    (2) Refresh no-op'd 9 non-realtime views → key-bump remount of <main>;
+    (3) orphaned syncState → restored sync dot.
+- 156dcd1  Drop the Schedule sync dot — toasts already cover those events
+    Removed the dot + all setSync/useSync/SyncProvider plumbing + deleted lib/sync.jsx.
+- 8e7b5dc  Phase 2: record gate outcomes (buildvsplan/code-review/security-review green)
+    Plan §2b + handoff v195 doc updates.
+- 6e7ec1d  Phase 2: record preview-smoke PASS — all 4 gates green
+    Plan §2b + handoff v195 marked smoke passed.
+Also (separate repo): ~/.claude-commands active-work.txt → Phase 3 pointer (65d16f7, pushed).
+
+DEPLOYED
+--------
+No edge functions or DB migrations deployed. Prod (origin/main) is untouched —
+still classic Sales Command. Vercel auto-built a PREVIEW off the pushed branch
+(used for the smoke). SHARED-DB TOUCH (reverted): a TEMPORARY tenant_config.apps
+flip (HDSP ["sales"] → ["sales","schedule"]) was made in the Supabase SQL editor
+to light Schedule on the preview, then reverted to ["sales"]; baseline reconfirmed
+via CLI read. Inert on prod regardless (main has no /schedule route / AVAILABLE_APPS).
+
+DECISIONS / CHOICES MADE
+------------------------
+- Shell reconciliation: content-level ScheduleLayout (host sidebar owns nav;
+  Schedule's +Job/Actions/StatsBar/modals reparented into the content area).
+  Chris ratified; chosen over wiring actions into the host header or dropping them.
+- lib/user.jsx KEPT + fed host teamMember, NOT repointed to TenantConfigContext as
+  Beat 6 listed — that was a category error (user.jsx carries the team member, the
+  tenant context carries config). Single-client safety goal still fully met.
+- Refresh fixed via remount key, not a restored full window.location.reload() — the
+  §2 pre-flight flagged full-app reload to drop; the key bump refetches the current
+  view only. Honors both the plan and the code-review staleness finding.
+- Sync dot removed rather than kept/expanded — toasts already report those events;
+  don't keep mechanism that isn't earning its place.
+- Merge HELD (not merged to main) — rollout is one flip at the end (per the
+  2026-09-01 amendment). Branch pushed only to enable the preview.
+
+NEW BACKLOG ITEMS
+-----------------
+None filed as BACKLOG rows. The Phase-2 deferred polish is recorded in plan §2b
+(teal reconciliation, Settings fold, pagination sweep) as merge sub-tasks, per
+"point to the canonical plan, don't duplicate."
+
+CLOSED THIS SESSION
+-------------------
+Phase 2 build + all four verification gates. No numbered BACKLOG rows closed.
+buildvsplan TDZ finding and 3 code-review findings closed in-flight (see commits).
+
+VERIFICATION
+------------
+- Build: `npm run build` green after every change (620 modules, 0 errors).
+- /buildvsplan: PASS (3 reviewers + live schema probe). 1 fix applied.
+- /code-review (limiter-gated): 3 CAUSED-BY findings, all fixed. 0 ship-blockers.
+- /security-review (limiter-gated): 0 exploitable-today. One client confirmed,
+  gate = defense-in-depth over unchanged RLS, no migration/grant/service-role,
+  no token in logs. Multi-tenant isolation stays F7-gated (S4/S5/S10/S13).
+- Preview smoke (Chris, Vercel, temp entitlement): all checklist items pass —
+  9 Schedule screens load + styled, breadcrumb/active-state, +Job/Actions toolbar,
+  Refresh + toast, Billing→Sales cross-link, Sales untouched. Toast styling verified
+  structurally (node now inside the fence); the ~2.5s transient wasn't screenshot-caught.
+- NOT tested: the deferred polish (none built yet); Schedule write flows were opened
+  and cancelled during smoke (no rows created on the live DB).
+
+CROSS-TERMINAL SWEEP (Chris asked)
+----------------------------------
+Queried the 3 idle interactive peer terminals for context.
+- chrisberger-d1: the /code-review terminal — read-only, same branch, its 3 findings
+  are exactly the ones already fixed here (toasts/refresh/syncState). Aligned, nothing
+  new, no uncommitted work, no shared-DB changes.
+- chrisberger-55, chrisberger-4a: queried; no reply captured before closeout. If they
+  hold live work on this branch or the shared DB, reconcile before merging phases.
+(Several cloud sessions exist too — separate work streams: audit fixes, RLS findings,
+ landing page, ultraplan — not part of the Phase 2 merge.)
+
+NOT TOUCHED THIS SESSION (deliberately deferred)
+------------------------------------------------
+- Teal reconciliation (Beat 5): Schedule still renders Command-Green; ~20 green→teal
+  spots + black-text-on-teal. Own session, preview up (design-then-polish).
+- Settings fold: Schedule Settings.jsx (109 lines) → unified /settings section.
+  Today reachable at /schedule/settings by URL only, NOT in nav. Its own task.
+- Post-move pagination sweep: grep unpaginated fetches 3× incl. Promise.all.
+- Phase 3 (Field web) and Phases 4–5 — future.
+
+NEXT SESSION POINTERS
+---------------------
+- /resume lands here (pointer set): sales-command · feat/schedule-merge-plan · Phase 3.
+- FIRST: read plan docs/plans/schedule_into_sales_merge_PLAN.md §3 + this handoff + v195.
+- Phase 3 = Field web (6 view-only office screens over existing tables). Pre-flight:
+  §3a authors tenant_config threshold cols in command-suite-db — AUTHOR + REHEARSE
+  (`cd ~/command-suite-db && ./scripts/rehearse.sh <file>`) before any push (shared-DB rule).
+  §3b PowerSync sync-rule add is the ONE phone change — do NOT sync the whole
+  tenant_config row (stripe/subscription); scoped view/cols only.
+- Phase 3 gets its own short plan pass then build→buildvsplan→code-review→security-review
+  →preview smoke on THIS branch. Screen interiors are Chris's later UI sessions.
+- Each phase still builds on feat/schedule-merge-plan; DO NOT MERGE — one flip at the end.
+- UPKEEP: pull any live Sales hotfix from main into this branch so it doesn't rot.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+- src/schedule/ScheduleLayout.jsx — the reparented Schedule shell (providers, toolbar, modals, routes)
+- src/schedule/* — the moved Schedule app (views/components/lib), CSS fenced in App.css/index.css
+- src/lib/nav.js — AVAILABLE_APPS + GROUPS (entitlement/nav model; Field group already stubbed)
+- src/App.jsx — GroupGuard + /schedule/* route mount
+- docs/plans/schedule_into_sales_merge_PLAN.md — §2/§2a/§2b (Phase 2), §3 (Phase 3 spec)
+- src/schedule/components/LoadOutModal.jsx — Phase 3 Load-Outs reuses this (extract job-hydration)
+
+GIT STATE ON CLOSE
+------------------
+- Branch: feat/schedule-merge-plan, pushed, EVEN with origin (HEAD 6e7ec1d).
+- Phase 2 = 6 commits (37bd6ca → 6e7ec1d) on top of the held Phase 1 shell (…→7f9a7a2).
+- origin/main tip: 0a43131 (ideate seed merge; prod = classic Sales Command). NOT touched.
+- Working tree: clean.
+- Open PRs: none opened this session.
+- ~/.claude-commands: active-work pointer updated + pushed (65d16f7).
+
+END STATE
+---------
+In progress — Phase 2 built, all 4 gates green, branch pushed and HELD (not merged);
+next session resumes on Phase 3 (Field web). Ready for a fresh terminal.

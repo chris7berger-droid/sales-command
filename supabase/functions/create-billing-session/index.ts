@@ -10,7 +10,7 @@ const SCC_STRIPE_COUPON_BUNDLE = Deno.env.get("SCC_STRIPE_COUPON_BUNDLE");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-const SITE_URL = "https://salescommand.app";
+const SITE_URL = "https://www.scmybiz.com";
 
 // Map app keys to Stripe Price IDs
 const PRICE_MAP: Record<string, string | undefined> = {

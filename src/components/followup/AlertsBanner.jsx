@@ -12,12 +12,12 @@ export default function AlertsBanner() {
   const loc = useLocation();
   const navigate = useNavigate();
 
-  const onHome = loc.pathname === "/home" || loc.pathname === "/";
+  const onHome = loc.pathname === "/sales/home" || loc.pathname === "/";
   if (onHome || !count) return null;
 
   return (
     <div
-      onClick={() => navigate("/home")}
+      onClick={() => navigate("/sales/home")}
       style={{
         position: "sticky", top: 0, zIndex: 20, cursor: "pointer",
         background: C.dark, borderRadius: 8, padding: "10px 16px", marginBottom: 18,

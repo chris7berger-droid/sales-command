@@ -68,7 +68,7 @@ export default function Leads({ teamMember }) {
   // to /leads bounces an enabled tenant home before the flag has arrived.
   if (!cfg.id) return <div style={{ color: C.textFaint, fontFamily: F.ui, fontSize: 13, padding: 24 }}>Loading…</div>;
   // Bolt-on guard: this screen only exists for a tenant with the add-on enabled.
-  if (!cfg.leads_enabled) return <Navigate to="/home" replace />;
+  if (!cfg.leads_enabled) return <Navigate to="/sales/home" replace />;
 
   const setStatus = async (lead, statusLabel) => {
     const status = statusLabel.toLowerCase();

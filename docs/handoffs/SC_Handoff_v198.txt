@@ -1,0 +1,97 @@
+SC_Handoff_v198 — T5 CODE REVIEW (Phase 3 Field Command web)
+Branch: feat/schedule-merge-plan
+Terminal role: T5 (Code Review), gated by /code-review-limiter
+Date: 2026-09-02
+
+============================================================
+SESSION SUMMARY
+============================================================
+Adversarial correctness/reuse/efficiency review of the Phase 3 "Field
+Command web" build — ~10 new files under src/field/ plus the two mount
+edits (src/App.jsx /field/* route, src/lib/nav.js AVAILABLE_APPS += "field").
+Reviewed cold; did NOT rebuild or rerun buildvsplan.
+
+VERDICT: 0 ship-blockers fixed; 4 filed. DONE — nothing changed on the branch.
+Every material premise was validated against LIVE PROD (project
+pbgvgjjuhnpsumnowuym). The build is correct against current prod data.
+
+============================================================
+WHAT WAS VERIFIED AGAINST PROD (not just read)
+============================================================
+1. All columns selected by src/field/lib/queries.js EXIST with compatible
+   types — incl. jobs.lead (text; Today selects it, would 400 if absent),
+   time_punches.employee_id (uuid → team_members.id), job_crew.team_member_id
+   (uuid), all child job_id cols, tenant_config threshold cols
+   (sod_due_minutes int, mod_due_hours numeric, eod/prt_required bool).
+2. ACTIVE_FIELD_STAGES = ['Scheduled','In Progress','mobilized','in_progress']
+   is an EXACT match to the phone's JobListScreen/HomeScreen SQL
+   (field-command). The lowercase entries are dead-but-harmless defensiveness,
+   present on the phone too. Faithful port, not a divergence.
+3. Enum-value matches confirmed in prod: entry_type 'SOD'/'EOD' (uppercase,
+   matches port), prt status 'submitted'/'approved' (matches), punch_type
+   'clock_in'/'clock_out' (matches). => No false "!" flags from a value
+   mismatch. `wrapped` correctly ignores lunch_*/drive_* punches (only
+   clock_in/clock_out counted).
+4. lateForm.js port is faithful to PunchStatusBar.js; the per-job rollup
+   ("wrapped" = clock_out count >= clock_in count driving EOD/PRT, earliest
+   clock-in driving SOD/MOD) is sound and is the documented intentional change.
+5. loadJobWithWTCs(jobId) keys on jobs.job_id — LoadOuts feeds jobPk (=job_id).
+   Correct canonical reuse, no drift.
+
+============================================================
+FINDINGS — all SHOULD-FIX / HARDENING, none BLOCKS-SHIP
+============================================================
+# | finding                                             | sev  | materiality | action
+--+-----------------------------------------------------+------+-------------+--------
+1 | fetchActiveFieldJobs filters scheduled_start IS NOT | med  | HARDENING   | filed
+  | NULL server-side and windows on scheduled_start only |      | (0 prod rows)|
+  | (not effectiveStart = scheduled_start||start_date).  |      |             |
+  | Plain screens (Jobs/Crews/TimeClock/DailyLogs) don't |      |             |
+  | need date windowing yet inherit the filter, so an    |      |             |
+  | active-stage job with no dates (phone shows it via   |      |             |
+  | stage-only) would be dropped. Prod today: 0 active   |      |             |
+  | jobs are startdate-only or date-less => LATENT.      |      |             |
+2 | "today"/"last 7d" log windows use created_at         | low  | HARDENING   | filed
+  | (timestamptz) compared to a wall-clock date string.  |      |             |
+  | Day-boundary imprecision near midnight / non-UTC.    |      |             |
+  | daily_log_entries has NO date column (only           |      |             |
+  | created_at), so this is the only handle available.   |      |             |
+3 | Today.jsx reimplements loading/error state instead   | low  | SHOULD-FIX  | filed
+  | of the shared useAsync (needs `today` alongside rows;|      |             |
+  | useAsync could return {rows,today}). Minor dup.       |      |             |
+4 | PlainTable falls back to array-index React keys on   | nit  | HARDENING   | filed
+  | Crews/TimeClock/DailyLogs (no keyField passed).       |      |             |
+  | Harmless for static view-only lists.                  |      |             |
+
+Limiter rationale: target is PRODUCT, but Field web has no users yet and is
+view-only. Ship bar = breaks app running OR correctness bug on the actual code
+path in the CURRENT deployment. Finding 1 is the only one with correctness
+teeth and it has 0 qualifying rows in prod today => not current-deployment-
+biting => HARDENING, filed not fixed (this is exactly the "hypothetical future"
+the limiter says to file). Zero BLOCKS-SHIP => exit condition met, no fixes,
+no second round.
+
+============================================================
+BACKLOG ITEM TO FILE (single item; see docs/BACKLOG.md)
+============================================================
+"Field web reads: align 'active field job' definition with canonical
+effectiveStart + phone stage-only filter; tighten log-window day boundary;
+minor useAsync/keys cleanup." T3/T4, scoped to src/field/lib/queries.js +
+Today.jsx. Top sub-item is #1 (correctness alignment) — greenlight when a
+startdate-only or date-less active job first appears, or proactively as a
+cheap 4-plain-screens tweak. NOT fixed this pass by limiter discipline.
+
+============================================================
+NOT TOUCHED / OUT OF SCOPE
+============================================================
+- Security / RLS / anon exposure — left for T6 (security-review).
+- fetchAll() swallowing query errors (existing shared helper, not
+  field-specific) — field screens would show "empty" not "error" on a query
+  failure. Pre-existing, out of this branch's scope.
+- No code changed; nothing committed except this handoff.
+
+============================================================
+GIT STATE
+============================================================
+Branch feat/schedule-merge-plan, HEAD 84e2574 at review start.
+Only add: docs/handoffs/SC_Handoff_v198.txt (this file).

@@ -17,7 +17,7 @@
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const FROM_ADDRESS = "Sales Command <estimates@hdspnv.com>";
-const SITE_URL = "https://salescommand.app";
+const SITE_URL = "https://www.scmybiz.com";
 
 export type RepContact = { name: string; email: string };
 
@@ -161,7 +161,7 @@ export async function notifyProposalApproved(
     ${lede}
     <p>${jobLine}</p>
     <p>Status is now <strong>${proposal.status}</strong>.
-       <a href="${SITE_URL}/proposals/${proposal.id}" style="color: #0f766e;">Open it in Sales Command</a>.</p>
+       <a href="${SITE_URL}/sales/proposals/${proposal.id}" style="color: #0f766e;">Open it in Sales Command</a>.</p>
   `);
 
   const subject = how.kind === "signed"

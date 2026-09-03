@@ -5,6 +5,11 @@ const DEFAULTS = {
   website: "", address: "", city: "", state: "", zip: "", logo_url: "/hdsp-logo.png",
   default_burden_rate: 56.50, default_ot_burden_rate: 84.75, default_tax_rate: 8.25,
   default_billing_terms: 30, proposal_validity_days: 90,
+  // [R1-A] apps → group visibility. Helps only when the WHOLE row is absent;
+  // a present row with apps IS NULL still clobbers this via {...DEFAULTS, ...data}
+  // (same schedule_runway_* trap below). The real safety net is groupVisible /
+  // Settings fail-open, NOT this default — do not drop the fail-open.
+  apps: ["sales"],
   default_proposal_intro: "Thank you for the opportunity to provide this proposal. We are pleased to present the following scope of work and pricing for your review.",
   default_invoice_description: "Thank you for your business. Please find the details of this invoice below. Payment is due by the date listed above.",
   monthly_billing_goal: 450000, yearly_billing_goal: 5400000,

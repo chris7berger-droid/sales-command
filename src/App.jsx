@@ -1,12 +1,10 @@
 import { useState, useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import PublicSigningPage from "./pages/PublicSigningPage";
 import { C, F, GLOBAL_CSS } from "./lib/tokens";
 import { supabase } from "./lib/supabase";
-import { SalesCommandMark, AppWordmark } from "./components/Logo";
-import { getSession, onAuthStateChange, signOut, getCurrentTeamMember } from "./lib/auth";
+import { getSession, onAuthStateChange, getCurrentTeamMember } from "./lib/auth";
 import Login from "./pages/Login";
-import LandingPage from "./pages/LandingPage";
 import SubConCommandPage from "./pages/SubConCommandPage";
 import FeatureDetailPage from "./pages/FeatureDetailPage";
 import CheckoutPage from "./pages/CheckoutPage";
@@ -20,6 +18,8 @@ import Managers from "./pages/Managers";
 import Customers from "./pages/Customers";
 import Team from "./pages/Team";
 import Settings from "./pages/Settings";
+import SubconHome from "./pages/SubconHome";
+import AppSidebar from "./components/AppSidebar";
 import { getPageNumber, PageBadge, TOCOverlay } from "./components/TableOfContents";
 import InvoicePaidPage from "./pages/InvoicePaidPage";
 import PublicInvoicePage from "./pages/PublicInvoicePage";
@@ -32,20 +32,10 @@ import { AlertsProvider } from "./lib/alerts";
 import Import from "./pages/Import/Import";
 import UpdateBanner from "./components/UpdateBanner";
 import Archive from "./pages/Archive";
-
-const NAV = [
-  { id: "home",      label: "Home",       icon: "⌂"  },
-  { id: "calllog",   label: "Call Log",   icon: "📋" },
-  { id: "proposals", label: "Proposals",  icon: "📄" },
-  { id: "leads",     label: "Campaign Leads", icon: "🎯", flag: "leads_enabled" },
-  { id: "invoices",  label: "Invoices",   icon: "💵" },
-  { id: "managers",  label: "Managers",   icon: "🏆", roles: ["Manager"] },
-  { id: "customers", label: "Customers",  icon: "🏢" },
-  { id: "team",      label: "Our Team",   icon: "👥" },
-  { id: "archive",   label: "History Locker", icon: "🗄" },
-  { id: "settings",  label: "Settings",   icon: "⚙", roles: ["Admin", "Manager"] },
-  { id: "directory", label: "The Directory", icon: "📖", action: "directory" },
-];
+import { GROUPS, SUBCON_HOME, SETTINGS, groupVisible, sectionFromPath, groupFromPath, resolveNavTarget } from "./lib/nav";
+import ScheduleLayout from "./schedule/ScheduleLayout";
+import FieldLayout from "./field/FieldLayout";
+import ARLayout from "./ar/ARLayout";
 
 function Placeholder({ label }) {
   return (
@@ -55,6 +45,59 @@ function Placeholder({ label }) {
       <div style={{ fontSize: 13.5, color: C.textFaint, fontFamily: F.ui }}>Coming in a future build phase</div>
     </div>
   );
+}
+
+// "Not authorized" panel rendered INSIDE the shell (sidebar + header present) so
+// the user keeps a way back — not the bare full-page dead-end /import uses.
+function NotAuthorized() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 320, gap: 12 }}>
+      <div style={{ fontSize: 40 }}>🔒</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.06em", textTransform: "uppercase" }}>Not authorized</div>
+      <div style={{ fontSize: 13.5, color: C.textMuted, fontFamily: F.ui, maxWidth: 380, textAlign: "center" }}>
+        You don't have access to this app. Use the menu on the left to get back, or ask your admin for access.
+      </div>
+    </div>
+  );
+}
+
+// [R1-A / R1-D] Route guard for an app group. Uses the SAME groupVisible fail-open
+// predicate as the sidebar (§1a) — a naïve raw-apps read would fail CLOSED during
+// the async load and block entitled users. Not-yet-available groups (/schedule/*
+// in Phase 1) fail because AVAILABLE_APPS excludes them, which is correct.
+function GroupGuard({ app, teamMember, children }) {
+  const cfg = useTenantConfig();
+  const group = GROUPS.find(g => g.app === app);
+  const ok = group && groupVisible(group, { tenantApps: cfg?.apps, memberApps: teamMember?.apps });
+  return ok ? children : <NotAuthorized />;
+}
+
+// Catch-all for authed paths that matched no explicit route. A URL under a known
+// app-group prefix (e.g. /schedule/home) runs the guard so an unavailable group
+// shows "Not authorized" instead of silently bouncing to Home (Beat 4 — hiding a
+// group ≠ security); a stray /sales/* subpath redirects to the Sales home; any
+// other unknown path goes to Subcon Home.
+function UnmatchedRoute({ teamMember }) {
+  const { pathname } = useLocation();
+  const group = groupFromPath(pathname);
+  if (group) {
+    return (
+      <GroupGuard app={group.app} teamMember={teamMember}>
+        <Navigate to={group.home} replace />
+      </GroupGuard>
+    );
+  }
+  return <Navigate to="/" replace />;
+}
+
+// [R1-B] Redirect old flat Sales URLs to their /sales/* equivalent. Carries the
+// FULL location — path param, query string, hash, AND React-Router state — so
+// external bookmarks/emailed links survive. In-app links are repointed directly
+// (Option B); this layer is for external links only.
+function LegacyRedirect({ base }) {
+  const { id } = useParams();
+  const { search, hash, state } = useLocation();
+  return <Navigate replace state={state} to={`/sales/${base}${id ? "/" + id : ""}${search}${hash}`} />;
 }
 
 const SCC_HOST = window.location.hostname.replace(/^www\./, "") === "sccmybiz.com";
@@ -176,7 +219,7 @@ function SalesCommandApp() {
           <Route path="/invoice-paid" element={<InvoicePaidPage />} />
           <Route path="/invoice/:token" element={<PublicInvoicePage />} />
           <Route path="/qb/callback" element={<QBCallbackPage />} />
-          <Route path="*" element={<LandingPage />} />
+          <Route path="*" element={<SubConCommandPage />} />
         </Routes>
       </BrowserRouter>
     );
@@ -215,6 +258,8 @@ function SalesCommandApp() {
   const displayRole     = teamMember?.role      ?? "Member";
   const displayInitials = displayName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 
+  const canManageSettings = displayRole === "Admin" || displayRole === "Manager";
+
   return (
     <TenantConfigProvider>
     <UpdateBanner />
@@ -236,27 +281,69 @@ function SalesCommandApp() {
             open={open} setOpen={setOpen}
             displayName={displayName} displayRole={displayRole}
             displayInitials={displayInitials}
+            teamMember={teamMember}
             onOpenDirectory={() => setShowTOC(true)}
             showTOC={showTOC} setShowTOC={setShowTOC}
             subPage={subPage} setSubPage={setSubPage}
           >
             <Routes>
-              <Route path="/" element={<Navigate to="/home" replace />} />
-              <Route path="/home" element={<Home displayName={displayName} displayRole={displayRole} repName={repName} />} />
-              <Route path="/calllog" element={<CallLog teamMember={teamMember} setSubPage={setSubPage} />} />
-              <Route path="/calllog/:id" element={<CallLog teamMember={teamMember} setSubPage={setSubPage} />} />
-              <Route path="/leads" element={<Leads teamMember={teamMember} />} />
-              <Route path="/proposals" element={<Proposals teamMember={teamMember} setSubPage={setSubPage} />} />
-              <Route path="/proposals/:id" element={<Proposals teamMember={teamMember} setSubPage={setSubPage} />} />
-              <Route path="/invoices" element={<Invoices teamMember={teamMember} setSubPage={setSubPage} />} />
-              <Route path="/invoices/:id" element={<Invoices teamMember={teamMember} setSubPage={setSubPage} />} />
-              <Route path="/customers" element={<Customers setSubPage={setSubPage} />} />
-              <Route path="/customers/:id" element={<Customers setSubPage={setSubPage} />} />
-              <Route path="/managers" element={displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />} />
-              <Route path="/team" element={<Team teamMember={teamMember} />} />
-              <Route path="/archive" element={<Archive userRole={displayRole} />} />
-              <Route path="/settings" element={<Settings userRole={displayRole} />} />
-              <Route path="*" element={<Navigate to="/home" replace />} />
+              {/* Subcon Command landing */}
+              <Route path="/" element={<SubconHome teamMember={teamMember} displayRole={displayRole} />} />
+
+              {/* Sales Command — group-guarded /sales/* */}
+              <Route path="/sales/home" element={<GroupGuard app="sales" teamMember={teamMember}><Home displayName={displayName} displayRole={displayRole} repName={repName} /></GroupGuard>} />
+              <Route path="/sales/calllog" element={<GroupGuard app="sales" teamMember={teamMember}><CallLog teamMember={teamMember} setSubPage={setSubPage} /></GroupGuard>} />
+              <Route path="/sales/calllog/:id" element={<GroupGuard app="sales" teamMember={teamMember}><CallLog teamMember={teamMember} setSubPage={setSubPage} /></GroupGuard>} />
+              <Route path="/sales/leads" element={<GroupGuard app="sales" teamMember={teamMember}><Leads teamMember={teamMember} /></GroupGuard>} />
+              <Route path="/sales/proposals" element={<GroupGuard app="sales" teamMember={teamMember}><Proposals teamMember={teamMember} setSubPage={setSubPage} /></GroupGuard>} />
+              <Route path="/sales/proposals/:id" element={<GroupGuard app="sales" teamMember={teamMember}><Proposals teamMember={teamMember} setSubPage={setSubPage} /></GroupGuard>} />
+              <Route path="/sales/invoices" element={<GroupGuard app="sales" teamMember={teamMember}><Invoices teamMember={teamMember} setSubPage={setSubPage} /></GroupGuard>} />
+              <Route path="/sales/invoices/:id" element={<GroupGuard app="sales" teamMember={teamMember}><Invoices teamMember={teamMember} setSubPage={setSubPage} /></GroupGuard>} />
+              <Route path="/sales/customers" element={<GroupGuard app="sales" teamMember={teamMember}><Customers setSubPage={setSubPage} /></GroupGuard>} />
+              <Route path="/sales/customers/:id" element={<GroupGuard app="sales" teamMember={teamMember}><Customers setSubPage={setSubPage} /></GroupGuard>} />
+              <Route path="/sales/managers" element={<GroupGuard app="sales" teamMember={teamMember}>{displayRole === "Manager" ? <Managers /> : <Placeholder label="Managers" />}</GroupGuard>} />
+              <Route path="/sales/team" element={<GroupGuard app="sales" teamMember={teamMember}><Team teamMember={teamMember} /></GroupGuard>} />
+              <Route path="/sales/archive" element={<GroupGuard app="sales" teamMember={teamMember}><Archive userRole={displayRole} /></GroupGuard>} />
+
+              {/* Schedule Command — group-guarded /schedule/* (Phase 2). ScheduleLayout
+                  owns its own nested <Routes> for the subtree, so this is a splat. */}
+              <Route path="/schedule/*" element={<GroupGuard app="schedule" teamMember={teamMember}><ScheduleLayout teamMember={teamMember} /></GroupGuard>} />
+
+              {/* Field Command — group-guarded /field/* (Phase 3). FieldLayout owns
+                  its own nested <Routes> for the 6 view-only office screens. */}
+              <Route path="/field/*" element={<GroupGuard app="field" teamMember={teamMember}><FieldLayout teamMember={teamMember} /></GroupGuard>} />
+
+              {/* AR Command — group-guarded /ar/* (Phase 4). ARLayout owns its own
+                  nested <Routes> (/ar/:tab) + localStorage-backed ARProvider. Cosmetic
+                  mount: AR data stays client-local until its own backend phase. */}
+              <Route path="/ar/*" element={<GroupGuard app="ar" teamMember={teamMember}><ARLayout teamMember={teamMember} /></GroupGuard>} />
+
+              {/* Legacy flat Sales URLs → /sales/* (external bookmarks/emailed links) */}
+              <Route path="/home" element={<LegacyRedirect base="home" />} />
+              <Route path="/calllog" element={<LegacyRedirect base="calllog" />} />
+              <Route path="/calllog/:id" element={<LegacyRedirect base="calllog" />} />
+              <Route path="/leads" element={<LegacyRedirect base="leads" />} />
+              <Route path="/proposals" element={<LegacyRedirect base="proposals" />} />
+              <Route path="/proposals/:id" element={<LegacyRedirect base="proposals" />} />
+              <Route path="/invoices" element={<LegacyRedirect base="invoices" />} />
+              <Route path="/invoices/:id" element={<LegacyRedirect base="invoices" />} />
+              <Route path="/customers" element={<LegacyRedirect base="customers" />} />
+              <Route path="/customers/:id" element={<LegacyRedirect base="customers" />} />
+              <Route path="/managers" element={<LegacyRedirect base="managers" />} />
+              <Route path="/team" element={<LegacyRedirect base="team" />} />
+              <Route path="/archive" element={<LegacyRedirect base="archive" />} />
+
+              {/* Settings — global/top-level, [R1-C] Admin/Manager gate closes the pre-existing leak */}
+              <Route path="/settings" element={canManageSettings ? <Settings userRole={displayRole} /> : <NotAuthorized />} />
+
+              {/* Any unmatched authed path. If it's under a known app group
+                  (/schedule/*, /field/*, /ar/* in Phase 1, or a stray /sales/*),
+                  run the guard — not-yet-available groups render "Not authorized",
+                  not a silent redirect (Beat 4). Everything else → Subcon Home.
+                  Handled here rather than via a splat Route because a descendant
+                  <Routes> under a parent path="*" doesn't reliably match a nested
+                  splat on a fresh page load. */}
+              <Route path="*" element={<UnmatchedRoute teamMember={teamMember} />} />
             </Routes>
           </AppShell>
         } />
@@ -267,70 +354,43 @@ function SalesCommandApp() {
   );
 }
 
-// Map a URL pathname to the section id used by NAV / TOC / page badge
-function sectionFromPath(pathname) {
-  const seg = pathname.split("/").filter(Boolean)[0] || "home";
-  return seg;
-}
-
-function AppShell({ open, setOpen, displayName, displayRole, displayInitials, onOpenDirectory, showTOC, setShowTOC, subPage, setSubPage, children }) {
+function AppShell({ open, setOpen, displayName, displayRole, displayInitials, teamMember, onOpenDirectory, showTOC, setShowTOC, subPage, setSubPage, children }) {
   const location = useLocation();
   const navigate = useNavigate();
   const cfg = useTenantConfig();
   const active = sectionFromPath(location.pathname);
+  const group = groupFromPath(location.pathname);
+  const onSubconHome = location.pathname === SUBCON_HOME.path;
+  const activeLabel = resolveNavTarget(active)?.label;
   return (
     <>
       <style>{GLOBAL_CSS}</style>
       <div data-app-shell style={{ display: "flex", height: "100vh", background: C.linen, overflow: "hidden" }}>
 
-        <div data-app-sidebar style={{ width: open ? 228 : 56, flexShrink: 0, background: C.dark, display: "flex", flexDirection: "column", transition: "width 0.22s cubic-bezier(0.4,0,0.2,1)", overflow: "hidden", borderRight: `1px solid ${C.darkBorder}` }}>
-
-          <div style={{ padding: open ? "18px 16px 14px" : "18px 10px 14px", borderBottom: `1px solid ${C.darkBorder}`, display: "flex", alignItems: "center", gap: 11, flexShrink: 0 }}>
-            <div style={{ flexShrink: 0 }}><SalesCommandMark size={34} /></div>
-            {open && <AppWordmark size={13} />}
-          </div>
-
-          <div style={{ flex: 1, overflowY: "auto", padding: "8px 5px" }}>
-            {NAV.filter(n => (!n.roles || n.roles.includes(displayRole)) && (!n.flag || cfg[n.flag])).map(n => {
-              const on = !n.action && active === n.id;
-              return (
-                <button key={n.id} onClick={() => n.action === "directory" ? onOpenDirectory() : navigate(`/${n.id}`)} title={n.label} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: open ? "8px 11px" : "8px 14px", borderRadius: 7, border: "none", background: on ? C.tealGlow : "transparent", color: on ? C.teal : "rgba(255,255,255,0.42)", cursor: "pointer", textAlign: "left", marginBottom: 2, transition: "all 0.12s", fontFamily: F.display, borderLeft: on ? `2px solid ${C.teal}` : "2px solid transparent" }}
-                  onMouseEnter={e => { if (!on) { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "rgba(255,255,255,0.72)"; } }}
-                  onMouseLeave={e => { if (!on) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(255,255,255,0.42)"; } }}
-                >
-                  <span style={{ fontSize: 15, flexShrink: 0, width: 20, textAlign: "center" }}>{n.icon}</span>
-                  {open && <span style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{n.label}</span>}
-                </button>
-              );
-            })}
-          </div>
-
-          <div style={{ padding: "8px 5px", borderTop: `1px solid ${C.darkBorder}`, flexShrink: 0 }}>
-            <button onClick={() => setOpen(p => !p)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "7px 11px", borderRadius: 7, border: "none", background: "transparent", color: "rgba(255,255,255,0.28)", cursor: "pointer", fontFamily: F.display, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-              <span style={{ fontSize: 11 }}>{open ? "◀" : "▶"}</span>
-              {open && <span>Collapse</span>}
-            </button>
-            {open && (
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px 4px" }}>
-                <div style={{ width: 30, height: 30, borderRadius: "50%", background: C.tealGlow, border: `1.5px solid ${C.tealBorder}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11.5, fontWeight: 900, color: C.teal, flexShrink: 0, fontFamily: F.display }}>{displayInitials}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: "rgba(255,255,255,0.82)", fontFamily: F.display, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{displayName}</div>
-                  <div style={{ fontSize: 10.5, color: C.teal, fontFamily: F.ui, opacity: 0.65 }}>{displayRole}</div>
-                  <button onClick={signOut} style={{ marginTop: 4, fontSize: 10, fontFamily: "'DM Mono', monospace", fontWeight: 700, letterSpacing: "0.08em", color: "rgba(255,255,255,0.2)", background: "none", border: "none", cursor: "pointer", textTransform: "uppercase", padding: 0 }}>
-                    Sign out
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        <AppSidebar
+          open={open} setOpen={setOpen}
+          displayName={displayName} displayRole={displayRole}
+          displayInitials={displayInitials}
+          teamMember={teamMember} cfg={cfg}
+          onOpenDirectory={onOpenDirectory}
+        />
 
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div data-app-header style={{ height: 50, background: C.linenCard, borderBottom: `1px solid ${C.borderStrong}`, display: "flex", alignItems: "center", padding: "0 28px", justifyContent: "space-between", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textFaint, fontFamily: F.display }}>Sales Command</span>
-              <span style={{ color: C.border, fontSize: 14 }}>›</span>
-              <span style={{ fontSize: 13, fontWeight: 800, color: C.textHead, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: F.display }}>{NAV.find(n => n.id === active)?.label}</span>
+              {onSubconHome ? (
+                <span style={{ fontSize: 13, fontWeight: 800, color: C.textHead, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: F.display }}>Subcon Command Home</span>
+              ) : group ? (
+                <>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: C.textFaint, fontFamily: F.display }}>{group.label}</span>
+                  <span style={{ color: C.border, fontSize: 14 }}>›</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: C.textHead, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: F.display }}>{activeLabel}</span>
+                </>
+              ) : (
+                // Top-level global routes (/settings, /import) aren't under an app
+                // group — a single clean crumb, not the borrowed umbrella label.
+                <span style={{ fontSize: 13, fontWeight: 800, color: C.textHead, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: F.display }}>{activeLabel}</span>
+              )}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
 
@@ -350,7 +410,12 @@ function AppShell({ open, setOpen, displayName, displayRole, displayInitials, on
         <TOCOverlay
           currentPageId={getPageNumber(active, subPage)}
           onClose={() => setShowTOC(false)}
-          onNavigate={(chapterId) => { setSubPage(null); setShowTOC(false); navigate(`/${chapterId}`); }}
+          onNavigate={(chapterId) => {
+            setSubPage(null);
+            setShowTOC(false);
+            const target = resolveNavTarget(chapterId);
+            navigate(target?.path ?? "/");
+          }}
         />
       )}
     </>

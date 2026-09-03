@@ -14,6 +14,10 @@ export function SalesCommandMark({ size = 34 }) {
   );
 }
 
+// Umbrella wordmark for the Subcon Command shell (Phase 1). SUBCON white /
+// COMMAND teal. In-app sidebar only — the login/marketing wordmark is Phase 5.
+// [J4] "Command Suite" subline dropped: SUBCON COMMAND now names the umbrella
+// itself, so the subline was redundant.
 export function AppWordmark({ size = 13 }) {
   return (
     <div style={{ lineHeight: 1 }}>
@@ -25,18 +29,7 @@ export function AppWordmark({ size = 13 }) {
         textTransform: "uppercase",
         color: "#fff",
       }}>
-        Sales <span style={{ color: C.teal }}>Command</span>
-      </div>
-      <div style={{
-        fontFamily: F.display,
-        fontWeight: 600,
-        fontSize: 9,
-        letterSpacing: "0.18em",
-        textTransform: "uppercase",
-        color: "rgba(255,255,255,0.35)",
-        marginTop: 2,
-      }}>
-        Command Suite
+        Subcon <span style={{ color: C.teal }}>Command</span>
       </div>
     </div>
   );

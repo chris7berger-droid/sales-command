@@ -1,0 +1,126 @@
+SC Handoff v201 — Subcon Merge PHASE 4 BUILT (AR Command moves in) — cosmetic mount, HELD, owes gates
+Repo: sales-command   Branch: feat/schedule-merge-plan   Date: 2026-09-02
+=======================================================================
+Build/edit terminal artifact. This is a BUILD-ONLY handoff: Phase 4 is built and
+compiles green, but its four gates (/buildvsplan → /code-review → /security-review →
+preview smoke) have NOT run — the no-self-audit hook blocks them in this session by
+design. Hand each to its own cold terminal. DO NOT MERGE.
+
+Locked spec built to: docs/plans/schedule_into_sales_merge_PLAN.md §4 / §4a / §4b
+(§4b "PHASE 4 BUILD PLAN" + its "Round-1 audit amendment 2026-09-02" Findings A–F).
+
+SESSION SUMMARY
+---------------
+Resumed onto feat/schedule-merge-plan (Phases 1+2+3 held/complete) and built Phase 4
+— "AR Command moves in" — to the locked §4b spec. This is a COSMETIC MOUNT: mount the
+AR-Command-Center UI under the host shell at /ar/*, green→teal the accent, gate the group
+by `apps`. AR's data stays per-browser localStorage + Excel/CSV upload; wiring AR to live
+Supabase AR/aging data is a separate, larger effort explicitly OUT of this merge's scope.
+No DB, no migration, no RLS, no edge fn, no new dependency. Built on THIS branch and HELD
+for the one-flip rollout (the whole suite lights up in one entitlement change at the very
+end). Filed one adjacent backlog row (B73). npm run build is green. Gates owed.
+
+CHANGES SHIPPED (this session, on feat/schedule-merge-plan)
+----------------------------------------------------------
+- 830d535  Phase 4: AR Command moves in — cosmetic mount, held.
+
+The single commit does all six moves from §4b:
+1. Moved AR-Command-Center/src/{components,lib,pages,assets} → src/ar/*.
+   DROPPED (never copied): main.jsx, App.jsx, lib/supabase.js (dead client, 0 importers
+   — grep-verified before and after: `grep -rn supabase src/ar` returns nothing).
+2. New src/ar/ARLayout.jsx — mirrors src/field/FieldLayout.jsx + src/schedule/ScheduleLayout.jsx:
+   - wraps <ARProvider> (AR's localStorage context, kept whole) inside <div className="ar-root">;
+   - scoped <style> for the CROSSHATCH ONLY: `.ar-root::before` = AR's body::before gradient
+     stack ported verbatim, re-anchored position:absolute; inset:0; z-index:0; pointer-events:none,
+     plus `.ar-root{position:relative}`. Host GLOBAL_CSS is NOT touched (Finding B, Option 1 —
+     subtree-scoped, ratified). Full AR GLOBAL_CSS is NOT injected (host reset covers the rest).
+   - nested <Routes>: index→<Navigate to="triage" replace/>, path=":tab"→<Dashboard/>,
+     path="*"→<Navigate to="triage" replace/> (Finding A backstop).
+   - Upload gate ABOVE <Routes>: loadAll() on mount; !loaded→return null; !customers.length→<Upload/>;
+     else the routes. Empty localStorage at /ar/health still shows Upload.
+   - receives host `teamMember` prop (passed-but-unused; `void teamMember;` — signature uniform).
+3. src/ar/pages/Dashboard.jsx — URL-driven tabs:
+   - const { tab } = useParams(); const activeTab = tab ?? "triage"; (Finding A — restores the
+     old useState("triage") always-a-value guarantee so Export/Topbar never no-op).
+   - Topbar onTabChange AND DirectoryOverlay onNavigate now call goTab(id) =
+     navigate("/ar/" + (TAB_IDS.includes(id) ? id : "triage")) — TAB_IDS = the 6 tab ids, so a
+     Directory chapter id like "upload" maps to triage instead of a routeless /ar/upload (Finding C).
+   - Removed the useState activeTab (useState still imported — used by other state).
+4. Host src/App.jsx — added, mirroring the /field/* line:
+   <Route path="/ar/*" element={<GroupGuard app="ar" teamMember={teamMember}><ARLayout teamMember={teamMember}/></GroupGuard>} />
+   plus `import ARLayout from "./ar/ARLayout";`.
+5. Host src/lib/nav.js — AVAILABLE_APPS += "ar"; filled GROUPS[ar].items from the §4a table
+   (triage/aging/action/health/cff/invoices — label ≠ id: "Dashboard"=aging, "Chase"=action);
+   changed group home from placeholder /ar/home → /ar/triage (Finding A one-liner).
+6. src/ar/lib/tokens.js — green→teal EXACT hexes (Finding D):
+   pop #5BBD3F→#30cfac · popDim rgba(91,189,63,0.15)→rgba(48,207,172,0.12) ·
+   popDark #3D8A2A→#1a8a72 · popDeep #2D6B1E→#0d5c4d · green #43a047 LEFT (0 consumers).
+
+DECISIONS
+---------
+- Scoped <style> in ARLayout is rendered as a JSX <style> element inside .ar-root (auto-cleans
+  on unmount, no document.head pollution) rather than AR's original useEffect head-injection.
+  Selectors are .ar-root-scoped so it cannot leak to host pages. This matches "minimal scoped
+  <style> for the crosshatch" in §4b step 2.
+- assets/ (only vite.svg, 0 importers) moved along with the rest per §4b step 1; harmless.
+- Finding F (one-frame return-null flash on cross-group re-entry into /ar) accepted/WONTFIX per
+  the amendment — solo user, cosmetic. Not addressed.
+
+NEW / CHANGED BACKLOG ITEMS
+---------------------------
+- B73 (T4, Open) FILED — AR print/export output stays green after the on-screen swap:
+  src/ar/lib/exportUtils.js:19,21,114 hardcode #5BBD3F in the generated Accountant-Review /
+  Print HTML (header h1, header .total, Total-Open scorecard value). On-screen is teal, paper
+  is green. Pre-existing self-contained-print-CSS pattern, NOT caused by the CSS drop — this is
+  the §4b "Adjacent" finding, filed as agreed. Fix = swap the 3 literals to #30cfac. Low priority.
+
+VERIFICATION
+------------
+- npm run build: GREEN (651 modules transformed, built in ~1.1s, no errors; only the
+  pre-existing >500kB chunk-size advisory).
+- grep -rn supabase src/ar → nothing (dead client fully gone, no dangling importer).
+- NOT run in this terminal (by design — no-self-audit hook): /buildvsplan, /code-review,
+  /security-review, and the preview smoke. No browser smoke performed here.
+
+NOT TOUCHED (out of scope)
+--------------------------
+- Wiring AR to live Supabase AR/invoices/aging data — AR's own backend phase, OUT of scope.
+- AR Directory/PageBadge overlay internals — only onNavigate was repointed to the URL.
+- Host GLOBAL_CSS — deliberately not edited (Finding B Option 2 rejected).
+- The entitlement flip — HDSP tenant_config.apps stays ["sales"]; member apps unchanged.
+  AR group is NOT authorized until the final one-flip rollout.
+- No merge. Phase 4 stacks on 1+2+3 on feat/schedule-merge-plan.
+
+NEXT SESSION POINTERS
+---------------------
+1. Run the gates, each in its OWN cold terminal, on feat/schedule-merge-plan (this is the
+   T4→T5→T6 chain; this build terminal must not run them):
+   - /buildvsplan against §4b (spec-vs-code punch-list).
+   - /code-review (expect the B73 export-green residue to surface — already filed, don't re-fix here).
+   - /security-review (§4b "For the security-review terminal": AR adds no grant/migration/
+     service-role/token; dead supabase.js removed; AR data client-local, no RLS/anon surface;
+     multi-tenant isolation stays F7-gated).
+2. Preview smoke: temporarily set tenant_config.apps=["sales","ar"] + flip a member's apps to
+   light the AR group, run the §4b smoke checklist (/ar→Triage; each sidebar item deep-links its
+   tab; sidebar+Topbar highlight in sync; Excel/CSV upload → Dashboard populates + grand total;
+   Export/"Accountant Review" work; Upload shows on empty localStorage; no CSS leak either way;
+   accents teal not green), then REVERT the flip after.
+3. Do NOT merge until the whole suite is ready for the single entitlement flip.
+
+FILES TO KNOW
+-------------
+- src/ar/ARLayout.jsx ......... new — the mount point (mirror of Field/Schedule layouts).
+- src/ar/pages/Dashboard.jsx .. URL-driven tabs (useParams/navigate/TAB_IDS guard).
+- src/ar/lib/tokens.js ........ teal token values (pop/popDim/popDark/popDeep).
+- src/ar/lib/exportUtils.js ... B73 lives here (3 hardcoded #5BBD3F greens in print HTML).
+- src/App.jsx ................. /ar/* route + ARLayout import.
+- src/lib/nav.js .............. AVAILABLE_APPS + GROUPS[ar] + home /ar/triage.
+- docs/plans/schedule_into_sales_merge_PLAN.md §4/§4a/§4b — the locked spec.
+
+GIT STATE
+---------
+- Branch: feat/schedule-merge-plan (tracks origin/feat/schedule-merge-plan).
+- HEAD: 830d535 "Phase 4 (Subcon merge): AR Command moves in — cosmetic mount, held".
+- Working tree: clean after this handoff is committed.
+- NOT pushed by the build (this handoff commit may be pushed at close per session norm).
+- NOT merged to main.

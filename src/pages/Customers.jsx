@@ -812,13 +812,13 @@ export default function Customers({ setSubPage }) {
       <>
         <CustomerDetail
           customer={viewing}
-          onBack={() => navigate("/customers")}
+          onBack={() => navigate("/sales/customers")}
           onEdit={() => setEditing(viewing)}
-          onNavigateJob={(job) => navigate(`/calllog/${job.id}`)}
-          onNavigateProposal={(id) => navigate(`/proposals/${id}`)}
-          onNavigateInvoice={(id) => navigate(`/invoices/${id}`)}
-          onDeleted={() => { setViewing(null); navigate("/customers"); load(); }}
-          onMerged={(survivorId) => { setViewing(null); navigate(`/customers/${survivorId}`); load(); }}
+          onNavigateJob={(job) => navigate(`/sales/calllog/${job.id}`)}
+          onNavigateProposal={(id) => navigate(`/sales/proposals/${id}`)}
+          onNavigateInvoice={(id) => navigate(`/sales/invoices/${id}`)}
+          onDeleted={() => { setViewing(null); navigate("/sales/customers"); load(); }}
+          onMerged={(survivorId) => { setViewing(null); navigate(`/sales/customers/${survivorId}`); load(); }}
         />
         {editing && (
           <CustomerModal
@@ -867,7 +867,7 @@ export default function Customers({ setSubPage }) {
             { k: "billing_terms",  l: "Terms",         r: v => termsLabel(v) },
           ]}
           rows={search ? customers.filter(c => matchSearch(c, search)) : customers}
-          onRow={row => navigate(`/customers/${row.id}`)}
+          onRow={row => navigate(`/sales/customers/${row.id}`)}
         />
       )}
 

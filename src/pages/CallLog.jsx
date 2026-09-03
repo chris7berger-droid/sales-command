@@ -193,16 +193,16 @@ export default function CallLog({ teamMember, setSubPage }) {
           job={selJob}
           teamMembers={team}
           workTypes={workTypes}
-          onBack={() => navigate(navState.from === "/home" ? "/home" : "/calllog")}
-          onSaved={() => { refreshAlerts(); navigate(navState.from === "/home" ? "/home" : "/calllog"); load(); }}
+          onBack={() => navigate(navState.from === "/sales/home" ? "/sales/home" : "/sales/calllog")}
+          onSaved={() => { refreshAlerts(); navigate(navState.from === "/sales/home" ? "/sales/home" : "/sales/calllog"); load(); }}
           onJobRefresh={() => load()}
-          onDeleted={() => { navigate("/calllog"); load(); }}
+          onDeleted={() => { navigate("/sales/calllog"); load(); }}
           teamMember={teamMember}
-          onNewProposal={() => navigate("/proposals", { state: { newJob: selJob } })}
+          onNewProposal={() => navigate("/sales/proposals", { state: { newJob: selJob } })}
           onAddCO={() => setCoParent(selJob)}
-          onNavigateProposal={id => navigate(`/proposals/${id}`)}
-          onNavigateInvoice={id => navigate(`/invoices/${id}`)}
-          onNavigateCustomer={custId => navigate(`/customers/${custId}`)}
+          onNavigateProposal={id => navigate(`/sales/proposals/${id}`)}
+          onNavigateInvoice={id => navigate(`/sales/invoices/${id}`)}
+          onNavigateCustomer={custId => navigate(`/sales/customers/${custId}`)}
         />
       </>
     );
@@ -365,7 +365,7 @@ export default function CallLog({ teamMember, setSubPage }) {
             <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(243,237,225,0.92)", fontFamily: F.ui }}>
               {leadCount} open lead{leadCount !== 1 ? "s" : ""} from paid marketing waiting to be worked
             </span>
-            <button onClick={() => navigate("/leads")} style={{ marginLeft: "auto", background: C.teal, color: C.dark, border: "none", borderRadius: 8, padding: "7px 16px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+            <button onClick={() => navigate("/sales/leads")} style={{ marginLeft: "auto", background: C.teal, color: C.dark, border: "none", borderRadius: 8, padding: "7px 16px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: F.display, letterSpacing: "0.05em", textTransform: "uppercase" }}>
               Review Leads →
             </button>
           </div>
@@ -410,7 +410,7 @@ export default function CallLog({ teamMember, setSubPage }) {
         {bidDueFilter && (
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: "rgba(249,168,37,0.12)", border: "1.5px solid rgba(249,168,37,0.4)", borderRadius: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: "#7a5000" }}>⚠ Showing bids due today only</span>
-            <button onClick={() => navigate("/calllog", { replace: true })} style={{ background: "none", border: "1.5px solid rgba(249,168,37,0.5)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: "#7a5000", cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
+            <button onClick={() => navigate("/sales/calllog", { replace: true })} style={{ background: "none", border: "1.5px solid rgba(249,168,37,0.5)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: "#7a5000", cursor: "pointer", fontFamily: "inherit" }}>✕ Show All</button>
           </div>
         )}
         {digFilter && (
@@ -474,7 +474,7 @@ export default function CallLog({ teamMember, setSubPage }) {
               cols={[
                 { k: "job_number", l: "Job #", r: (v, row) => (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: F.display, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onClick={() => navigate(`/calllog/${row.id}`)}>{(() => { const djn = row.display_job_number || String(v); const idx = djn.indexOf(" - "); return idx > -1 ? (<><span style={{ fontWeight: 600, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{djn.slice(0, idx)}</span><span style={{ fontWeight: 500, color: C.textMuted }}>{djn.slice(idx + 3)}</span></>) : <span style={{ fontWeight: 600, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{djn}</span>; })()}</span>
+                    <span style={{ fontFamily: F.display, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }} onClick={() => navigate(`/sales/calllog/${row.id}`)}>{(() => { const djn = row.display_job_number || String(v); const idx = djn.indexOf(" - "); return idx > -1 ? (<><span style={{ fontWeight: 600, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{djn.slice(0, idx)}</span><span style={{ fontWeight: 500, color: C.textMuted }}>{djn.slice(idx + 3)}</span></>) : <span style={{ fontWeight: 600, color: C.teal, background: C.dark, padding: "3px 10px", borderRadius: 6, fontSize: 13, letterSpacing: "0.08em" }}>{djn}</span>; })()}</span>
                     {row.is_change_order && (
                       <span style={{ fontSize: 10.5, fontWeight: 700, background: "rgba(142,68,173,0.12)", color: "#5b2d7a", padding: "2px 7px", borderRadius: 10, fontFamily: F.ui }}>CO</span>
                     )}
@@ -507,7 +507,7 @@ export default function CallLog({ teamMember, setSubPage }) {
                 { k: "bid_due", l: "Bid Due", r: v => <span style={{ color: over(v) ? C.red : C.textBody, fontWeight: 500 }}>{fmtD(v)}</span> },
                 { k: "follow_up", l: "Follow Up", r: v => v ? <span style={{ color: over(v) ? C.red : C.textBody }}>{fmtD(v)}</span> : <span style={{ color: C.textFaint }}>—</span> },
                 { k: "_a", l: "", sortable: false, r: (_, row) => (
-                  <Btn sz="sm" v="secondary" onClick={() => navigate(`/calllog/${row.id}`)}>View</Btn>
+                  <Btn sz="sm" v="secondary" onClick={() => navigate(`/sales/calllog/${row.id}`)}>View</Btn>
                 )},
               ]}
               rows={filtered}

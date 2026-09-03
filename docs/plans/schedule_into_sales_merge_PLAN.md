@@ -1052,14 +1052,27 @@ decision #1's intent by finding nothing to do, not by ignoring it.)
   (one-liner: §5f should say the *marketing* hosts are served in-app, only the *old legacy* domains forward).
   Filed **B76**.
 
-### AM-7 · [DESIGN-OPEN] The real homepage (`scmybiz.com/` = `LandingPage`) — rename or keep? (audit G)
+### AM-7 · Homepage → serve the Subcon Command `/suite` page at the root (RESOLVED 2026-09-03, Chris)
 
-The live homepage a prospect hits at `scmybiz.com/` renders **`LandingPage.jsx`**, which is **100%
-"Sales Command"** (product landing). The separate `/suite` page (`SubConCommandPage`) is the "Subcon
-Command" suite marketing. §5d's "any 'Sub Con Command' in LandingPage" clause is a confirmed **no-op**
-(there is none — it's all "Sales Command"). **Decision needed before build:** does the homepage stay a
-**Sales Command** product page (Subcon Command lives only at `/suite`), or does the homepage **become
-Subcon Command** too? This is a marketing call, not mechanical — **the one open item gating build.**
+The live homepage at `scmybiz.com/` renders **`LandingPage.jsx`** (100% "Sales Command"); the "Subcon
+Command" suite marketing lives at `/suite` (`SubConCommandPage`). **Chris's call: make `scmybiz.com/`
+load the Subcon Command page** — replace the front door rather than rewrite the old one. Resolves audit
+finding G (the "rename LandingPage copy" work becomes moot — that page leaves the route tree).
+
+**Spec:**
+- **`src/App.jsx:223`** (logged-OUT tree): change the catch-all `<Route path="*" element={<LandingPage />} />`
+  → `element={<SubConCommandPage />}`. Now a logged-out visitor to `scmybiz.com/` (any non-matched path)
+  gets the Subcon Command page. `/suite` (`:216`) stays as an alias of the same page (or redirect `/suite`→`/`
+  later — cosmetic, not required).
+- **`LandingPage.jsx` becomes dead** (line 223 was its only route ref) — its "Sales Command" copy +
+  `:363` "© Sales Command" footer no longer render to anyone. Remove the import + file, or leave it
+  unrouted (build session's call; removing is cleaner). This **dissolves the LandingPage half of C2**.
+- **Unchanged:** logged-IN root (`:292` `/` → `SubconHome`) and the `sccmybiz.com` host route (`:116`)
+  already serve the right thing. `FeatureDetailPage` (`/features/:slug`, `:217`) **stays reachable** from
+  the marketing page's "See All Products", so its `:447` "© Sales Command" footer **still needs the C2
+  entity/brand ruling** (AM-4) — it did not go away.
+
+**No open items remain — the plan is build-ready.**
 
 ### §5 revised finish line (supersedes §5h)
 

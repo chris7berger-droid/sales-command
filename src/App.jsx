@@ -36,6 +36,7 @@ import Archive from "./pages/Archive";
 import { GROUPS, SUBCON_HOME, SETTINGS, groupVisible, sectionFromPath, groupFromPath, resolveNavTarget } from "./lib/nav";
 import ScheduleLayout from "./schedule/ScheduleLayout";
 import FieldLayout from "./field/FieldLayout";
+import ARLayout from "./ar/ARLayout";
 
 function Placeholder({ label }) {
   return (
@@ -312,6 +313,11 @@ function SalesCommandApp() {
               {/* Field Command — group-guarded /field/* (Phase 3). FieldLayout owns
                   its own nested <Routes> for the 6 view-only office screens. */}
               <Route path="/field/*" element={<GroupGuard app="field" teamMember={teamMember}><FieldLayout teamMember={teamMember} /></GroupGuard>} />
+
+              {/* AR Command — group-guarded /ar/* (Phase 4). ARLayout owns its own
+                  nested <Routes> (/ar/:tab) + localStorage-backed ARProvider. Cosmetic
+                  mount: AR data stays client-local until its own backend phase. */}
+              <Route path="/ar/*" element={<GroupGuard app="ar" teamMember={teamMember}><ARLayout teamMember={teamMember} /></GroupGuard>} />
 
               {/* Legacy flat Sales URLs → /sales/* (external bookmarks/emailed links) */}
               <Route path="/home" element={<LegacyRedirect base="home" />} />

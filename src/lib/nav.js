@@ -6,7 +6,7 @@ export const SUBCON_HEADER = "SUBCON COMMAND"; // sidebar wordmark: SUBCON white
 
 // Which app groups are actually mounted THIS phase. Grow by one line per phase.
 // Phase 1 → ["sales"]; Phase 2 → +"schedule"; Phase 3 → +"field"; Phase 4 → +"ar".
-export const AVAILABLE_APPS = ["sales", "schedule", "field"];
+export const AVAILABLE_APPS = ["sales", "schedule", "field", "ar"];
 
 export const GROUPS = [
   { app: "sales", label: "Sales Command", prefix: "/sales", home: "/sales/home", icon: "🧾", items: [
@@ -40,7 +40,14 @@ export const GROUPS = [
     { id: "dailylogs", label: "Daily Logs", path: "/field/dailylogs", icon: "📓" },
     { id: "loadouts",  label: "Load-Outs",  path: "/field/loadouts",  icon: "📦" }, // opens Schedule's LoadOutModal — same component (Beat 1b)
   ]},
-  { app: "ar", label: "AR Command", prefix: "/ar", home: "/ar/home", icon: "💰", items: [/* Phase 4, from §4 table */] },
+  { app: "ar", label: "AR Command", prefix: "/ar", home: "/ar/triage", icon: "💰", items: [
+    { id: "triage",   label: "Triage",       path: "/ar/triage",   icon: "🩺" },
+    { id: "aging",    label: "Dashboard",    path: "/ar/aging",    icon: "📊" }, // label ≠ id (§4a)
+    { id: "action",   label: "Chase",        path: "/ar/action",   icon: "📞" }, // label ≠ id (§4a)
+    { id: "health",   label: "Health Check", path: "/ar/health",   icon: "❤️" },
+    { id: "cff",      label: "Cash Flow",    path: "/ar/cff",      icon: "💧" },
+    { id: "invoices", label: "Invoices",     path: "/ar/invoices", icon: "🧾" },
+  ]},
 ];
 
 // [R1-D] The single visibility predicate — used by BOTH the sidebar group AND the Subcon Home quadrant

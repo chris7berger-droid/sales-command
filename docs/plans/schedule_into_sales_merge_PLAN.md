@@ -701,10 +701,14 @@ Phase 4 planning; don't let "moves in" imply the data is live.
   `package.json`. Host `xlsx` (sheetjs `0.20.3`) supersedes AR's npm `0.18.5`; AR uses only `XLSX.read`
   + `sheet_to_json`, present in both. `@supabase/supabase-js` is referenced **only** by the dead client
   being deleted. Nothing to add.
-- **No CSS fence needed** (unlike Schedule's 6.6k-line `App.css`). AR is almost entirely **inline-styled**;
-  its only global CSS is `lib/tokens.js` `GLOBAL_CSS` — the SAME family as the host reset (linen bg,
-  crosshatch `body::before`, Barlow fonts, teal scrollbar, autofill override). → **Drop AR's `GLOBAL_CSS`
-  injection**; the host's global CSS already covers `*`/`body`/fonts/scrollbar/autofill.
+- **Near-zero CSS fence** (unlike Schedule's 6.6k-line `App.css`). AR is almost entirely **inline-styled**;
+  its only global CSS is `lib/tokens.js` `GLOBAL_CSS`. The host reset covers most of it (`*`/fonts/scrollbar/
+  autofill/`body` bg) so AR's `GLOBAL_CSS` injection is **dropped** — with **ONE exception the Round-1 audit
+  caught**: the host has **no `body::before`**, so AR's crosshatch linen texture would vanish (every AR
+  screen renders flat, violating [[feedback_linen_texture]]). → keep a **minimal scoped rule on a
+  `.ar-root` wrapper** for the crosshatch only (Finding B, §4b amendment). Bare-heading font rule NOT
+  needed — grep-confirmed AR has zero bare `<h1>–<h4>` (its only `<h2>` carries inline `F.display`;
+  Finding E = no-op).
 
 **⚠️ Scope reality check — Phase 4 is a COSMETIC MOUNT, not a data integration.** "AR moves in" =
 mount the UI under `/ar/*`, green→teal the accent, gate the group by `apps`. AR data stays
@@ -717,19 +721,37 @@ only behind the host login + `ar` entitlement — but its data is still client-l
 1. `AR-Command-Center/src/{components,lib,pages,assets}` → `sales-command/src/ar/*`. **DROP**
    `main.jsx`, `App.jsx`, `lib/supabase.js` (host owns entry + client; the AR client is dead).
 2. **New `src/ar/ARLayout.jsx`** (mirror `FieldLayout`/`ScheduleLayout`) — replaces AR's dropped `App.jsx`:
-   - wraps `<ARProvider>` (its localStorage-backed context, kept whole);
-   - does **NOT** inject `GLOBAL_CSS` (host already provides reset/linen/fonts/scrollbar);
-   - owns a nested `<Routes>`: `path="/"` and `path=":tab"` both → `<Dashboard/>`;
-   - keeps AR's Upload gate: `loadAll()` on mount → `if (!loaded) return null; if (!customers.length) return <Upload/>; return <Dashboard/>`.
+   - wraps `<ARProvider>` (its localStorage-backed context, kept whole) inside a `<div className="ar-root">`;
+   - does **NOT** inject the full `GLOBAL_CSS`, BUT **does** attach a minimal scoped `<style>` for the
+     crosshatch: `.ar-root::before { <AR's body::before gradient stack, ported verbatim>; position:absolute;
+     inset:0; z-index:0; pointer-events:none }` + `.ar-root { position:relative }` (Finding B — Option 1,
+     subtree-scoped; **DO NOT edit host `GLOBAL_CSS`**). AR content already sits at `z-index:1` above it
+     (`Dashboard.jsx:49`, `Upload.jsx:51`), so it layers correctly.
+   - owns a nested `<Routes>` — **hardened defaults (Finding A):**
+     `<Route index element={<Navigate to="triage" replace/>}/>` +
+     `<Route path=":tab" element={<Dashboard/>}/>` +
+     `<Route path="*" element={<Navigate to="triage" replace/>}/>` (mirror `FieldLayout.jsx:18,25`). This
+     guarantees bare `/ar` and any stray `/ar/<junk>` land on Triage instead of a blank grey page.
+   - keeps AR's Upload gate ABOVE the `<Routes>`: `loadAll()` on mount → `if (!loaded) return null;
+     if (!customers.length) return <Upload/>; return <Routes>…`. (Empty localStorage at `/ar/health`
+     still shows Upload — the gate precedes routing.)
    - receives host `teamMember` prop for signature uniformity (AR reads none of it today — passed-but-unused, fine).
-3. **`pages/Dashboard.jsx`** — derive `activeTab` from `useParams().tab` (default `"triage"`); make the
-   Topbar tab clicks AND the `DirectoryOverlay` `onNavigate` call `navigate('/ar/'+id)` instead of
-   `setActiveTab`. This puts AR's own tab bar and the host sidebar's `GROUPS[ar].items` on **one URL
-   source**, so both highlight in sync (the §4a minimal `/ar/:tab` add, no router rewrite).
+3. **`pages/Dashboard.jsx`** — **Finding A:** derive tab defensively — `const { tab } = useParams();
+   const activeTab = tab ?? "triage";` (`useParams` can be undefined; the old `useState("triage")`
+   guaranteed a value — the `??` restores that guarantee so the Export button + Topbar label never no-op).
+   Make the Topbar tab clicks AND the `DirectoryOverlay` `onNavigate` call `navigate('/ar/'+id)` instead of
+   `setActiveTab`. **Finding C:** the Directory passes chapter ids (`Directory.jsx:258` → `ch.id`), which
+   include non-tab values like `"upload"` — guard before navigating: `navigate('/ar/' + (TAB_IDS.includes(id)
+   ? id : 'triage'))` (TAB_IDS = the 6 tab ids), so a chapter click never lands on `/ar/upload` (blank +
+   unhighlightable sidebar). This puts AR's own tab bar and the host sidebar's `GROUPS[ar].items` on **one
+   URL source**, so both highlight in sync (the §4a minimal `/ar/:tab` add, no router rewrite).
 4. **Host `src/App.jsx`** — add, mirroring the `/field/*` line:
    `<Route path="/ar/*" element={<GroupGuard app="ar" teamMember={teamMember}><ARLayout teamMember={teamMember}/></GroupGuard>} />`
 5. **Host `src/lib/nav.js`** — `AVAILABLE_APPS += "ar"`; fill `GROUPS[ar].items` from the table below;
-   fix the group `home` from the placeholder `/ar/home` → **`/ar/triage`** (the default tab).
+   **(Finding A — do NOT skip, this is the one-liner that stops a blank page):** in the SAME edit, change
+   the group `home` from the placeholder `/ar/home` → **`/ar/triage`**. `/ar/home` has no route/tab; leaving
+   it makes the "AR Command" sidebar header click land on a dead grey page. (The ARLayout index redirect in
+   step 2 is the backstop, but `home` must still point at a real tab so the header link is correct.)
 
 **`GROUPS[ar].items`** (from §4a; note label ≠ id — "Dashboard"=`aging`, "Chase"=`action`):
 
@@ -743,11 +765,16 @@ only behind the host login + `ar` entitlement — but its data is still client-l
 | `invoices` | Invoices | `/ar/invoices` |
 
 **Token reconciliation (Beat 5 green→teal) — DO in build (small + safe here, unlike Schedule's deferred sweep):**
-- `src/ar/lib/tokens.js`: `pop #5BBD3F → #30cfac`, and `popDark`/`popDim`/`popDeep`/`green` → teal
-  equivalents. AR uses `C.pop` almost only as **accent text/border on DARK backgrounds** (Topbar brand,
-  active tab underline, totals) — teal-on-dark IS the brand rule, no white/black-on-teal risk. **Code-review
-  must confirm** any spot where `pop` is a **fill** (e.g. `Scorecards`) still reads correctly (teal is
-  darker than green — check text contrast on those fills).
+- `src/ar/lib/tokens.js` — **Finding D: exact hexes pinned (no "→ equivalents" guessing → no drift):**
+  - `pop`     `#5BBD3F` → **`#30cfac`**
+  - `popDim`  `rgba(91,189,63,0.15)` → **`rgba(48,207,172,0.12)`**
+  - `popDark` `#3D8A2A` → **`#1a8a72`**
+  - `popDeep` `#2D6B1E` → **`#0d5c4d`**
+  - `green`   `#43a047` → **leave as-is** (grep-confirmed 0 consumers; recoloring it is dead churn).
+- AR uses `C.pop` almost only as **accent text/border on DARK backgrounds** (Topbar brand, active tab
+  underline, totals) — teal-on-dark IS the brand rule, no white/black-on-teal risk. **Audit verified clean:**
+  zero white-text-on-teal introduced (Topbar active tab = white text + teal underline; HealthCheck bar is
+  text-free) — the "pop-as-fill contrast" worry did not materialize, no code-review action needed there.
 
 **Phase 4 does NOT:**
 - Wire AR to live Supabase data (AR's backend phase — out of scope).
@@ -773,6 +800,35 @@ on THIS branch. DO NOT MERGE.
 `supabase.js` removes a stray `createClient` (0 importers, build-safe); AR data is client-local (no RLS
 surface, no anon exposure). Multi-tenant isolation stays F7-gated — AR's localStorage store is not a
 cross-tenant DB surface, so nothing new to flag there.
+
+#### ▶ Round-1 audit amendment — 2026-09-02 (2 agents · 2H/3M/1L · pattern: prose-defaults-not-hardened)
+
+The Round-1 audit found no data/security/scope issues — only that §4b stated safe defaults in prose but
+didn't harden them in the spec. All six are folded into the body above (integrated, not bolted on); this
+block is the audit trail of what changed:
+- **A (High) — routing defaults hardened:** `nav.js` `home → /ar/triage` (step 5) + ARLayout index/`*`
+  `<Navigate to="triage">` backstop (step 2) + `Dashboard` `activeTab = useParams().tab ?? "triage"` (step 3).
+  Kills the blank-grey-page-on-AR-header-click and the bare-`/ar` Export no-op.
+- **B (High) — crosshatch linen preserved:** host has no `body::before`; keep AR's gradient on a scoped
+  `.ar-root::before` (step 2 + pre-flight). **Design call ratified: Option 1** (subtree-scoped wrapper,
+  mirrors `.schedule-root`) — NOT edited into host `GLOBAL_CSS` (Option 2 rejected: it would repaint behind
+  every live Sales page for a cosmetic AR gap, out of Phase-4 scope).
+- **C (Med) — `onNavigate` guarded:** map non-tab chapter ids (`"upload"`) → `triage` before navigate (step 3).
+- **D (Med) — teal hexes pinned:** exact values in the token step (no "equivalents" drift).
+- **E (Med) — no-op, confirmed:** grep found zero bare `<h1>–<h4>` in AR → no `h1–h4` scoped rule needed.
+- **F (Low) — accepted/WONTFIX:** ARLayout wraps `<ARProvider>`, so re-entering `/ar/*` from another group
+  remounts it → a one-frame `return null` flash while the sidebar already highlights AR. React Router keeps
+  ARLayout mounted across tab changes *within* `/ar`, so this only fires on cross-group re-entry — solo user,
+  cosmetic. Accept. (If it ever annoys: hoist `ARProvider` above the per-group route.)
+- **Adjacent (backlog, NOT this revision):** `ar/lib/exportUtils.js:19,21,114` hardcode `#5BBD3F` in
+  generated print HTML — on-screen goes teal but Accountant-Review/Print output stays green. Pre-existing,
+  not caused by the CSS drop. Filed as a `docs/BACKLOG.md` row (screen/paper color parity); swap the 3
+  literals if/when it matters.
+
+Verified-clean by the audit (no action): react-router 0 imports · dead `supabase.js` delete build-safe ·
+no `var(--)` deps · no local `C` object · xlsx `0.18.5→0.20.3` API parity · `GroupGuard app="ar"` +
+`teamMember` threading already generic in host · no white-on-teal introduced · autofill/scrollbar host
+parity exact. **No re-audit needed** unless Finding B's approach changes (it didn't).
 
 ---
 

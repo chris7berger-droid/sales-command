@@ -845,14 +845,116 @@ parity exact. **No re-audit needed** unless Finding B's approach changes (it did
 
 ---
 
-## 5. PHASE 5 — THE NAME + ADDRESSES
+## 5. PHASE 5 — THE NAME + ADDRESSES  (final build target)
 
-Last (Beat 8). Umbrella **stays at `scmybiz.com`** (no domain move). `subconcommand.com` +
-`sccmybiz.com` forward to it; old `schmybiz.com` / `schedulecommand.com` / `salescommand.app` → umbrella.
-- Login wordmark → Subcon Command; rewrite `/suite` (`SubConCommandPage.jsx`, still says "Sub Con Command").
-- Sweep the ~25 hardcoded URL refs (edge fns + email links included): `salescommand.app` ×17,
-  `schedulecommand.com` ×3, `schmybiz.com` ×2, `scmybiz.com` ×5, `sccmybiz.com` ×1.
-- Customer token links (`/sign/:token`, `/invoice/:token`) **never move** → old emails keep working.
+Last phase (Beat 8, LOCKED). The whole product becomes **Subcon Command** everywhere it shows, and
+the old web addresses get pointed at the one real address. No new features, no data changes.
+
+> **Plan pass — 2026-09-03 (Chris, plain-English decisions locked this session):**
+> 1. **Rename scope = everything.** Rename "Sales Command" both where people see it (login, marketing
+>    page, emails) AND in the hidden code notes (comments) — stale names cause confusion later. **One
+>    protected exception:** the `"sales"` *group id / tab* stays `sales` (Beat 8 names the sections
+>    Sales / Schedule / Field / AR). Careful edits, **never a blind find-and-replace.**
+> 2. **Fix email link-targets NOW, ahead of the merge** — safe, they only repoint to the address
+>    customers already use. **The email *sender* address is a separate, careful step** (see §5c trap).
+> 3. **Logo = keep both** — the "Command Suite" subline and the "SC" badge both stay on the
+>    login/marketing logo.
+
+### 5a. Ground truth (verified against code, 2026-09-03)
+
+Real counts (the old "~25" estimate was low):
+- **Web-address refs:** `salescommand.app` ×28 · `scmybiz.com` ×8 · `schmybiz.com` ×4 · `schedulecommand.com` ×3 · `sccmybiz.com` ×2 · `subconcommand.com` ×0.
+- **Brand-name text:** `"Sales Command"` ×68 across ~30 files (login, `/suite` marketing, email bodies,
+  Settings, plus hidden code comments and moved-in `schedule/` comments).
+- **Umbrella stays `scmybiz.com`** — no domain move. `subconcommand.com` + `sccmybiz.com` forward in;
+  old `schmybiz.com` / `schedulecommand.com` / `salescommand.app` forward to it.
+- **Customer token links (`/sign/:token`, `/invoice/:token`) NEVER move** — old already-sent emails keep working.
+
+### 5b. The web-address sweep — split into THREE buckets by risk
+
+The refs are not all the same thing. Sorting them is the whole safety of this phase.
+
+**Bucket A — LINK TARGETS (where a button/link points). SAFE to fix now, deploy ahead of merge.**
+Repoint each to `https://www.scmybiz.com`. These are what a customer clicks:
+| File | Line | What it is |
+|---|---|---|
+| `src/components/ProposalPDFModal.jsx` | 74 | proposal signing link `…/sign/{token}` |
+| `supabase/functions/send-invoice/index.ts` | 12 | `SITE_URL` (invoice email links) |
+| `supabase/functions/create-billing-session/index.ts` | 13 | `SITE_URL` |
+| `supabase/functions/_shared/repNotify.ts` | 20 | `SITE_URL` (internal rep-notify links) |
+| `supabase/functions/invite-user/index.ts` | 125, 168 | invite redirect + "log in at" link |
+| `supabase/functions/reset-password/index.ts` | 68 | reset redirect (Sales branch) |
+| `src/pages/SubConCommandPage.jsx` | 12,113,151,193,370,418 | marketing "Enter App" buttons |
+> `send-proposal/index.ts:120` already uses `www.scmybiz.com` — leave it. Signing/invoice **token
+> routes themselves do not change** — only the domain in front of them.
+
+**Bucket B — SENDER "FROM" ADDRESS (`noreply@salescommand.app`). DO NOT touch in this phase — see §5c.**
+`PayAppDetailModal.jsx:353`, `Invoices.jsx:1012`, `stripe-webhook:47`, `send-pay-app:323`,
+`send-invoice:281`, `invite-user:153`, `send-proposal:147`, `reset-password:69`,
+`check-orphan-users:47`, plus the `VERIFIED_DOMAINS` allow-lists.
+
+**Bucket C — INCOMING ALLOW-LIST (`_shared/cors.ts`, `VERIFIED_DOMAINS`). ADD, never REMOVE.**
+`scmybiz.com` is already present. Keep `salescommand.app` in the lists through the transition so
+nothing still pointing there breaks. Removing an old address is a *later* cleanup, not this phase.
+
+### 5c. ⚠️ THE TRAP — the email "from" address (Bucket B)
+
+`noreply@salescommand.app` is the *sender* address on your automatic emails. That address only works
+because `salescommand.app` is **verified with the email service (Resend).** If we change the sender to
+`noreply@scmybiz.com` **before** `scmybiz.com` is verified there, **every automatic email silently
+stops sending** — no error the customer sees, invoices/proposals just never arrive. This is the exact
+invisible-failure class the standing disciplines exist for ([[project_sent_at_grant_incident]] cousin).
+- **This phase does NOT change the sender address.** Link-targets (Bucket A) move now; the sender
+  stays `salescommand.app` until a deliberate, verified cutover.
+- **Pre-req for the sender cutover (own step, later):** confirm `scmybiz.com` (or a chosen
+  `noreply@` domain) is verified in Resend, then flip sender + `VERIFIED_DOMAINS` together and
+  **smoke a real test send** before calling it done.
+
+### 5d. The name sweep (Beat 8 — "Sales Command" → "Subcon Command")
+
+Rename everywhere, in this order of care:
+1. **People-facing brand (must change):**
+   - `src/pages/SubConCommandPage.jsx` — the `/suite` marketing page (still says "Sub Con Command"; make it "Subcon Command", one word).
+   - `src/pages/LandingPage.jsx`, `src/pages/FeatureDetailPage.jsx` — marketing copy.
+   - Login wordmark / logo — see §5e.
+   - Email bodies/sender display names in edge fns (e.g. `check-orphan-users:47` "Sales Command Alerts", `send-proposal` display name) — the *text*, not the sender address (Bucket B).
+2. **Hidden code comments (change too — Chris's call):** the `"Sales Command"` mentions in comments
+   across `src/` and `supabase/`, done as careful per-file edits.
+3. **PROTECTED — do NOT rename:**
+   - `src/lib/nav.js` — the `"sales"` app **id** and route prefix stay `sales`. The group **label**
+     currently reads `"Sales Command"` (`nav.js:12`); per Beat 8 the section is just **"Sales"** — change
+     the *label* to `"Sales"`, keep the *id*. (Confirm this wasn't already done in Phase 1.)
+   - `/sales/*` URLs, token routes, DB column names, `salescommand.app` inside Bucket C allow-lists.
+
+### 5e. Logo / wordmark (J4 → RESOLVED: keep both)
+
+- **Login + marketing logo:** keep the "Command Suite" subline and the "SC" badge (`SalesCommandMark`,
+  `src/components/Logo.jsx:3,12`). Wordmark text → **SUBCON COMMAND** (SUBCON white / COMMAND teal).
+- **Note / reconcile at build:** the *in-app sidebar* wordmark (`AppWordmark`, `Logo.jsx:17-32`) was
+  built in Phase 1 with the subline **dropped** (see the `[J4]` comment there). J4's "keep both" was
+  about the **login/marketing** logo. Decide at build whether the in-app sidebar also restores the
+  subline or the two intentionally differ — small visual call, flag for Chris in the build session.
+
+### 5f. Domain forwarding (NOT code — ops checklist)
+
+Done in the hosting/DNS dashboards, not in this repo. Track as a go-live checklist item, not a build step:
+- `subconcommand.com` + `sccmybiz.com` → forward to `scmybiz.com`.
+- `schmybiz.com` / `schedulecommand.com` / `salescommand.app` → forward to `scmybiz.com`.
+- Turn OFF the old standalone Schedule deploy (`sch-command` Vercel) once `/schedule/*` is verified
+  (Phase 2 already folded Schedule in; this is the final "unplug the old site" step).
+
+### 5g. Layout / UI check ([[feedback_ui_first_class]])
+
+No new screens. Visual verification points: login screen wordmark reads "SUBCON COMMAND" with subline +
+SC badge; `/suite` marketing page reads "Subcon Command" throughout; sidebar "Sales" group label; a test
+proposal/invoice email button lands on `scmybiz.com`. No white backgrounds, teal buttons black text.
+
+### 5h. Finish line
+
+Bucket A + name sweep + logo build → `/buildvsplan` → `/code-review` → `/security-review` →
+preview smoke (§5g points) → **this is the last phase, so its finish also feeds the one-flip go-live**
+(entitlement flip to light Sales+Schedule+Field, AR held per §4b). Bucket B sender cutover and §5f
+domain forwards are **separate ops steps**, not gated on the merge.
 
 ---
 

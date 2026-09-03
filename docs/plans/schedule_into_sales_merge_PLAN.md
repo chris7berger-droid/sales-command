@@ -825,6 +825,19 @@ block is the audit trail of what changed:
   not caused by the CSS drop. Filed as a `docs/BACKLOG.md` row (screen/paper color parity); swap the 3
   literals if/when it matters.
 
+#### ▶ BUILD + GATE STATUS — 2026-09-03 (append-only)
+
+- **BUILT** on `feat/schedule-merge-plan` (commit `830d535`), `npm run build` green, HELD (not merged).
+- **All three code gates GREEN:** /buildvsplan 7/7 PASS · /code-review 0 blockers (filed **B74** — junk-tab
+  URL + dead `GLOBAL_CSS` export, both HARDENING) · /security-review 0 exploitable-today (filed **S15** —
+  print-HTML self-XSS + client-only guard + unencrypted localStorage, all future-backend-gated).
+- **Preview smoke DEFERRED (Chris's call, 2026-09-03):** AR is underdeveloped + slated for rework, and the
+  mount is cosmetic + entitlement-dark (renders for nobody), so smoking pixels now has no value. Deferred,
+  not failed. Re-smoke when AR actually gets built out.
+- **⚠️ GO-LIVE ROLLOUT POINTER:** at the final suite one-flip, **hold AR out of the entitlement** — light
+  `["sales","schedule","field"]` only, NOT `"ar"` — until AR is actually built out. The code being "moved
+  in" does not obligate turning it on. Flip AR on in its own later step once its backend phase lands.
+
 Verified-clean by the audit (no action): react-router 0 imports · dead `supabase.js` delete build-safe ·
 no `var(--)` deps · no local `C` object · xlsx `0.18.5→0.20.3` API parity · `GroupGuard app="ar"` +
 `teamMember` threading already generic in host · no white-on-teal introduced · autofill/scrollbar host

@@ -974,6 +974,102 @@ gated on the merge.
 
 ---
 
+## §5 AMENDMENT — Round-1 audit response (2026-09-03)
+
+_Append-only per [[feedback_schema_amendment_not_overwrite]]. Round-1 audit (`a40e710`, 3 agents) returned
+11 caused-by (3H/… ) + 2 adjacent, 0 security. Two agents independently hit the deploy-timing hazard —
+strongest signal. Chris ratified the calls below. Where this amendment corrects a §5a–§5h claim, **this
+block wins**; the original text is kept above for provenance._
+
+### AM-1 · Deploy timing → **OPTION 1: NOTHING deploys ahead of the merge** (RATIFIED)
+
+Reverses §5's "fix email link-targets now" / §5b "deployable now" framing and the earlier in-session
+"fix emails now" call. **The whole of Bucket A ships WITH the one-flip merge — nothing early.** Reason
+(audit A1/A2, + Chris): the link fixes point at `/sales`, `/schedule`, `/field` routes that **don't exist
+in prod until the merge flips**, so an early deploy hands John + customers dead links during the in-between
+window. And the stale `salescommand.app` refs **already forward to `scmybiz.com` today** → zero urgency.
+This restores the branch's own locked rule ([[project_subcon_merge_rollout]], "ONE flip at the end, not a
+drip"). **Dissolves findings A1, A2, D outright** (no ahead-of-merge window = no live 404s, no false "Live"
+badges, no `isSchedule`-ordering trap).
+- **§5b is superseded:** delete the A/B/C "deployable now vs later" distinction. All URL edits are just
+  "part of the merge." Buckets A/B/C still describe *what* each ref is (link-target / sender / allow-list)
+  and the **keep-sender-alone** (§5c-i) + **add-never-remove allow-list** (§5b-C) rules still hold — only
+  the *timing* split is gone.
+
+### AM-2 · Auth-redirect gate — www vs apex (audit B) — **hard gate, exact host**
+
+§5c-ii understated this. Before swapping `reset-password:68` / `invite-user:125` to `https://www.scmybiz.com`,
+the build MUST confirm the **exact** value `https://www.scmybiz.com/**` (note **`www`, not the apex
+`scmybiz.com`** — they are different origins to Supabase Auth) is in **Supabase Auth → URL Configuration →
+Redirect URLs**. If the allow-list holds only the apex or a non-matching pattern, reset + invite links
+**silently misdirect, no error**. The preview smoke of **one real password-reset + one real invite** is a
+**hard gate**, not an optional check. (Ships with the merge per AM-1, but the allow-list confirm can be
+done any time — it's a dashboard setting, not code.)
+
+### AM-3 · Login screen DOES carry the old product name (audit C1) — **§5e claim was FALSE**
+
+`Login.jsx:127` renders **`Sales <span>Command</span>`** — the dominant heading (size 22 / weight 800),
+with the tenant company name as a size-12 subline beneath it. My grep missed it because the words are
+**split across JSX nodes** (contiguous "Sales Command" isn't in the file) — see [[reference_jsx_split_brand_grep]].
+**§5e's "no product wordmark on login" is retracted.** Build: change `Login.jsx:127` text node
+**`Sales ` → `Subcon `** (keep the teal `<span>Command</span>`) → renders "Subcon Command". This is the
+product's front door — highest-visibility rename in the phase.
+
+### AM-4 · Rename ground-truth was incomplete (audit C2/C3/G) — second grep pass + classification REQUIRED
+
+§5a/§5d were built from a too-narrow (contiguous-string) search. Before editing, the build runs a **full
+umbrella/entity grep** and **classifies every hit** into one of:
+- **section-brand → KEEP** ("Sales Command" as the Sales area name — the majority of the 68 hits).
+- **umbrella-name → CHANGE** ("Sub Con Command" → "Subcon Command").
+- **legal entity → decide + likely KEEP VERBATIM** (`Settings.jsx:647` **"Billed by Sub Con Command LLC"** —
+  is that the registered LLC name? If so it stays exactly, spelling included).
+- **JSX-split marks** ([[reference_jsx_split_brand_grep]]): `SubConCommandPage.jsx:105` (nav) + **`:441`**
+  (footer) render `Sub Con <span>Command</span>` — a literal find/replace **silently skips these two most
+  visible marks**. Spell the edit: text node **`Sub Con ` → `Subcon `**, keep the `<span>Command</span>`.
+
+Newly-found hits to add to the §5d list: `Settings.jsx:647` (entity, above), `LandingPage.jsx:363` +
+`FeatureDetailPage.jsx:447` ("© **Sales Command**. All rights reserved." — entity/copyright use → three
+different post-rename spellings if left unclassified).
+
+### AM-5 · Comment sweep is a no-op — CUT it (audit E)
+
+Chris's decision #1 ("rename hidden code comments too") targeted **stale umbrella refs** in comments. The
+audit found there are **none** — the shell's comments already say "Subcon Command", and the "Sales Command"
+comment hits are **correct Sales-section references (kept brand)**. So the comment sweep has **zero valid
+targets**. **Cut it** — renaming those comments would wrongly rewrite the kept section brand. (This honors
+decision #1's intent by finding nothing to do, not by ignoring it.)
+
+### AM-6 · Small fixes folded in (audit F) + adjacent → backlog (ADJ-1/ADJ-2)
+
+- **F (`invite-user:168`):** the visible anchor **text** is a separate `salescommand.app` literal from the
+  `href` — fix **both** or the email reads "log in at salescommand.app" while linking to scmybiz.com.
+  (Ships with merge per AM-1.)
+- **ADJ-1** (backlog, pre-existing): `create-billing-session:119-152` returns to `${SITE_URL}?billing=success`
+  / `?page=settings` but **no `src/` handler reads those params** — Stripe return lands on SubconHome, param
+  ignored. Add a `?billing=success` toast + real return path. Filed **B75**.
+- **ADJ-2** (backlog): `sccmybiz.com` is **hard-routed in code** (`App.jsx:104-116` renders SubConCommandPage
+  for that host) — it is **not** a DNS forward. §5f's "sccmybiz.com → forward" contradicts the code; reconcile
+  (one-liner: §5f should say the *marketing* hosts are served in-app, only the *old legacy* domains forward).
+  Filed **B76**.
+
+### AM-7 · [DESIGN-OPEN] The real homepage (`scmybiz.com/` = `LandingPage`) — rename or keep? (audit G)
+
+The live homepage a prospect hits at `scmybiz.com/` renders **`LandingPage.jsx`**, which is **100%
+"Sales Command"** (product landing). The separate `/suite` page (`SubConCommandPage`) is the "Subcon
+Command" suite marketing. §5d's "any 'Sub Con Command' in LandingPage" clause is a confirmed **no-op**
+(there is none — it's all "Sales Command"). **Decision needed before build:** does the homepage stay a
+**Sales Command** product page (Subcon Command lives only at `/suite`), or does the homepage **become
+Subcon Command** too? This is a marketing call, not mechanical — **the one open item gating build.**
+
+### §5 revised finish line (supersedes §5h)
+
+Second grep + classification (AM-4) → login + umbrella + `/suite` + entity edits (AM-3/AM-4/AM-6-F), comment
+sweep CUT (AM-5), **all held for the one-flip merge** (AM-1) → `/buildvsplan` → `/code-review` →
+`/security-review` → preview smoke incl. the **hard** reset + invite gate (AM-2) → merge = go-live. Resolve
+AM-7 (homepage) first.
+
+---
+
 ## 6. Access model (cross-phase, Beat 4)
 
 Three layers, all in existing data, one login: **Company** (`tenant_config.apps`) → **Person**

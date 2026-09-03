@@ -5,6 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sales Command</title>
+    <script>
+      // Capture password-recovery intent synchronously, before the Supabase
+      // client auto-consumes and clears the URL hash. Without this, the client
+      // wins the race and the reset link lands on a normal sign-in screen
+      // instead of the "set new password" form (go-live smoke, 2026-09-03).
+      try {
+        if ((location.hash || "").includes("type=recovery")) {
+          sessionStorage.setItem("sc_recovery_mode", "1");
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

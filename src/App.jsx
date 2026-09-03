@@ -141,6 +141,13 @@ function SalesCommandApp() {
   const [session,    setSession]    = useState(undefined);
   const [teamMember, setTeamMember] = useState(undefined);
   const [bootMinElapsed, setBootMinElapsed] = useState(BOOT_LOADER_MIN_MS === 0 || isCustomerFacingRoute);
+  // Read once: recovery intent is captured synchronously in index.html before
+  // the Supabase client can clear the URL hash. Held in state (not re-read) so
+  // Login can safely clear the sessionStorage flag without flipping us back into
+  // the app while the user is still setting a new password.
+  const [isRecovery] = useState(() => {
+    try { return sessionStorage.getItem("sc_recovery_mode") === "1"; } catch { return false; }
+  });
 
   useEffect(() => {
     if (BOOT_LOADER_MIN_MS === 0 || isCustomerFacingRoute) return;
@@ -202,6 +209,14 @@ function SalesCommandApp() {
 
     return () => sub.unsubscribe();
   }, []);
+
+  // Password recovery takes precedence over everything: the link establishes a
+  // (recovery) session, but the user must land on the "set new password" form,
+  // not the logged-in app. Login reads sc_recovery_mode and switches to reset
+  // mode; supabase.auth.updateUser() runs against the recovery session.
+  if (isRecovery) {
+    return <><style>{GLOBAL_CSS}</style><Login /></>;
+  }
 
   if ((session === undefined || !bootMinElapsed) && !isCustomerFacingRoute) {
     return <><style>{GLOBAL_CSS}</style><RadarLoader /></>;

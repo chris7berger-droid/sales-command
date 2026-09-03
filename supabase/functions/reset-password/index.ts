@@ -67,13 +67,19 @@ serve(async (req) => {
     // verified backup domain (Bucket B, unchanged this phase).
     const appName = "Subcon Command";
     const redirectUrl = "https://www.scmybiz.com";
+    // Recovery must land on /login: the logged-out root ("/") now renders the
+    // SubConCommandPage marketing page (AM-7), and the "set new password" form
+    // lives in Login.jsx (mounted only at /login). Landing on "/" cleared the
+    // session and showed marketing, never the password form. /login is covered
+    // by the Supabase redirect allow-list entry https://www.scmybiz.com/**.
+    const recoveryRedirect = `${redirectUrl}/login`;
     const fromEmail = "noreply@salescommand.app";
 
     // Generate recovery link via admin API
     const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
       type: "recovery",
       email,
-      options: { redirectTo: redirectUrl },
+      options: { redirectTo: recoveryRedirect },
     });
 
     if (linkErr) {

@@ -65,7 +65,7 @@ serve(async (req) => {
     // Post-merge there is one app (not a separate Schedule site), so no per-origin
     // branching — the reset always lands on the unified app. Sender left on the
     // verified backup domain (Bucket B, unchanged this phase).
-    const appName = "Sales Command";
+    const appName = "Subcon Command";
     const redirectUrl = "https://www.scmybiz.com";
     const fromEmail = "noreply@salescommand.app";
 

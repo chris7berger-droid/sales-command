@@ -152,14 +152,14 @@ serve(async (req) => {
       body: JSON.stringify({
         from: senderEmail || "noreply@salescommand.app",
         to: email,
-        subject: `${senderName || "Your team"} invited you to Sales Command`,
+        subject: `${senderName || "Your team"} invited you to Subcon Command`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
             <div style="border-bottom: 4px solid #30cfac; padding-bottom: 16px; margin-bottom: 24px;">
-              <h2 style="margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.02em;">Sales Command</h2>
+              <h2 style="margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.02em;">Subcon Command</h2>
             </div>
             <p>Hi ${firstName},</p>
-            <p>You've been invited to join <strong>Sales Command</strong>. Your username is your email address:</p>
+            <p>You've been invited to join <strong>Subcon Command</strong>. Your username is your email address:</p>
             <p style="background: #f5f1eb; padding: 12px 16px; border-radius: 8px; font-weight: 700; font-size: 15px;">${email}</p>
             <p>Click the button below to set your password and get started.</p>
             <div style="margin: 32px 0;">

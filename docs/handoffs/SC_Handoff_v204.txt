@@ -1,0 +1,173 @@
+SC Handoff v204 — SUBCON COMMAND GO-LIVE EXECUTED (all 5 merge phases merged to main + live) + reset-flow hotfixes
+Repo: sales-command   Branch: main   Date: 2026-09-03
+=======================================================================
+This is the GO-LIVE session. The held merge branch (feat/schedule-merge-plan)
+was merged to main and Subcon Command went live on prod. Entitlement flipped to
+Sales + Schedule + Field (AR held off). Six edge functions deployed. Domains
+repointed so scmybiz.com serves the app directly. Two go-live-smoke bugs in the
+password-reset flow were found and fixed live; a third (deeper) reliability issue
+was diagnosed from auth logs and filed as B77 (Chris chose to build it as its own
+focused task, not hot-patch it during go-live).
+
+Prod is now Subcon Command. NOT classic Sales Command anymore.
+
+SESSION SUMMARY
+---------------
+Ran the v203 one-flip go-live sequence (operational, not a build session):
+ 0. Confirmed Supabase Auth redirect allow-list — Chris added https://www.scmybiz.com/**
+    (the /** wildcard turned out to matter, see DECISIONS).
+ 1. Merged feat/schedule-merge-plan -> main (--no-ff, 46 commits) and pushed -> Vercel
+    prod deploy READY (dpl ...AdKeSRL..., commit 0aef4b9).
+ 2. Flipped HDSP entitlement: tenant_config.apps ["sales"] -> ["sales","schedule","field"]
+    (Chris ran the UPDATE in the Supabase SQL editor; MCP DB access here is read-only).
+    AR deliberately NOT included (held per v202 §4b).
+ 3. Deployed 6 edge functions (Chris ran the CLI via ! — deploy is classifier-blocked for
+    the agent): send-invoice, create-billing-session, invite-user, reset-password, plus the
+    two repNotify consumers follow-up-reminders + proposal-approved (repNotify.ts is shared,
+    so its consumers must be redeployed, not "repNotify" itself — v203 listed 5 by name; the
+    correct operational set is 6). All --no-verify-jwt (matches config.toml: the 4 without a
+    [functions.*] block follow the project-global --no-verify-jwt convention; follow-up-reminders
+    + proposal-approved are verify_jwt=false).
+ 4. Domains: scmybiz.com + www.scmybiz.com were BOUNCING (308) to salescommand.app. Repointed
+    on the sales-command Vercel project: www.scmybiz.com -> "Connect to an environment: Production"
+    (serves directly); apex scmybiz.com -> redirect to www.scmybiz.com (was -> salescommand.app).
+    salescommand.app left serving as a live backup.
+ 5. Smoke found the reset flow broken -> two hotfixes (below) -> verified the reset SCREEN works.
+ 6. Diagnosed the remaining reset flakiness from auth_logs (email-security link pre-consumption)
+    -> filed B77, Chris chose to build the OTP-code fix separately.
+
+CHANGES SHIPPED (this session, on main)
+---------------------------------------
+- 0aef4b9  Merge feat/schedule-merge-plan: Subcon Command go-live (Shell + Schedule + Field +
+           AR held + Name). The five held merge phases, merged. Frontend prod deploy.
+- 2463370  fix(reset-password): land recovery on /login, not root. AM-7 made the logged-out
+           root ("/") render the SubConCommandPage marketing page; the reset form lives in
+           Login.jsx (mounted only at /login), so recovery redirectTo=bare-root cleared the
+           session and showed marketing — no password form. Changed the recovery redirectTo to
+           https://www.scmybiz.com/login (covered by the /** allow-list). EDGE FN — was deployed
+           this session (reset-password redeployed via ! after this commit).
+- 93497a6  fix(auth): reliably show reset-password form on recovery links. Even landing on /login,
+           the Supabase client (implicit flow, detectSessionInUrl) auto-consumed and CLEARED the
+           #access_token...&type=recovery hash, racing App/Login — the marker was often gone before
+           Login could read it, so the page showed a normal sign-in. Fix: (a) index.html inline
+           <script> captures type=recovery -> sessionStorage sc_recovery_mode SYNCHRONOUSLY before
+           the client module loads; (b) App.jsx reads it ONCE into an isRecovery state and renders
+           the Login reset form regardless of the (recovery) session, until reset completes+reloads.
+           FRONTEND — rode the push-to-main Vercel deploy. Verified live (see VERIFICATION).
+- 1bf80de  docs: file B77 (reset/invite link one-time-token burned by ATP scanner).
+- (this handoff) docs: session handoff v204.
+
+DEPLOYED / LIVE (this is a real go-live — everything below is on PROD)
+---------------------------------------------------------------------
+- Frontend: main @ 1bf80de deployed to Vercel prod. scmybiz.com = Subcon Command.
+- Entitlement: HDSP tenant_config.apps = ["sales","schedule","field"] (verified via MCP read-back).
+  AR NOT in the list. Per-MEMBER apps UNCHANGED this session (team_members.apps): Chris
+  ["sales","schedule"], Denise ["sales"], Joe ["sales"], John Paul ["sales","schedule"] — so
+  Schedule shows for Chris + John Paul; FIELD shows for NOBODY yet (no one has "field" in their
+  member list). Chris will grant per-person in Settings later. Visibility gate (nav.js:60) =
+  AVAILABLE_APPS(all 4) AND tenant_config.apps AND team_members.apps — all three must contain the app.
+- Edge functions (6) redeployed to project pbgvgjjuhnpsumnowuym (all "Deployed" OK):
+  send-invoice, create-billing-session, invite-user, reset-password, follow-up-reminders,
+  proposal-approved.
+- Vercel domains (sales-command project): www.scmybiz.com serves Production directly; apex
+  scmybiz.com 308 -> www.scmybiz.com; salescommand.app + www.salescommand.app still serve/backup.
+- Supabase Auth redirect allow-list now includes https://www.scmybiz.com/** (Chris added the /**).
+
+DECISIONS / CHOICES MADE
+------------------------
+- Redirect allow-list /** matters: www.scmybiz.com was present WITHOUT /**; recovery/reset land
+  with extra URL parts, so /** is required. Chris added https://www.scmybiz.com/**.
+- Domain fix chosen over a quick redirect-target patch (Option A): make scmybiz.com the real
+  front door (serve directly) rather than repoint reset links back at salescommand.app. Fixes the
+  reset landing + the address bar + matches CLAUDE.md's documented prod URL, with salescommand.app
+  as a live fallback so risk was low.
+- AR stays OFF at go-live (restates v202 §4b) — "moved in" != "turn on". Light it only after AR
+  gets a real backend.
+- B77 (reset/invite link reliability) FILED, not built this session — Chris chose A (file it,
+  build the OTP-code reset as its own focused task) rather than hot-patch auth at the tail of go-live.
+
+NEW BACKLOG ITEMS
+-----------------
+- B77 (T2, [Sev 6 · Like 6 · Eff half-day]) — password-reset & invite email LINKS are one-time-use
+  and get PRE-CONSUMED by Microsoft/Outlook ATP "SafeLinks" (auth_logs show GET /verify from
+  104.47.x / 209.51.8.x burning the token before the user clicks) -> user's real click gets
+  "403 One-time token not found / link expired" -> the app ignores the resulting #error= hash and
+  shows a bare sign-in screen (silent/confusing). ROBUST FIX = switch reset+invite off magic links
+  to a typed 6-digit OTP (supabase.auth.verifyOtp({type:'recovery',...})) which scanners can't click.
+  Interim also-worth-doing: surface "this link expired, request a new one" when the landing hash
+  carries error=/otp_expired. NOTE: the reset-FORM-DETECTION half is ALREADY FIXED + live
+  (2463370 + 93497a6); B77 is only the scanner/one-time-token reliability half. Affects INVITES too.
+
+CLOSED THIS SESSION
+-------------------
+None (the go-live executed the already-built phases; no numbered rows closed).
+
+VERIFICATION
+------------
+- Merge: clean --no-ff, no conflicts (46 commits). Local `npm run build` GREEN after both hotfixes
+  (only the pre-existing >500kB chunk advisory).
+- Prod deploy: Vercel list_deployments shows the merge commit deploy target=production, state=READY.
+- Entitlement: MCP read-back confirmed tenant_config.apps = ["sales","schedule","field"].
+- Domains: curl confirmed www.scmybiz.com -> HTTP 200 (serves), apex scmybiz.com -> 308 ->
+  www.scmybiz.com -> 200. Chris confirmed in-browser: scmybiz.com renders the Subcon Command
+  marketing page; login reads "Subcon Command"; on normal login Schedule shows in the sidebar.
+- Reset SCREEN fix: verified on the LIVE site via browser automation — a fresh full load of
+  /login with a realistic implicit recovery hash (#access_token=...&type=recovery) renders the
+  "Set New Password" form; plain /login still renders normal sign-in (not broken).
+- Reset RELIABILITY (B77): diagnosed from auth_logs — some real attempts succeed (login logged,
+  implicit), others 403 "One-time token not found" hit by scanner IPs. NOT fully fixed (that's B77).
+- NOT verified: a full end-to-end real-email reset click-through by Chris landing on the reset form
+  (his last live attempt hit code ~3 min post-deploy, likely cached old page; and the scanner race
+  can still burn the link). The browser-automation proof of the reset form + the fix being live is
+  the standing evidence. Invite hard-smoke NOT run (same scanner caveat; part of B77).
+
+NOT TOUCHED THIS SESSION
+------------------------
+- Per-member team_members.apps + roles — unchanged; Chris tunes per-person app access + roles in
+  Settings (that's where "who can open which app" + "how much they can do" live; the go-live only
+  set the company-level switch).
+- Sender FROM addresses (Bucket B) — still noreply@salescommand.app.
+- §5f other domain forwards + §5c-i Resend sender-domain cleanup — deferred ops (see below).
+- B75 / B76 — pre-existing, untouched. AR — held off.
+
+NEXT SESSION POINTERS
+---------------------
+1. GO-LIVE IS DONE. Prod = Subcon Command, Sales+Schedule+Field live. No more merge/go-live work.
+2. B77 — build the OTP-code password reset (+ invite) as its own focused task. This is the real
+   reliability fix for the flaky reset emails. Touches reset-password/invite-user edge fns + the
+   Login reset screen + invite/WelcomeScreen. Do it as a proper build (plan -> build -> gates).
+3. Optional ops cleanups (whenever, not blocking):
+   - Point salescommand.app + www.salescommand.app at www.scmybiz.com (currently still serving as
+     a backup) to finish the rebrand.
+   - §5c-i sender cleanup: verify a scmybiz.com sender domain in Resend, then move FROM off
+     noreply@salescommand.app.
+4. Field per-person access: grant "field" in each relevant employee's Settings so Field appears for
+   them (company switch is on; personal switch is empty for everyone right now).
+5. Deferred Phase-2 polish (unchanged from v203): teal reconciliation, Settings fold, pagination sweep.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+- index.html ........................ new inline recovery-capture <script> (B77-adjacent; keep it).
+- src/App.jsx ....................... isRecovery state + early Login render for recovery; the
+                                      logged-out routes; the app-visibility gate is in nav.js.
+- src/pages/Login.jsx ............... reset-mode useEffect (hash/sc_recovery_mode -> setMode reset);
+                                      handleForgot posts to reset-password; handleReset -> updateUser.
+- src/lib/nav.js ................... groupVisible() = AVAILABLE_APPS && tenantApps && memberApps.
+- supabase/functions/reset-password/index.ts — recoveryRedirect = redirectUrl + "/login".
+- supabase/functions/invite-user/index.ts — invite redirectTo (root; invite uses the authed
+                                      WelcomeScreen path, not the recovery path).
+- docs/BACKLOG.md .................. B77 filed (T2).
+
+GIT STATE ON CLOSE
+------------------
+- Branch: main. HEAD = origin/main = 1bf80de. Working tree clean.
+- feat/schedule-merge-plan is now MERGED into main (0aef4b9). It can be deleted after a beat, or
+  kept briefly for reference.
+- Session commits on main: 0aef4b9 (merge), 2463370, 93497a6, 1bf80de (+ this handoff commit).
+
+END STATE
+---------
+LIVE. Subcon Command is in production at scmybiz.com — Sales + Schedule + Field on for HDSP, AR
+held. Password-reset SCREEN fixed + verified; reset/invite email-LINK reliability filed as B77 for
+a focused OTP-code build next. Only optional ops cleanups (old-domain forwards + Resend sender)
+remain.

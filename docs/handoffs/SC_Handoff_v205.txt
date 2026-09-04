@@ -1,0 +1,186 @@
+SC Handoff v205 — B77 RESET HALF: password reset moved off magic links to a 6-digit OTP code (SHIPPED + LIVE + smoke-verified) + 3 UX fixes found in live testing
+Repo: sales-command   Branch: main   Date: 2026-09-03
+=======================================================================
+Follow-on to the go-live session (v204). This session built and shipped the
+RESET half of B77: password reset now emails a typed 6-digit code instead of a
+clickable magic link, because Microsoft/Outlook ATP "SafeLinks" was pre-fetching
+and one-time-consuming the link before the user could click it ("link expired").
+It went through a /security-review (0 blocks-ship), deployed, and Chris smoke-
+verified the whole flow live. Three real UX problems surfaced during that live
+testing and were each fixed and re-shipped. The INVITE half of B77 is still open
+(bigger surface) and is now the active-work pointer.
+
+SESSION SUMMARY
+---------------
+Picked up B77 (reset/invite email links pre-consumed by ATP SafeLinks). Judged
+it a contained auth change — not the full 6-terminal ceremony — so: built the
+reset-OTP change, ran one /security-review gate, deployed, merged. The core fix:
+`generateLink` already returns a 6-digit `email_otp` alongside the link, so the
+reset email now sends the CODE (a scanner can't "click" a number) and the login
+screen verifies it with `verifyOtp({type:'recovery'})` then `updateUser`. Security
+review returned 0 blocks-ship; its one real finding (6-digit entropy) was pre-
+closed by making the input accept up to 8 digits so the Supabase Email-OTP-length
+toggle is now a pure config change. During live smoke Chris hit three genuine
+problems, each fixed and re-shipped: (1) the code-entry screen didn't survive
+leaving to fetch the emailed code and coming back; (2) no confirm-password field;
+(3) after reset it auto-logged into the app instead of forcing a fresh sign-in.
+Reset is now fully verified live. Deferred: the invite half (its own build), the
+optional 8-digit toggle, and the ~1-2 min email delivery delay (filed B81).
+
+CHANGES SHIPPED (this session, all on main, all pushed)
+-------------------------------------------------------
+Reset-OTP core (branch feat/reset-otp, merged at 12c81d0):
+- b3cf44c  Touches B77: password reset via 6-digit OTP code instead of magic link.
+           reset-password fn emails properties.email_otp (not action_link); email
+           HTML shows the code; Login.jsx forgot→code screen calls verifyOtp then
+           updateUser.
+- 101b823  Touches B77: accept up to 8-digit reset OTP. Login input cap 6→8 so the
+           Supabase Email-OTP-length toggle (security finding #1 hardening) is a
+           pure config change with no frontend coupling. 6-digit codes still work.
+- 952e1f3  Touches B77: file B78/B79/B80 — pre-existing hardening findings from the
+           /security-review (enumeration timing, raw Resend error echo, per-instance
+           rate-limit). None blocking.
+- 12c81d0  Merge feat/reset-otp.
+
+Resume fix (branch fix/reset-otp-resume, merged at b0f2463):
+- 3a92e9b  Touches B77: persist reset code-entry screen across leave-and-return.
+           mode was in-memory React state, so returning to /login after fetching
+           the code always opened sign-in with no way back to the code screen. Now
+           persisted via localStorage sc_reset_pending + sc_reset_email, resumed on
+           mount, with a "Back to sign in" escape hatch.
+- b0f2463  Merge fix/reset-otp-resume.
+
+Confirm-password + fresh sign-in (branch fix/reset-otp-confirm, merged at c58d6e0):
+- eddfceb  Touches B77: confirm-password field + force fresh sign-in after reset.
+           Added "Confirm New Password"; match checked BEFORE verifyOtp so a typo
+           doesn't consume the one-time code. After reset, signOut() the recovery
+           session and reload to /login so the user logs in with the new password
+           (email prefilled + one-time notice) instead of dropping into the app.
+- c58d6e0  Merge fix/reset-otp-confirm.
+
+Closeout bookkeeping:
+- 2df8a40  Touches B77: mark reset-OTP shipped+verified in prod; file B81 (code-email
+           delivery speed).
+
+DEPLOYED (this is a real deploy — everything below is on PROD)
+-------------------------------------------------------------
+- Edge function: reset-password redeployed to project pbgvgjjuhnpsumnowuym with
+  --no-verify-jwt (Chris ran the CLI via ! — deploy is classifier-blocked for the
+  agent). It now emails the OTP code, not a link.
+  Dashboard: https://supabase.com/dashboard/project/pbgvgjjuhnpsumnowuym/functions
+- Frontend: main pushed → Vercel prod auto-deploy (scmybiz.com). Reset flow live.
+- NOT deployed / NOT changed: invite-user edge fn (still magic-link); no DB
+  migrations; no grants. Supabase Auth Email-OTP-length NOT changed (still 6).
+
+DECISIONS / CHOICES MADE
+------------------------
+- No full T6 for this. Judged reset-OTP a contained, well-understood auth change;
+  ran ONE gate (/security-review) rather than the 6-terminal protocol. It touches
+  live auth, so the security gate was kept, not skipped.
+- Ship reset now, defer invite. B77 rolls reset + invite together, but invite is a
+  materially bigger surface (its magic link establishes the session that routes to
+  WelcomeScreen onboarding — converting needs a new code-entry screen wired into
+  App.jsx routing). Shipped the reset half (what actually bit Chris) and left the
+  invite half explicitly owned on B77 as a fast-follow, not orphaned.
+- Pre-closed security finding #1 rather than defer it. The 6-digit code is a 20-bit
+  space; review flagged it SHOULD-FIX (same posture as Supabase's own shipped email-
+  OTP login) and cleared it as ship-safe. The recommended fix is bumping OTP length
+  to 8 in Supabase Auth — but the frontend hard-capped input at 6, which would have
+  silently broken an 8-digit code. Raised the cap to 8 now (safe either way) so the
+  toggle is decoupled and can be flipped anytime.
+- Match check before code consumption. verifyOtp burns the one-time code, so the
+  confirm-password match is validated BEFORE verifyOtp — a typo fails without
+  wasting the code.
+- Force fresh sign-in after reset. verifyOtp signs the user in, which was dropping
+  them straight into the app. Chose to signOut() + reload to /login so a reset
+  always ends at a real sign-in with the new password.
+- Email delay is not our code. Diagnosed the ~1-2 min code-email delay as recipient-
+  side (Microsoft/Outlook ATP scanning), not app latency; filed B81 with the real
+  lever (sender-domain reputation / §5c-i) and SMS-OTP as the nuclear option. Chris
+  deferred it.
+
+NEW BACKLOG ITEMS
+-----------------
+- B78 (T4) — reset-password email-enumeration timing oracle (fast-return for unknown
+  email vs generateLink+Resend for known). Pre-existing; HARDENING.
+- B79 (T4) — reset-password echoes raw Resend error body to client on 500 (also in
+  invite-user). Pre-existing; HARDENING.
+- B80 (T4) — reset/invite send rate-limit is per-instance in-memory, not durable.
+  Pre-existing; HARDENING. Fold B78/B79/B80 into one auth-hardening pass.
+- B81 (T4) — reset/invite code email is slow (~1-2 min); recipient-side scanning,
+  not app latency. Real fix = verify a scmybiz.com sender domain in Resend (SPF/
+  DKIM/DMARC, §5c-i); SMS OTP as nuclear option. Deferred by Chris.
+
+CLOSED THIS SESSION
+-------------------
+None fully. B77 remains In Progress — its RESET half is shipped + verified (commits
+above); the INVITE half is still open on the same row.
+
+VERIFICATION
+------------
+- /security-review on feat/reset-otp: 0 BLOCKS-SHIP. One SHOULD-FIX (finding #1,
+  6-digit entropy) pre-closed via the 8-digit input cap; three HARDENING findings
+  filed B78/B79/B80. Read-only review, no edits.
+- Build: local npm run build GREEN after every change (only the pre-existing >500kB
+  chunk advisory).
+- Reset flow: smoke-verified LIVE end-to-end by Chris, iteratively — the resume bug,
+  confirm-password, and auto-login issues were all found in live testing and re-
+  verified fixed. Final confirmed pass: forgot → code email → close tab/return →
+  code screen resumes → confirm-password (mismatch blocks) → lands on sign-in, not
+  the app → login with new password works.
+- NOT verified: invite flow (untouched this session). The 8-digit OTP path is not
+  live (Supabase still at 6). B81 email-delay fix not attempted. B78/B79/B80 not
+  addressed.
+
+NOT TOUCHED THIS SESSION
+------------------------
+- invite-user edge fn + WelcomeScreen + App.jsx onboarding routing — the invite half
+  of B77, deferred as a separate build (now the active-work pointer).
+- Supabase Auth Email-OTP-length — left at 6 (optional 8-digit hardening).
+- Sender FROM address — still noreply@salescommand.app (B81 / §5c-i).
+- Pre-existing backlog: B75, B76, and the go-live optional ops (salescommand.app
+  repoint, Field per-person access) — all untouched.
+
+NEXT SESSION POINTERS
+---------------------
+1. RESET IS DONE + LIVE. No further reset work needed.
+2. NEXT = INVITE half of B77 — convert invite-user off magic-link to the same OTP
+   pattern. This is a BUILD (plan → build → T4/T5/T6 gates → deploy), not a hot-
+   patch. Bigger than reset: invite-user uses generateLink({type:'magiclink'}) whose
+   clicked link establishes the session that routes a team_members.onboarded===false
+   user to WelcomeScreen (App.jsx ~248-265). Convert by: (a) invite email sends the
+   OTP code not action_link; (b) a NEW "enter your invite code" screen (mirror the
+   Login.jsx reset UI) that calls verifyOtp to establish the session; (c) wire that
+   screen into App.jsx logged-out/onboarding routing; then WelcomeScreen sets the
+   password as today. Deploy when built: supabase functions deploy invite-user
+   --no-verify-jwt (Chris runs via !) + merge to main.
+3. OPTIONAL (not blockers): flip Supabase Auth Email-OTP length → 8 (frontend already
+   accepts it) to close finding #1; address B81 email delay via sender-domain setup;
+   fold B78/B79/B80 into one auth-hardening pass.
+4. Active-work pointer already set to the B77 invite half — /resume lands there.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+- supabase/functions/reset-password/index.ts — now emails properties.email_otp; no
+  link. Reference pattern for the invite conversion.
+- src/pages/Login.jsx — forgot→code→verifyOtp(recovery)→updateUser; sc_reset_pending
+  persistence + resume-on-mount; confirm-password; signOut+/login after reset; one-
+  time sc_login_notice. The UI pattern to mirror for invite codes.
+- supabase/functions/invite-user/index.ts — STILL magic-link; the invite-half target.
+- src/components/WelcomeScreen.jsx — invite onboarding/password-set screen (unchanged).
+- src/App.jsx — logged-out routes + onboarding gate (teamMember.onboarded===false →
+  WelcomeScreen, ~248-265); where the invite code-entry door must be wired.
+- docs/BACKLOG.md — B77 (invite half + optional 8-digit), B78/B79/B80/B81.
+
+GIT STATE ON CLOSE
+------------------
+- Branch: main. Working tree clean. All session commits already pushed to origin/main.
+- Latest before this handoff: 2df8a40. Session feature branches (feat/reset-otp,
+  fix/reset-otp-resume, fix/reset-otp-confirm) were merged --no-ff and deleted.
+- This handoff adds one more docs commit (v205).
+
+END STATE
+---------
+Merged, deployed, and smoke-verified. Password reset via 6-digit OTP is live on
+scmybiz.com. B77 invite half remains open as the next build; active-work pointer is
+set to it. Ready for a fresh session.

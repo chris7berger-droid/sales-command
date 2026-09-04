@@ -27,6 +27,14 @@ export default function Login() {
       sessionStorage.removeItem("sc_recovery_mode")
       setMode("reset")
       window.history.replaceState({}, "", window.location.pathname)
+    } else if (localStorage.getItem("sc_reset_pending") === "1") {
+      // Resume an in-progress reset. The user MUST leave to fetch the emailed
+      // code (and the email can take a minute), so the code-entry screen has to
+      // survive navigating away and back — otherwise they return to /login and
+      // the screen is gone with no way back to it. Restore mode + their email.
+      setMode("reset")
+      const savedEmail = localStorage.getItem("sc_reset_email")
+      if (savedEmail) setEmail(savedEmail)
     }
   }, [])
 
@@ -68,7 +76,12 @@ export default function Login() {
       if (!res.ok) throw new Error(data.error || "Failed to send reset email.")
       // Move to the code-entry screen. The email carries a 6-digit code (not a
       // clickable link) so email-security scanners can't pre-consume it (B77).
-      setMessage("We emailed you a 6-digit reset code. Enter it below with your new password.")
+      // Persist so the screen survives the user leaving to fetch the code and
+      // coming back (see the resume path in the mount effect above). Cleared on
+      // success or "Back to sign in".
+      localStorage.setItem("sc_reset_pending", "1")
+      localStorage.setItem("sc_reset_email", email.trim())
+      setMessage("We emailed you a 6-digit code — it can take a minute to arrive. Enter it below with your new password.")
       setMode("reset")
     } catch (err) {
       setError(err.message || "Failed to send reset email.")
@@ -94,6 +107,10 @@ export default function Login() {
         : vErr.message)
       const { error } = await supabase.auth.updateUser({ password: newPassword })
       if (error) throw error
+      // Reset complete — clear the persisted resume state so /login goes back
+      // to normal sign-in.
+      localStorage.removeItem("sc_reset_pending")
+      localStorage.removeItem("sc_reset_email")
       setMessage("Password updated! Signing you in...")
       // Clear the recovery token from the URL to prevent the PASSWORD_RECOVERY loop
       window.history.replaceState({}, "", window.location.pathname)
@@ -207,9 +224,12 @@ export default function Login() {
               <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} style={inputStyle} required minLength={6} />
             </div>
             <button type="submit" disabled={loading} style={btnStyle}>{loading ? "Updating..." : "Set New Password"}</button>
-            <div style={{ textAlign: "center", marginTop: 4 }}>
+            <div style={{ textAlign: "center", marginTop: 4, display: "flex", flexDirection: "column", gap: 10 }}>
               <button type="button" onClick={() => { setMode("forgot"); setError(null); setMessage(null); setCode(""); }} style={{ background: "none", border: "none", color: C.tealDark, fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
                 Request a new code
+              </button>
+              <button type="button" onClick={() => { localStorage.removeItem("sc_reset_pending"); localStorage.removeItem("sc_reset_email"); setMode("login"); setError(null); setMessage(null); setCode(""); }} style={{ background: "none", border: "none", color: C.textFaint, fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                Back to sign in
               </button>
             </div>
           </form>

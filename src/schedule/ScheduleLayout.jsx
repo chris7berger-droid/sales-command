@@ -25,6 +25,7 @@ import ProductionRate from './views/ProductionRate'
 import Budget from './views/Budget'
 import JobDetail from './views/JobDetail'
 import Settings from './views/Settings'
+import Import from './views/Import'
 import StatsBar from './components/StatsBar'
 
 function flipName(n) {
@@ -262,6 +263,7 @@ function ScheduleShell() {
           <Route path="production-rate" element={<ProductionRate />} />
           <Route path="budget" element={<Budget />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="import" element={<Import />} />
           <Route path="*" element={<Navigate to="/schedule/home" replace />} />
         </Routes>
       </main>

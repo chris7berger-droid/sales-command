@@ -31,6 +31,7 @@ export const GROUPS = [
     { id: "billing",        label: "Billing",         path: "/schedule/billing",         icon: "💵" },
     { id: "production-rate",label: "Production Rate",  path: "/schedule/production-rate", icon: "📈" },
     { id: "schedules",      label: "Schedules",       path: "/schedule/schedules",       icon: "📇" },
+    { id: "import",         label: "Import",          path: "/schedule/import",          icon: "⇪" },
   ]},
   { app: "field",    label: "Field Command",    prefix: "/field",    home: "/field/today", icon: "👷", items: [
     { id: "today",     label: "Today",      path: "/field/today",     icon: "📆" },

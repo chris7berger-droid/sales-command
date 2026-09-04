@@ -159,9 +159,12 @@ for (const t of EMPTY_GATE_TABLES) {
 }
 p(`END $$;`)
 p()
-p(`-- 4) GUARD INDEX (§6.6 / N4) — partial-unique, created before any insert.`)
-p(`CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_call_log_active`)
-p(`  ON public.jobs(call_log_id) WHERE call_log_id IS NOT NULL AND deleted <> 'Yes';`)
+// 4) NO call_log_id uniqueness guard. The old schedule lists a job once per
+// MOBILIZATION (each trip out, with its own dates), so several old rows can and
+// should share one call_log — each loads as its own dated jobs row, exactly as
+// live prod already stores them (prod carries duplicate call_log_ids by design).
+// A partial-unique index here would wrongly reject those legitimate repeats.
+p(`-- 4) (no call_log_id uniqueness guard — multiple mobilizations per job are expected)`)
 p()
 p(`-- 5a) LOAD crew FIRST (FK parent of assignments.crew_name / crew_status.crew_name).`)
 if (crew.length) {

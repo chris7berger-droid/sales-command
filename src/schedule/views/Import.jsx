@@ -218,7 +218,10 @@ export default function Import() {
   }
 
   // ── Apply ──
-  const canApply = jobsHeaderOk && stats.total > 0 && stats.unmatched === 0 && dupTargets.size === 0 && !applying
+  // Several old rows sharing one real job is EXPECTED — the old schedule lists a
+  // job once per mobilization (each trip, its own dates). Each loads as its own
+  // dated entry, so shared targets no longer block Apply; they're just surfaced.
+  const canApply = jobsHeaderOk && stats.total > 0 && stats.unmatched === 0 && !applying
   async function onApply() {
     if (!canApply) return
     const mapping = {}
@@ -290,7 +293,7 @@ export default function Import() {
             <span className="imp-chip imp-chip-internal">{stats.internal} internal</span>
             <span className="imp-chip imp-chip-unmatched">{stats.unmatched} unmatched</span>
             <span className="imp-chip">{stats.total} total</span>
-            {dupTargets.size > 0 && <span className="imp-chip imp-chip-dup">⚠ {dupTargets.size} duplicate target{dupTargets.size > 1 ? 's' : ''}</span>}
+            {dupTargets.size > 0 && <span className="imp-chip imp-chip-shared" title="Old rows that share a real job — each comes in as its own dated entry (a separate mobilization). This is expected; it does not block Apply.">↹ {dupTargets.size} shared (mobilizations)</span>}
             {autoMatchCount > 0 && (
               <button className="imp-btn imp-btn-auto" onClick={applyAutoMatches}
                 title="Confirm every old job whose exact job number matches one — and only one — real record. Ties, duplicates, and fuzzy matches are left for you. Reversible before Apply.">
@@ -308,12 +311,12 @@ export default function Import() {
               <div className="imp-list">
                 {jobs.map(j => {
                   const d = decisions[j._oldJobId]
-                  const isDup = d != null && d !== DECISION.INTERNAL && dupTargets.has(d)
+                  const isShared = d != null && d !== DECISION.INTERNAL && dupTargets.has(d)
                   const target = d != null && d !== DECISION.INTERNAL ? rightById.get(d) : null
                   const state = d === DECISION.INTERNAL ? 'internal' : d == null ? 'unmatched' : 'matched'
                   return (
                     <div key={j._oldJobId}
-                      className={`imp-row imp-row-${state}${activeJob === j._oldJobId ? ' imp-row-active' : ''}${isDup ? ' imp-row-dup' : ''}`}
+                      className={`imp-row imp-row-${state}${activeJob === j._oldJobId ? ' imp-row-active' : ''}${isShared ? ' imp-row-shared' : ''}`}
                       onClick={() => { setActiveJob(j._oldJobId); setSearch('') }}>
                       <div className="imp-row-main">
                         <span className="imp-row-num">{j.job_num || '—'}</span>
@@ -392,8 +395,12 @@ export default function Import() {
           {!canApply && !applying && (
             <div className="imp-blocked">
               {stats.unmatched > 0 && <div>· {stats.unmatched} job{stats.unmatched > 1 ? 's' : ''} still unmatched</div>}
-              {dupTargets.size > 0 && <div>· {dupTargets.size} record{dupTargets.size > 1 ? 's are' : ' is'} matched by two old jobs — fix before applying</div>}
               {stats.total === 0 && <div>· upload a Jobs file first</div>}
+            </div>
+          )}
+          {dupTargets.size > 0 && (
+            <div className="imp-note" style={{ marginTop: 4 }}>
+              {dupTargets.size} real job{dupTargets.size > 1 ? 's are' : ' is'} shared by several old rows — each row loads as its own dated entry (a separate mobilization). This is expected and does not block Apply.
             </div>
           )}
           <button className="imp-apply" disabled={!canApply} onClick={onApply}>

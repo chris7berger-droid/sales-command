@@ -1,0 +1,116 @@
+SC_Handoff_v206 — Schedule data migration (YESv2 → live) + onboarding import tool
+================================================================================
+Date: 2026-09-04
+This repo: sales-command  (⚠ historical repo name — the app inside is SUBCON
+           COMMAND, the unified app at scmybiz.com; sales/schedule/field/ar are
+           DRIVERS inside it, not separate apps).
+Branch: feat/schedule-data-migration
+Shared DB: pbgvgjjuhnpsumnowuym   HDSP tenant_id: 246f6551-60de-4965-bb97-9a52971bc05d
+
+
+WHY THIS HANDOFF EXISTS (the mistake we found)
+------------------------------------------------------------
+The import tool for moving the old "YES Schedule v2" Google sheet into live
+Schedule data was BUILT IN THE WRONG REPO — the legacy standalone `sch-command`
+(schedulecommand.com) — and merged/deployed there. That standalone is legacy and
+dies once the data is extracted; nobody uses it as the product.
+
+The real product is SUBCON COMMAND (this app, scmybiz.com). Schedule is the
+`/schedule/*` driver here: src/schedule/*, nav in src/lib/nav.js. The import tool
+must live HERE, in the Schedule driver — that is its proper permanent home.
+
+All build-vs-plan / code-review / security-review gates passed in sch-command, but
+they were blind to this: the plan itself named the wrong repo. (Design-baseline
+mismatch — gates verify code-vs-plan, not "is this the app the user actually runs.")
+
+
+WHAT IS DONE AND CORRECT — DO NOT REBUILD
+------------------------------------------------------------
+These are in the SHARED database, so they already serve SubCon Command:
+
+1. Table `migration_match_draft` — LIVE IN PROD (verified: table exists, RLS on,
+   4 tenant-scoped policies, no catch-all). Holds the match-draft the tool saves.
+   Migration: command-suite-db `20260904120000_migration_match_draft.sql` (on
+   command-suite-db main, pushed to prod).
+2. DMS-8 baseline fix — command-suite-db baseline refreshed + rehearse constant
+   bumped 9172→9220 for the 4 Sept-2 tenant_config columns (benign, no anon
+   exposure). command-suite-db main. This unblocked the push above.
+
+Nothing about the database needs redoing. The tool just needs a UI + logic home
+in this app.
+
+
+WHAT WAS BUILT IN THE WRONG REPO — TO PORT INTO SUBCON COMMAND
+------------------------------------------------------------
+Reference implementation lives on sch-command branch feat/schedule-data-migration
+(pushed). It is sound logic; it needs re-homing + rewiring to this app's
+conventions (routing under /schedule, this driver's own libs + design system).
+
+Source files in sch-command → target here (src/schedule/…):
+- src/lib/yesv2Import.js         → src/schedule/lib/yesv2Import.js   (pure engine:
+    YESv2 header validation, §5 transforms, crew_status collapse, smart-assist
+    ranking. Framework-free — near-verbatim copy. + its .verify.mjs, 21 checks.)
+- src/lib/importData.js          → src/schedule/lib/importData.js    (right-pane
+    load, draft save/load on migration_match_draft, ADDITIVE Apply w/ old→new
+    job_id remap, A-14.1 backlinks. Repoint its imports at src/schedule/lib.)
+- src/views/Import.jsx           → src/schedule/views/Import.jsx      (upload +
+    header validation, L/R panes, ranked candidates + click-to-confirm, dup-target
+    hard block, draft autosave, Apply. Rewire to this app's toast/user libs.)
+- src/App.jsx nav+route          → add to src/lib/nav.js schedule.items an
+    { id:"import", label:"Import", path:"/schedule/import", icon:"⇪" }, and route
+    it in src/schedule/ScheduleLayout.jsx. (Note nav labels/paths here already
+    match sch-command's — this is the 11th item.)
+- src/App.css imp-* block        → this app's schedule CSS (design tokens differ;
+    reuse the linen/green system already here).
+
+One-time wipe+load (stays a standalone operator artifact, NOT app runtime — R3-3):
+- sch-command scripts/generate_hdsp_migration_sql.mjs + HDSP_MIGRATION_RUNBOOK.md.
+  Reuses the engine to emit ONE transaction: backup 9 children+job_changes → FK-
+  order rows-only wipe → empty-gate → guard index pre-insert → staged load w/
+  remap. Re-home the generator wherever the engine lands; the emitted SQL runs via
+  command-suite-db linked tooling.
+
+Plan doc: sch-command docs/plans/schedule_data_migration.md is premised on the
+wrong repo. Read it for the DESIGN (it is fully correct on the what/why — §4 tool,
+§5 transforms, §6 wipe/load, §14 A-14.1 backlinks), but the WHERE is wrong. It
+needs correcting or re-issuing for SubCon Command.
+
+
+KEY DECISION FOR THE PLAN TERMINAL (do not assume)
+------------------------------------------------------------
+The one-time HDSP extraction hits the SAME shared DB from either app. So decide:
+  (A) Port everything into SubCon Command first, run the one-time extraction from
+      here. Cleanest; the permanent onboarding feature lands properly.
+  (B) Run the one-time extraction from the legacy sch-command app (tool is already
+      there, same shared DB), and separately build ONLY the permanent onboarding
+      feature into SubCon Command.
+Chris's framing: "once we extract, sch-command is fully dead; SubCon Command is the
+proper place." Lean (A) unless there's a deadline reason to shortcut via (B).
+
+
+THE WORK (prompt for the fresh terminal)
+------------------------------------------------------------
+This is a PLAN-then-BUILD task, not a blind port. Do NOT start editing on arrival.
+
+1. Confirm the big picture (above) and read the sch-command plan + reference files.
+2. Decide (A) vs (B) with Chris.
+3. Correct/re-issue the plan for SubCon Command: name THIS repo, the /schedule
+   driver, nav.js, ScheduleLayout routing, src/schedule/lib, this design system.
+   Inventory every entry point by grep (design-baseline check) so we don't repeat
+   the wrong-home mistake.
+4. Then build: port engine → data layer → Import view → nav + route → the one-time
+   script. Additive; the DB table already exists. Run the gates from here.
+5. One-time run stays downstream: fresh sheet export → match in the tool → rehearse
+   on a prod-shaped copy → apply → verify (§7) → retire the old sheet + sch-command.
+
+Do NOT rebuild the DB table or the DMS-8 fix — both are live and correct.
+
+
+STATE / HYGIENE
+------------------------------------------------------------
+- sch-command feat/schedule-data-migration: merged to sch-command main + deployed
+  to schedulecommand.com (legacy). Harmless (that app dies), but it's the reference
+  impl — keep the branch until the port lands.
+- command-suite-db main: migration + baseline fix pushed to prod. Done.
+- This branch (sales-command feat/schedule-data-migration): carries only this
+  handoff so /resume lands here. No code yet — that's the next terminal's job.

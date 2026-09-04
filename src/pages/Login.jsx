@@ -200,7 +200,7 @@ export default function Login() {
             </div>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Reset Code</div>
-              <input type="text" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} style={{ ...inputStyle, letterSpacing: "0.3em", fontFamily: "monospace" }} placeholder="000000" required />
+              <input type="text" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))} style={{ ...inputStyle, letterSpacing: "0.3em", fontFamily: "monospace" }} placeholder="Enter code" required />
             </div>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>New Password</div>

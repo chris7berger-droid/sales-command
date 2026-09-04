@@ -75,7 +75,13 @@ serve(async (req) => {
     const recoveryRedirect = `${redirectUrl}/login`;
     const fromEmail = "noreply@salescommand.app";
 
-    // Generate recovery link via admin API
+    // Generate a recovery OTP via the admin API. generateLink returns BOTH a
+    // clickable action_link AND a 6-digit email_otp for the same token. We email
+    // the CODE, not the link: Microsoft/Outlook ATP "SafeLinks" pre-fetches
+    // (and thus one-time-consumes) any URL in the email before the user clicks,
+    // which was burning the reset token and yielding "link expired" (B77). A
+    // typed code can't be pre-clicked by a scanner. redirectTo is still required
+    // by the API but is irrelevant to the code path (the user never follows it).
     const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
       type: "recovery",
       email,
@@ -84,15 +90,15 @@ serve(async (req) => {
 
     if (linkErr) {
       console.error("generateLink error:", linkErr.message);
-      return new Response(JSON.stringify({ error: "Failed to generate reset link" }), {
+      return new Response(JSON.stringify({ error: "Failed to generate reset code" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 500,
       });
     }
 
-    const resetUrl = linkData?.properties?.action_link || "";
-    if (!resetUrl) {
-      return new Response(JSON.stringify({ error: "Failed to generate reset link" }), {
+    const resetCode = linkData?.properties?.email_otp || "";
+    if (!resetCode) {
+      return new Response(JSON.stringify({ error: "Failed to generate reset code" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 500,
       });
@@ -114,17 +120,18 @@ serve(async (req) => {
       body: JSON.stringify({
         from: fromEmail,
         to: email,
-        subject: `Reset your ${appName} password`,
+        subject: `Your ${appName} password reset code`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1c1814;">
             <div style="border-bottom: 4px solid #30cfac; padding-bottom: 16px; margin-bottom: 24px;">
               <h2 style="margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.02em;">${appName}</h2>
             </div>
             <p>We received a request to reset your password.</p>
-            <p>Click the button below to set a new password:</p>
-            <div style="margin: 32px 0;">
-              <a href="${resetUrl}" style="background: #30cfac; color: #1c1814; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 15px;">Reset Password →</a>
+            <p>Enter this code on the password reset screen to set a new password:</p>
+            <div style="margin: 28px 0; text-align: center;">
+              <div style="display: inline-block; background: #f5f1eb; border: 2px solid #30cfac; border-radius: 10px; padding: 18px 32px; font-size: 34px; font-weight: 800; letter-spacing: 0.35em; font-family: 'Courier New', monospace; color: #1c1814;">${resetCode}</div>
             </div>
+            <p style="color: #887c6e; font-size: 13px;">This code expires in 1 hour and can only be used once.</p>
             <p style="color: #887c6e; font-size: 13px;">If you didn't request this, you can safely ignore this email.</p>
             <p style="color: #887c6e; font-size: 12px;">Log in at <a href="${redirectUrl}" style="color: #30cfac;">${redirectUrl.replace("https://www.", "")}</a></p>
           </div>

@@ -18,10 +18,15 @@ export default function Login() {
   const [mode,     setMode]     = useState("login") // login | forgot | reset
   const [message,  setMessage]  = useState(null)
   const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [code, setCode] = useState("")
   const [remember, setRemember] = useState(() => localStorage.getItem("sc_remember") !== "false")
 
   useEffect(() => {
+    // One-time notice after a completed reset (survives the post-reset reload).
+    const notice = sessionStorage.getItem("sc_login_notice")
+    if (notice) { setMessage(notice); sessionStorage.removeItem("sc_login_notice") }
+
     const hash = window.location.hash || "";
     if (hash.includes("type=recovery") || sessionStorage.getItem("sc_recovery_mode")) {
       sessionStorage.removeItem("sc_recovery_mode")
@@ -93,6 +98,13 @@ export default function Login() {
   async function handleReset(e) {
     e.preventDefault()
     setError(null)
+    // Confirm the two password fields match BEFORE verifying the code — verifyOtp
+    // consumes the one-time code, so a mismatch must fail before that or the user
+    // would have to request a fresh code just because of a typo.
+    if (newPassword !== confirmPassword) {
+      setError("Passwords don't match. Please re-enter them.")
+      return
+    }
     setLoading(true)
     try {
       // Verify the typed 6-digit code — this establishes a recovery session,
@@ -107,19 +119,19 @@ export default function Login() {
         : vErr.message)
       const { error } = await supabase.auth.updateUser({ password: newPassword })
       if (error) throw error
-      // Reset complete — clear the persisted resume state so /login goes back
-      // to normal sign-in.
+      // Reset complete — clear the persisted resume state, remember the email
+      // for the sign-in prefill, and stash a one-time notice for the next load.
       localStorage.removeItem("sc_reset_pending")
       localStorage.removeItem("sc_reset_email")
-      setMessage("Password updated! Signing you in...")
-      // Clear the recovery token from the URL to prevent the PASSWORD_RECOVERY loop
-      window.history.replaceState({}, "", window.location.pathname)
-      setMode("login")
-      // The user is already authenticated after updateUser, trigger a reload
-      setTimeout(() => { window.location.replace("/") }, 1200)
+      localStorage.setItem("sc_last_email", email.trim())
+      sessionStorage.setItem("sc_login_notice", "Password updated. Please sign in with your new password.")
+      // Sign the recovery session out so the user must log in fresh with the new
+      // password, instead of being dropped straight into the app. The full reload
+      // to /login clears the recovery session/hash and lands on sign-in.
+      await supabase.auth.signOut()
+      window.location.replace("/login")
     } catch (err) {
       setError(err.message || "Failed to update password.")
-    } finally {
       setLoading(false)
     }
   }
@@ -222,6 +234,10 @@ export default function Login() {
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>New Password</div>
               <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} style={inputStyle} required minLength={6} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Confirm New Password</div>
+              <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} style={inputStyle} required minLength={6} />
             </div>
             <button type="submit" disabled={loading} style={btnStyle}>{loading ? "Updating..." : "Set New Password"}</button>
             <div style={{ textAlign: "center", marginTop: 4, display: "flex", flexDirection: "column", gap: 10 }}>

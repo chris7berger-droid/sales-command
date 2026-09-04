@@ -18,6 +18,7 @@ export default function Login() {
   const [mode,     setMode]     = useState("login") // login | forgot | reset
   const [message,  setMessage]  = useState(null)
   const [newPassword, setNewPassword] = useState("")
+  const [code, setCode] = useState("")
   const [remember, setRemember] = useState(() => localStorage.getItem("sc_remember") !== "false")
 
   useEffect(() => {
@@ -65,7 +66,10 @@ export default function Login() {
       )
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Failed to send reset email.")
-      setMessage("Check your email for a password reset link.")
+      // Move to the code-entry screen. The email carries a 6-digit code (not a
+      // clickable link) so email-security scanners can't pre-consume it (B77).
+      setMessage("We emailed you a 6-digit reset code. Enter it below with your new password.")
+      setMode("reset")
     } catch (err) {
       setError(err.message || "Failed to send reset email.")
     } finally {
@@ -78,6 +82,16 @@ export default function Login() {
     setError(null)
     setLoading(true)
     try {
+      // Verify the typed 6-digit code — this establishes a recovery session,
+      // then updateUser sets the new password against it.
+      const { error: vErr } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: code.trim(),
+        type: "recovery",
+      })
+      if (vErr) throw new Error(vErr.message === "Token has expired or is invalid"
+        ? "That code is invalid or expired. Request a new one."
+        : vErr.message)
       const { error } = await supabase.auth.updateUser({ password: newPassword })
       if (error) throw error
       setMessage("Password updated! Signing you in...")
@@ -163,12 +177,12 @@ export default function Login() {
 
         {mode === "forgot" && (
           <form onSubmit={handleForgot} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 13, color: C.textFaint, marginBottom: 4 }}>Enter your email and we will send you a reset link.</div>
+            <div style={{ fontSize: 13, color: C.textFaint, marginBottom: 4 }}>Enter your email and we will send you a reset code.</div>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Email</div>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} required />
             </div>
-            <button type="submit" disabled={loading} style={btnStyle}>{loading ? "Sending..." : "Send Reset Link"}</button>
+            <button type="submit" disabled={loading} style={btnStyle}>{loading ? "Sending..." : "Send Reset Code"}</button>
             <div style={{ textAlign: "center", marginTop: 4 }}>
               <button type="button" onClick={() => { setMode("login"); setError(null); setMessage(null); }} style={{ background: "none", border: "none", color: C.tealDark, fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
                 Back to sign in
@@ -179,12 +193,25 @@ export default function Login() {
 
         {mode === "reset" && (
           <form onSubmit={handleReset} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 13, color: C.textFaint, marginBottom: 4 }}>Enter your new password.</div>
+            <div style={{ fontSize: 13, color: C.textFaint, marginBottom: 4 }}>Enter the 6-digit code we emailed you and your new password.</div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Email</div>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} required />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Reset Code</div>
+              <input type="text" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} style={{ ...inputStyle, letterSpacing: "0.3em", fontFamily: "monospace" }} placeholder="000000" required />
+            </div>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>New Password</div>
               <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} style={inputStyle} required minLength={6} />
             </div>
             <button type="submit" disabled={loading} style={btnStyle}>{loading ? "Updating..." : "Set New Password"}</button>
+            <div style={{ textAlign: "center", marginTop: 4 }}>
+              <button type="button" onClick={() => { setMode("forgot"); setError(null); setMessage(null); setCode(""); }} style={{ background: "none", border: "none", color: C.tealDark, fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                Request a new code
+              </button>
+            </div>
           </form>
         )}
 

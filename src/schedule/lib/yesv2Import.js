@@ -286,6 +286,43 @@ export function confidenceTier(score) {
   return 'low'
 }
 
+// ── Auto-match: DEAD-ON exact job-number matches only ─────────────────────────
+// Confirming ~200 obvious rows by hand is wasted effort. This picks off only the
+// matches that need no human judgment: a job whose exact base number (numScore
+// === 1) is shared by EXACTLY ONE real record, where that record isn't wanted by
+// any other old job and isn't already taken by a manual match. Everything else —
+// number ties, duplicate targets, fuzzy-only, no match — is left for a human.
+// Skips jobs that already have a decision (never overrides a manual choice).
+// Returns { [oldJobId]: call_log.id } to merge into the decisions map. The result
+// is a draft like any other: fully reversible before Apply.
+export function autoMatchExact(jobs, callLogRows, decisions = {}) {
+  const rows = callLogRows || []
+  const proposals = [] // { oldJobId, targetId } — one clean exact candidate each
+  for (const j of jobs || []) {
+    if (decisions[j._oldJobId] != null) continue // already matched or Internal
+    const jobBase = baseNumber(j.job_num)
+    if (!jobBase) continue
+    const exact = rows.filter(r => {
+      const candBase = baseNumber(r.display_job_number) || (r.job_number != null ? String(r.job_number) : '')
+      return candBase && candBase === jobBase
+    })
+    if (exact.length !== 1) continue // 0 = no match, >1 = number tie → human decides
+    proposals.push({ oldJobId: j._oldJobId, targetId: exact[0].id })
+  }
+  // Reject any target claimed by more than one old job (duplicate) or already used
+  // by an existing manual match.
+  const usedTargets = new Set(Object.values(decisions).filter(d => d != null && d !== 'internal'))
+  const targetCount = new Map()
+  for (const p of proposals) targetCount.set(p.targetId, (targetCount.get(p.targetId) || 0) + 1)
+  const out = {}
+  for (const p of proposals) {
+    if (targetCount.get(p.targetId) > 1) continue // two old jobs want it → human
+    if (usedTargets.has(p.targetId)) continue // already taken by a manual match
+    out[p.oldJobId] = p.targetId
+  }
+  return out
+}
+
 // Rank all call_log candidates for one job. `limit` caps the returned list
 // (default 8) so the UI floats a short candidate list, not all 378.
 export function rankCandidates(job, callLogRows, { limit = 8 } = {}) {

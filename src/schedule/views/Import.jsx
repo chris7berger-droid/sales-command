@@ -15,7 +15,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import * as XLSX from 'xlsx'
 import { useToast } from '../lib/toast'
 import {
-  YESV2_TABS, validateHeaders, transformJob, rankCandidates, tokenOverlap, baseNumber,
+  YESV2_TABS, validateHeaders, transformJob, rankCandidates, tokenOverlap, baseNumber, autoMatchExact,
 } from '../lib/yesv2Import.js'
 import {
   loadRightPane, loadDraft, saveDraft, applyImport,
@@ -181,6 +181,18 @@ export default function Import() {
       .map(x => x.r)
   }, [search, rightPane, activeJobObj])
 
+  // ── auto-match: the dead-on exact matches that need no human judgment ──
+  const autoMatches = useMemo(
+    () => autoMatchExact(jobs, rightPane, decisions),
+    [jobs, rightPane, decisions],
+  )
+  const autoMatchCount = Object.keys(autoMatches).length
+  function applyAutoMatches() {
+    if (autoMatchCount === 0) return
+    setDecisions(prev => ({ ...prev, ...autoMatches }))
+    toast(`Auto-matched ${autoMatchCount} exact job number${autoMatchCount > 1 ? 's' : ''}`, 'ok')
+  }
+
   const setDecision = useCallback((oldJobId, value) => {
     setDecisions(prev => {
       const n = { ...prev }
@@ -279,6 +291,12 @@ export default function Import() {
             <span className="imp-chip imp-chip-unmatched">{stats.unmatched} unmatched</span>
             <span className="imp-chip">{stats.total} total</span>
             {dupTargets.size > 0 && <span className="imp-chip imp-chip-dup">⚠ {dupTargets.size} duplicate target{dupTargets.size > 1 ? 's' : ''}</span>}
+            {autoMatchCount > 0 && (
+              <button className="imp-btn imp-btn-auto" onClick={applyAutoMatches}
+                title="Confirm every old job whose exact job number matches one — and only one — real record. Ties, duplicates, and fuzzy matches are left for you. Reversible before Apply.">
+                ⚡ Auto-match {autoMatchCount} exact
+              </button>
+            )}
           </div>
           {rightErr && <div className="imp-bad">Could not load master records: {rightErr}</div>}
           {loadingRight && <div className="imp-note">Loading master records…</div>}

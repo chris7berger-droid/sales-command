@@ -6722,6 +6722,8 @@
 .imp-btn { border: 1px solid var(--brd); background: var(--bg-card); color: var(--text-secondary); border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
 .imp-btn:hover { border-color: var(--text-light); }
 .imp-btn-internal { border-color: var(--cyan); color: var(--cyan); }
+.imp-btn-auto { border-color: var(--teal); background: var(--teal); color: var(--dark); font-weight: 700; margin-left: 4px; }
+.imp-btn-auto:hover { filter: brightness(1.08); border-color: var(--teal); }
 .imp-cand-h { font-family: var(--font-heading); font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; color: var(--text-light); margin: 12px 0 6px; }
 .imp-cands { display: flex; flex-direction: column; gap: 6px; }
 .imp-cand { display: grid; grid-template-columns: auto 1fr auto auto; gap: 10px; align-items: center; text-align: left; border: 1px solid var(--brd); border-radius: 7px; padding: 8px 10px; background: var(--bg-card); cursor: pointer; }

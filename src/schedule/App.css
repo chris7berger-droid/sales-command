@@ -6696,6 +6696,7 @@
 .imp-chip-internal { background: rgba(8,145,178,0.15); color: var(--cyan); }
 .imp-chip-unmatched { background: rgba(230,126,34,0.15); color: var(--warning); }
 .imp-chip-dup { background: rgba(192,57,43,0.15); color: var(--danger); border-color: var(--danger); }
+.imp-chip-shared { background: rgba(48,207,172,0.13); color: var(--teal); }
 
 .imp-panes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .imp-pane-h { font-family: var(--font-heading); font-weight: 700; text-transform: uppercase; font-size: 12px; letter-spacing: 0.05em; color: var(--text-light); margin-bottom: 8px; }
@@ -6707,6 +6708,7 @@
 .imp-row-internal { border-left: 3px solid var(--cyan); }
 .imp-row-unmatched { border-left: 3px solid var(--warning); }
 .imp-row-dup { background: rgba(192,57,43,0.08); }
+.imp-row-shared { border-left-style: double; border-left-width: 3px; }
 .imp-row-main { display: flex; gap: 8px; align-items: baseline; }
 .imp-row-num { font-family: var(--font-mono); font-weight: 700; font-size: 12px; color: var(--text-primary); }
 .imp-row-name { font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

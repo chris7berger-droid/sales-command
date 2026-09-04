@@ -328,7 +328,7 @@ export default function Import() {
                         {j.start_date && <span>{j.start_date}</span>}
                       </div>
                       <div className="imp-row-state">
-                        {state === 'matched' && <span className="imp-tag imp-tag-matched">→ {target ? (target.display_job_number || target.job_name) : d}{isDup ? ' ⚠' : ''}</span>}
+                        {state === 'matched' && <span className="imp-tag imp-tag-matched">→ {target ? (target.display_job_number || target.job_name) : d}{isShared ? ' ↹' : ''}</span>}
                         {state === 'internal' && <span className="imp-tag imp-tag-internal">Internal</span>}
                         {state === 'unmatched' && <span className="imp-tag imp-tag-unmatched">Unmatched</span>}
                       </div>

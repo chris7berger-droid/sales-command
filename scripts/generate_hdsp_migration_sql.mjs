@@ -46,11 +46,11 @@
 // prod-shaped copy → run on prod → verify → retire the old sheet).
 
 import { readFileSync, writeFileSync } from 'fs'
-import { parse } from 'csv-parse/sync'
+import * as XLSX from 'xlsx'
 import {
   transformJob, transformAssignment, transformBillingLog, transformCrewStatus,
   collapseCrewStatus, deriveCrew, validateHeaders,
-} from '../src/lib/yesv2Import.js'
+} from '../src/schedule/lib/yesv2Import.js'
 
 // ── args ──
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, arr) => {
@@ -66,7 +66,14 @@ const SAMPLE = !!args.sample
 if (!TENANT || TENANT === true) { console.error('ERROR: --tenant-id is required (HDSP = 246f6551-60de-4965-bb97-9a52971bc05d).'); process.exit(1) }
 if (!/^[0-9a-f-]{36}$/i.test(TENANT)) { console.error(`ERROR: --tenant-id "${TENANT}" is not a uuid.`); process.exit(1) }
 
-const readCsv = (f) => parse(readFileSync(`${DIR}/${f}`, 'utf-8'), { columns: true, skip_empty_lines: true, trim: false })
+// Parse with SheetJS — the SAME parser the Import screen used to build the draft,
+// so JobIDs/rows line up exactly (raw:false keeps cells as text; defval:'' keeps
+// empty cells; header keys preserve exact text incl. the trailing space in 'Notes ').
+const readCsv = (f) => {
+  const wb = XLSX.read(readFileSync(`${DIR}/${f}`), { type: 'buffer' })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  return XLSX.utils.sheet_to_json(ws, { defval: '', raw: false })
+}
 
 // ── SQL literal helpers ──
 const q = (v) => {
@@ -139,8 +146,18 @@ p(`--`)
 p(`-- REHEARSE on a prod-shaped copy first (§6.7). Do NOT run against prod until`)
 p(`-- rehearsal passes. Runs as ONE transaction — any failure rolls back whole.`)
 p(`-- ═══════════════════════════════════════════════════════════════════════════`)
-p(`\\set ON_ERROR_STOP on`)
+// NB: no psql \set meta-commands — this file is executed via the Management API
+// (supabase db query --linked -f), which only accepts plain SQL. The whole thing
+// is one transaction, so any error aborts it and COMMIT never lands (fail-safe).
 p(`BEGIN;`)
+p()
+// Pause app triggers for this transaction only (LOCAL = auto-restored at COMMIT/
+// ROLLBACK). Required: a raw admin/service session has no auth.uid(), so the
+// jobs/assignments bookkeeping triggers (e.g. jobs_log_ready_demote) would insert
+// job_changes rows with a NULL tenant_id and abort the wipe. The load supplies
+// every value explicitly and wipes/loads in FK order, so trigger-maintained
+// derived data and FK re-checks aren't needed here. (Caught in rehearsal §6.7.)
+p(`SET LOCAL session_replication_role = 'replica';`)
 p()
 p(`-- 1) BACKUP (§6.3) — every touched table, into schema migration_backup.`)
 p(`CREATE SCHEMA IF NOT EXISTS migration_backup;`)
@@ -172,15 +189,29 @@ if (crew.length) {
   p(crew.map(c => `  (${q(c.name)}, ${q(c.team)}, ${q(c.phone)}, ${q(c.archived)}, ${T})`).join(',\n') + ';')
 }
 p()
+// Mobilizations share a call_log, so several jobs rows resolve to the SAME Sold
+// proposal — but jobs.source_proposal_id is UNIQUE. Backlink the proposal on only
+// the FIRST row per call_log (deterministic first-seen); the sibling mobilizations
+// get NULL. (Caught in rehearsal §6.7.)
+const _proposalPrimary = new Set()
+{
+  const seenCl = new Set()
+  for (const j of jobs) {
+    const cl = callLogIdFor(j._oldJobId)
+    if (cl == null) continue
+    if (!seenCl.has(cl)) { seenCl.add(cl); _proposalPrimary.add(j._oldJobId) }
+  }
+}
 p(`-- 5b) STAGE jobs with their old JobID, then loop-insert to capture the fresh`)
 p(`--     serial job_id into _idmap (A2 remap). ON COMMIT DROP cleans the temps.`)
-p(`CREATE TEMP TABLE _stage_jobs (old_job_id text, ${JOB_COLS.map(c => `${c} ${c === 'call_log_id' ? 'bigint' : 'text'}`).join(', ')}) ON COMMIT DROP;`)
+p(`--     link_proposal = true on only the first row per call_log (proposal backlink).`)
+p(`CREATE TEMP TABLE _stage_jobs (old_job_id text, link_proposal boolean, ${JOB_COLS.map(c => `${c} ${c === 'call_log_id' ? 'bigint' : 'text'}`).join(', ')}) ON COMMIT DROP;`)
 p(`CREATE TEMP TABLE _idmap (old_job_id text PRIMARY KEY, new_job_id int) ON COMMIT DROP;`)
 if (jobs.length) {
-  p(`INSERT INTO _stage_jobs (old_job_id, ${JOB_COLS.join(', ')}) VALUES`)
+  p(`INSERT INTO _stage_jobs (old_job_id, link_proposal, ${JOB_COLS.join(', ')}) VALUES`)
   p(jobs.map(j => {
     const vals = JOB_COLS.map(c => c === 'call_log_id' ? q(callLogIdFor(j._oldJobId)) : q(j[c]))
-    return `  (${q(j._oldJobId)}, ${vals.join(', ')})`
+    return `  (${q(j._oldJobId)}, ${_proposalPrimary.has(j._oldJobId) ? 'true' : 'false'}, ${vals.join(', ')})`
   }).join(',\n') + ';')
 }
 p(`DO $$`)
@@ -202,10 +233,10 @@ p(`      ${JOB_COLS.map(c => {
 // returns the id for exactly-one and NO row (→ NULL) for zero or multiple, so we
 // never guess. Internal rows (call_log_id NULL) get NULL on both, naturally.
 p(`      r.call_log_id,`)
-p(`      (SELECT max(p.id) FROM public.proposals p`)
+p(`      CASE WHEN r.link_proposal THEN (SELECT max(p.id) FROM public.proposals p`)
 p(`         WHERE p.call_log_id = r.call_log_id AND p.status = 'Sold'`)
 p(`           AND coalesce(p.is_archive_proposal, false) = false`)
-p(`         HAVING count(*) = 1),`)
+p(`         HAVING count(*) = 1) ELSE NULL END,`)
 p(`      ${T})`)
 p(`    RETURNING job_id INTO nid;`)
 p(`    INSERT INTO _idmap (old_job_id, new_job_id) VALUES (r.old_job_id, nid);`)

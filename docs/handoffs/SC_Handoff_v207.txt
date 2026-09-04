@@ -1,0 +1,90 @@
+SC_Handoff_v207 — Schedule Import tool re-homed into SubCon Command + shipped live
+================================================================================
+Date: 2026-09-04
+Repo: sales-command  (the app is SUBCON COMMAND, scmybiz.com; Schedule is a driver)
+Branch merged to: main (deployed)   Feature branch: feat/schedule-data-migration
+Shared DB: pbgvgjjuhnpsumnowuym   HDSP tenant_id: 246f6551-60de-4965-bb97-9a52971bc05d
+
+
+SESSION SUMMARY
+------------------------------------------------------------
+Picked up the v206 handoff: the YESv2→live-Schedule import tool had been built in
+the WRONG repo (legacy standalone sch-command / schedulecommand.com). This session
+re-homed it into the Schedule driver of the real app (SubCon Command) and shipped
+it live.
+
+Verified the v206 claim against the code first (Chris rightly pushed back — he
+thought "the old app" was the Google Apps Script sheet). Confirmed: the tool
+really did exist, in the *second* web app (sch-command), not in Apps Script. The
+old Google Sheet ("YES Schedule v2") is only the DATA SOURCE, untouched.
+
+
+CHANGES SHIPPED (merged to main, auto-deployed to scmybiz.com)
+------------------------------------------------------------
+Ported from sch-command branch feat/schedule-data-migration into src/schedule/*:
+- src/schedule/lib/yesv2Import.js       (pure engine — near-verbatim copy)
+- src/schedule/lib/yesv2Import.verify.mjs (21-check verifier)
+- src/schedule/lib/importData.js        (data layer; ONE import repointed:
+    supabase now from '../../lib/supabase' — this app keeps it at src/lib)
+- src/schedule/views/Import.jsx         (the screen; imports resolved as-is —
+    ../lib/toast, ../lib/yesv2Import, ../lib/importData all exist here)
+- src/lib/nav.js                        (added Schedule menu item: id "import",
+    label "Import", path /schedule/import, after Schedules)
+- src/schedule/ScheduleLayout.jsx       (import Import + <Route path="import">)
+- src/schedule/App.css                  (appended the ~72-line imp-* style block
+    from sch-command App.css; palette vars it uses already exist in this app)
+- scripts/generate_hdsp_migration_sql.mjs + scripts/HDSP_MIGRATION_RUNBOOK.md
+    (one-time wipe/load operator artifacts — re-homed, not app runtime)
+
+Wiring verified before ship: helper names matched (useToast, loadAllRows w/
+orderBy), only the supabase path differed. `npm run build` passed clean (653
+modules, no errors). Live on scmybiz.com — Chris confirmed the Import menu item
+renders under Schedule Command.
+
+
+DECISIONS
+------------------------------------------------------------
+- Chose option (A) from v206: port everything into SubCon Command, run the
+  one-time extraction from here. sch-command is now dead weight (not deleted —
+  it just isn't used; Chris is its only ever user and can still open it if needed).
+- Made it live at Chris's explicit direction (declined preview). Publishing only
+  ADDS the Import page; it runs no data load on its own — nothing moves until the
+  tool is used and the one-time load is deliberately run.
+- Did NOT rebuild the DB table (migration_match_draft) or the DMS-8 fix — both
+  already live and correct in prod per v206.
+
+
+NEW DOC
+------------------------------------------------------------
+- docs/SCHEDULE_IMPORT_HOWTO.md — plain-English guide for Chris on how to USE the
+  tool (export sheet → upload → match → hand off the one-time load). Pairs with
+  the technical scripts/HDSP_MIGRATION_RUNBOOK.md.
+
+
+NEXT SESSION (this is the next work — /resume points here)
+------------------------------------------------------------
+USE the Import tool to actually migrate HDSP's schedule. Read
+docs/SCHEDULE_IMPORT_HOWTO.md first. Chris's part: fresh-export the four YESv2
+tabs, upload in Schedule → Import, match every job to a real record or mark
+Internal, reach 0 unmatched + no duplicate targets. Then a technical/DB session
+runs the one-time load per scripts/HDSP_MIGRATION_RUNBOOK.md (Steps 3–7: export
+the confirmed draft, generate SQL, REHEARSE on a prod-shaped copy, run on prod,
+verify, retire the old sheet).
+
+Note (runbook §4/R3-1): the 5 schedule tables still carry a legacy blanket
+authenticated policy — harmless at 1 tenant (HDSP), but a hard prerequisite to
+fix in command-suite-db before any 2nd tenant onboards via this tool.
+
+
+NOT TOUCHED
+------------------------------------------------------------
+- The old YES Schedule v2 Google Sheet (data source only).
+- The legacy sch-command app (dead but intact; still holds the reference impl).
+- Any existing Schedule/Sales/AR/Field screens — the change is purely additive.
+
+
+GIT STATE
+------------------------------------------------------------
+- main: 2a758c1 (this work) — pushed, deployed.
+- feat/schedule-data-migration: merged into main.
+- command-suite-db: unchanged this session (table + baseline already live).

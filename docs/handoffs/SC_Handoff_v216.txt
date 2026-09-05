@@ -1,0 +1,183 @@
+SC Handoff v216 — Post-merge cleanup + B87 allocation-aware board SHIPPED + B88 CLOSED + schedule-cleanup (B89/B90/B91)
+================================================================================
+Date: 2026-09-05
+Repo: sales-command (Schedule Command, src/schedule/) + command-suite-db (shared DB)
+Branch: main (HEAD 488dbb5 = origin/main); all session branches merged + deleted
+Backlog: B87 shipped, B88 closed (all 5), B89/B90 closed, B91 part-2 done / part-1 deferred
+Plan (contract): docs/plans/add_job_dedup_ideate_prompt.md (AMENDMENT "allocation-aware schedule board")
+Prior handoff: SC_Handoff_v215.txt (branch/pre-merge state — this supersedes it)
+
+SESSION SUMMARY
+---------------
+Started as a /resume into "smoke the live app after the reskin + guardrail merge."
+Chris redirected: fix the known B88 code-review/security nits immediately instead
+of leaving them to bite during smoke. That surfaced a DB question — "are we clear
+to make database changes?" — which turned into real DB hygiene work: confirmed the
+push gate was actually green (the handoff's "blocked" note was stale), dropped a
+stale out-of-band migration_backup schema from prod (verified all 140 rows were
+orphaned or test-noise first), and brought the baseline + EXPECT_* fingerprint back
+in sync. Then built B87 (allocation-aware schedule board) end to end in this
+terminal — migration + frontend across four surfaces — ran it through all three
+cold gates, fixed the two caused-by gaps they found, and merged. Then shipped B88
+#5 (billing_worklist writes → Admin-only server-side, a real RLS gap). Then knocked
+out the three B87-review follow-ups: B89 (dedup) and B90 (pagination) done; B91 was
+split — doc half fixed, the suite-wide anon-grant revoke deliberately deferred.
+No preview smoke was run all session — we switched to a scoped-verify protocol
+(see DECISIONS): Claude holds the runtime verification instead of Chris wandering a
+preview and sweeping unrelated breakage into the fix.
+
+CHANGES SHIPPED
+---------------
+sales-command (all on main, fast-forward merges; prod auto-deploys on push):
+- f484466  Touches B88: Home dashboard nits — scheduled-no-date jobs now show as a
+           tally instead of vanishing; Home handles a failed job_changes fetch;
+           job_changes pull narrowed from select('*') to the 5 rendered columns.
+- d5a8b5b  B87: allocation-aware schedule board + per-allocation details — new
+           src/schedule/lib/allocations.js (jobRanges/overlapsWeek/inRange); a job
+           now renders on EVERY allocation's dates across Schedule/Calendar/Daily +
+           the week printout; "+ Job" panel restores crew#/lead/vehicle/equipment/
+           power/scope inputs.
+- 0b4e66c  B87: Daily crew card honors the in-view allocation's crew/vehicle/lead
+           (buildvsplan Tier-2 fix).
+- 4ab73c3  B87: Calendar start-only jobs show one day, not open-ended (code-review
+           #1 — the one real behavior regression, fixed pre-merge).
+- 0dd4a47  B87: file B91 from security review (latent anon grants + doc drift).
+- abfe15b  Close B88 (all 5): #5 billing_worklist writes now Admin-only server-side
+           (backlog closure; the enforcement is the command-suite-db migration below).
+- 488dbb5  B89 + B90: dedup allocForWeek to a shared helper (allocations.js) +
+           paginate loadMobilizationsByJobId via loadAllRows.
+
+command-suite-db (all on main):
+- 36d8ec3  Baseline catch-up: migration_match_draft EXPECT_/baseline sync + DROP the
+           stale migration_backup schema from prod.
+- 9f85ae9  B87: add 6 additive nullable columns to job_mobilizations (crew_needed/
+           lead/vehicle/equipment/power_source/sow) — migration 20260905120000.
+- 21dd06e  B87: baseline + EXPECT_COLUMN_GRANTS catch-up after that push.
+- b5dc33b  B88 #5: add is_admin() + gate billing_worklist INSERT/UPDATE/DELETE —
+           migration 20260905130000.
+- e6a17a1  B88 #5: baseline + EXPECT_FUNCTIONS catch-up after that push.
+- 3dfac8f  B91: correct the anon-grant comment wording (mechanism vs effect). Doc only.
+
+DEPLOYED
+--------
+Project ref: pbgvgjjuhnpsumnowuym (shared: Sales + Schedule + Field).
+- DB migrations applied to prod via `npm run db:push` (rehearsed first, both):
+    * 20260905120000 — 6 nullable columns on job_mobilizations (B87). Additive.
+    * 20260905130000 — is_admin() + billing_worklist admin-only write policies (B88#5).
+- Prod DDL run out-of-band (not a migration, cleanup): `DROP SCHEMA migration_backup
+  CASCADE` (via `supabase db query --linked`, MCP was read-only). 13 stale snapshot
+  tables from the Sept-4 import; verified disposable first.
+- Baseline snapshot (command-suite-db/supabase/baseline/prod_public_schema.sql)
+  re-dumped 3× this session; the hand-added `REVOKE SELECT ON invoices FROM anon`
+  re-applied each time; assert-invoice-lock + rehearse --verify green after each.
+- Frontend: auto-deploys to www.scmybiz.com on each push to main.
+NOTE: no in-browser smoke was performed on any of this (see VERIFICATION).
+
+DECISIONS / CHOICES MADE
+------------------------
+- Scoped-verify replaces open-ended smoke (Chris, ratified this session; saved as
+  a memory). Open smoke on complex features caused scope-bleed: Chris finds
+  unrelated breakage, folds it into the fix, we churn. New protocol: Claude holds
+  verification (data/logic, or driving the app), or hands a 3-line click/expect
+  with a hard "anything else = ADJACENT, don't touch" rule. All B87/B88 verification
+  this session was done this way, no previews.
+- Built B87 in this (warm) terminal instead of a fresh one — the load-bearing
+  discipline is that the GATES run cold, not that the build is pristine; and this
+  terminal already held live DB context B87 needed. Gates were still run cold.
+- B88 #5 is Admin-only, NOT Admin+Manager. The other money tables use
+  is_admin_or_manager(); the billing worklist is deliberately tighter to match
+  Billing.jsx canEdit === 'Admin' and Chris's literal ask. Added a new is_admin()
+  helper mirroring the canonical one.
+- migration_backup drop: the /resume note called it a push blocker. It wasn't — it
+  only matters when re-baselining. Dropped it anyway (verified 131/140 rows orphaned,
+  9 were test-job audit rows) so a future `db dump` stays clean.
+- B91 part-1 (suite-wide anon DML revoke) DEFERRED ON PURPOSE. Zero real exposure
+  today (RLS blocks anon everywhere; no anon page reads these tables). "Suite-wide
+  revoke" is a per-table audit with real risk of breaking public pages (invoices/
+  proposals — same class as the stripe_checkout_url leak). Not a reactive knockout.
+
+NEW BACKLOG ITEMS
+-----------------
+- B89 (T4) — allocForWeek dup + inconsistent field-merge. CLOSED same session (488dbb5).
+- B90 (T4) — loadMobilizationsByJobId unpaginated past 1000 rows. CLOSED same session (488dbb5).
+- B91 (T4) — latent inert anon DML grants suite-wide + doc drift. Part-2 (doc) done
+  (command-suite-db 3dfac8f); part-1 (revoke) OPEN, deferred on purpose. No blocker.
+
+CLOSED THIS SESSION
+-------------------
+- B87 — allocation-aware board. Shipped (d5a8b5b + fixes, merged to main) + migration
+  20260905120000 live.
+- B88 — all 5 nits. (1)-(4) frontend (f484466 + already-guarded), (5) RLS via
+  command-suite-db 20260905130000. Row marked Closed (abfe15b).
+- B89, B90 — closed 488dbb5.
+- B91 part-2 (doc) — closed command-suite-db 3dfac8f.
+
+VERIFICATION
+------------
+- DB migrations: rehearsed on a prod-shaped throwaway before each push (applies
+  clean, no new anon exposure); post-push --against-prod + --verify green; baseline
+  fingerprint matches prod (tables 55 / functions 43 / policies 231 / etc.).
+- B87 correctness: verified against LIVE prod data, not a browser — job 1058
+  (disp 7069 Clorox), own dates Jul 2-5 + a Sep 19 go-back, now yields both date
+  ranges (the exact thing the board had to start doing).
+- B88 #5: verified vs real prod team_members — 2 Admins admitted, 3 Sales Reps
+  blocked; confirmed all 3 write policies carry is_admin() in prod.
+- All three cold gates on B87 passed (buildvsplan 0 blockers, code-review 0
+  ship-blockers, security-review 0 exploitable); their caused-by findings were
+  fixed pre-merge (Daily crew count, Calendar start-only).
+- NOT TESTED: no in-browser smoke of ANY change this session (deliberate — scoped-
+  verify protocol). The B87 board render, the "+ Job" per-allocation inputs, and
+  the Home dashboard nits have not been eyeballed in a running app. If verifying
+  later, watch: a go-back week's Daily crew badge (X/Y), a start-only job shows one
+  calendar day, and the "+ Job" panel saves the new fields.
+
+NOT TOUCHED THIS SESSION
+------------------------
+- B85 (schedule surfaces don't live-update on job state change) — pre-existing, not
+  in scope.
+- B91 part-1 (anon-grant revoke) — deferred on purpose (see DECISIONS).
+- The original /resume task (walk the live reskin + guardrail and fix breakage) —
+  Chris opted out of preview smoke entirely; not done.
+
+NEXT SESSION POINTERS
+---------------------
+- Clean slate — no open build work, no open branches, both repos in sync with
+  origin/main. Next is Chris's call.
+- If Chris wants B91 part-1: it's an audit, not a fix. FIRST inventory which anon
+  grants are load-bearing (public pages: PublicSigningPage, PublicInvoicePage read
+  invoices/proposals) vs inert, THEN revoke only inert ones, each rehearsed. Do not
+  do a blanket revoke.
+- If anyone eventually smokes B87/B88 in-app, use scoped-verify (3-line click/expect
+  + ADJACENT list), not open-ended smoke.
+- Any DB change: the push path is confirmed green as of this session; rehearse first
+  (shared DB rule), and after a push bump the EXPECT_* constant + refresh the
+  baseline in the SAME commit (the discipline that kept drift at zero this session).
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+- src/schedule/lib/allocations.js — NEW this session. The allocation-range model
+  (jobRanges/overlapsWeek/inRange) + allocForWeek/pickAllocField. All four schedule
+  surfaces depend on it.
+- src/schedule/lib/queries.js — loadMobilizationsByJobId now takes { liveOnly } and
+  paginates; add/updateJobMobilization carry the 6 new per-allocation fields.
+- src/schedule/views/{Schedule,Calendar,Daily}.jsx + lib/exports.js — all read
+  allocations now; Daily also aligned to scheduled_start/end.
+- src/schedule/ScheduleLayout.jsx — "+ Job" panel has the per-allocation inputs.
+- command-suite-db/supabase/migrations/20260905120000 + 20260905130000 — the two
+  migrations shipped. is_admin() lives in the second.
+- command-suite-db/scripts/rehearse.sh — EXPECT_* constants bumped to tables 55 /
+  functions 43 / column_grants 9364; comments carry the catch-up history.
+
+GIT STATE ON CLOSE
+------------------
+- sales-command: on main, HEAD 488dbb5 = origin/main (before this handoff commit).
+  No open feature branches (all merged + deleted). Working tree clean apart from
+  this new handoff file.
+- command-suite-db: on main, HEAD e6a17a1... actually 3dfac8f = origin/main. No open
+  branches. Baseline + ledger aligned with prod.
+- Open PRs: none. Scratch projects: none.
+
+END STATE
+---------
+Merged, deployed (DB + frontend), smoke deliberately skipped per scoped-verify
+protocol, all session branches cleaned up — ready for a fresh session.

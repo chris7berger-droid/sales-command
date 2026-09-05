@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 
 const DAYS_LONG = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
@@ -25,7 +25,10 @@ function Badge({ value, label, color }) {
 
 export default function HomeCapacityStrip({ data, weekLabel }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const days = data?.capacityDays || []
+  // No point linking to the Crew Schedule when we're already on it.
+  const onCrewSchedule = location.pathname === '/schedule/schedule'
 
   return (
     <section className="hcs">
@@ -34,7 +37,7 @@ export default function HomeCapacityStrip({ data, weekLabel }) {
           <div className="hcs-title">Weekly Crew Capacity</div>
           {weekLabel && <div className="hcs-week">{weekLabel}</div>}
         </div>
-        <button className="hcs-view-btn" onClick={() => navigate('/schedule/schedule')}>View Crew Schedule →</button>
+        {!onCrewSchedule && <button className="hcs-view-btn" onClick={() => navigate('/schedule/schedule')}>View Crew Schedule →</button>}
       </div>
 
       <div className="hcs-body">

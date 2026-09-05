@@ -269,7 +269,7 @@ function ScheduleShell() {
           </div>
         </div>
       </div>
-      {showCapacityBand && <WeeklyCapacityBand key={refreshKey} />}
+      {showCapacityBand && <WeeklyCapacityBand key={`capacity-band-${refreshKey}`} />}
       <main className="app-main" key={refreshKey}>
         <Routes>
           <Route index element={<Navigate to="/schedule/home" replace />} />

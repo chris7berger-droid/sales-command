@@ -31,7 +31,13 @@ The **grid** counts crew by the job row itself → shows the phantom's 1 assignm
 The **Next Up card** checks crew through the Sales/call-log link → the phantom has
 none → "not assigned." Two views, two answers, because the data is wrong.
 
-## Chris's mental model (the starting hypothesis — NOT yet locked)
+## Chris's mental model (the starting hypothesis — NOW REFINED + LOCKED, see Identity model below)
+
+> **RESOLVED 2026-09-05.** The hypothesis was right for go-backs but needed one
+> correction: a change order is NOT a mobilization (it has its own SOW/billing).
+> Identity keys on the **Sales link (`call_log_id`)**, not the job#. See the
+> "Identity model — [LOCKED]" section below. Original hypothesis kept for history.
+
 
 > "A job number is ONE job. Going out again is a **mobilization**, not a new job."
 
@@ -61,36 +67,129 @@ rule would wrongly collapse legitimate change-order rows. The design has to
 distinguish: (a) manual-add phantoms, (b) legit change orders on the same job#,
 (c) true accidental dupes.
 
-## Open design questions (the "logistics to work through")
+## Identity model — [LOCKED 2026-09-05]
 
-1. **What is the identity of a "job"?** job# alone? job# + call_log_id? job# +
-   CO number? Nail this first — everything else follows. Reconcile with how change
-   orders currently share a job#.
-2. **Manual Add Job when job# exists:** always add a mobilization? Confirm dialog
-   ("10252 exists — add another mobilization?") to cover typo-vs-deliberate? Block
-   entirely and force selecting the existing job?
-3. **Should manual Add Job create net-new job#s at all?** Jobs normally come from
-   Sales (via call_log). Is manual add a legit quick-add, or should it only ever
-   attach to an existing Sales job? What are the 67 null-call_log jobs — all
-   manual adds, or something else (imports)?
-4. **What does "add a mobilization" concretely mean here?** Reuse
-   `job_mobilizations` (the go-back model) as-is, or is a manual re-add a distinct
-   mobilization type? Does it carry `crew_needed`, dates, work types?
-5. **Dashboard crew logic.** `computeHomeDashboard` derives crew via
-   `buildCrewByCallLog` (keyed by call_log_id), so ANY null-call_log job reads
-   "not assigned" even when it has assignments by job_id. The grid keys crew by
-   job_id and is correct. Should the crew source of truth be job_id everywhere
-   (align dashboard to the grid), independent of the dedup work? (Simplify: fixing
-   the data may make this moot — decide whether to also harden the read path.)
-6. **Backfill / cleanup of the existing 42 + 67.** Separate the 8 phantoms (merge
-   their stray assignments into the real row, retire the phantom) from the 34
-   change-order cases (leave alone / model correctly). This is a data-migration
-   design of its own — likely a one-time script + a review pass, NOT a blind
-   dedup. Include job#10252 → job_id 1278 here (don't delete it piecemeal).
-7. **Guardrails to stop recurrence.** A DB uniqueness constraint on job# is
-   tempting but would break legit change-order sharing — verify the jobs vs
-   job_mobilizations vs call_log schema before proposing any constraint. What's
-   the right prevention: UI dedup at Add Job, a partial unique index, a trigger?
+Traced Sales → schedule → billing before locking. A change order is created back
+at the Sale as its **own record** (own proposal, own scope, tagged CO1/CO2,
+pointed at the parent). Billing is keyed off that **Sales record**
+(`call_log_id`), not the job number — each CO carries its own proposal /
+invoices / pay-app series. Folding a CO into a mobilization would strip its scope
++ billing, so it can't be one.
+
+The rule:
+
+- One **job number** can hold several **Sales records** — the base job plus each
+  change order.
+- A **change order stays its own record** because it has a **different SOW /
+  field SOW** — new work, bills on its own. (Chris's anchoring reason.)
+- **Same work, another trip** = a **mobilization**, not a new record.
+- A schedule row with **no Sales record behind it** (null `call_log_id`) = the
+  phantom bug we're killing. All 8 phantoms are exactly this.
+
+**Identity of "the same job" = the Sales link (`call_log_id`), NOT the job#.**
+Two rows on one job# that are different Sales records (base + CO) are correct;
+two rows where one has no Sales link is the bug.
+
+## Shop work / no-customer overhead — [LOCKED 2026-09-05]
+
+Retires the old BuilderTrend "job #1111" catch-all (shop work, training, no
+customer). Instead of an *exception* to the identity rule, shop work is a
+**first-class record type** so it still has a record behind it and never becomes
+a phantom.
+
+- A **"Shop Work"** button creates a real record flagged **no customer ·
+  overhead**. Button note: *"This work has no customer. It's overhead to the
+  business."*
+- **No visible job number** — hidden backend ID only.
+- **Born on the Sales side** (records are born there; shows up in reporting as
+  overhead), but the schedule **"+ Job"** button opens the same creation flow —
+  one creation path, two doors.
+- Typed **overhead** → stays out of customer billing and job-cost.
+- **Follow-on (out of scope for this fix):** a report rolling shop/overhead crew
+  hours into a single "cost of overhead to the business" number. Labor is already
+  captured because shop work carries crew like any job; only the rollup view is
+  new. Log as its own backlog item.
+
+## "+ Job" button behavior — [LOCKED 2026-09-05]
+
+Clicking "+ Job" on the schedule resolves to one of three outcomes:
+
+1. **Job already exists** (matched by Sales record on that job#) → pick it from a
+   **searchable dropdown** → **Add mobilization** → checkbox **"Is this go-back
+   work?"** → the existing add-job questions (crew, dates, prevailing wage, etc.).
+   - The checkbox sets the **existing `job_mobilizations.is_go_back`** flag via the
+     **existing `addJobMobilization()`** (queries.js). Go-back costs already track
+     off this flag — reuse it, don't invent a new mechanism.
+   - Go-backs are mobilizations (same work, another trip), distinct from change
+     orders (new SOW, own Sales record).
+2. **New job that has a customer** → **BLOCK**: *"Create it in Sales first."*
+   Jobs with customers are born in Sales; the schedule never creates them net-new.
+3. **Shop work / no customer** → the **Shop Work** button (overhead record, see
+   above).
+
+Net effect: the blind `jobs` INSERT in `doAddJob` is gone. Every path either
+attaches to an existing Sales record (mobilization), bounces to Sales (new
+customer job), or creates a typed overhead record (shop work). No path produces a
+schedule row with a null `call_log_id`.
+
+## Scope split — [LOCKED 2026-09-05]
+
+The forward fix and the cleanup are **independent** and ship separately:
+
+- **Ship now (workstream A):** new "+ Job" button (dropdown → mobilization + go-back
+  checkbox; block new-customer jobs → "create in Sales first"; Shop Work button) +
+  the guardrail. UI-level; does not depend on clean data.
+- **Parked worklist (workstream B):** the 67 unlinked jobs get a status
+  **"Unallocated — needs Sales link."** That status routes them **out of the live
+  schedule + dashboard views** into a parking bucket Chris allocates over time.
+  Side benefit: 10252's "Crew not assigned" reads honestly as "unallocated"
+  instead of a half-broken card. Merging Dave Lee's stray crew into the real row
+  is one manual row, anytime — not a blocker.
+
+Workstream A does not wait on B.
+
+## Guardrail — [LOCKED 2026-09-05]
+
+- **No hard DB uniqueness on job#.** A "one row per job number" constraint would
+  break legit change orders (which share a job#) and choke on the existing dupes.
+- **Prevention lives at the "+ Job" button** — the blind `jobs` INSERT in
+  `doAddJob` is removed; every path attaches to a Sales record, bounces to Sales,
+  or creates a typed overhead record.
+- **The import tool is the other writer.** `importData.js` deliberately writes
+  no-customer rows (its "Internal bucket", `call_log_id = null`) — the likely
+  source of much of the 67, from the old BuilderTrend 1111 shop work. It's a live
+  feature going forward (run once per new-tenant migration), so it must be brought
+  under the model: **import's internal/no-customer jobs → created as Shop Work
+  overhead records**, not raw null rows.
+- **Invariant after this fix:** a null `call_log_id` on a schedule row *always*
+  means "bug / unallocated," never "intentional." No path writes an intentional
+  null. That single unambiguous rule is what makes the dashboard read path safe
+  (killed the 10252 mismatch) and prevents recurrence.
+
+## Open design questions — RESOLVED 2026-09-05
+
+All 7 closed during this ideate. Status below; detail in the [LOCKED] sections above.
+
+1. **Identity of a "job"** → **RESOLVED.** = the Sales link (`call_log_id`), NOT
+   job#. See Identity model.
+2. **Add Job when job# exists** → **RESOLVED.** Searchable dropdown → pick job →
+   Add mobilization (+ "is this go-back?" checkbox). See "+ Job button behavior."
+3. **Should Add Job create net-new job#s?** → **RESOLVED.** No — new customer jobs
+   are blocked ("create in Sales first"). Only two non-Sales creators: a
+   mobilization on an existing job, or a Shop Work overhead record. The 67 are a
+   mix of manual phantoms + old import "internal bucket" rows.
+4. **What "add a mobilization" means** → **RESOLVED.** Reuse `job_mobilizations` +
+   existing `addJobMobilization()` as-is; go-backs are the `is_go_back` flag. Not a
+   new mobilization type.
+5. **Dashboard crew logic** → **RESOLVED by the invariant.** Once null
+   `call_log_id` *only* means "unallocated" (never intentional) and orphans are
+   parked out of the live views, the `buildCrewByCallLog` path is safe as-is. No
+   read-path rewrite needed. (Revisit only if a mismatch survives after cleanup.)
+6. **Backfill / cleanup of 42 + 67** → **RESOLVED as scope decision.** Deferred to
+   workstream B (parked worklist, "Unallocated — needs Sales link"); does NOT block
+   workstream A. The 34 change-order rows are correct — leave them. See Scope split.
+7. **Guardrails** → **RESOLVED.** No hard DB constraint; prevention at the button +
+   bring the import's internal bucket under Shop Work. See Guardrail.
 
 ## Where the code lives (for the eventual plan/build — not this phase)
 

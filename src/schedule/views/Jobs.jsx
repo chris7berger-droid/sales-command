@@ -644,6 +644,7 @@ export default function Jobs() {
           assignmentsByJobId={assignmentsByJobId}
           proposalMaterialsByCallLog={proposalMaterialsByCallLog}
           mobsByJobId={mobsByJobId}
+          prtMap={prtMap}
           today={today}
           onJobUpdate={() => loadData({ background: true })}
           emptyText="No staged jobs in this date range"
@@ -659,6 +660,7 @@ export default function Jobs() {
           assignmentsByJobId={assignmentsByJobId}
           proposalMaterialsByCallLog={proposalMaterialsByCallLog}
           mobsByJobId={mobsByJobId}
+          prtMap={prtMap}
           today={today}
           onJobUpdate={() => loadData({ background: true })}
           emptyText="No ready jobs in this date range"
@@ -709,6 +711,7 @@ export default function Jobs() {
           assignmentsByJobId={assignmentsByJobId}
           proposalMaterialsByCallLog={proposalMaterialsByCallLog}
           mobsByJobId={mobsByJobId}
+          prtMap={prtMap}
           today={today}
           onJobUpdate={() => loadData({ background: true })}
           emptyText="No production-complete jobs in this date range"

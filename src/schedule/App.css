@@ -424,6 +424,12 @@
   overflow: visible;
 }
 
+/* Full-bleed: Schedule runs edge-to-edge and up to the host header. Cancel the
+   host AppShell's inline content padding (App.jsx [data-app-content]: 28px 32px)
+   ONLY while Schedule is mounted — scoped by :has(.schedule-root) so Sales/Field
+   keep their padded frame. !important is required to beat the inline style. */
+[data-app-content]:has(.schedule-root) { padding: 0 !important; }
+
 /* Jobs View */
 .schedule-root .jobs-scoreboard {
   display: flex;
@@ -2305,9 +2311,10 @@
    ═══════════════════════════════════════ */
 
 .schedule-root .jh-wrap {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 16px 24px;
+  margin: -24px;                 /* cancel .app-main 24px padding → full-bleed (matches .home-screen) */
+  padding: 22px 28px 44px;
+  background: var(--bg);
+  min-height: calc(100vh - 56px);
 }
 
 .schedule-root .jh-empty {
@@ -6189,7 +6196,7 @@
 
 
 /* ═══ Billing forecast + worklist surface (billing-forecast feature) ═══ */
-.schedule-root .bill-surface { padding: 16px; max-width: 1100px; margin: 0 auto; }
+.schedule-root .bill-surface { margin: -24px; padding: 22px 28px 44px; background: var(--bg); min-height: calc(100vh - 56px); }
 .schedule-root .bill-tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 2px solid var(--brd); }
 .schedule-root .bill-tab {
   font-family: var(--font-heading); font-weight: 700; text-transform: uppercase;

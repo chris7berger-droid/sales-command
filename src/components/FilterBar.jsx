@@ -13,14 +13,23 @@ const labelStyle = {
   color: C.textFaint, fontFamily: F.display, marginBottom: 3,
 };
 
-export default function FilterBar({ filters, onChange, onClear, salesOptions, customerOptions, workTypeOptions, showInvoiceNumber, hideClear }) {
-  const { sales, dateFrom, dateTo, workType, customer, jobNumber, invoiceNumber } = filters;
+export default function FilterBar({ filters, onChange, onClear, salesOptions, customerOptions, workTypeOptions, statusOptions, showInvoiceNumber, hideClear }) {
+  const { sales, dateFrom, dateTo, workType, customer, jobNumber, invoiceNumber, status } = filters;
   const set = (k, v) => onChange({ ...filters, [k]: v });
 
-  const hasFilters = sales || dateFrom || dateTo || workType || customer || jobNumber || invoiceNumber;
+  const hasFilters = sales || dateFrom || dateTo || workType || customer || jobNumber || invoiceNumber || status;
 
   return (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+      {statusOptions && (
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <span style={labelStyle}>Status</span>
+          <select value={status || ""} onChange={e => set("status", e.target.value)} style={{ ...selectStyle, width: 160 }}>
+            <option value="">All</option>
+            {statusOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
+      )}
       {salesOptions && (
         <div style={{ display: "flex", flexDirection: "column" }}>
           <span style={labelStyle}>Sales Rep</span>
@@ -63,7 +72,7 @@ export default function FilterBar({ filters, onChange, onClear, salesOptions, cu
       )}
       {hasFilters && !hideClear && (
         <button
-          onClick={() => { onChange({ sales: "", dateFrom: "", dateTo: "", workType: "", customer: "", jobNumber: "", invoiceNumber: "" }); onClear?.(); }}
+          onClick={() => { onChange(Object.fromEntries(Object.keys(filters).map(k => [k, ""]))); onClear?.(); }}
           style={{
             padding: "7px 14px", borderRadius: 7, border: `1.5px solid ${C.borderStrong}`,
             background: "transparent", color: C.textMuted, fontSize: 11.5, fontWeight: 700,

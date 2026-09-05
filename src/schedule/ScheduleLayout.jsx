@@ -17,17 +17,15 @@ import Home from './views/Home'
 import Jobs from './views/Jobs'
 import Schedule from './views/Schedule'
 import Billing from './views/Billing'
-import Forecast from './views/Forecast'
 import Materials from './views/Materials'
 import Calendar from './views/Calendar'
 import Daily from './views/Daily'
 import Schedules from './views/Schedules'
 import ProductionRate from './views/ProductionRate'
-import Budget from './views/Budget'
 import JobDetail from './views/JobDetail'
 import Settings from './views/Settings'
 import Import from './views/Import'
-import StatsBar from './components/StatsBar'
+import WeeklyCapacityBand from './components/WeeklyCapacityBand'
 
 function flipName(n) {
   if (!n) return ''
@@ -61,12 +59,20 @@ function ScheduleShell() {
   const [crewList, setCrewList] = useState([])
   const [showArchived, setShowArchived] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  // Set by any crew mutation; on modal close we remount the routed view once so
+  // headers like "Crew Available" (computed in the view via computeHomeDashboard)
+  // reflect the change. A ref, not state, so closeModal reads it synchronously.
+  const crewDirtyRef = useRef(false)
 
-  const location = useLocation()
-  const path = location.pathname
-  const isHome = path === '/schedule/home' || path === '/schedule'
   const [actionsOpen, setActionsOpen] = useState(false)
   const actionsRef = useRef(null)
+
+  // The Weekly Crew Capacity band rides along on the functional screens (Crew
+  // Schedule / Calendar / Daily / Logistics). Home and Jobs render their own band
+  // inside their dashboards, so they're excluded here to avoid a double header.
+  const location = useLocation()
+  const BAND_PATHS = ['/schedule/schedule', '/schedule/calendar', '/schedule/daily', '/schedule/materials']
+  const showCapacityBand = BAND_PATHS.includes(location.pathname)
 
   // Dismiss the Actions menu on any outside click/touch.
   useEffect(() => {
@@ -88,7 +94,10 @@ function ScheduleShell() {
 
   useEffect(() => { loadModalData() }, [loadModalData])
 
-  function closeModal() { setModal(null) }
+  function closeModal() {
+    if (crewDirtyRef.current) { crewDirtyRef.current = false; setRefreshKey(k => k + 1) }
+    setModal(null)
+  }
 
   // --- Add to Schedule (add-job-dedup, workstream A) ---
   // The "+ Job" button no longer blind-inserts a jobs row (which produced phantom,
@@ -154,6 +163,10 @@ function ScheduleShell() {
     if (error) { console.error(error); toast(error.message || 'Error adding trip', 'err'); return }
     toast(d.is_go_back ? 'Go-back added' : 'Trip added', 'ok')
     closeModal()
+    // Force the routed view to remount + refetch so the new job shows immediately
+    // (the add happens from the shell; the view owns its own data load, and
+    // realtime timing isn't guaranteed). Same mechanism as the Refresh button.
+    setRefreshKey(k => k + 1)
   }
 
   // --- Add Crew ---
@@ -170,6 +183,7 @@ function ScheduleShell() {
     const { error } = await supabase.from('crew').insert([row])
     if (error) { console.error(error); toast('Error', 'err'); return }
     toast('Crew added', 'ok')
+    crewDirtyRef.current = true
     await loadModalData()
     closeModal()
   }
@@ -200,20 +214,23 @@ function ScheduleShell() {
     const { error } = await supabase.from('crew').insert([row])
     if (error) { console.error(error); return }
     setClForm({ name: '', team: '', phone: '' })
+    crewDirtyRef.current = true
     await loadModalData()
   }
 
   async function clArchive(name) {
     if (!confirm('Archive ' + flipName(name) + '? They will be hidden from active views.')) return
-    const { error } = await supabase.from('crew').update({ archived: 'Yes' }).eq('name', name)
+    const { error } = await supabase.from('crew').update({ archived: true }).eq('name', name)
     if (error) { console.error(error); return }
+    crewDirtyRef.current = true
     await loadModalData()
   }
 
   async function clUnarchive(name) {
-    const { error } = await supabase.from('crew').update({ archived: 'No' }).eq('name', name)
+    const { error } = await supabase.from('crew').update({ archived: false }).eq('name', name)
     if (error) { console.error(error); return }
     toast(flipName(name) + ' restored', 'ok')
+    crewDirtyRef.current = true
     await loadModalData()
   }
 
@@ -234,6 +251,7 @@ function ScheduleShell() {
     }
     toast('Crew updated', 'ok')
     setEditingCrew(null)
+    crewDirtyRef.current = true
     await loadModalData()
   }
 
@@ -244,6 +262,7 @@ function ScheduleShell() {
     const { error } = await supabase.from('crew').delete().eq('name', name)
     if (error) { console.error(error); toast('Error', 'err'); return }
     toast(flipName(name) + ' deleted', 'wrn')
+    crewDirtyRef.current = true
     await loadModalData()
   }
 
@@ -258,15 +277,15 @@ function ScheduleShell() {
     toast('Refreshed', 'ok')
   }
 
-  const activeCrew = crewList.filter(c => c.archived !== 'Yes')
-  const archivedCrew = crewList.filter(c => c.archived === 'Yes')
+  const activeCrew = crewList.filter(c => !c.archived)
+  const archivedCrew = crewList.filter(c => c.archived)
 
   return (
     <>
       <div className="app-schedule-toolbar">
         <div className="app-header-actions">
           <button className="app-act-btn app-act-primary" onClick={openAddJob}>+ Job</button>
-          <div className="app-actions-menu" ref={actionsRef} onMouseLeave={() => setActionsOpen(false)}>
+          <div className="app-actions-menu" ref={actionsRef}>
             <button className="app-act-btn" onClick={() => setActionsOpen(o => !o)}>Actions ▾</button>
             {actionsOpen && (
               <div className="app-actions-dropdown">
@@ -281,7 +300,7 @@ function ScheduleShell() {
           </div>
         </div>
       </div>
-      {!isHome && <StatsBar />}
+      {showCapacityBand && <WeeklyCapacityBand key={`capacity-band-${refreshKey}`} />}
       <main className="app-main" key={refreshKey}>
         <Routes>
           <Route index element={<Navigate to="/schedule/home" replace />} />
@@ -290,13 +309,15 @@ function ScheduleShell() {
           <Route path="jobs/:jobId" element={<JobDetail />} />
           <Route path="schedule" element={<Schedule />} />
           <Route path="billing" element={<Billing />} />
-          <Route path="billing/forecast" element={<Forecast />} />
+          {/* Forecast + Budget folded into Finance/Billing (reskin chunk 1);
+              keep external/bookmarked deep links alive via redirect, no 404. */}
+          <Route path="billing/forecast" element={<Navigate to="/schedule/billing?tab=forecast" replace />} />
           <Route path="materials" element={<Materials />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="daily" element={<Daily />} />
           <Route path="schedules" element={<Schedules />} />
           <Route path="production-rate" element={<ProductionRate />} />
-          <Route path="budget" element={<Budget />} />
+          <Route path="budget" element={<Navigate to="/schedule/billing?tab=budget" replace />} />
           <Route path="settings" element={<Settings />} />
           <Route path="import" element={<Import />} />
           <Route path="*" element={<Navigate to="/schedule/home" replace />} />

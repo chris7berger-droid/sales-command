@@ -52,12 +52,12 @@ function matchesSearch(j, q) {
 export default function JobsToPrepare({
   jobs = [], crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {},
   assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByJobId = {},
-  prtMap = new Map(), today = new Date(), onJobUpdate,
+  prtMap = new Map(), today = new Date(), onJobUpdate, initialStage = 'all',
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [dateFilter, setDateFilter] = useState('month') // §14: Home default = month
-  const [stageFilter, setStageFilter] = useState('all')
+  const [stageFilter, setStageFilter] = useState(initialStage)
   const [manualDate, setManualDate] = useState(false)
 
   const q = search.toLowerCase().trim()

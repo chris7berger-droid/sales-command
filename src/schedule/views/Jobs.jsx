@@ -1,16 +1,26 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady, loadBillingWorklist, loadMobilizationsByJobId } from '../lib/queries'
-import JobsPicker from '../components/JobsPicker'
-import StagedCardList from '../components/StagedCardList'
-import AllJobsList from '../components/AllJobsList'
-import OnHoldCardList from '../components/OnHoldCardList'
+import {
+  loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady, loadBillingWorklist,
+  loadMobilizationsByJobId, computeHomeDashboard, wkDates, getJobMultiWeekAlert, hasFieldSow,
+} from '../lib/queries'
+import HomeCapacityStrip from '../components/HomeCapacityStrip'
+import { NeedsAttention, NextUp, AtAGlance } from '../components/HomePanels'
+import JobsToPrepare from '../components/JobsToPrepare'
 import { getJobStatus } from '../lib/jobStatus'
 
-const VALID_TABS = ['staged', 'scheduled', 'active', 'on-hold', 'complete', 'all']
-// Old/removed tab slugs redirect to their canonical destination.
-// 'pipeline' is the old Parked-bucket tab; legacy bookmarks land on Scheduled.
+// New Jobs (reskin chunk 1) — the old Home working surface, repainted. The plan:
+// old Home (capacity strip + panels + the "Jobs to Prepare" list) MOVES here and
+// becomes Jobs; the fresh dashboard is the new Home. So the job list IS the
+// JobsToPrepare component (its compact rows that expand to the full StageJobCard),
+// not the old Jobs stage-tab drill-in. Jobs also carries every old-Jobs function:
+// the Go-Backs + prep-readiness signals strip (ported JobsPicker math), an Actions
+// menu (cross-screen jumps), the Recovery Bin, the ?tab= redirect map, realtime.
+
+// Old/removed tab slugs redirect to their canonical destination — legacy
+// bookmarks only. MUST stay verbatim [R1:F1 / R2:REG-1]: `ready`/`schedule`
+// redirect OUT to the crew board, NOT to a Ready stage.
 const TAB_REDIRECTS = {
   pipeline: '/schedule/jobs?tab=scheduled',
   ready: '/schedule/schedule',
@@ -19,7 +29,22 @@ const TAB_REDIRECTS = {
   'ready-to-bill': '/schedule/billing?tab=worklist',
 }
 
-/* ── helpers (shared with PipelineTab; kept here for shell-level filters) ── */
+// Legacy ?tab= key → JobsToPrepare stage filter (ready/schedule redirect out
+// above, so they never reach here). Unknown/absent → All (hard default).
+const STAGE_FROM_TAB = { scheduled: 'ready', staged: 'staged', active: 'active', 'on-hold': 'on-hold', complete: 'complete', all: 'all' }
+
+// Cross-screen jumps folded out of the retired JobsPicker into the Actions menu
+// [R1:A3 / R2:D]. Forecast/Budget now live inside Finance/Billing (?tab=).
+const ACTIONS = [
+  { label: 'Crew Schedule', to: '/schedule/schedule' },
+  { label: 'Finance / Billing', to: '/schedule/billing?tab=worklist' },
+  { label: '90-Day Forecast', to: '/schedule/billing?tab=forecast' },
+  { label: 'Budget', to: '/schedule/billing?tab=budget' },
+  { label: 'Production Rate', to: '/schedule/production-rate' },
+  { label: 'Daily Logs', to: '/schedule/daily' },
+]
+
+/* ── helpers ─────────────────────────────────────────────────────── */
 
 function fmtD(d) {
   const dt = d instanceof Date ? d : new Date(d)
@@ -34,180 +59,53 @@ function getMonday(d) {
   return dt
 }
 
-function getQuarterStart(d) {
-  const dt = new Date(d)
-  const q = Math.floor(dt.getMonth() / 3) * 3
-  return new Date(dt.getFullYear(), q, 1)
-}
-
-function getQuarterEnd(d) {
-  const dt = new Date(d)
-  const q = Math.floor(dt.getMonth() / 3) * 3 + 2
-  return new Date(dt.getFullYear(), q + 1, 0)
-}
-
-function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
-function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
-
-function daysBetween(dateStr, refDate) {
-  if (!dateStr) return null
+function isThisWeek(dateStr, today) {
+  if (!dateStr) return false
   const d = new Date(dateStr + 'T00:00:00')
-  const r = new Date(refDate)
-  r.setHours(0, 0, 0, 0)
-  return Math.ceil((d - r) / (1000 * 60 * 60 * 24))
-}
-
-function urgencyScore(job, today) {
-  const status = getJobStatus(job)
-  // Plan §4 row 15(f): replace legacy "Parked → -5000" with a softer pin for
-  // Scheduled jobs whose kickoff isn't imminent, so they still float to the top
-  // of "All Jobs" without the old hard-pin semantic.
-  let score = 0
-  const startDate = effectiveStart(job)
-  const startDaysFromNow = startDate ? daysBetween(startDate, today) : null
-  if (status === 'Scheduled' && (startDaysFromNow === null || startDaysFromNow > 14)) {
-    score = -2500
-  } else if (status === 'Scheduled' || status === 'In Progress' || status === 'Ongoing') {
-    score = 0
-  } else if (status === 'On Hold') {
-    score = 10000
-  } else {
-    score = 20000
-  }
-
-  const endDate = effectiveEnd(job)
-  if (endDate) {
-    const daysLeft = daysBetween(endDate, today)
-    if (daysLeft !== null) {
-      if (daysLeft < 0) score -= 1000 + Math.abs(daysLeft)
-      else score += daysLeft
-    }
-  } else {
-    score += 5000
-  }
-
-  return score
-}
-
-// Date-filter widening order for the drill-down auto-fit (custom is excluded —
-// it's only ever set by an explicit user pick).
-const DATE_FILTER_ORDER = ['week', 'month', 'quarter', 'all']
-
-function rangeForKey(key, now) {
-  switch (key) {
-    case 'week': {
-      const mon = getMonday(now)
-      const fri = new Date(mon)
-      fri.setDate(fri.getDate() + 4)
-      return { from: fmtD(mon), to: fmtD(fri) }
-    }
-    case 'month': {
-      const first = new Date(now.getFullYear(), now.getMonth(), 1)
-      const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-      return { from: fmtD(first), to: fmtD(last) }
-    }
-    case 'quarter':
-      return { from: fmtD(getQuarterStart(now)), to: fmtD(getQuarterEnd(now)) }
-    default: // 'all' and anything unknown → no bound
-      return null
-  }
-}
-
-function jobInRange(j, range) {
-  if (!range) return true
-  const start = effectiveStart(j)
-  const end = effectiveEnd(j)
-  if (!start && !end) return true
-  return (start || '1900-01-01') <= range.to && (end || '2999-12-31') >= range.from
-}
-
-function matchesSearch(j, q) {
-  if (!q) return true
-  const num = (j.job_num || '').toLowerCase()
-  const name = (j.job_name || '').toLowerCase()
-  const wt = (j.work_type || '').toLowerCase()
-  return num.includes(q) || name.includes(q) || wt.includes(q)
-}
-
-// The status filter each drill-down tab applies on top of the shell filters —
-// mirrors the inline filters in the render so the auto-fit sees the same jobs.
-function stagePredicate(tab, crewByCallLog, matsByJobId) {
-  switch (tab) {
-    case 'staged':    return j => getJobStatus(j) === 'Scheduled' && !isReady(j, crewByCallLog, matsByJobId)
-    case 'scheduled': return j => getJobStatus(j) === 'Scheduled' && isReady(j, crewByCallLog, matsByJobId)
-    case 'active':    return j => { const s = getJobStatus(j); return s === 'In Progress' || s === 'Ongoing' }
-    case 'on-hold':   return j => getJobStatus(j) === 'On Hold'
-    case 'complete':  return j => getJobStatus(j) === 'Complete'
-    default:          return () => true // 'all'
-  }
+  const mon = getMonday(today)
+  const sun = new Date(mon)
+  sun.setDate(sun.getDate() + 6)
+  return d >= mon && d <= sun
 }
 
 /* ── shell ───────────────────────────────────────────────────────── */
 
 export default function Jobs() {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const tabParam = searchParams.get('tab')
   const redirectTo = tabParam && TAB_REDIRECTS[tabParam]
-  const activeTab = !redirectTo && VALID_TABS.includes(tabParam) ? tabParam : null
-  const showPicker = activeTab === null && !redirectTo
+  const initialStage = redirectTo ? 'all' : (STAGE_FROM_TAB[tabParam] || 'all')
 
   useEffect(() => {
     if (redirectTo) navigate(redirectTo, { replace: true })
   }, [redirectTo, navigate])
 
-  const setActiveTab = useCallback((next) => {
-    setSearchParams(prev => {
-      const params = new URLSearchParams(prev)
-      if (next === null) params.delete('tab')
-      else params.set('tab', next)
-      return params
-    })
-  }, [setSearchParams])
-
-  const goToPicker = useCallback(() => setActiveTab(null), [setActiveTab])
-
   const [jobs, setJobs] = useState([])
   const [assignments, setAssignments] = useState([])
   const [billingWorklist, setBillingWorklist] = useState([])
-  const [teamMembers, setTeamMembers] = useState([])
   const [materials, setMaterials] = useState([])
   const [dailyLogs, setDailyLogs] = useState([])
   const [prtMap, setPrtMap] = useState(new Map())
   const [proposalMaterialsByCallLog, setProposalMaterialsByCallLog] = useState({})
   const [mobsByJobId, setMobsByJobId] = useState({})
+  const [crew, setCrew] = useState([])
+  const [crewStatusMap, setCrewStatusMap] = useState({})
   const [syncWarning, setSyncWarning] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-
-  // Picker-landing job search — find a job across ALL stages without drilling in.
-  const [pickerSearch, setPickerSearch] = useState('')
-
-  // shell-level filters drive both scoreboard and tab content
-  const [search, setSearch] = useState('')
-  const [dateFilter, setDateFilter] = useState('week')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo] = useState('')
-
-  // restore bin
+  const [actionsOpen, setActionsOpen] = useState(false)
   const [showBin, setShowBin] = useState(false)
   const [deletedJobs, setDeletedJobs] = useState([])
 
   const today = useMemo(() => new Date(), [])
+  const monday = useMemo(() => getMonday(new Date()), [])
+  const dates = useMemo(() => wkDates(monday), [monday])
+  const todayStr = fmtD(new Date())
   const loadIdRef = useRef(0)
-  // Tab for which the user manually chose a date range — auto-fit skips it.
-  const manualFilterTabRef = useRef(null)
 
-  const pickFilter = useCallback((key) => {
-    manualFilterTabRef.current = activeTab
-    setDateFilter(key)
-  }, [activeTab])
-
-  // "Crew assigned" = office assignments (the pre-kickoff signal). job_crew is
-  // Field Command clock-ins, which only exist post-kickoff, so it can't gate
-  // readiness. Keyed by call_log_id with shape [{name}] so existing card
-  // consumers (CREW scorecard, DETAILS, baseChecklistPasses, isReady) are
-  // unchanged — only the data source swaps.
+  // "Crew assigned" = office assignments (pre-kickoff signal), keyed by
+  // call_log_id with shape [{name}] (matches every card consumer + isReady).
   const crewByCallLog = useMemo(() => {
     const clByJob = Object.fromEntries(jobs.map(j => [j.job_id, j.call_log_id]))
     const sets = {}
@@ -225,7 +123,6 @@ export default function Jobs() {
     m[r.job_id] = (m[r.job_id] || 0) + 1; return m
   }, {}), [dailyLogs])
 
-  // Per-job set of assignment dates — feeds the work-days weekend exception (§4.1)
   const assignmentsByJobId = useMemo(() => assignments.reduce((m, a) => {
     (m[a.job_id] ||= new Set()).add(a.date); return m
   }, {}), [assignments])
@@ -234,36 +131,45 @@ export default function Jobs() {
     (m[r.job_id] ||= []).push(r); return m
   }, {}), [materials])
 
+  // Week-windowed assignments (Mon–Sat) for the capacity strip — derived from the
+  // already-loaded full assignments list, no extra query.
+  const weekAssignments = useMemo(() => {
+    const ws = dates[0], we = dates[dates.length - 1]
+    return assignments.filter(a => a.date >= ws && a.date <= we)
+  }, [assignments, dates])
+
   const loadData = useCallback(async ({ background = false } = {}) => {
     const thisLoad = ++loadIdRef.current
-    // Background refresh (realtime / after a modal write) updates data IN PLACE —
-    // no loading-flip, so the `if (loading) return` below never unmounts the cards
-    // (and any open modal) out from under the user. Spinner only on the first load.
     if (!background) setLoading(true)
-    const [jobsRes, assignRes, billRes, tmRes, matsRes, logsRes] = await Promise.all([
+    const wsStr = dates[0]
+    const weStr = dates[dates.length - 1]
+    const [jobsRes, assignRes, billRes, matsRes, logsRes, crewRes, csRes] = await Promise.all([
       loadJobs({ withWTCs: true }),
-      supabase.from('assignments').select('*'),
+      // Paginated: the assignments table is >1000 rows, so a plain select('*')
+      // silently caps at 1000 and drops most of the current week — which zeroed
+      // the capacity strip's per-day Assigned counts.
+      loadAllRows('assignments', '*', { orderBy: 'id' }),
       loadBillingWorklist(),
-      supabase.from('team_members').select('id, name, role').eq('active', true).order('name'),
       loadAllRows('job_material_lines', 'id, job_id, status', { orderBy: 'id' }),
       loadAllRows('daily_log_entries', 'id, job_id', { orderBy: 'id' }),
+      supabase.from('crew').select('*'),
+      supabase.from('crew_status').select('*').gte('date', wsStr).lte('date', weStr),
     ])
     if (thisLoad !== loadIdRef.current) return
     if (jobsRes.error) { setError(jobsRes.error.message); setLoading(false); return }
     setJobs(jobsRes.data || [])
     setAssignments(assignRes.data || [])
     setBillingWorklist(billRes.data || [])
-    setTeamMembers(tmRes.data || [])
     setMaterials(matsRes.data || [])
     setDailyLogs(logsRes.data || [])
-    setSyncWarning(matsRes.partial || logsRes.partial ? 'Counts may be stale — partial data loaded' : null)
+    setCrew((crewRes.data || []).filter(c => !c.archived))
+    const csMap = {}
+    for (const c of (csRes.data || [])) csMap[c.crew_name + '|' + c.date] = c.status
+    setCrewStatusMap(csMap)
+    setSyncWarning(assignRes.partial || matsRes.partial || logsRes.partial ? 'Counts may be stale — partial data loaded' : null)
 
     const loadedJobs = jobsRes.data || []
 
-    // Batched proposal_wtc materials for the in-card SOW editor's per-WTC picker
-    // (remediation §6.1 Finding C). ONE query keyed on all loaded jobs'
-    // call_log_ids — NOT N per-card queries. Flattened + tagged with
-    // _wtc_id = proposal_wtc.id, grouped by call_log_id; the card filters per WTC.
     const pmCallLogIds = [...new Set(loadedJobs.map(j => j.call_log_id).filter(Boolean))]
     if (pmCallLogIds.length > 0) {
       const { data: pwData } = await supabase
@@ -283,11 +189,6 @@ export default function Jobs() {
       setProposalMaterialsByCallLog({})
     }
 
-    // Phase F (F1b): the live job's mobilizations, keyed by JOB_ID from
-    // job_mobilizations (post-send source of truth, D1). Keyed by job_id — not
-    // call_log_id — because a call_log can carry archive + live jobs. Falls back
-    // wholesale to proposal-authored mobs for any job with 0 rows (F1's seed is
-    // non-fatal, so 0 rows is a legitimate state). Feeds the MOBS card + modal.
     if (loadedJobs.length > 0) {
       const mobs = await loadMobilizationsByJobId(loadedJobs)
       if (thisLoad !== loadIdRef.current) return
@@ -309,12 +210,12 @@ export default function Jobs() {
     }
 
     setLoading(false)
-  }, [])
+  }, [dates])
 
   useEffect(() => { loadData() }, [loadData])
 
   // Realtime: reload on jobs, assignments (crew), or materials changes.
-  // 300ms debounce so bulk imports (CSV of 500 materials) don't freeze the tab.
+  // 300ms debounce so bulk imports don't freeze the tab. [R1:E1 — must survive]
   useEffect(() => {
     let timer = null
     const debouncedLoad = () => {
@@ -338,36 +239,58 @@ export default function Jobs() {
     }
   }, [loadData])
 
-  const dateRange = useMemo(() => {
-    if (dateFilter === 'custom') {
-      return customFrom && customTo ? { from: customFrom, to: customTo } : null
+  // Dashboard band (capacity strip + panels) — canonical computeHomeDashboard.
+  const dash = useMemo(() => computeHomeDashboard({
+    jobs, crew, crewStatusMap, weekAssignments, allAssignments: assignments,
+    matsByJobId, dates, todayStr,
+  }), [jobs, crew, crewStatusMap, weekAssignments, assignments, matsByJobId, dates, todayStr])
+
+  const weekLabel = useMemo(() => {
+    const a = new Date(dates[0] + 'T00:00:00'), b = new Date(dates[dates.length - 1] + 'T00:00:00')
+    const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    return `${M[a.getMonth()]} ${a.getDate()} – ${M[b.getMonth()]} ${b.getDate()}`
+  }, [dates])
+
+  // Go-Backs count — mobsByJobId is a nested [job_id][seq] seq-map [R1:C1].
+  const goBacksCount = useMemo(() => {
+    let n = 0
+    for (const jid in mobsByJobId) {
+      n += Object.values(mobsByJobId[jid] || {}).filter(m => m && m.is_go_back).length
     }
-    return rangeForKey(dateFilter, new Date())
-  }, [dateFilter, customFrom, customTo])
+    return n
+  }, [mobsByJobId])
 
-  // shell-filtered jobs (date + search) — tabs apply status filter on top
-  const filteredJobs = useMemo(() => {
-    const q = search.toLowerCase().trim()
-    const list = jobs.filter(j => jobInRange(j, dateRange) && matchesSearch(j, q))
-    return [...list].sort((a, b) => urgencyScore(a, today) - urgencyScore(b, today))
-  }, [jobs, search, dateRange, today])
+  // Prep-readiness attention math — ported verbatim from the retired JobsPicker
+  // [R1:A2] so the counts survive the picker deletion.
+  const attn = useMemo(() => {
+    const scheduled = jobs.filter(j => getJobStatus(j) === 'Scheduled')
+    let missingSow = 0, missingMats = 0, missingCrew = 0, missingDate = 0
+    scheduled.filter(j => !isReady(j, crewByCallLog, matsByJobId)).forEach(j => {
+      if (!hasFieldSow(j)) missingSow++
+      const mats = matsByJobId[j.job_id] || []
+      if (mats.length > 0 && mats.some(m => ['Not Ordered', 'Delayed'].includes(m.status))) missingMats++
+      if ((crewByCallLog[j.call_log_id] || []).length === 0) missingCrew++
+      if ((j.scheduled_start || j.start_date) == null) missingDate++
+    })
+    const startingThisWeek = scheduled.filter(j =>
+      isReady(j, crewByCallLog, matsByJobId) && isThisWeek(j.scheduled_start || j.start_date, today)
+    ).length
+    const nothingToBill = new Set(
+      (billingWorklist || []).filter(o => o.nothing_to_bill).map(o => String(o.job_id))
+    )
+    const readyToBill = jobs.filter(j =>
+      getJobStatus(j) === 'Complete' && !nothingToBill.has(String(j.job_id))
+    ).length
+    return { missingSow, missingMats, missingCrew, missingDate, startingThisWeek, readyToBill }
+  }, [jobs, billingWorklist, crewByCallLog, matsByJobId, today])
 
-  // Drill-down auto-fit: on entering a stage, widen the date window to the
-  // narrowest range (week → month → quarter → all) that actually has jobs for
-  // that stage, so you never land on a blank screen just because nothing falls
-  // in "this week." Setting dateFilter highlights the matching pill. A manual
-  // pill pick on a tab is remembered (manualFilterTabRef) and left alone.
-  useEffect(() => {
-    if (!activeTab) return
-    if (manualFilterTabRef.current === activeTab) return
-    const pred = stagePredicate(activeTab, crewByCallLog, matsByJobId)
-    const q = search.toLowerCase().trim()
-    const stageJobs = jobs.filter(j => pred(j) && matchesSearch(j, q))
-    if (stageJobs.length === 0) return // stage is genuinely empty — nothing to widen to
-    const now = new Date()
-    const best = DATE_FILTER_ORDER.find(key => stageJobs.some(j => jobInRange(j, rangeForKey(key, now)))) || 'all'
-    setDateFilter(best)
-  }, [activeTab, jobs, search, crewByCallLog, matsByJobId])
+  const multiWeekAlertCount = useMemo(() =>
+    jobs.filter(j =>
+      getJobStatus(j) === 'Scheduled' &&
+      isReady(j, crewByCallLog, matsByJobId) &&
+      getJobMultiWeekAlert(j, assignments, today) > 0
+    ).length
+  , [jobs, assignments, crewByCallLog, matsByJobId, today])
 
   /* ── restore bin ────────────────────────────────────────────── */
 
@@ -396,212 +319,92 @@ export default function Jobs() {
   if (loading) return <div className="jh-empty">Loading jobs...</div>
   if (error) return <div className="jh-empty">Error: {error}</div>
 
-  // Picker has its own layout — hide shell chrome on landing.
-  const showShellChrome = activeTab !== null
-
-  const FILTER_OPTIONS = [
-    { key: 'week', label: 'This Week' },
-    { key: 'month', label: 'This Month' },
-    { key: 'quarter', label: 'This Quarter' },
-    { key: 'all', label: 'All Time' },
-    { key: 'custom', label: 'Custom' },
-  ]
+  const chip = {
+    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px',
+    borderRadius: 6, background: 'var(--panel-dark)', color: 'var(--teal)',
+    fontFamily: 'var(--font-heading)', fontSize: 11, fontWeight: 700,
+    letterSpacing: '0.05em', textTransform: 'uppercase',
+  }
 
   return (
     <div className="jh-wrap">
-      {showShellChrome && (
-        <>
-          {/* search bar */}
-          <div className="jh-toolbar">
-            <input
-              className="jh-search"
-              type="text"
-              placeholder="Search jobs by name, number, or work type..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
+      {/* dashboard band moved from Home: capacity strip + panels */}
+      <HomeCapacityStrip data={dash} weekLabel={weekLabel} />
 
-          <div className="jh-filter-bar">
-            <div className="jh-filter-pills">
-              {FILTER_OPTIONS.map(f => (
+      <div className="home-panels">
+        <NeedsAttention data={dash} />
+        <NextUp nextUp={dash.nextUp} />
+        <AtAGlance data={dash} />
+      </div>
+
+      {/* Go-Backs + prep-readiness signals strip (ported JobsPicker math) +
+          Recovery Bin + Actions menu */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', margin: '4px 0 16px' }}>
+        <span style={chip}>↩ {goBacksCount} Go Back{goBacksCount === 1 ? '' : 's'}</span>
+        {attn.missingSow > 0 && <span style={chip}>📋 {attn.missingSow} need SOW</span>}
+        {attn.missingMats > 0 && <span style={chip}>📦 {attn.missingMats} need materials</span>}
+        {attn.missingCrew > 0 && <span style={chip}>👷 {attn.missingCrew} need crew</span>}
+        {attn.missingDate > 0 && <span style={chip}>📅 {attn.missingDate} need date</span>}
+        {multiWeekAlertCount > 0 && <span style={chip}>🗓 {multiWeekAlertCount} multi-week need crew</span>}
+        <span style={chip}>▶ {attn.startingThisWeek} starting this week</span>
+        <span style={chip}>💵 {attn.readyToBill} ready to bill</span>
+
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, position: 'relative' }}>
+          <button className="jh-bin-btn" onClick={openBin} title="Recover jobs deleted in the last 24 hours">🗑 Recovery Bin (24 hrs)</button>
+          <button
+            onClick={() => setActionsOpen(o => !o)}
+            style={{
+              padding: '6px 12px', borderRadius: 8, cursor: 'pointer',
+              fontFamily: 'var(--font-heading)', fontSize: 12, fontWeight: 700,
+              letterSpacing: '0.04em', textTransform: 'uppercase',
+              border: '1.5px solid var(--teal)', background: 'var(--panel-dark)', color: 'var(--teal)',
+            }}
+          >
+            Go to ▾
+          </button>
+          {actionsOpen && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 20,
+              background: 'var(--bg-card)', border: '1px solid var(--brd)', borderRadius: 10,
+              boxShadow: '0 6px 20px rgba(28,24,20,0.18)', minWidth: 180, overflow: 'hidden',
+            }}>
+              {ACTIONS.map(a => (
                 <button
-                  key={f.key}
-                  className={`jh-filter-pill${dateFilter === f.key ? ' active' : ''}`}
-                  onClick={() => pickFilter(f.key)}
+                  key={a.to}
+                  onClick={() => { setActionsOpen(false); navigate(a.to) }}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left', padding: '9px 14px',
+                    background: 'transparent', border: 'none', cursor: 'pointer',
+                    fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-primary)',
+                  }}
                 >
-                  {f.label}
+                  {a.label}
                 </button>
               ))}
             </div>
-            {dateFilter === 'custom' && (
-              <div className="jh-custom-range">
-                <input
-                  type="date"
-                  className="jh-date-input"
-                  value={customFrom}
-                  onChange={e => setCustomFrom(e.target.value)}
-                />
-                <span className="jh-range-sep">to</span>
-                <input
-                  type="date"
-                  className="jh-date-input"
-                  value={customTo}
-                  onChange={e => setCustomTo(e.target.value)}
-                />
-              </div>
-            )}
-          </div>
-        </>
-      )}
+          )}
+        </div>
+      </div>
 
-      {showPicker && (
-        <>
-          <div className="jh-toolbar">
-            <input
-              className="jh-search"
-              type="text"
-              placeholder="Find a job by number, name, or work type — across all stages…"
-              value={pickerSearch}
-              onChange={e => setPickerSearch(e.target.value)}
-            />
-            {pickerSearch && (
-              <button className="jh-search-clear" onClick={() => setPickerSearch('')} title="Clear search">✕</button>
-            )}
-          </div>
+      {syncWarning && <div className="jh-sync-warning">{syncWarning}</div>}
 
-          {pickerSearch.trim() ? (
-            <AllJobsList
-              jobs={jobs.filter(j => matchesSearch(j, pickerSearch.toLowerCase().trim()))}
-              crewByCallLog={crewByCallLog}
-              matsByJobId={matsByJobId}
-              logsByCallLog={logsByCallLog}
-              assignmentsByJobId={assignmentsByJobId}
-              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByJobId={mobsByJobId}
-              prtMap={prtMap}
-              today={today}
-              onJobUpdate={() => loadData({ background: true })}
-              emptyText={`No jobs match “${pickerSearch.trim()}”`}
-            />
-          ) : (
-            <JobsPicker jobs={jobs} assignments={assignments} billingWorklist={billingWorklist} crewByCallLog={crewByCallLog} matsByJobId={matsByJobId} syncWarning={syncWarning} today={today} onPick={setActiveTab} onOpenBin={openBin} />
-          )}
-        </>
-      )}
-
-      {!showPicker && (
-        <>
-          <div className="jh-back-bar">
-            <button className="jh-back-btn" onClick={goToPicker}>← All stages</button>
-            <span className="jh-back-context">
-              Viewing <b>{
-                activeTab === 'staged' ? 'Staged' :
-                activeTab === 'scheduled' ? 'Ready' :
-                activeTab === 'active' ? 'Active' :
-                activeTab === 'on-hold' ? 'On Hold' :
-                activeTab === 'complete' ? 'Production Complete' :
-                activeTab === 'all' ? 'All Jobs' : ''
-              }</b>
-            </span>
-          </div>
-
-          {activeTab === 'staged' && (
-            <StagedCardList
-              jobs={filteredJobs.filter(j => getJobStatus(j) === 'Scheduled' && !isReady(j, crewByCallLog, matsByJobId))}
-              crewByCallLog={crewByCallLog}
-              matsByJobId={matsByJobId}
-              logsByCallLog={logsByCallLog}
-              assignmentsByJobId={assignmentsByJobId}
-              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByJobId={mobsByJobId}
-              today={today}
-              onJobUpdate={() => loadData({ background: true })}
-              emptyText="No staged jobs in this date range"
-            />
-          )}
-          {activeTab === 'scheduled' && (
-            <StagedCardList
-              jobs={filteredJobs.filter(j => getJobStatus(j) === 'Scheduled' && isReady(j, crewByCallLog, matsByJobId))}
-              stage="ready"
-              crewByCallLog={crewByCallLog}
-              matsByJobId={matsByJobId}
-              logsByCallLog={logsByCallLog}
-              assignmentsByJobId={assignmentsByJobId}
-              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByJobId={mobsByJobId}
-              today={today}
-              onJobUpdate={() => loadData({ background: true })}
-              emptyText="No ready jobs in this date range"
-            />
-          )}
-          {activeTab === 'active' && (
-            <StagedCardList
-              jobs={filteredJobs.filter(j => {
-                const s = getJobStatus(j)
-                return s === 'In Progress' || s === 'Ongoing'
-              })}
-              stage="active"
-              crewByCallLog={crewByCallLog}
-              matsByJobId={matsByJobId}
-              logsByCallLog={logsByCallLog}
-              assignmentsByJobId={assignmentsByJobId}
-              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByJobId={mobsByJobId}
-              prtMap={prtMap}
-              today={today}
-              onJobUpdate={() => loadData({ background: true })}
-              emptyText="No active jobs in this date range"
-            />
-          )}
-          {activeTab === 'on-hold' && (
-            <OnHoldCardList
-              filteredJobs={filteredJobs}
-              jobs={jobs}
-              setJobs={setJobs}
-              today={today}
-              crewByCallLog={crewByCallLog}
-              matsByJobId={matsByJobId}
-              logsByCallLog={logsByCallLog}
-              assignmentsByJobId={assignmentsByJobId}
-              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByJobId={mobsByJobId}
-              prtMap={prtMap}
-              onJobUpdate={() => loadData({ background: true })}
-            />
-          )}
-          {activeTab === 'complete' && (
-            <StagedCardList
-              jobs={filteredJobs.filter(j => getJobStatus(j) === 'Complete')}
-              stage="complete"
-              crewByCallLog={crewByCallLog}
-              matsByJobId={matsByJobId}
-              logsByCallLog={logsByCallLog}
-              assignmentsByJobId={assignmentsByJobId}
-              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByJobId={mobsByJobId}
-              today={today}
-              onJobUpdate={() => loadData({ background: true })}
-              emptyText="No production-complete jobs in this date range"
-            />
-          )}
-          {activeTab === 'all' && (
-            <AllJobsList
-              jobs={filteredJobs}
-              crewByCallLog={crewByCallLog}
-              matsByJobId={matsByJobId}
-              logsByCallLog={logsByCallLog}
-              assignmentsByJobId={assignmentsByJobId}
-              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByJobId={mobsByJobId}
-              prtMap={prtMap}
-              today={today}
-              onJobUpdate={() => loadData({ background: true })}
-              emptyText="No jobs match the current filters"
-            />
-          )}
-        </>
-      )}
+      {/* the working list — the old-Home "Jobs to Prepare" rows, repainted. Each
+          compact row expands to the full StageJobCard + all its modals; stageOf
+          gates delete → Recovery Bin. Its own search + date chips + stage dropdown
+          are the filter bar. */}
+      <JobsToPrepare
+        jobs={jobs}
+        crewByCallLog={crewByCallLog}
+        matsByJobId={matsByJobId}
+        logsByCallLog={logsByCallLog}
+        assignmentsByJobId={assignmentsByJobId}
+        proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+        mobsByJobId={mobsByJobId}
+        prtMap={prtMap}
+        today={today}
+        initialStage={initialStage}
+        onJobUpdate={() => loadData({ background: true })}
+      />
 
       {/* Restore Bin Modal */}
       {showBin && (

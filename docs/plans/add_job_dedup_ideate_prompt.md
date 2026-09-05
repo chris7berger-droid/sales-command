@@ -483,6 +483,14 @@ the "+ Job → go-back" flow is only **half-built**.
   every-other-week = 4). The job's start/end only ever described the **first** block.
 - A **go-back is just an allocation**, flagged so the job card can track its cost. NOT
   a new job, NOT a new record type.
+- **An allocation carries its OWN details** (Chris, 2026-09-05) — a return trip runs
+  different crew/scope than the first, so it can't inherit them: **crew size, lead,
+  equipment (vehicle/equipment/power), scope of work.** **Prevailing wage is NOT
+  per-allocation** — PW is decided when the job is sold, so every allocation inherits
+  the job's PW. → the allocation record (`job_mobilizations`) needs new columns for
+  crew_needed / lead / equipment(+vehicle/power) / sow → a **migration** (authored in
+  `command-suite-db`). This is why workstream A's "+ Job" panel currently shows only
+  date + go-back (those fields had nowhere to save); they return with this build.
 - Same underlying records, two labels by screen: **"allocation"** on the scheduler,
   **"mobilization"** on the job-card / cost view. Do NOT show the word "mobilization"
   in scheduler-facing UI — it conflates with the job-card cost meaning.
@@ -492,11 +500,18 @@ built, 3-gate-green, and pushed; it stands. But the outcome it promised — a us
 "+ Job → go-back" — is not reached until the board renders allocations. That surfacing
 is its own pass:
 
-### Workstream C — allocation-aware board [next build]
-Show a job on EVERY allocation's dates, not just the first.
-- **Read model:** load `job_mobilizations` (allocations) for the visible job set; a
-  job appears in a week if the job's own dates OR any allocation overlaps the week.
-  Per-day crew cells key off `assignments` as today.
+### Workstream C — allocation-aware board + per-allocation details [next build]
+Two coupled halves; needs a migration, so it's its own planned loop.
+- **DB (command-suite-db migration):** add per-allocation columns to
+  `job_mobilizations` — `crew_needed`, `lead`, `equipment` (+ `vehicle`,
+  `power_source`), `sow`. NOT prevailing_wage (job-level, inherited). Rehearse before
+  push (shared DB rule).
+- **Write:** "+ Job" panel restores crew#/lead/equipment/scope inputs; the first
+  block reuses the job's, a go-back can differ; `addJobMobilization` writes them.
+- **Read (board):** show a job on EVERY allocation's dates, not just the first. Load
+  `job_mobilizations` for the visible job set; a job appears in a week if the job's
+  own dates OR any allocation overlaps. Per-day crew cells key off `assignments`; the
+  block's crew_needed drives its "needed" count.
 - **First allocation = the job's existing start/end** (don't require a
   `job_mobilizations` row for block #1); additional/go-back blocks come from
   `job_mobilizations`.

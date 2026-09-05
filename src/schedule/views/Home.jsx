@@ -56,7 +56,7 @@ export default function Home() {
       supabase.from('crew_status').select('*').gte('date', wsStr).lte('date', weStr),
       loadAllRows('job_material_lines', 'id, job_id, status', { orderBy: 'id' }),
       loadBillingSurfaceData(),
-      supabase.from('job_changes').select('*').order('created_at', { ascending: false }).limit(15),
+      supabase.from('job_changes').select('id, field, new_value, job_id, created_at').order('created_at', { ascending: false }).limit(15),
     ])
     if (thisLoad !== loadIdRef.current) return
     if (jobsRes.error) { setError(jobsRes.error.message); setLoading(false); return }
@@ -67,7 +67,7 @@ export default function Home() {
     setCrew((crewRes.data || []).filter(c => !c.archived))
     setMaterials(matsRes.data || [])
     setSurface(billRes || null)
-    setActivity(actRes.data || [])
+    setActivity(actRes.error ? [] : (actRes.data || []))
     const csMap = {}
     for (const c of (csRes.data || [])) csMap[c.crew_name + '|' + c.date] = c.status
     setCrewStatusMap(csMap)
@@ -164,6 +164,7 @@ export default function Home() {
       return weeks.findIndex(w => w.monday === wk)
     }
     let completedNoDate = 0
+    let scheduledNoDate = 0
     for (const j of jobs) {
       const status = getJobStatus(j)
       const val = num(j.amount)
@@ -173,12 +174,14 @@ export default function Home() {
         if (i >= 0) weeks[i].completed += val
         else if (!end) completedNoDate += val
       } else if (status === 'Scheduled' || status === 'In Progress' || status === 'Ongoing') {
-        const i = idxFor(j.scheduled_start || j.start_date)
+        const start = j.scheduled_start || j.start_date
+        const i = idxFor(start)
         if (i >= 0) weeks[i].scheduled += val
+        else if (!start) scheduledNoDate += val
       }
     }
     const max = Math.max(1, ...weeks.map(w => Math.max(w.scheduled, w.completed)))
-    return { weeks, completedNoDate, max }
+    return { weeks, completedNoDate, scheduledNoDate, max }
   }, [jobs, monday])
 
   // Upcoming Milestones — starts + completions within the next 14 days.
@@ -255,7 +258,13 @@ export default function Home() {
           <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 11, color: 'var(--text-light)' }}>
             <span><span style={{ display: 'inline-block', width: 9, height: 9, background: 'var(--teal)', borderRadius: 2, marginRight: 5 }} />Scheduled</span>
             <span><span style={{ display: 'inline-block', width: 9, height: 9, background: 'var(--sig-purple)', borderRadius: 2, marginRight: 5 }} />Completed</span>
-            {workload.completedNoDate > 0 && <span style={{ marginLeft: 'auto' }}>+ {money(workload.completedNoDate)} completed, no end date</span>}
+            {(workload.completedNoDate > 0 || workload.scheduledNoDate > 0) && (
+              <span style={{ marginLeft: 'auto' }}>
+                {workload.scheduledNoDate > 0 && `+ ${money(workload.scheduledNoDate)} scheduled, no start date`}
+                {workload.completedNoDate > 0 && workload.scheduledNoDate > 0 && ' · '}
+                {workload.completedNoDate > 0 && `+ ${money(workload.completedNoDate)} completed, no end date`}
+              </span>
+            )}
           </div>
         </div>
 

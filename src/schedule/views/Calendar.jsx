@@ -304,10 +304,18 @@ export default function Calendar() {
   }, [jobs, allocsByJobId])
 
   /* For a given date, return jobs active on that day — on ANY of their blocks,
-     so a go-back shows on its own dates, not just the first run. */
+     so a go-back shows on its own dates, not just the first run. A block with a
+     start but no end collapses to a single day (its start), preserving the old
+     Calendar behavior — otherwise a start-only job would paint every day forward.
+     (The board/Daily intentionally treat an open end as open-ended; the month
+     grid does not.) */
   function jobsForDate(d) {
     const ds = fmtD(d)
-    return jobs.filter(j => inRange(rangesByJobId[String(j.job_id)] || jobRanges(j, allocsByJobId[j.job_id]), ds))
+    return jobs.filter(j => {
+      const ranges = (rangesByJobId[String(j.job_id)] || jobRanges(j, allocsByJobId[j.job_id]))
+        .map(r => ({ start: r.start, end: r.end || r.start }))
+      return inRange(ranges, ds)
+    })
   }
 
   function getJobColor(job) {

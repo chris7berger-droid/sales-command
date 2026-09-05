@@ -1,0 +1,164 @@
+SC Handoff v215 — Add-Job dedup guardrail (B86) MERGED + LIVE; allocation board (B87) scoped + deferred
+================================================================================
+Date: 2026-09-05
+Repo: sales-command (Schedule Command, src/schedule/)
+Branch: main (HEAD db38565 = origin/main); feat/add-job-dedup also at db38565 (synced, not deleted)
+Backlog: B86 Closed (merge db38565), B87 In Progress
+Plan (contract): docs/plans/add_job_dedup_ideate_prompt.md
+Prior handoff: SC_Handoff_v214.txt (branch/pre-merge state — this one supersedes it)
+
+SESSION SUMMARY
+---------------
+Carried the add-job dedup guardrail from "built + gated on a branch" (v214) to
+merged + live in prod. All three cold gates came back green (buildvsplan,
+code-review, security-review); the one buildvsplan code fix (paginate the search)
+was applied. On the branch preview, the login-links-to-prod issue was fixed by
+cherry-picking yesterday's origin-relative fix. First real use surfaced a design
+gap, not a bug: adding a go-back via "+ Job" SAVES the trip but it's invisible on
+the crew board, because the board picks jobs by the job's own first start/end and
+is blind to allocation blocks. That opened a whole second half — the "allocation-
+aware board" — which Chris scoped and locked (allocations carry their own crew/
+scope; a migration is needed) and then chose to defer. We merged the guardrail
+alone to main (no DB dependency), pre-authored + parked the allocation migration
+(NOT pushed), and repointed /resume at the deferred work. Nothing is stranded.
+
+CHANGES SHIPPED (all merged to main via fast-forward; prod auto-deploys)
+-----------------------------------------------------------------------
+Post-v214 commits on main:
+- b318f12  Handoff v214 (the prior handoff itself).
+- a1a59de  Make marketing Login links origin-relative — cherry-picked yesterday's
+           fix (3b49930) because this branch was cut before it landed; without it
+           the branch preview's "Enter App" bounced to prod (scmybiz.com), so the
+           branch's changes were never actually visible in the preview.
+- 46ce041  Plan+backlog: allocation-aware board — recorded the smoke finding (go-
+           backs save but don't render) + filed B87 + plan AMENDMENT.
+- fcd1037  Plan+B87: allocations carry own crew/lead/equipment/scope (PW inherited)
+           — locked the per-trip fields decision; flagged it needs a migration.
+- 5977825  B87: record pickup state — migration pre-authored (not pushed) + the
+           baseline-drift blocker, with exact drift numbers.
+- db38565  B87: park the pending migration OUTSIDE supabase/migrations/ so another
+           terminal's db:push can't sweep it in. (HEAD)
+(The guardrail code itself — ScheduleLayout.jsx / queries.js / exports.js — landed
+in v214's commits ea9523e + 464e086, already merged in this fast-forward.)
+
+command-suite-db (NOT pushed, NOT committed — parked artifact):
+- docs/pending-migrations/20260905120000_job_mobilizations_allocation_details.sql.pending
+  — 6 additive nullable cols on job_mobilizations (crew_needed int + lead/vehicle/
+  equipment/power_source/sow text). For B87. Deliberately outside migrations/.
+
+DEPLOYED
+--------
+- Frontend only: merge to main → Vercel auto-deploy of sales-command to prod
+  (www.scmybiz.com). No edge functions, no DB migration, no infra changed.
+- NO database change went out this session. The allocation migration is parked,
+  unpushed. Prod DB is untouched by this session's work (reads only).
+
+DECISIONS / CHOICES MADE
+------------------------
+- Stop-and-merge-guardrail (B over "finish everything first"): once the allocation
+  half revealed it needs a migration + multi-view rework + hit a DB-baseline
+  blocker, Chris chose to merge the safe, gated guardrail now and do the allocation
+  work in a fresh terminal. Guardrail has no DB dependency, so the merge is clean.
+- Allocations carry their OWN details (crew size, lead, vehicle, equipment, power,
+  scope) — a return trip runs different crew/scope than the first run, so it can't
+  inherit them. Prevailing wage is the exception: it's set when the job is sold, so
+  every allocation inherits the job's PW (not per-trip). This is why B86's "+ Job"
+  panel shows only date + go-back for now — those fields had nowhere to save until
+  the B87 migration adds the columns.
+- Park the pending migration OUTSIDE supabase/migrations/: `supabase db push` sweeps
+  that folder, so leaving an uncommitted migration there risked it riding along on
+  the other terminal's (schedule-import) push. Moved to docs/pending-migrations/*.pending.
+- buildvsplan T2-1 fix: paginated searchExistingJobs via loadAllRows — an unpaginated
+  id-DESC fetch would silently drop the OLDEST jobs past 1000 rows and wrongly block
+  a trip on an old job. T2-2 was a plan-doc reason correction (StatsBar), no code.
+
+NEW BACKLOG ITEMS
+-----------------
+- B87 (T2, In Progress) — Allocation-aware crew schedule: board must show a job on
+  EVERY allocation's dates (not just the first), + restore per-trip fields via a
+  new job_mobilizations migration. The second half of the "+ Job" feature. Blocked
+  on a DB baseline catch-up before the migration can push (see NEXT).
+
+CLOSED THIS SESSION
+-------------------
+- B86 (T2) — Add-Job dedup guardrail. Merged to main db38565, live in prod. Scope
+  was guardrail only (no phantom jobs + hide orphans); the allocation/board half
+  was always B87.
+
+VERIFICATION
+------------
+- npm run build: clean (only pre-existing chunk-size warning). Dev server boots;
+  changed modules transform.
+- Live prod (read-only): call_log→jobs single FK (embed unambiguous); job_number is
+  integer (hence JS term-match); phantom job_id 1278 exists; jobs column types
+  confirmed. Guardrail's data logic prod-SQL-verified.
+- Gates: buildvsplan / code-review / security-review all GREEN (0 blockers),
+  relayed from separate cold terminals.
+- PARTIAL browser smoke: Chris added a real go-back on the preview (job 7069, Sep
+  19) — the WRITE works (job_mobilizations row created, is_go_back set). That same
+  add is what surfaced the display gap (B87). The guardrail's OWN checks — pick-
+  existing → no dup jobs row, typed-no-match → clean block, orphan absent from
+  exports — were NOT run end-to-end in the browser. NOT smoke-verified: the block
+  behavior and export exclusion in a live session.
+
+NOT TOUCHED THIS SESSION
+------------------------
+- Workstream B: backfill/merge of the existing 8 phantoms + 67 orphans (incl.
+  retiring 10252 job_id 1278). Deferred, parked.
+- Shop Work overhead loop (docs/plans/shop_work_overhead_type.md). Separate loop.
+- F59 (overhead-hours cost report).
+- The 2 code-review UX-polish items filed on B86 (search "showing 25" hint; clear
+  stale result list on keystroke) — cosmetic, fold into B87.
+
+NEXT SESSION POINTERS
+---------------------
+- /resume now points at B87 (pointer updated + pushed in ~/.claude-commands).
+- FIRST: browser-smoke the LIVE guardrail on scmybiz.com before building on top —
+  confirm "+ Job" → block on a non-existent job#, and pick-existing → no duplicate
+  jobs row. (The block/no-dup behavior is the shipped value and wasn't live-smoked.)
+- B87 build is a plan-first BUILD (/decide → plan → gates → merge), and it needs a
+  MIGRATION. Before the migration can push, the command-suite-db rehearse baseline
+  must be caught up:
+    (a) migration_match_draft (20260904120000, legit/applied) needs an EXPECT_*
+        constants + baseline-snapshot refresh — public-schema drift is ONLY this
+        (tables 54→55, indexes 170→172, policies 227→231, triggers 49→50, table
+        grants 1133→1154, column grants 9220→9292).
+    (b) prod ALSO has an OUT-OF-BAND `migration_backup` schema (13 backup tables
+        dated 202609041653, from the Sept-4 schedule-import Apply run, not in any
+        committed migration) — decide whether it belongs in the baseline before
+        `supabase db dump` bakes it in. This looks like another terminal's work;
+        coordinate before touching the shared-DB baseline.
+- The B87 migration is pre-authored at
+  command-suite-db/docs/pending-migrations/20260905120000_...sql.pending — move it
+  back into supabase/migrations/ + drop .pending when ready to push.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+- src/schedule/views/Schedule.jsx — jobOverlapsWeek / jobInRange /
+  weekHasUnassignedDaysFor: the board's date-window selection B87 must make
+  allocation-aware (Calendar.jsx + Daily.jsx + exports.js share the pattern).
+- src/schedule/ScheduleLayout.jsx — the "+ Job" modal (restore per-trip fields).
+- src/schedule/lib/queries.js — searchExistingJobs, loadJobs(includeUnlinked),
+  addJobMobilization (N1 guard), getNextMobSeq, loadUnallocatedJobs (shipped B86).
+- docs/plans/add_job_dedup_ideate_prompt.md — AMENDMENT "allocation-aware schedule
+  board" = the B87 contract + locked model.
+- docs/BACKLOG.md — B86 (Closed), B87 (pickup state + drift numbers).
+- command-suite-db/docs/pending-migrations/20260905120000_...sql.pending — the
+  parked B87 migration.
+
+GIT STATE ON CLOSE
+------------------
+- sales-command: on branch main, HEAD db38565 = origin/main (before this handoff
+  commit). Working tree clean apart from this handoff + the B86-Closed BACKLOG edit.
+- feat/add-job-dedup: still exists local + origin, synced to db38565 (== main).
+  Fully merged into main; safe to delete when convenient.
+- command-suite-db: on main, clean; one untracked parked file in
+  docs/pending-migrations/ (intentional). supabase/migrations/ is clean.
+- ~/.claude-commands: active-work pointer repointed to B87, committed + pushed.
+- No open PRs; no scratch projects.
+
+END STATE
+---------
+Guardrail (B86) merged + deploying to prod; allocation half (B87) scoped, locked,
+and deferred with its migration pre-authored + parked; live browser smoke of the
+guardrail still pending. Ready for a fresh B87 build session.

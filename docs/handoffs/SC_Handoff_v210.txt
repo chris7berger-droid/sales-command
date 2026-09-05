@@ -1,0 +1,140 @@
+SC Handoff v210 — Schedule Command re-skin, chunk 1 (BUILD COMPLETE)
+Date: 2026-09-04
+Branch: feat/schedule-reskin  (pushed to origin; NOT merged to main, NOT deployed)
+Terminal role: BUILD ONLY. Gates (buildvsplan → code-review → security-review) run
+next in their own cold terminals.
+
+================================================================================
+SESSION SUMMARY
+================================================================================
+Built chunk 1 of the Schedule Command re-skin to the contract in
+docs/plans/schedule_reskin.md (chunk-1 plan + its [R1:xx]/[R2:xx] trap tags).
+All 6 plan steps done in order, one commit per step, `npm run build` clean after
+each. In-browser visual verification was NOT done this session — Chris could not
+reach a preview (Vercel preview + localhost both bounced to the prod login via the
+marketing page's hardcoded prod links; he chose to verify look-and-feel in the UI
+audit terminals instead). So this build is code-verified (build + targeted eslint,
+plan-trap adherence) but NOT run-verified.
+
+================================================================================
+CHANGES SHIPPED (commit per step)
+================================================================================
+050b955  Step 1 — index.css: promote the full 8 linen tokens (--bg,--bg-card,
+         --panel-dark,--teal-ink,4×--sig-*) from the .home-screen override to base
+         .schedule-root [R1:D1]; emptied the redundant override. App.css:6457
+         .home-screen LAYOUT block (full-bleed) left untouched [R2:A].
+(step 2) Repaint regression cleanup — NO-OP by design. Full sweep of src/schedule
+         found zero opaque white backgrounds; every white literal is white TEXT on
+         a dark chip or a translucent rgba overlay. Confirms Risk 7 "over-worried."
+         No edits, nothing to commit. Print CSS untouched.
+d4bbfa9  Step 3 — nav.js: "Billing" → "Finance / Billing" (id/path unchanged).
+9762097  Step 4 — Finance/Billing consolidation:
+           • Billing.jsx rewritten: one flat list of built.rows (each = existing
+             BillingCard + a status pill from billingCardKey→BILLING_CARDS.label,
+             never billingBadge); Worklist/Forecast/Budget tabs; tolerant ?tab=
+             reader (unknown→worklist); Forecast tab reads built.forecast (NO
+             second fetch); Budget tab = chunk-2 placeholder; Total-to-Bill header
+             + Go Backs chip (its own chip, separate from Status) [R2:G]; forwards
+             canEdit/onFlag (Admin gate + notes stay gated) [R1:I1].
+           • FilterBar.jsx: optional statusOptions/status prop; status in
+             destructure + hasFilters; Clear now a spread-reset over all keys
+             [R1:H1]. Sales callers unaffected.
+           • billingForecast.js: buildBillingSurface returns toBill/toBillRows/
+             goBackRows [R1:A4] + each row carries salesName.
+           • ScheduleLayout.jsx: billing/forecast + budget → <Navigate ?tab=…>;
+             dropped Forecast/Budget imports.
+541fd54  Step 5a — Jobs.jsx rewritten as the working surface: HomeCapacityStrip +
+         NeedsAttention/NextUp/AtAGlance band (Jobs now loads crew+crew_status;
+         weekAssignments derived, no extra query); always-visible stage tabs
+         (All/Staged/Ready/Active/On Hold/Completed) → same *CardList wrappers →
+         full StageJobCard incl. stage+setJobs [R1:G1]; Go-Backs + prep-readiness
+         signals strip (ported JobsPicker math [R1:A2], go-backs via Object.values
+         over nested mobsByJobId [R1:C1]); Recovery Bin modal + re-homed launch
+         button [R1:A1]; Actions menu (cross-screen jumps [R1:A3/R2:D]); all 5
+         TAB_REDIRECTS verbatim, unknown→All [R1:F1/R2:REG-1]; realtime + sync
+         warning ported [R1:E1]. Dropped dead teamMembers state.
+aee1bdd  Step 5b — Home.jsx rewritten as pure dashboard (no working rows): 5 KPI
+         hero cards (2 real-$ money cards via loadBillingSurfaceData+
+         buildBillingSurface [R1:B1 Option A]); Scheduled-vs-Completed workload
+         chart (completed=getJobStatus==='Complete' by effectiveEnd, null-end →
+         "no date" tally, never dropped [R1:C3/R2:B]); At-a-Glance (keeps View
+         Analytics [R1:A3]); Where-management-needs; Recent Activity (job_changes);
+         Upcoming Milestones; margin placeholder. computeHomeDashboard extended
+         (optional prtMap+mobsByJobId; goBacksCount, readyCount/notReadyCount,
+         productionPct re-implementing the non-exported taskRateSummary guard in
+         queries.js [R1:C2/R2:E]). Realtime = jobs+assignments; dropped
+         job_material_lines channel [R2:C].
+cf9a9ae  Step 6 — deleted views/Forecast.jsx, views/Budget.jsx,
+         components/JobsPicker.jsx (logic re-homed). Build clean, no dangling
+         imports.
+
+================================================================================
+DECISIONS (locked this session, per plan)
+================================================================================
+- Pushed the 3 plan commits (7a9a6e7) to origin at Chris's OK before building.
+- Home's loadData also loads the billing surface so the money cards show real $
+  (Option A, already locked in plan).
+- The 5 picker cross-screen shortcuts folded into the Jobs Actions menu (added
+  Budget too → billing?tab=budget, so nothing dropped).
+- Preview/verification: build terminal cannot see the browser AND Chris's preview
+  path bounces to prod; per his call, UI look/feel is verified in the audit terms.
+
+================================================================================
+NOT DONE / FLAGS FOR THE NEXT TERMINAL
+================================================================================
+- IN-BROWSER VERIFICATION PENDING (all of it). Design-system + mockup check, and
+  every functional round-trip in the plan's Verification section, still owed:
+  Recovery Bin delete→restore; ?tab= deep links (all/scheduled→Ready, ready/
+  schedule→crew board, worklist/forecast/budget/unknown, billing/forecast +
+  budget redirects); non-Admin Billing (controls absent); Status filter + Clear;
+  money cards show real $ not $0/NaN; production/go-back cards show numbers or "—".
+- ORPHANED DEAD FILES (left in place — NOT on the plan's step-6 delete list, so I
+  did not expand scope): components/JobsToPrepare.jsx and
+  components/BillingPicker.jsx are now zero-import. Confirm-and-delete candidates.
+- Pre-existing lint debt (NOT introduced this session): FilterBar customerOptions
+  unused; ScheduleLayout.jsx:84/203; queries.js:805 'today' unused. Left alone.
+- List-presentation was [DESIGN-OPEN]: Jobs list renders via the existing
+  *CardList compact-expandable rows (each still expands to full StageJobCard), not
+  the mockup's dense table. Table styling is vibe, not a functional gate.
+- Date filter on Finance/Billing filters by lastSent; never-billed rows pass
+  through so a date bound doesn't hide the ready-to-bill worklist (commented).
+
+================================================================================
+VERIFICATION DONE
+================================================================================
+- `npm run build` clean after every step and at end.
+- Targeted eslint on all new/changed files: clean (Billing, FilterBar,
+  billingForecast, Jobs, Home). Only pre-existing errors remain elsewhere.
+- Confirmed .hcs/.home-panels/.hp-* CSS scoped to .schedule-root (render under
+  .jh-wrap on Jobs). App.css .home-screen layout block intact.
+- No dangling imports to deleted files.
+
+================================================================================
+NEXT SESSION POINTERS
+================================================================================
+Per protocol, in separate COLD terminals, in order:
+  1. /buildvsplan  — spec-vs-code punch-list against docs/plans/schedule_reskin.md
+  2. /code-review
+  3. /security-review
+Then Chris smoke-tests in browser (or a working preview) and, if green, merge to
+main + deploy. Nothing is live yet.
+
+================================================================================
+FILES TO KNOW
+================================================================================
+Plan/contract:  docs/plans/schedule_reskin.md (chunk-1 plan + [R1]/[R2] tags)
+Changed:  src/schedule/index.css, src/lib/nav.js, src/components/FilterBar.jsx,
+          src/schedule/lib/billingForecast.js, src/schedule/lib/queries.js
+          (computeHomeDashboard), src/schedule/views/Billing.jsx,
+          src/schedule/views/Jobs.jsx, src/schedule/views/Home.jsx,
+          src/schedule/ScheduleLayout.jsx
+Deleted:  src/schedule/views/Forecast.jsx, src/schedule/views/Budget.jsx,
+          src/schedule/components/JobsPicker.jsx
+Orphaned (kept): src/schedule/components/JobsToPrepare.jsx,
+          src/schedule/components/BillingPicker.jsx
+
+================================================================================
+GIT STATE
+================================================================================
+Branch feat/schedule-reskin @ cf9a9ae, pushed to origin. Not merged, not deployed.
+Working tree clean (after this handoff commit).

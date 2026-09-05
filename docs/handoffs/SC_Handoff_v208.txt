@@ -1,0 +1,171 @@
+SC_Handoff_v208 — HDSP schedule migrated into prod + Import/Schedule fixes it surfaced
+================================================================================
+Date: 2026-09-04
+Repo: sales-command  (the app is SUBCON COMMAND, scmybiz.com; Schedule is a driver)
+Branch: main (all work merged + deployed)
+Shared DB: pbgvgjjuhnpsumnowuym   HDSP tenant_id: 246f6551-60de-4965-bb97-9a52971bc05d
+
+
+SESSION SUMMARY
+------------------------------------------------------------
+Picked up v207 (Import tool live) and actually RAN the one-time HDSP schedule
+migration end to end: matched all 288 old YESv2 jobs in the app, generated the
+wipe+load SQL, rehearsed it against real prod data (transaction rolled back),
+fixed every break the rehearsal surfaced, then ran it for real. HDSP's live
+Schedule now holds the old schedule — 288 jobs, 3,076 crew-day assignments, 25
+crew, 130 crew-status rows, 26 billing rows — with a full backup in schema
+migration_backup. Along the way, real use exposed several Import/Schedule bugs
+that were fixed and shipped: an exact-match auto-matcher, mobilization support
+(many old rows per job), a crash, the load generator (which had never actually
+run), and a prevailing-wage display bug. One known glitch (phantom double-booking)
+was diagnosed and deliberately parked at Chris's call — it pre-exists in the old
+Apps Script app and is a data-logging quirk, not caused by the import.
+
+
+CHANGES SHIPPED (all merged to main, auto-deployed to scmybiz.com)
+------------------------------------------------------------
+- c1d9291 (PR #37) — Import: one-click auto-match for exact job numbers.
+  New autoMatchExact() confirms only dead-on matches (unique both ways: no number
+  ties, no duplicate targets, never overrides a manual/Internal decision); teal
+  "Auto-match N exact" button in Step 2 applies them. Reversible draft.
+- 00f0860 (c5b90eb) — Import: allow many old rows per real job (mobilizations).
+  The old schedule lists a job once per mobilization (each trip, its own dates).
+  Shared target no longer blocks Apply (reframed from red "duplicate target" error
+  to neutral "shared (mobilizations)"); load generator no longer emits the
+  jobs(call_log_id) uniqueness guard index.
+- 6b10d47 — Fix Import crash: stray isDup -> isShared (runtime ReferenceError).
+  A rename miss; Vite doesn't flag undefined refs so it shipped and crashed the
+  Import screen. No behavior change.
+- 4e48a39 (d58ce32) — Fix HDSP load generator so it actually runs.
+  Re-homed from sch-command, never run end to end. Fixed: import path
+  (src/lib -> src/schedule/lib) + swapped csv-parse for the app's SheetJS parser;
+  dropped the psql \set meta-command (runs via Management API); pause app triggers
+  for the load (SET LOCAL session_replication_role=replica) so wipe-time
+  bookkeeping triggers don't insert NULL-tenant job_changes; backlink the Sold
+  proposal on only the FIRST jobs row per call_log (jobs.source_proposal_id is
+  UNIQUE); removed the call_log_id guard index.
+- 25b7134 (598aa9c) — Schedule: show PW badge if EITHER master or job row is
+  prevailing wage. Crew schedule read prevailing_wage from call_log and only fell
+  back to the jobs row when call_log was NULL, so imported PW jobs (flag lives on
+  the jobs row) showed no PW badge. Now PW = call_log OR jobs, per row.
+
+
+DEPLOYED (prod data + Vercel)
+------------------------------------------------------------
+- Vercel (sales-command): all commits above auto-deployed on push to main; final
+  deploy for 25b7134 confirmed success.
+- Prod DB (pbgvgjjuhnpsumnowuym): ran hdsp_wipe_and_load.sql via
+  `supabase db query --linked -f` from ~/command-suite-db. One transaction:
+  backed up 13 tables into schema migration_backup (stamped), wiped HDSP-only
+  schedule rows in FK order, loaded 288 jobs / 3,076 assignments / 25 crew /
+  130 crew-status / 26 billing. 74 assignments dropped as expected (54 blank/
+  "undefined", 20 for deleted job 91).
+- Operator artifacts (NOT in repo, live in ~/Downloads): hdsp_draft.json (the
+  288-decision export), hdsp_wipe_and_load.sql (the applied file), hdsp_rehearse
+  .sql / hdsp_spot*.sql (rollback rehearsal variants).
+
+
+DECISIONS / CHOICES MADE
+------------------------------------------------------------
+- Rehearsal method: no separate prod-shaped DB exists, so rehearsed by running the
+  REAL script with COMMIT -> ROLLBACK against prod (probed first that BEGIN/ROLLBACK
+  is honored via the Management API path). Faithful, saves nothing. This is now the
+  practical answer to runbook §6.7's open "which rehearsal is realistic" question.
+- Mobilizations over de-dup: chose to let multiple old rows attach to one call_log
+  (each its own dated jobs row) rather than force one-row-per-job. Matches how live
+  prod already stores multi-mobilization jobs, and preserves every date — required
+  for the schedule to place jobs.
+- PW read is call_log OR jobs (not a data backfill): kept the fix in the read layer
+  so it also honors the schedule's own PW checkbox (which writes the jobs row) and
+  needs no write to shared master records. prevailing_wage feeds only the schedule's
+  own cost rollup; nothing on the Sales/invoicing side reads call_log.prevailing_wage.
+- Double-booking glitch PARKED at Chris's direction. Root cause found: the crew
+  schedule counts every assignment in the week's date range for double-book
+  detection, including stray assignments dated outside a job's own schedule (e.g.
+  job 10053 runs Aug 24–Sep 4 but has Jul 27 crew rows). Pre-exists in the Apps
+  Script app; a data-logging quirk. NOT fixed this session.
+
+
+NEW BACKLOG ITEMS
+------------------------------------------------------------
+- (unfiled) Double-booking false positive on Crew Schedule. Detection in
+  src/schedule/views/Schedule.jsx (crewDayJobs, ~line 233) counts assignments for
+  jobs not on the board that week. Candidate fix (not applied): scope crewDayJobs to
+  job_ids that are active AND overlap the week. Deeper issue is stray assignments
+  logged outside a job's date range — fix wants one pass across assignment-logging
+  + this display. Parked per Chris.
+- (unfiled, from v207 carry) R3-1: the 5 schedule tables carry a legacy blanket
+  "authenticated can do everything" policy. Harmless at 1 tenant (HDSP); HARD
+  prerequisite to fix in command-suite-db before a 2nd tenant onboards via Import.
+
+
+CLOSED THIS SESSION
+------------------------------------------------------------
+- The v207 "NEXT SESSION" task (run the HDSP migration) — DONE, loaded + verified.
+
+
+VERIFICATION
+------------------------------------------------------------
+- Migration rehearsed on real prod data (rolled back) with zero errors before the
+  real run; the rehearsal caught and forced fixes for two real blockers (NULL-tenant
+  trigger insert on wipe; UNIQUE source_proposal_id on mobilizations).
+- Post-load counts confirmed persisted live: jobs 288, assignments 3076, crew 25,
+  crew_status 130, billing_log 26; 13 backup tables in migration_backup.
+- Spot-checks vs Chris's old-app screenshot for Jul 27–Aug 1: 6618 = 5/5/4/5/4,
+  7141 = 3/3/3/3 — matched exactly, live. 6507 mobilizations land as separate dated
+  rows (e.g. 6507CO2 on 3 dates).
+- Chris eyeballed Crew Schedule for that week: jobs + counts correct; PW badges
+  correct after the fix.
+- NOT verified: full-week parity for every job; billing-figure parity per §7 of the
+  runbook; the retire-old-sheet step (deferred — see NEXT).
+
+
+NOT TOUCHED THIS SESSION
+------------------------------------------------------------
+- The old "YES Schedule v2" Google Sheet — still live (data source). NOT retired
+  yet, pending Chris's broader review.
+- The double-booking logging quirk (parked, above).
+- R3-1 blanket RLS policy (command-suite-db work, not needed for single-tenant HDSP).
+
+
+NEXT SESSION POINTERS (this is a NEW terminal — schedule polish/fixes stream)
+------------------------------------------------------------
+- This closes the MIGRATION terminal. Ongoing Schedule Command changes/fixes should
+  run in a fresh terminal (Chris is starting a run of these). active-work pointer
+  updated to sales-command · main · schedule polish/fixes.
+- First likely item: the double-booking false positive (see NEW BACKLOG). Start by
+  deciding scope — display-only (scope crewDayJobs to on-board jobs) vs. also fixing
+  assignment-logging so dates can't fall outside a job's range.
+- Migration rollback path, if ever needed: tables are in schema migration_backup
+  (stamped copies of all 13 touched tables). Restore from there; do NOT re-run the
+  wipe+load.
+- Do NOT re-run hdsp_wipe_and_load.sql — it's a one-time wipe. It's already applied.
+
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+------------------------------------------------------------
+- src/schedule/views/Schedule.jsx — crew schedule board; double-book detection at
+  crewDayJobs (~233), PW badge isPW (~69), weekJobs (~289).
+- src/schedule/lib/queries.js — loadJobs/normalizeJob; call_log-vs-jobs field merge
+  (PW fix at ~366); schedule cost-rollup isPW (~196).
+- src/schedule/views/Import.jsx — the Import screen (auto-match, mobilizations).
+- src/schedule/lib/yesv2Import.js — pure import engine (autoMatchExact + transforms).
+- scripts/generate_hdsp_migration_sql.mjs — one-time load generator (now runnable).
+- scripts/HDSP_MIGRATION_RUNBOOK.md — operator steps (rehearsal method now proven).
+
+
+GIT STATE ON CLOSE
+------------------------------------------------------------
+- Branch: main. origin/main = 25b7134 (all session work pushed + deployed).
+- Working tree: clean apart from this handoff commit.
+- Open PRs: #37 (auto-match) merged. No open PRs.
+- Feature branches this session (feat/import-auto-match-exact, feat/import-allow-
+  mobilizations, fix/hdsp-load-generator, fix/schedule-pw-badge) all merged; safe to
+  prune. Branch hygiene handled at close.
+- Scratch: none. Operator SQL/JSON live in ~/Downloads (outside the repo).
+
+
+END STATE
+------------------------------------------------------------
+Merged, deployed, migration applied + verified live. Double-book fix parked.
+Ready for a fresh terminal to start the Schedule polish/fixes stream.

@@ -229,19 +229,6 @@ export default function Schedule({ embedded = false } = {}) {
     return map
   }, [assignments])
 
-  // Build crew -> { date -> [jobIds] } for double-booking detection
-  const crewDayJobs = useMemo(() => {
-    const map = {}
-    for (const a of assignments) {
-      if (!map[a.crew_name]) map[a.crew_name] = {}
-      if (!map[a.crew_name][a.date]) map[a.crew_name][a.date] = []
-      if (!map[a.crew_name][a.date].includes(a.job_id)) {
-        map[a.crew_name][a.date].push(a.job_id)
-      }
-    }
-    return map
-  }, [assignments])
-
   function getDoubleBookedDays(name) {
     const dayMap = crewDayJobs[name] || {}
     const r = []
@@ -293,6 +280,31 @@ export default function Schedule({ embedded = false } = {}) {
       return active && jobOverlapsWeek(j, wsStr, weStr)
     })
   }, [jobs, wsStr, weStr])
+
+  // job_ids actually on the board this week. Double-booking detection must be
+  // scoped to these — otherwise a stray assignment for an off-board job (e.g.
+  // an old imported crew-day dated outside that job's own range) falsely flags
+  // a crew as double-booked against a job that isn't even shown.
+  const weekJobIds = useMemo(() => {
+    const s = new Set()
+    for (const j of weekJobs) s.add(String(j.job_id))
+    return s
+  }, [weekJobs])
+
+  // Build crew -> { date -> [jobIds] } for double-booking detection,
+  // counting only assignments for jobs on the board this week.
+  const crewDayJobs = useMemo(() => {
+    const map = {}
+    for (const a of assignments) {
+      if (!weekJobIds.has(String(a.job_id))) continue
+      if (!map[a.crew_name]) map[a.crew_name] = {}
+      if (!map[a.crew_name][a.date]) map[a.crew_name][a.date] = []
+      if (!map[a.crew_name][a.date].includes(a.job_id)) {
+        map[a.crew_name][a.date].push(a.job_id)
+      }
+    }
+    return map
+  }, [assignments, weekJobIds])
 
   const { scheduled, unscheduled } = useMemo(() => {
     const sched = []

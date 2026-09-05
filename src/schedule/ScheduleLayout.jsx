@@ -233,7 +233,7 @@ function ScheduleShell() {
       <div className="app-schedule-toolbar">
         <div className="app-header-actions">
           <button className="app-act-btn app-act-primary" onClick={openAddJob}>+ Job</button>
-          <div className="app-actions-menu" ref={actionsRef} onMouseLeave={() => setActionsOpen(false)}>
+          <div className="app-actions-menu" ref={actionsRef}>
             <button className="app-act-btn" onClick={() => setActionsOpen(o => !o)}>Actions ▾</button>
             {actionsOpen && (
               <div className="app-actions-dropdown">

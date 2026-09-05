@@ -1521,6 +1521,14 @@ function _dayDiff(dateStr, todayStr) {
   return Math.round((new Date(dateStr + 'T00:00:00') - new Date(todayStr + 'T00:00:00')) / 86400000)
 }
 
+// daily_production_reports.tasks may arrive as jsonb (array) or a JSON string.
+function _parseTasks(v) {
+  if (v == null) return null
+  if (Array.isArray(v)) return v
+  if (typeof v === 'string') { try { return JSON.parse(v) } catch { return null } }
+  return v
+}
+
 const _SCHEDULING_STATUSES = new Set(['Scheduled', 'In Progress', 'Ongoing'])
 
 // Compute every Home dashboard number from loaded slices. TWO crew maps (§11 G3a):
@@ -1531,6 +1539,9 @@ export function computeHomeDashboard({
   jobs = [], crew = [], crewStatusMap = {},
   weekAssignments = [], allAssignments = [],
   matsByJobId = {}, dates = [], todayStr,
+  // Optional — the new Home dashboard passes these for its KPI cards; the Jobs
+  // screen omits them (safe defaults), so this stays one canonical function.
+  prtMap = new Map(), mobsByJobId = {},
 }) {
   const crewByWeek = buildCrewByCallLog(jobs, weekAssignments)
   const crewByAll = buildCrewByCallLog(jobs, allAssignments)
@@ -1641,11 +1652,49 @@ export function computeHomeDashboard({
     crewNeeded: need(nextUpJob),
   } : null
 
+  // ── New-Home KPI rollups (optional inputs) ────────────────────────────────
+  // Readiness: all Scheduled-stage jobs split ready / not-ready (own-dates map).
+  const scheduledStage = jobs.filter(j => getJobStatus(j) === 'Scheduled')
+  const readyCount = scheduledStage.filter(j => isReady(j, crewByAll, matsByJobId)).length
+  const notReadyCount = scheduledStage.length - readyCount
+
+  // Go-backs: mobsByJobId is a nested [job_id][seq] seq-map, NOT an array [R1:C1].
+  let goBacksCount = 0
+  for (const jid in mobsByJobId) {
+    goBacksCount += Object.values(mobsByJobId[jid] || {}).filter(m => m && m.is_go_back).length
+  }
+
+  // Production % of target — prtMap keyed by call_log_id, value = PRT[] (newest
+  // first). Re-implements ProductionRate's non-exported taskRateSummary guard
+  // [R2:E]: skip null pairs, honor target_pct ?? target / actual_pct ?? actual ??
+  // pct_complete, null when nothing reports (render "—", never NaN).
+  let prtBehind = 0, prtTotal = 0, productionReporting = 0
+  for (const j of jobs) {
+    const arr = prtMap.get(j.call_log_id)
+    if (!arr || arr.length === 0) continue
+    const tasks = _parseTasks(arr[0].tasks)
+    if (!Array.isArray(tasks) || tasks.length === 0) continue
+    let behind = 0, total = 0
+    for (const t of tasks) {
+      const target = t.target_pct ?? t.target ?? null
+      const actual = t.actual_pct ?? t.actual ?? t.pct_complete ?? null
+      if (target == null || actual == null) continue
+      total++
+      if (Number(actual) < Number(target)) behind++
+    }
+    if (total === 0) continue
+    prtBehind += behind; prtTotal += total; productionReporting++
+  }
+  const productionPct = prtTotal === 0 ? null : Math.round(((prtTotal - prtBehind) / prtTotal) * 100)
+
   return {
     crewByWeek, crewByAll,
     capacityDays, crewAvailable, assignedCount, openSpots,
     needCrews: needCrews.length, conflicts, notReady: notReady.length,
     jobsScheduled, crewAssignmentsCount, completionPct,
     nextUp,
+    // new-Home KPI rollups
+    readyCount, notReadyCount, goBacksCount,
+    productionPct, productionReporting,
   }
 }

@@ -337,6 +337,7 @@ export function buildBillingSurface(jobs, data, today, getMonday) {
       jobNum: job.job_num || job._display_job_number || jobInvoices[0]?._display_job_number || String(job.job_id),
       jobName: job.job_name || null,
       customerName: job.customer_name || null,
+      salesName: job.sales_name || null,   // for the Finance/Billing Salesperson filter
       workType: job.work_type || null,
       isChangeOrder: !!job.is_change_order,
       coNumber: job.co_number || null,
@@ -378,7 +379,16 @@ export function buildBillingSurface(jobs, data, today, getMonday) {
   const forecastInvoices = invoices.filter((i) => isActiveInvoice(i) && isSent(i) && !isPaid(i))
   const forecast = computeForecast(forecastInvoices, termsOverrideByCallLog, today, getMonday)
 
-  return { rows, forecast, termsOverrideByCallLog }
+  // Header/summary derivations lifted out of the retired BillingPicker (R1:A4) so
+  // the Finance/Billing list header + Go Backs chip read one canonical source.
+  // TOTAL TO BILL = remaining authoritative balance across everything still owed.
+  const toBillRows = rows.filter((r) => !r.fullyBilled)
+  const toBill = toBillRows.reduce((s, r) => s + (r.remaining || 0), 0)
+  // Go Backs — jobs flagged GB (already built/billed, nothing new to bill). Its
+  // own chip/count, separate from the 4-label Status filter (R2:G).
+  const goBackRows = rows.filter((r) => r.override?.nothing_to_bill)
+
+  return { rows, forecast, termsOverrideByCallLog, toBill, toBillRows, goBackRows }
 }
 
 function historyLabel({ billed, authoritative, fullyBilled, arm }) {

@@ -16,13 +16,11 @@ import Home from './views/Home'
 import Jobs from './views/Jobs'
 import Schedule from './views/Schedule'
 import Billing from './views/Billing'
-import Forecast from './views/Forecast'
 import Materials from './views/Materials'
 import Calendar from './views/Calendar'
 import Daily from './views/Daily'
 import Schedules from './views/Schedules'
 import ProductionRate from './views/ProductionRate'
-import Budget from './views/Budget'
 import JobDetail from './views/JobDetail'
 import Settings from './views/Settings'
 import Import from './views/Import'
@@ -255,13 +253,15 @@ function ScheduleShell() {
           <Route path="jobs/:jobId" element={<JobDetail />} />
           <Route path="schedule" element={<Schedule />} />
           <Route path="billing" element={<Billing />} />
-          <Route path="billing/forecast" element={<Forecast />} />
+          {/* Forecast + Budget folded into Finance/Billing (reskin chunk 1);
+              keep external/bookmarked deep links alive via redirect, no 404. */}
+          <Route path="billing/forecast" element={<Navigate to="/schedule/billing?tab=forecast" replace />} />
           <Route path="materials" element={<Materials />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="daily" element={<Daily />} />
           <Route path="schedules" element={<Schedules />} />
           <Route path="production-rate" element={<ProductionRate />} />
-          <Route path="budget" element={<Budget />} />
+          <Route path="budget" element={<Navigate to="/schedule/billing?tab=budget" replace />} />
           <Route path="settings" element={<Settings />} />
           <Route path="import" element={<Import />} />
           <Route path="*" element={<Navigate to="/schedule/home" replace />} />

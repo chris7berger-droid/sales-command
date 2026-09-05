@@ -1544,10 +1544,10 @@ export function computeHomeDashboard({
   prtMap = new Map(), mobsByJobId = {},
 }) {
   // Roster counts (Crew Available, per-day capacity denominators) must reflect
-  // ACTIVE crew only. Callers fetch crew with select('*'), which includes
-  // archived rows — filter them here so every scoreboard fed by this function
-  // agrees with the (active-only) Crew List. Matches activeCrew in ScheduleLayout.
-  crew = crew.filter(c => c.archived !== 'Yes')
+  // ACTIVE crew only. crew.archived is a BOOLEAN column — compare as boolean,
+  // not the string 'Yes' (that no-op comparison let archived crew inflate the
+  // count). Defensive: callers also filter, but this is the single choke point.
+  crew = crew.filter(c => !c.archived)
 
   const crewByWeek = buildCrewByCallLog(jobs, weekAssignments)
   const crewByAll = buildCrewByCallLog(jobs, allAssignments)

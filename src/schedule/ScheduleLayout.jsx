@@ -181,14 +181,14 @@ function ScheduleShell() {
 
   async function clArchive(name) {
     if (!confirm('Archive ' + flipName(name) + '? They will be hidden from active views.')) return
-    const { error } = await supabase.from('crew').update({ archived: 'Yes' }).eq('name', name)
+    const { error } = await supabase.from('crew').update({ archived: true }).eq('name', name)
     if (error) { console.error(error); return }
     crewDirtyRef.current = true
     await loadModalData()
   }
 
   async function clUnarchive(name) {
-    const { error } = await supabase.from('crew').update({ archived: 'No' }).eq('name', name)
+    const { error } = await supabase.from('crew').update({ archived: false }).eq('name', name)
     if (error) { console.error(error); return }
     toast(flipName(name) + ' restored', 'ok')
     crewDirtyRef.current = true
@@ -238,8 +238,8 @@ function ScheduleShell() {
     toast('Refreshed', 'ok')
   }
 
-  const activeCrew = crewList.filter(c => c.archived !== 'Yes')
-  const archivedCrew = crewList.filter(c => c.archived === 'Yes')
+  const activeCrew = crewList.filter(c => !c.archived)
+  const archivedCrew = crewList.filter(c => c.archived)
 
   return (
     <>

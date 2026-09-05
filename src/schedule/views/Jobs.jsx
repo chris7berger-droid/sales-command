@@ -159,7 +159,7 @@ export default function Jobs() {
     setBillingWorklist(billRes.data || [])
     setMaterials(matsRes.data || [])
     setDailyLogs(logsRes.data || [])
-    setCrew((crewRes.data || []).filter(c => c.archived !== 'Yes'))
+    setCrew((crewRes.data || []).filter(c => !c.archived))
     const csMap = {}
     for (const c of (csRes.data || [])) csMap[c.crew_name + '|' + c.date] = c.status
     setCrewStatusMap(csMap)

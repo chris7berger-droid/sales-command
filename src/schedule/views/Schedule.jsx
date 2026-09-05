@@ -171,7 +171,7 @@ export default function Schedule({ embedded = false } = {}) {
         return
       }
       setJobs(jobRes.data)
-      setCrew(crewRes.data.filter(c => c.archived !== 'Yes'))
+      setCrew(crewRes.data.filter(c => !c.archived))
       setWorkTypes(wtRes.data.map(w => w.name))
     }
     loadStatic()

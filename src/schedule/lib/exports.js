@@ -139,7 +139,7 @@ export async function printDailyStatus() {
     supabase.from('crew_status').select('*').gte('date', wsStr).lte('date', weStr),
     supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No'),
   ])
-  const crew = (crewRes.data || []).filter(c => c.archived !== 'Yes')
+  const crew = (crewRes.data || []).filter(c => !c.archived)
   const assignments = asgnRes.data || []
   const csMap = {}
   for (const c of (csRes.data || [])) {

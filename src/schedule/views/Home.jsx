@@ -61,7 +61,7 @@ export default function Home() {
     setJobs(loadedJobs)
     setAllAssignments(allAsgnRes.data || [])
     setWeekAssignments(weekAsgnRes.data || [])
-    setCrew((crewRes.data || []).filter(c => c.archived !== 'Yes'))
+    setCrew((crewRes.data || []).filter(c => !c.archived))
     setMaterials(matsRes.data || [])
     setSurface(billRes || null)
     setActivity(actRes.data || [])

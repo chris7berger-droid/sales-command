@@ -104,7 +104,7 @@ export default function Daily() {
       j.deleted !== true && j.deleted !== 'true' && j.deleted !== 'Yes' &&
       ['Ongoing', 'Scheduled', 'In Progress', 'On Hold'].includes(j.status)
     ))
-    if (cRes.data) setCrew(cRes.data.filter(c => c.archived !== 'Yes'))
+    if (cRes.data) setCrew(cRes.data.filter(c => !c.archived))
     if (aRes.data) setAssignments(aRes.data)
     if (sRes.data) setCrewStatus(sRes.data)
     setLoading(false)

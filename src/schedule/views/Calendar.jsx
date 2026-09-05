@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../../lib/supabase'
-import { loadJobs } from '../lib/queries'
+import { loadJobs, loadMobilizationsByJobId } from '../lib/queries'
+import { jobRanges, inRange } from '../lib/allocations'
 
 /* ---------- helpers ---------- */
 
@@ -222,6 +223,7 @@ export default function Calendar() {
   const [month, setMonth] = useState(today.getMonth())
   const [jobs, setJobs] = useState([])
   const [assignments, setAssignments] = useState([])
+  const [allocsByJobId, setAllocsByJobId] = useState({})  // live allocations per job (B87)
   const [loading, setLoading] = useState(true)
 
   /* Fetch jobs + assignments */
@@ -253,9 +255,13 @@ export default function Calendar() {
         console.error('assignments fetch error', assignErr)
       }
 
+      // Live allocations so a job also lands on its go-back block's dates (B87).
+      const allocs = await loadMobilizationsByJobId(jobData || [], { liveOnly: true })
+
       if (!cancelled) {
         setJobs(jobData || [])
         setAssignments(assignData || [])
+        setAllocsByJobId(allocs || {})
         setLoading(false)
       }
     }
@@ -290,14 +296,18 @@ export default function Calendar() {
     return map
   }, [assignments])
 
-  /* For a given date, return jobs active on that day */
+  /* Per-job dated blocks = own first block + every live allocation (B87). */
+  const rangesByJobId = useMemo(() => {
+    const m = {}
+    for (const j of jobs) m[String(j.job_id)] = jobRanges(j, allocsByJobId[j.job_id])
+    return m
+  }, [jobs, allocsByJobId])
+
+  /* For a given date, return jobs active on that day — on ANY of their blocks,
+     so a go-back shows on its own dates, not just the first run. */
   function jobsForDate(d) {
     const ds = fmtD(d)
-    return jobs.filter(j => {
-      const s = j.scheduled_start || j.start_date
-      const e = j.scheduled_end || j.end_date || s
-      return ds >= s && ds <= e
-    })
+    return jobs.filter(j => inRange(rangesByJobId[String(j.job_id)] || jobRanges(j, allocsByJobId[j.job_id]), ds))
   }
 
   function getJobColor(job) {

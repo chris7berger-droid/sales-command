@@ -110,7 +110,7 @@ function ScheduleShell() {
   const [jobResults, setJobResults] = useState([])
   const [jobSearching, setJobSearching] = useState(false)
   const [pickedJob, setPickedJob] = useState(null)   // { job_id, call_log_id, job_number, customer, job_name }
-  const [mobDraft, setMobDraft] = useState(null)      // { label, start_date, end_date, is_go_back }
+  const [mobDraft, setMobDraft] = useState(null)      // { label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow }
   const [addBusy, setAddBusy] = useState(false)
 
   function openAddJob() {
@@ -140,7 +140,7 @@ function ScheduleShell() {
   function pickJob(r) {
     setPickedJob(r)
     setJobResults([])
-    setMobDraft({ label: '', start_date: '', end_date: '', is_go_back: false })
+    setMobDraft({ label: '', start_date: '', end_date: '', is_go_back: false, crew_needed: '', lead: '', vehicle: '', equipment: '', power_source: '', sow: '' })
   }
 
   async function doAddMobilization() {
@@ -156,7 +156,13 @@ function ScheduleShell() {
     if (seqErr) { console.error(seqErr); setAddBusy(false); toast('Error preparing trip', 'err'); return }
     const { error } = await addJobMobilization(
       pickedJob.job_id,
-      { seq, label: d.label, start_date: d.start_date || null, end_date: d.end_date || null, is_go_back: d.is_go_back },
+      {
+        seq, label: d.label, start_date: d.start_date || null, end_date: d.end_date || null, is_go_back: d.is_go_back,
+        // Per-allocation detail — blank = inherit the job's own value (B87).
+        crew_needed: d.crew_needed === '' || d.crew_needed == null ? null : (parseInt(d.crew_needed) || null),
+        lead: d.lead || null, vehicle: d.vehicle || null, equipment: d.equipment || null,
+        power_source: d.power_source || null, sow: d.sow || null,
+      },
       changedBy,
     )
     setAddBusy(false)
@@ -380,6 +386,25 @@ function ScheduleShell() {
                 <div className="mfr">
                   <input type="date" value={mobDraft.start_date} onChange={e => setMobDraft(p => ({ ...p, start_date: e.target.value }))} />
                   <input type="date" value={mobDraft.end_date} onChange={e => setMobDraft(p => ({ ...p, end_date: e.target.value }))} />
+                </div>
+                {/* Per-allocation crew + scope (B87). Blank = inherit the job's own.
+                    A go-back can run a different crew/scope than the first run. */}
+                <div className="mfr-label" style={{ color: 'var(--sand-dark)', marginTop: 4 }}>
+                  Crew &amp; scope for this {mobDraft.is_go_back ? 'go-back' : 'trip'} — leave blank to use the job’s
+                </div>
+                <div className="mfr">
+                  <input type="number" min="1" placeholder="Crew #" value={mobDraft.crew_needed} onChange={e => setMobDraft(p => ({ ...p, crew_needed: e.target.value }))} />
+                  <input placeholder="Lead" value={mobDraft.lead} onChange={e => setMobDraft(p => ({ ...p, lead: e.target.value }))} />
+                </div>
+                <div className="mfr">
+                  <input placeholder="Vehicle" value={mobDraft.vehicle} onChange={e => setMobDraft(p => ({ ...p, vehicle: e.target.value }))} />
+                  <input placeholder="Equipment" value={mobDraft.equipment} onChange={e => setMobDraft(p => ({ ...p, equipment: e.target.value }))} />
+                </div>
+                <div className="mfr">
+                  <input placeholder="Power source" value={mobDraft.power_source} onChange={e => setMobDraft(p => ({ ...p, power_source: e.target.value }))} />
+                </div>
+                <div className="mfr">
+                  <textarea placeholder="Scope of work (optional)" rows={2} value={mobDraft.sow} onChange={e => setMobDraft(p => ({ ...p, sow: e.target.value }))} />
                 </div>
                 <div className="macts">
                   <button className="app-act-btn" onClick={() => { setPickedJob(null); setMobDraft(null) }}>Back</button>

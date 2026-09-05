@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
-import { loadJobs } from '../lib/queries'
+import { loadJobs, loadMobilizationsByJobId } from '../lib/queries'
+import { jobRanges, overlapsWeek } from '../lib/allocations'
 
 /* ── Daily view — faithful port of the Apps Script rDaily() (Schedule Commander v2).
    Job cards with a crew × day check grid, gap row, status sections, and legend.
@@ -86,6 +87,7 @@ export default function Daily() {
   const [crew, setCrew] = useState([])
   const [assignments, setAssignments] = useState([])
   const [crewStatus, setCrewStatus] = useState([])
+  const [allocsByJobId, setAllocsByJobId] = useState({})  // live allocations per job (B87)
   const [loading, setLoading] = useState(true)
 
   const dates = useMemo(() => wkDates(monday), [monday])
@@ -100,13 +102,16 @@ export default function Daily() {
       supabase.from('assignments').select('*').in('date', ds),
       supabase.from('crew_status').select('*').in('date', ds),
     ])
-    if (jRes.data) setJobs(jRes.data.filter(j =>
+    const activeJobs = (jRes.data || []).filter(j =>
       j.deleted !== true && j.deleted !== 'true' && j.deleted !== 'Yes' &&
       ['Ongoing', 'Scheduled', 'In Progress', 'On Hold'].includes(j.status)
-    ))
+    )
+    if (jRes.data) setJobs(activeJobs)
     if (cRes.data) setCrew(cRes.data.filter(c => !c.archived))
     if (aRes.data) setAssignments(aRes.data)
     if (sRes.data) setCrewStatus(sRes.data)
+    // Live allocations so a job also shows in a week a go-back block falls in (B87).
+    setAllocsByJobId(await loadMobilizationsByJobId(activeJobs, { liveOnly: true }) || {})
     setLoading(false)
   }, [monday])
 
@@ -161,18 +166,14 @@ export default function Daily() {
   const wkAsgnUnique = useCallback(j => jobCrew[String(j.job_id)] || [], [jobCrew])
   const crewJobDays = useCallback((j, name) => crewJobDates[String(j.job_id) + '|' + name] || [], [crewJobDates])
 
-  /* jobs overlapping this week (or with no dates) */
+  /* jobs overlapping this week (or with no dates) — allocation-aware, so a job in
+     a go-back week shows too. Uses the shared range helper (own first block +
+     every live allocation), which also aligns Daily with Schedule/Calendar by
+     honoring scheduled_start/end, not just start_date/end_date. (B87) */
   const wkJobs = useMemo(() => {
     const ws = dates[0], we = dates[5]
-    return jobs.filter(j => {
-      const js = j.start_date ? String(j.start_date).split('T')[0] : ''
-      const je = j.end_date ? String(j.end_date).split('T')[0] : ''
-      if (!js && !je) return true
-      const s = js || '0000-01-01'
-      const e = je || '9999-12-31'
-      return s <= we && e >= ws
-    })
-  }, [jobs, dates])
+    return jobs.filter(j => overlapsWeek(jobRanges(j, allocsByJobId[j.job_id]), ws, we))
+  }, [jobs, dates, allocsByJobId])
 
   if (loading) {
     return (

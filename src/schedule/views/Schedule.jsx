@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { loadJobs, updateJobField } from '../lib/queries'
+import { loadJobs, updateJobField, loadMobilizationsByJobId } from '../lib/queries'
 import { useUser } from '../lib/user'
 import { getJobStatus } from '../lib/jobStatus'
+import { jobRanges, overlapsWeek, inRange } from '../lib/allocations'
 
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const DAYS_LONG = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -48,23 +49,11 @@ function wkEnd(monday) {
 function effStart(j) { return j.scheduled_start || j.start_date || null }
 function effEnd(j) { return j.scheduled_end || j.end_date || null }
 
-function jobOverlapsWeek(j, wsStr, weStr) {
-  const js = effStart(j) ? String(effStart(j)).split('T')[0] : ''
-  const je = effEnd(j) ? String(effEnd(j)).split('T')[0] : ''
-  if (!js && !je) return true
-  const start = js || '0000-01-01'
-  const end = je || '9999-12-31'
-  return start <= weStr && end >= wsStr
-}
-
-function jobInRange(j, ds) {
-  const js = effStart(j) ? String(effStart(j)).split('T')[0] : ''
-  const je = effEnd(j) ? String(effEnd(j)).split('T')[0] : ''
-  if (!js && !je) return false
-  if (js && ds < js) return false
-  if (je && ds > je) return false
-  return true
-}
+// Allocation-aware week/day membership (B87). These take the job's precomputed
+// ranges (its own first block + every live allocation) rather than the job's own
+// dates alone, so a go-back block renders on its own dates. The component builds
+// `rangesByJobId` and passes ranges in via the jobOverlapsWeek/jobInRange wrappers
+// below. effStart/effEnd stay as-is for editing the job's OWN first-block dates.
 
 function isPW(j) {
   return j.prevailing_wage === 'Yes' || j.prevailing_wage === 'true' || j.prevailing_wage === true
@@ -117,6 +106,9 @@ export default function Schedule({ embedded = false } = {}) {
   const [expandedDefer, setExpandedDefer] = useState({})
   const [workTypes, setWorkTypes] = useState([])
   const [wtOpen, setWtOpen] = useState({})
+  // Live allocations (job_mobilizations) per job — drives allocation-aware board
+  // membership so an added block / go-back renders on its own dates (B87).
+  const [allocsByJobId, setAllocsByJobId] = useState({})
 
   // URL-param deep-link from JobDetail: /schedule?job=<id>&week=<YYYY-MM-DD>
   const [searchParams] = useSearchParams()
@@ -173,6 +165,11 @@ export default function Schedule({ embedded = false } = {}) {
       setJobs(jobRes.data)
       setCrew(crewRes.data.filter(c => !c.archived))
       setWorkTypes(wtRes.data.map(w => w.name))
+      // Live allocations for every job (liveOnly: a legacy proposal mobilization
+      // is not a schedulable block). Non-fatal — the board still renders first
+      // blocks if this fails.
+      const allocs = await loadMobilizationsByJobId(jobRes.data, { liveOnly: true })
+      setAllocsByJobId(allocs || {})
     }
     loadStatic()
   }, [])
@@ -269,6 +266,37 @@ export default function Schedule({ embedded = false } = {}) {
     return r
   }
 
+  // Per-job dated blocks = job's own first block + every live allocation (B87).
+  const rangesByJobId = useMemo(() => {
+    const m = {}
+    for (const j of jobs) m[String(j.job_id)] = jobRanges(j, allocsByJobId[j.job_id])
+    return m
+  }, [jobs, allocsByJobId])
+
+  // Allocation-aware membership. Same names/signatures the call sites already use,
+  // so a job shows in a week / on a day if ANY of its blocks overlaps — not just
+  // its own first block. Falls back to a live compute if a job isn't in the memo.
+  const rangesFor = useCallback(
+    (j) => rangesByJobId[String(j.job_id)] || jobRanges(j, allocsByJobId[j.job_id]),
+    [rangesByJobId, allocsByJobId])
+  const jobOverlapsWeek = useCallback((j, wsS, weS) => overlapsWeek(rangesFor(j), wsS, weS), [rangesFor])
+  const jobInRange = useCallback((j, ds) => inRange(rangesFor(j), ds), [rangesFor])
+
+  // The allocation block overlapping the VISIBLE week, if any (B87). A go-back can
+  // run a different crew size than the first run, so when its block is the one in
+  // view its crew_needed drives that week's "needed" count. Null in a normal
+  // first-block week → the job's own crew_needed is used.
+  const allocForWeek = useCallback((j) => {
+    const map = allocsByJobId[j.job_id]
+    if (!map) return null
+    return Object.values(map).find(a => {
+      const s = a.start_date ? String(a.start_date).split('T')[0] : ''
+      const e = a.end_date ? String(a.end_date).split('T')[0] : ''
+      if (!s && !e) return false
+      return (s || '0000-01-01') <= weStr && (e || '9999-12-31') >= wsStr
+    }) || null
+  }, [allocsByJobId, wsStr, weStr])
+
   // Week jobs: active jobs overlapping current week.
   // Uses getJobStatus() so legacy 'Parked'-status rows (normalized to
   // 'Scheduled') appear here too. Without this, the JobDetail deep-link
@@ -279,7 +307,7 @@ export default function Schedule({ embedded = false } = {}) {
       const active = s === 'Scheduled' || s === 'In Progress' || s === 'On Hold' || s === 'Ongoing'
       return active && jobOverlapsWeek(j, wsStr, weStr)
     })
-  }, [jobs, wsStr, weStr])
+  }, [jobs, wsStr, weStr, jobOverlapsWeek])
 
   // job_ids actually on the board this week. Double-booking detection must be
   // scoped to these — otherwise a stray assignment for an off-board job (e.g.
@@ -611,7 +639,10 @@ export default function Schedule({ embedded = false } = {}) {
   if (error) return <div className="error-msg">Error: {error}</div>
 
   function renderBoardRow(j, idx, dimmed) {
-    const nd = parseInt(j.crew_needed) || 0
+    // Allocation-aware "needed": a go-back block in view uses its own crew_needed;
+    // otherwise the job's own (B87).
+    const wkAlloc = allocForWeek(j)
+    const nd = parseInt(wkAlloc && wkAlloc.crew_needed != null ? wkAlloc.crew_needed : j.crew_needed) || 0
     const pw = isPW(j)
     const unames = wkAsgnUnique(j.job_id)
     const ct = unames.length

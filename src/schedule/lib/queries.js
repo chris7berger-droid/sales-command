@@ -282,7 +282,12 @@ export async function loadMobilizationsByCallLog(callLogIds) {
 // standing fallback is fine to keep indefinitely.
 //
 // Takes the loaded job objects (needs job_id + call_log_id for the fallback).
-export async function loadMobilizationsByJobId(jobs) {
+// opts.liveOnly (B87): skip the proposal-embedded fallback and return ONLY live
+// job_mobilizations rows. The schedule board uses this — an "allocation" (a dated
+// block that puts a job on the crew board) is a live job_mobilizations row, not a
+// legacy proposal mobilization (those are a job-card count concern). Default false
+// preserves the job-card behavior (fallback fills zero-row jobs).
+export async function loadMobilizationsByJobId(jobs, { liveOnly = false } = {}) {
   const out = {}
   const list = (jobs || []).filter(j => j && j.job_id != null)
   if (!list.length) return out
@@ -290,7 +295,7 @@ export async function loadMobilizationsByJobId(jobs) {
 
   const { data, error } = await supabase
     .from('job_mobilizations')
-    .select('job_id, seq, label, start_date, end_date, is_go_back')
+    .select('job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow')
     .in('job_id', jobIds)
   if (error) {
     console.warn('[mobs] could not load job_mobilizations:', error.message)
@@ -303,12 +308,21 @@ export async function loadMobilizationsByJobId(jobs) {
         start_date: row.start_date || null,
         end_date: row.end_date || null,
         is_go_back: !!row.is_go_back,
+        // Per-allocation operational detail (B87). Null = inherit the job's own.
+        crew_needed: row.crew_needed ?? null,
+        lead: row.lead || null,
+        vehicle: row.vehicle || null,
+        equipment: row.equipment || null,
+        power_source: row.power_source || null,
+        sow: row.sow || null,
       }
     }
   }
 
   // Wholesale per-job fallback for jobs with 0 job_mobilizations rows.
-  const needFallback = list.filter(j => !out[j.job_id] || Object.keys(out[j.job_id]).length === 0)
+  // Skipped for liveOnly callers (board ranges): a legacy proposal mobilization is
+  // not a schedulable allocation, so it must not put a job on extra board weeks.
+  const needFallback = liveOnly ? [] : list.filter(j => !out[j.job_id] || Object.keys(out[j.job_id]).length === 0)
   const fbCallLogIds = [...new Set(needFallback.map(j => j.call_log_id).filter(Boolean))]
   if (fbCallLogIds.length > 0) {
     const byCallLog = await loadMobilizationsByCallLog(fbCallLogIds)
@@ -1303,7 +1317,7 @@ export async function getNextMobSeq(jobId) {
 // BOTH existing rows AND every day's mobilization_seq (audit O2), so a new mob
 // can't collide with a seq that lives only on tagged days. is_go_back distinguishes
 // a tracked return trip (+ Add Go Back) from rescheduled sold work (+ Add trip).
-export async function addJobMobilization(jobId, { seq, label, start_date, end_date, is_go_back }, changedBy, source = 'schedule_mobs') {
+export async function addJobMobilization(jobId, { seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow }, changedBy, source = 'schedule_mobs') {
   const jid = parseInt(jobId)
   // add-job-dedup N1: a mobilization must attach to a Sales-linked job. Refuse if
   // the parent has a null call_log_id (a phantom/unallocated orphan). Lives INSIDE
@@ -1317,8 +1331,14 @@ export async function addJobMobilization(jobId, { seq, label, start_date, end_da
   }
   const { data, error } = await supabase
     .from('job_mobilizations')
-    .insert({ job_id: jid, seq, label: label || null, start_date: start_date || null, end_date: end_date || null, is_go_back: !!is_go_back })
-    .select('id, job_id, seq, label, start_date, end_date, is_go_back').single()
+    .insert({
+      job_id: jid, seq, label: label || null,
+      start_date: start_date || null, end_date: end_date || null, is_go_back: !!is_go_back,
+      // Per-allocation detail (B87). Null on any field = inherit the job's own value.
+      crew_needed: crew_needed ?? null, lead: lead || null, vehicle: vehicle || null,
+      equipment: equipment || null, power_source: power_source || null, sow: sow || null,
+    })
+    .select('id, job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow').single()
   if (error) return { data: null, error }
   await logJobChange(jid, `mobilization[${seq}].added`, null, `${is_go_back ? 'go_back' : 'trip'}: ${label || `Mob ${seq}`}`, changedBy, source)
   return { data, error: null }
@@ -1326,13 +1346,22 @@ export async function addJobMobilization(jobId, { seq, label, start_date, end_da
 
 // Edit an existing mobilization's label/dates (never seq or is_go_back — identity
 // and go-back classification are fixed at creation). Logs the label change.
-export async function updateJobMobilization(jobId, mobRow, { label, start_date, end_date }, changedBy, source = 'schedule_mobs') {
+export async function updateJobMobilization(jobId, mobRow, { label, start_date, end_date, crew_needed, lead, vehicle, equipment, power_source, sow }, changedBy, source = 'schedule_mobs') {
   const jid = parseInt(jobId)
+  // Only overwrite an operational field when the caller actually passed it — an
+  // omitted key leaves the stored value alone (edit-a-date must not wipe crew/scope).
+  const patch = { label: label || null, start_date: start_date || null, end_date: end_date || null }
+  if (crew_needed !== undefined)  patch.crew_needed  = crew_needed ?? null
+  if (lead !== undefined)         patch.lead         = lead || null
+  if (vehicle !== undefined)      patch.vehicle      = vehicle || null
+  if (equipment !== undefined)    patch.equipment    = equipment || null
+  if (power_source !== undefined) patch.power_source = power_source || null
+  if (sow !== undefined)          patch.sow          = sow || null
   const { data, error } = await supabase
     .from('job_mobilizations')
-    .update({ label: label || null, start_date: start_date || null, end_date: end_date || null })
+    .update(patch)
     .eq('id', mobRow.id)
-    .select('id, job_id, seq, label, start_date, end_date, is_go_back').single()
+    .select('id, job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow').single()
   if (error) return { data: null, error }
   await logJobChange(jid, `mobilization[${mobRow.seq}].edited`, mobRow.label || null, label || null, changedBy, source)
   return { data, error: null }

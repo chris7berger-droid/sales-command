@@ -28,7 +28,7 @@ export const GROUPS = [
     { id: "calendar",       label: "Calendar",        path: "/schedule/calendar",        icon: "📅" },
     { id: "daily",          label: "Daily",           path: "/schedule/daily",           icon: "📆" },
     { id: "materials",      label: "Logistics",       path: "/schedule/materials",       icon: "🚚" }, // label/path mismatch (§2a)
-    { id: "billing",        label: "Billing",         path: "/schedule/billing",         icon: "💵" },
+    { id: "billing",        label: "Finance / Billing", path: "/schedule/billing",       icon: "💵" },
     { id: "production-rate",label: "Production Rate",  path: "/schedule/production-rate", icon: "📈" },
     { id: "schedules",      label: "Schedules",       path: "/schedule/schedules",       icon: "📇" },
     { id: "import",         label: "Import",          path: "/schedule/import",          icon: "⇪" },

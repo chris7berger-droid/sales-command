@@ -12,23 +12,33 @@ Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from c
 
 ---
 
-## §0 Baseline (observed current state) [TODO — verify before planning]
-Current home: `src/pages/SubconHome.jsx` (route `/`, "Your command center. Pick an app to get to work."). Renders one quadrant card per app group — currently plain/boring (Chris: "those two cards are just boring and plain"). Shell/nav: `src/lib/nav.js`, `src/components/AppSidebar.jsx`, `src/components/Logo.jsx`.
+## §0 Baseline (observed current state) [read-verified 2026-09-05]
+Current home: `src/pages/SubconHome.jsx` (route `/`). Renders one nav-quadrant card per *visible* app group via `groupVisible` (same predicate as sidebar) — deliberately no data wiring, no fake tiles (§1j comment). Plain/boring (Chris). Shell/nav: `src/lib/nav.js`, `src/components/AppSidebar.jsx`, `src/components/Logo.jsx`.
 
-**Before planning, inventory the EXISTING source of every KPI below** (design-baseline check — do not invent logic that already exists):
-- Sales: active-stage / hot-opportunity / pipeline-revenue logic in Call Log (`src/pages/CallLog.jsx`) + queries layer.
-- Schedule: crew availability, jobs-assigned-this-week, scheduled-to-bill forecast — `~/sch-command` finance/billing forecast (see memory: Billing Forecast Integration, SOV/billing schedule).
-- Field: jobs-in-progress, Production Rate Tracker on-track %, field exceptions — `~/field-command`.
-- AR: outstanding AR, open invoices, expected-this-month collections — `~/AR-Command-Center`.
-- Company: Billed YTD, avg margin (CLOSED jobs), jobs YTD, active crews.
+**CRITICAL — not cross-repo.** All four commands are already mounted INSIDE sales-command: `nav.js` `AVAILABLE_APPS = ["sales","schedule","field","ar"]`, with embedded modules `src/schedule/`, `src/field/`, `src/ar/`. The standalone repos (`~/sch-command`, `~/field-command`, `~/AR-Command-Center`) are the pre-consolidation sources — read the EMBEDDED modules, not those.
 
-Cross-repo note: this shell lives in `sales-command` but pulls from schedule/field/AR domains over the shared Supabase DB (ref pbgvgjjuhnpsumnowuym). Determine per-KPI whether a live query/RPC already exists vs. must be built. Prefer existing aggregate queries; fetch summaries in parallel; do NOT pull hundreds of raw rows to total a few numbers.
+KPI source inventory (read-verified against the embedded code):
+- **Sales — live.** Active leads / hot opps / potential revenue: `src/lib/followUp.js` (`pipelineStats`, `digSummary`, `OWED_STAGES`, non-archived filter). Billed YTD: `src/pages/Managers.jsx` (approved_at-bucketed). Avg Margin: per-WTC via `calc.js` (`calcWtcBreakdown`) — no closed-jobs-YTD rollup yet (buildable, sales-owned). Jobs YTD: no counter yet (buildable, sales-owned).
+- **Schedule — live.** `src/schedule/lib/queries.js` `computeHomeDashboard(...)` + `src/schedule/lib/billingForecast.js` `buildBillingSurface(...)` already return: crew capacity %, jobs assigned (distinct, multi-day=1, allocations excluded), Scheduled Work $ (next-30-day contract value), Ready to Bill $, needCrews/conflicts/notReady/goBacksCount, productionPct. `src/schedule/views/Home.jsx` renders all of it. Recent activity from `job_changes` table.
+- **Field — data not flowing yet.** `src/field/views/*` query real tables but daily logs / production reports (DPRs) that drive On-Track % and Need-Attention aren't populated until the Field mobile app ships. Precedent: Schedule Home's Margin slot already coming-soons "once Field Command DPRs are flowing." Jobs-In-Progress IS derivable now from schedule job status.
+- **AR — prototype.** `src/ar/*` runs off a manual QuickBooks-export upload (`src/ar/lib/ARContext.jsx`, `arStore.js`), NOT the live `invoices` table. Outstanding AR + Open Invoices ARE derivable now from the live `invoices` table (active = not deleted/voided/paid); Expected-cash forecast doesn't exist.
+
+Existing "coming soon" pattern to match: `src/pages/Home.jsx:199` (Crew Runway) and `src/schedule/views/Home.jsx:331` (Margin slot). Performance: reuse each module's existing calc, fetch summaries in parallel, never re-download raw rows to total on Home.
+
+## ID8 decisions (locked 2026-09-05)
+- **Beat 1 — build philosophy [LOCKED]:** Build the full scaffold now (4 cards + Company Snapshot + Needs Attention + What's Happening); wire every cell; not-yet-live sources render a "Coming soon" slot already wired for plug-in. No scope-cutting. Ref memory `feedback_coming_soon_scaffold`.
+- **Beat 2 — Field & AR treatment [LOCKED = Option A]:** Light what's real, coming-soon only the specific unbacked cells. Live now: Sales (all), Schedule (all), Field Jobs-In-Progress, AR Outstanding AR + Open Invoices, Company Snapshot (Billed YTD, Active Crews; Avg-Margin-closed + Jobs-YTD to be built, sales-owned). "Coming soon": Field On-Track % + Need-Attention, AR Expected-this-month.
+- **Beat 3a — Welcome hero [LOCKED]:** KEEP the photographic hero band from the mockup (construction-sunset photo + "Welcome to SubCon Command" + tagline + three value-props + "Build smarter. Run stronger." quote card). Needs a hero image asset. Photo band sits above "Your Command Center".
+- **Beat 3b — What's Happening source [LOCKED]:** Compose the v1 feed from live sources — Schedule `job_changes`, proposal sends, invoice issued / payment received (`invoices`), job stage moves. Field events (job started, production completed) wear "Coming soon" until DPRs flow. Default This Week, ~5 events, View All.
+- **Beat 3c — Trend arrows [LOCKED]:** Omit week-over-week % trends for v1 (no historical snapshots; spec §9 = don't fake). Show a trend chip ONLY when it's a real live count (e.g. "3 new leads this week"), never a computed delta.
+
+**ID8 status: COMPLETE (2026-09-05).** Ready for T6 build.
 
 ## §1 Problem / intent [LOCKED]
 The Subcon Command home is the company-level executive command center. Give management a fast cross-command read (Sales / Schedule / Field / AR) + a launch surface to drill into each module. It is NOT another operational workspace — Home identifies; the Commands handle. Current home is plain and needs to become the richer dashboard in the mockup, reusing existing logic.
 
-## §2 Proposed change [DESIGN-OPEN — settle in ID8]
-Rebuild `SubconHome.jsx` into: (1) FOUR command cards with live KPIs, (2) Company Snapshot, (3) Needs Attention, (4) What's Happening. Full display + wiring spec below.
+## §2 Proposed change [LOCKED via ID8]
+Rebuild `SubconHome.jsx` into: (0) photographic welcome hero [beat 3a], (1) FOUR command cards with live KPIs — light-what's-real, coming-soon the unbacked cells [beat 2], (2) Company Snapshot, (3) Needs Attention, (4) What's Happening [beat 3b]. No fake trend deltas [beat 3c]. Full display + wiring spec below.
 
 ### Card 1 — SALES COMMAND ("Fill the pipeline")
 - **Active Leads** — count active sales opportunities (existing Call Log active-stage logic).
@@ -78,12 +88,23 @@ Meaningful business events only (job→Completed, proposal sent, job scheduled/s
 - SCHEDULED BILLING ≠ AR.
 - MARGIN IN PROGRESS ≠ MARGIN CLOSED (headline avg margin uses CLOSED).
 
-## §3 Files to touch [TODO]
-Primary: `src/pages/SubconHome.jsx`. Likely: a summary data layer (new `src/lib/` hooks/queries or reuse of existing per-module queries), shared KPI-card/stat components. Confirm during planning after §0 inventory.
+## §3 Files to touch [DERIVED — confirm exact reuse when building]
+- **`src/pages/SubconHome.jsx`** — full rewrite into the dashboard (hero + 4 cards + snapshot + attention + activity). Keep the `groupVisible` gating so a tenant/member without an app still degrades gracefully.
+- **New `src/lib/subconSummary.js`** (thin) — one loader that fetches all card summaries in PARALLEL and REUSES existing calcs; no raw-row re-download. Reuse:
+  - Sales: `pipelineStats` / `digSummary` from `src/lib/followUp.js`; Billed-YTD logic from `src/pages/Managers.jsx` (extract if needed, don't duplicate); margin via `src/lib/calc.js`.
+  - Schedule: import `computeHomeDashboard` + loaders (`loadJobs`, `loadBillingSurfaceData`, etc.) from `src/schedule/lib/queries.js` and `buildBillingSurface` from `src/schedule/lib/billingForecast.js` — these already produce crew/jobs/scheduled-$/needs-attention. Map their outputs to the card KPIs.
+  - AR-live: query `invoices` directly for Outstanding AR + Open Invoices (active = not deleted/voided/paid) — do NOT go through the QB-import `ARContext`.
+  - New sales-owned calcs: Avg-Margin-closed-YTD, Jobs-YTD (build here; small).
+- **New card/primitive components** — KPI card, stat cell, `ComingSoonSlot`, needs-attention row, activity row, company-snapshot tile, hero band. Match tokens (`src/lib/tokens.js`) + style rules (linen bg, teal-on-dark badges). Reuse existing "coming soon" pattern from `src/pages/Home.jsx:199`.
+- **Hero image asset** — add under `src/assets/` (or `public/`); construction-sunset per mockup.
+- Drill-downs via `navigate()` to existing filtered routes (`/sales/calllog`, `/schedule/jobs`, `/ar/invoices`, each command home).
 
-## §4 Out of scope / deferred [TODO]
-- No new operational workflows on Home (launch surface only).
-- No migrations unless a KPI provably requires an upstream aggregate (flag first).
-- Do not add dashboard content just because data exists (design priority discipline).
+## §4 Out of scope / deferred
+- No new operational workflows on Home (launch surface only — Home identifies, Commands handle).
+- No migrations (read-only summary UI). If a KPI turns out to need an upstream aggregate, STOP and flag before writing DDL (shared DB, live Sales/Schedule builds in flight).
+- Week-over-week % trend deltas — deferred until historical snapshots exist [beat 3c].
+- Field On-Track %/Need-Attention + AR Expected-this-month — wired "Coming soon" slots now; plug in when Field DPRs flow / AR goes live off `invoices`.
+- Don't add dashboard content just because data exists (design-priority discipline, spec §15).
 
-## §5 Estimate / time budget [TODO — set at ID8/plan]
+## §5 Estimate / time budget [DERIVED]
+Half-day to a day: most numbers already computed (Schedule `computeHomeDashboard`, Sales pipeline). Real work is the layout/components, the two small sales-owned calcs (Jobs-YTD, Avg-Margin-closed), the AR-live invoice query, and the coming-soon wiring. Build ends with an in-browser verify against the design system (memory `feedback_ui_first_class`) + a check that no cell shows a loading-0.

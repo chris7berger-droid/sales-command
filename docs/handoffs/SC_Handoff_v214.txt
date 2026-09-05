@@ -1,0 +1,153 @@
+SC Handoff v214 — Add-Job dedup, workstream A (guardrail) BUILT + all gates green
+================================================================================
+Date: 2026-09-05
+Repo: sales-command (Schedule Command, src/schedule/)
+Branch: feat/add-job-dedup  (pushed to origin — HEAD da8d703)
+Backlog: B86 (In Progress)
+Plan (contract): docs/plans/add_job_dedup_ideate_prompt.md
+  → section "# BUILD PLAN — [workstream A: ship now] … rev2 (round-2 audit response)"
+
+SESSION SUMMARY
+---------------
+Built workstream A of the add-job dedup fix: the schedule "+ Job" button can no
+longer blind-INSERT a Sales-unlinked "phantom" jobs row (the defect behind job
+10252's "Crew not assigned" mismatch — two jobs rows, one with call_log_id NULL).
+The button is now a search→pick→add-mobilization flow (or a clean block), and
+existing orphans (call_log_id IS NULL) are hidden from every live reader incl.
+exports. 3 files, no migration. Ran the full gate chain in separate cold
+terminals — buildvsplan, code-review, security-review — all green, 0 blockers.
+Pushed the branch for a Vercel preview so the browser smoke can run before merge.
+
+CHANGES SHIPPED (code — 3 files, no migration)
+----------------------------------------------
+1. src/schedule/ScheduleLayout.jsx
+   - "+ Job" → "Add to Schedule" modal. Debounced search dropdown over existing
+     Sales-linked jobs → pick one → mobilization panel ("Is this go-back work?"
+     checkbox + optional trip label + start/end dates) → addJobMobilization(job_id,
+     {…, is_go_back}). Resolved by the picked row's job_id, never re-derived from
+     typed text. No new jobs row is ever created here.
+   - Typed text that matches nothing → BLOCK ("Job #### isn't in Sales yet —
+     create it in Sales first."). No insert.
+   - Removed the old blind supabase.from('jobs').insert + doAddJob + jobForm +
+     jobWtSelected. Added useUser (for changedBy) + queries imports.
+
+2. src/schedule/lib/queries.js
+   - searchExistingJobs(term): loadAllRows over call_log ⨝ jobs!inner, ordered by
+     the qualified base key call_log.id (paginated — see T2-1 below). Matches the
+     BARE integer job_number as text (+customer/job_name) in JS; NEVER
+     display_job_number (R2). Inner embed makes phantoms unreachable. Cap 25.
+   - loadJobs({ includeUnlinked = false }): default appends
+     .not('call_log_id','is',null) → orphans hidden from every loadJobs caller.
+   - addJobMobilization: NEW parent-null guard at top — refuses if the parent
+     job's call_log_id IS NULL. Placed INSIDE the function so it also covers
+     MobsModal.jsx:103 (the other caller), not just the "+ Job" flow (N1).
+   - getNextMobSeq(jobId): loadJobWithWTCs + loadJobMobilizationRows → seq =
+     max+1 over mob rows AND field_sow day-tagged mobilization_seq (audit O2).
+     Faithful mirror of MobsModal.nextSeq/collectDaySeqs.
+   - loadUnallocatedJobs(): loadJobs({includeUnlinked:true}) filtered to
+     null-call_log_id — the Unallocated bucket data (workstream B works it).
+
+3. src/schedule/lib/exports.js
+   - 4 raw from('jobs') reads (lines 63/94/113/140) get .not('call_log_id','is',
+     null) — the real orphan leak (printed blank-customer lines in exports).
+
+Commits (feat/add-job-dedup, on top of plan base bb5510e):
+  ea9523e  workstream A build
+  464e086  buildvsplan T2-1 (paginate searchExistingJobs) + T2-2 (plan reason)
+  fca7926  record code-review pass + 2 filed UX items
+  da8d703  record security-review pass — all gates green
+
+DECISIONS
+---------
+- Deliberate divergence from the plan's UI mockup: the mobilization panel does
+  NOT collect crew#/lead/prevailing-wage inputs. addJobMobilization only persists
+  seq/label/dates/is_go_back — those inputs have no write target, and adding
+  jobs-row writes to capture them would reintroduce the exact mutation the
+  guardrail removes. The picked job already carries its own crew/PW; crew is
+  assigned on the grid. buildvsplan + code-review both confirmed this is correct
+  (mechanism over mockup; no required function lost).
+- "Unallocated view" in workstream A = the queries.js data helper
+  (loadUnallocatedJobs) only. The actual screen is workstream B — a new view file
+  would exceed the plan's 3-file scope.
+- attachDepositState left unchanged: already null-safe on orphan rows
+  (.filter(Boolean) on call_log_id; depositState returns null for a null key).
+
+GATES (all in their own cold terminals — this terminal built only)
+------------------------------------------------------------------
+- buildvsplan ✅ 0 blockers, GO for smoke. Fixed here:
+    T2-1 — searchExistingJobs now paginates (loadAllRows). First pass did a
+    single unpaginated fetch; ordering id-DESC without paging would silently drop
+    the OLDEST call_logs once the set crosses 1000 → wrongly block a trip on an
+    old job (R2 failure). Fixed in 464e086.
+    T2-2 — corrected the plan's factually-wrong StatsBar "safe" reason (orphans
+    DO carry stray assignments — §0's job 1278; StatsBar is safe because its
+    counts come from crew+assignments only, jobs is a name-lookup in the modal).
+    Plan doc updated; StatsBar left as-is (cleanup = workstream B).
+- code-review ✅ 0 ship-blockers (/code-review-limiter). Central check — the
+    25-cap runs AFTER the JS match and the no-match message is gated on length 0,
+    so a truncated result NEVER fires a false "not in Sales." 2 cosmetic items
+    filed to B86 (cap hint; clear stale list on keystroke) — non-blocking.
+- security-review ✅ 0 exploitable-today (/security-review-limiter). Term goes to
+    a JS .includes(), not a PostgREST filter string — no injection. All new reads
+    run under the existing authenticated-user RLS (no service-role/anon/new
+    policy). exports.js change NARROWS reads. No migration/grant/RLS change.
+
+VERIFICATION
+------------
+- npm run build: clean (only the pre-existing chunk-size warning).
+- Dev server boots; changed modules transform under Vite (200).
+- Live-schema/prod (pbgvgjjuhnpsumnowuym, read-only): call_log→jobs single FK
+  jobs_call_log_id_fkey (embed unambiguous); job_number is INTEGER (hence JS
+  term-match, not ilike); phantom job_id 1278 (10252, null link) exists for the
+  N1 guard; buildvsplan confirmed the jobs!inner embed resolves HTTP 200 in prod.
+- NOT YET DONE — browser smoke (login-gated, needs the preview deploy):
+    1. "+ Job" → search "10252" → appears → pick → add mobilization → exactly ONE
+       new job_mobilizations row, ZERO new jobs rows; go-back checkbox sets
+       is_go_back. (R2: a real job is NOT wrongly blocked.)
+    2. "+ Job" → type a number with no Sales job → blocked, no insert.
+    3. addJobMobilization on a null-link parent refused from BOTH "+ Job" and
+       MobsModal.
+    4. An orphan (null call_log_id) is absent from every live reader AND from an
+       actual schedule/materials export run, and shows only via the Unallocated
+       helper.
+    5. In-browser design check (linen bg, teal buttons/black text — modal reuses
+       existing mbg/mdl/mfr/mchk/macts classes, no new styling introduced).
+    T4 watch item: also search a LOW-numbered / old active job and confirm it
+    still appears (T2-1 latent-truncation sanity — shouldn't bite at ~380 rows).
+
+NOT TOUCHED / OUT OF SCOPE (plan-carved)
+----------------------------------------
+- No migration; ProposalDetail.jsx (R1 — Send-to-Schedule guard was dead code,
+  0/378); StatsBar.jsx (raw-but-safe; reason corrected in plan); importData.js
+  internal-bucket null writer + Shop Work + is_overhead (separate loop:
+  docs/plans/shop_work_overhead_type.md).
+- Workstream B: cleanup/merge of the existing 8 phantoms + 67 orphans, incl.
+  retiring 10252 job_id 1278. Parked worklist ("Unallocated — needs Sales link").
+- F59: overhead-hours cost report.
+- The 2 filed UX-polish items on B86 (cap hint; clear stale list) — fold into B.
+
+NEXT SESSION POINTERS
+---------------------
+1. Smoke on the Vercel preview for feat/add-job-dedup (checks 1–5 + T4 watch item).
+2. If green → merge feat/add-job-dedup to main (auto-deploys to prod via Vercel;
+   no migration/edge-fn, so merge = make-it-live). Mark B86 Closed with the merge
+   SHA in the same step.
+3. Then the ERD outcome loop can close (built + smoke-verified, per
+   ERD-closes-at-built-outcome). Delete the stale feat/sow-vertical branches noted
+   in prior handoffs is unrelated housekeeping.
+
+FILES TO KNOW
+-------------
+- src/schedule/ScheduleLayout.jsx      — Add-to-Schedule modal + handlers
+- src/schedule/lib/queries.js          — searchExistingJobs, loadJobs, getNextMobSeq,
+                                          addJobMobilization guard, loadUnallocatedJobs
+- src/schedule/lib/exports.js          — 4 orphan-filtered reads
+- src/schedule/components/MobsModal.jsx — the other addJobMobilization caller (N1)
+- docs/plans/add_job_dedup_ideate_prompt.md — the contract (BUILD PLAN rev2)
+- docs/BACKLOG.md                      — B86 (this work), B84/B85 (adjacent), F59
+
+GIT STATE
+---------
+- Branch feat/add-job-dedup pushed to origin, HEAD da8d703 (10 commits ahead of
+  the pre-session origin; base bb5510e was the round-2 plan revision).
+- Build green. Not merged to main. No prod change yet (branch preview only).

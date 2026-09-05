@@ -144,6 +144,11 @@ a phantom.
 
 Clicking "+ Job" on the schedule resolves to one of three outcomes:
 
+> **Surfacing gap found in smoke (2026-09-05):** adding the block saves it but the
+> schedule board still keys off the job's first start/end and never renders it. The
+> board must show a job on EVERY allocation's dates — see the AMENDMENT
+> "allocation-aware schedule board" (workstream C / B87) below.
+
 1. **Job already exists** (matched by Sales record on that job#) → pick it from a
    **searchable dropdown** → **Add mobilization** → checkbox **"Is this go-back
    work?"** → the existing add-job questions (crew, dates, prevailing wage, etc.).
@@ -458,6 +463,52 @@ in-browser verify against the design system.
 - **Code:** ~180–230 lines across 3 files (`ScheduleLayout.jsx`, `queries.js`,
   `exports.js`). **No migration; `ProposalDetail.jsx` no longer touched.**
 - **Build time budget:** ~110 min (workstream A only).
+
+---
+
+## AMENDMENT — allocation-aware schedule board [LOCKED 2026-09-05, post-smoke]
+
+**How this surfaced:** smoke of workstream A on the branch preview. Added a go-back
+to job **7069 (South Side / Clorox)** for **Sep 19** → it SAVED correctly
+(`job_mobilizations` row, `is_go_back`, Sep 19) but never appeared on the Crew
+Schedule board. Root cause: the board picks which jobs show in a week purely by the
+**job's own start/end** (`Schedule.jsx` `jobOverlapsWeek` → `effStart/effEnd` =
+`scheduled_start/start_date …`). It is blind to the dated blocks on
+`job_mobilizations`. So workstream A saves the block but no schedule view renders it —
+the "+ Job → go-back" flow is only **half-built**.
+
+**Model — [LOCKED] (Chris, 2026-09-05):**
+- A job has one or more **allocations** = blocks of days on the crew schedule.
+- Continuous days = ONE allocation; a gap = the NEXT allocation (a month straight = 1;
+  every-other-week = 4). The job's start/end only ever described the **first** block.
+- A **go-back is just an allocation**, flagged so the job card can track its cost. NOT
+  a new job, NOT a new record type.
+- Same underlying records, two labels by screen: **"allocation"** on the scheduler,
+  **"mobilization"** on the job-card / cost view. Do NOT show the word "mobilization"
+  in scheduler-facing UI — it conflates with the job-card cost meaning.
+
+**Scope correction:** workstream A (guardrail — no phantom jobs + hide orphans) is
+built, 3-gate-green, and pushed; it stands. But the outcome it promised — a usable
+"+ Job → go-back" — is not reached until the board renders allocations. That surfacing
+is its own pass:
+
+### Workstream C — allocation-aware board [next build]
+Show a job on EVERY allocation's dates, not just the first.
+- **Read model:** load `job_mobilizations` (allocations) for the visible job set; a
+  job appears in a week if the job's own dates OR any allocation overlaps the week.
+  Per-day crew cells key off `assignments` as today.
+- **First allocation = the job's existing start/end** (don't require a
+  `job_mobilizations` row for block #1); additional/go-back blocks come from
+  `job_mobilizations`.
+- **Views to cover** (all use the same job-by-date-range selection today — verify
+  each): `Schedule.jsx` (`jobOverlapsWeek`/`jobInRange`→`weekJobs`), `Calendar`,
+  `Daily`, and the matching `exports.js` reads.
+- **Naming:** scheduler-facing copy says "allocation"; the job-card cost view keeps
+  "mobilization"; the "+ Job" go-back panel stays go-back-oriented.
+- **Out of scope:** billing/cost changes, the job-card mobilization view, workstream B
+  cleanup.
+
+Tracked as **B87** (see `docs/BACKLOG.md`).
 
 ---
 

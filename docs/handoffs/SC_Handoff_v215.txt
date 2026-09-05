@@ -162,3 +162,73 @@ END STATE
 Guardrail (B86) merged + deploying to prod; allocation half (B87) scoped, locked,
 and deferred with its migration pre-authored + parked; live browser smoke of the
 guardrail still pending. Ready for a fresh B87 build session.
+
+================================================================================
+ADDENDUM (written after the body above — supersedes the GIT STATE / END STATE
+sections): RESKIN ALSO MERGED, AND THE PROCESS FAILURE THAT CAUSED REWORK
+================================================================================
+
+WHAT ELSE HAPPENED (after the body was written)
+-----------------------------------------------
+Chris directed: merge EVERYTHING. So the parked Schedule reskin (feat/schedule-
+reskin, chunk 1, 33 commits) was also merged into main and pushed live:
+- Merge commit 55ac9e9 (main = origin/main = 55ac9e9). npm run build clean.
+- What went live alongside the guardrail: new dashboard Home, old Home→Jobs
+  repaint, Forecast+Budget folded into Finance/Billing (+ redirects), shared
+  WeeklyCapacityBand on Crew Schedule/Calendar/Daily/Logistics, boolean
+  archived-crew.
+- Conflict resolution (ScheduleLayout.jsx): kept the guardrail's "+ Job" search/
+  block/trip flow, DISCARDED the reskin branch's OLD doAddJob blind-insert (which
+  would have reintroduced the phantom-job bug); preserved the reskin's non-Add-Job
+  changes. BACKLOG: kept B86/B87/F59, dropped the reskin's stale F58 (superseded by
+  B86/B87), renumbered the reskin's colliding B84 nits row → B88.
+- Branches feat/add-job-dedup + feat/schedule-reskin: both merged + DELETED
+  (local + origin). Only main remains.
+- Reskin went live MID-SMOKE (its v212 handoff said "more bugs expected") — see
+  the repointed active-work pointer: FIRST next action is smoking the LIVE app.
+
+THE PROCESS FAILURE (this is the important part — Chris was right to be upset)
+-----------------------------------------------------------------------------
+Root cause of most of this session's friction and rework: the reskin branch should
+have been MERGED YESTERDAY (2026-09-04) and was not. Chris explicitly said to merge
++ push it, KNOWING the smoke was only half done and would not be completed. That
+instruction was not carried out — the branch was left "parked, mid-smoke" instead.
+
+Consequences that cost us today, all traceable to that one miss:
+1. The add-job dedup guardrail was branched off a main that was MISSING the reskin,
+   so it built on a stale base.
+2. We hit the "preview bounces to prod" bug and had to CHERRY-PICK the origin-
+   relative login fix (3b49930 → a1a59de) that already existed on the reskin
+   branch — a fix re-applied because its home branch was never merged.
+3. When we finally merged the reskin, it CONFLICTED in ScheduleLayout.jsx because
+   the reskin branch still contained the OLD phantom-creating doAddJob flow — the
+   exact thing the guardrail had just fixed and shipped. We were, in effect,
+   building fixes on top of a main that didn't have work Chris had already ordered
+   merged, then fighting that same work as a merge conflict. Cross-contamination.
+4. Chris reasonably believed the reskin was already done/live (he'd said to ship
+   it), so time was spent reasoning about problems whose real cause was an
+   unmerged branch sitting off to the side.
+
+LESSON (carry into every session): when Chris says "merge and push," it must
+actually happen that session — an incomplete smoke is NOT a reason to hold a merge
+he has explicitly ordered. A branch left unmerged after a merge instruction becomes
+invisible drift that later sessions build against blindly, producing duplicated
+fixes and merge conflicts. If a merge is deliberately held, that hold must be the
+LOUDEST line in the handoff + the active-work pointer, not a quiet "parked" note.
+(Saved as a durable feedback memory this session.)
+
+GIT STATE ON CLOSE (corrected — supersedes the section above)
+-------------------------------------------------------------
+- sales-command: on main, HEAD 55ac9e9 = origin/main. Tree clean.
+- feat/add-job-dedup + feat/schedule-reskin: MERGED and DELETED (local + origin).
+- command-suite-db: main clean; parked B87 migration in docs/pending-migrations/.
+- ~/.claude-commands: active-work pointer repointed to POST-MERGE LIVE SMOKE
+  (reskin+guardrail live), committed + pushed. B87 is now the follow-on.
+
+END STATE (corrected)
+---------------------
+Guardrail (B86) + Schedule reskin chunk 1 BOTH merged, pushed, and live in prod
+(55ac9e9). Reskin shipped mid-smoke — first next action is live smoke of the app.
+B87 (allocation-aware board) is the next build, migration pre-authored + parked.
+No branches open. The reskin-not-merged-yesterday process failure is recorded above
+so it is not repeated.

@@ -1,0 +1,46 @@
+SC Handoff v213 — Add Job / duplicating-jobs fix — IDEATE phase (start here)
+Date: 2026-09-04
+Branch: feat/add-job-dedup  (off main, pushed)
+Phase: ID8 — ideate (opus 4.8, xhigh). DESIGN ONLY this phase — no code, no build,
+       no schema changes. Produce a locked model, then /decide → plan → build here.
+
+================================================================================
+WHAT THIS IS
+================================================================================
+The manual "Add Job" button blind-INSERTs a duplicate jobs row when the job#
+already exists. Surfaced in reskin smoke via job #10252 "Dave Lee" (grid shows
+crew, Next Up card shows "Crew not assigned" — two jobs rows, one a phantom).
+
+It's SYSTEMIC (verified on prod 2026-09-04): 42 job#s have duplicate rows; 67 of
+289 active jobs have NULL call_log_id; of the 42 dupes, only 8 are manual-add
+phantoms while 34 are multiple Sales-linked rows (likely legit change orders
+sharing a job#). So a naive "dedup everything" rule is WRONG — that's why this is
+an ideate, not a quick fix.
+
+================================================================================
+READ FIRST
+================================================================================
+→ docs/plans/add_job_dedup_ideate_prompt.md   ← the full prompt: mental model,
+  prod data, the 7 open design questions (identity of a "job," change-order vs
+  phantom, whether manual add should create net-new at all, mobilization model,
+  dashboard crew source-of-truth, backfill of the 42/67, recurrence guardrails),
+  code locations, and read-only queries to re-run.
+
+Context on how it surfaced: sales-command feat/schedule-reskin,
+docs/handoffs/SC_Handoff_v212.txt ("SPUN OUT" section).
+
+================================================================================
+DELIVERABLE
+================================================================================
+Locked identity model + decisions on Q1–Q7 written back into the plan doc
+(tag [LOCKED]/[DESIGN-OPEN]). Expect two workstreams to fall out: (A) fix Add Job
+going forward (dedup → mobilization), (B) one-time backfill/cleanup of the
+existing 42 dupes / 67 orphans. Then hand to /decide → plan on this branch.
+
+Do NOT fold this into the reskin branch. Do NOT delete the 10252 phantom
+piecemeal — it's part of the backfill scope.
+
+================================================================================
+GIT STATE
+================================================================================
+feat/add-job-dedup @ off main + this handoff + the ideate prompt. No code yet.

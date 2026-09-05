@@ -217,9 +217,27 @@ export default function Daily() {
     return <div className="dly-cell" key={ds}><div className="dly-d dly-on">✓</div></div>
   }
 
+  // The allocation block overlapping the visible week, if any — its fields win
+  // when set, so a go-back week shows ITS crew size / vehicle / lead, not the
+  // first run's (B87). Mirrors allocForWeek in Schedule.jsx / exports.js.
+  function allocForWeek(j) {
+    const map = allocsByJobId[j.job_id]
+    if (!map) return null
+    const ws = dates[0], we = dates[5]
+    return Object.values(map).find(a => {
+      const s = a.start_date ? String(a.start_date).split('T')[0] : ''
+      const e = a.end_date ? String(a.end_date).split('T')[0] : ''
+      if (!s && !e) return false
+      return (s || '0000-01-01') <= we && (e || '9999-12-31') >= ws
+    }) || null
+  }
+
   function jobCard(j) {
     const unames = wkAsgnUnique(j)
-    const nd = parseInt(j.crew_needed, 10) || 0
+    const wa = allocForWeek(j)
+    const nd = parseInt(wa && wa.crew_needed != null ? wa.crew_needed : j.crew_needed, 10) || 0
+    const vehicle = wa && wa.vehicle ? wa.vehicle : j.vehicle
+    const lead = wa && wa.lead ? wa.lead : j.lead
     let hasGap = false
     const gaps = dates.map(ds => {
       let dc = 0
@@ -236,7 +254,7 @@ export default function Daily() {
           <div className="dly-card-info">
             <span className="dly-card-name">{jobTitle(j)}</span>
             <WorkTags wt={j.work_type} />
-            {j.vehicle && <span className="dly-tg vh">{j.vehicle}</span>}
+            {vehicle && <span className="dly-tg vh">{vehicle}</span>}
             {pw && <span className="dly-pw-tag">PW</span>}
           </div>
           <div className="dly-card-badge" style={{ color: hasGap ? 'var(--red)' : 'var(--grn)' }}>
@@ -244,7 +262,7 @@ export default function Daily() {
           </div>
         </div>
         {unames.map(cn => {
-          const isLead = j.lead && cn.toLowerCase().indexOf(String(j.lead).toLowerCase()) >= 0
+          const isLead = lead && cn.toLowerCase().indexOf(String(lead).toLowerCase()) >= 0
           const dbDays = dbDaysByCrew[cn] || []
           const crewDb = dbDays.length > 0
           const cjdays = crewJobDays(j, cn)

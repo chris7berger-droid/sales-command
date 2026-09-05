@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { loadJobs, loadMobilizationsByJobId } from '../lib/queries'
-import { jobRanges, overlapsWeek } from '../lib/allocations'
+import { jobRanges, overlapsWeek, allocForWeek as allocForWeekAt, pickAllocField } from '../lib/allocations'
 
 /* ── Daily view — faithful port of the Apps Script rDaily() (Schedule Commander v2).
    Job cards with a crew × day check grid, gap row, status sections, and legend.
@@ -217,27 +217,14 @@ export default function Daily() {
     return <div className="dly-cell" key={ds}><div className="dly-d dly-on">✓</div></div>
   }
 
-  // The allocation block overlapping the visible week, if any — its fields win
-  // when set, so a go-back week shows ITS crew size / vehicle / lead, not the
-  // first run's (B87). Mirrors allocForWeek in Schedule.jsx / exports.js.
-  function allocForWeek(j) {
-    const map = allocsByJobId[j.job_id]
-    if (!map) return null
-    const ws = dates[0], we = dates[5]
-    return Object.values(map).find(a => {
-      const s = a.start_date ? String(a.start_date).split('T')[0] : ''
-      const e = a.end_date ? String(a.end_date).split('T')[0] : ''
-      if (!s && !e) return false
-      return (s || '0000-01-01') <= we && (e || '9999-12-31') >= ws
-    }) || null
-  }
-
   function jobCard(j) {
     const unames = wkAsgnUnique(j)
-    const wa = allocForWeek(j)
-    const nd = parseInt(wa && wa.crew_needed != null ? wa.crew_needed : j.crew_needed, 10) || 0
-    const vehicle = wa && wa.vehicle ? wa.vehicle : j.vehicle
-    const lead = wa && wa.lead ? wa.lead : j.lead
+    // The allocation block overlapping the visible week (B87) — its fields win
+    // when set, so a go-back week shows ITS crew size / vehicle / lead.
+    const wa = allocForWeekAt(allocsByJobId[j.job_id], dates[0], dates[5])
+    const nd = parseInt(pickAllocField(wa, j, 'crew_needed'), 10) || 0
+    const vehicle = pickAllocField(wa, j, 'vehicle')
+    const lead = pickAllocField(wa, j, 'lead')
     let hasGap = false
     const gaps = dates.map(ds => {
       let dc = 0

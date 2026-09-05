@@ -293,10 +293,14 @@ export async function loadMobilizationsByJobId(jobs, { liveOnly = false } = {}) 
   if (!list.length) return out
   const jobIds = [...new Set(list.map(j => j.job_id))]
 
-  const { data, error } = await supabase
-    .from('job_mobilizations')
-    .select('job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow')
-    .in('job_id', jobIds)
+  // Paginated (B90): the crew board loads mobilizations for the whole visible job
+  // set, which can exceed PostgREST's 1000-row cap — a plain .in() would silently
+  // drop allocation blocks past 1000 and they'd vanish from the board.
+  const { data, error } = await loadAllRows(
+    'job_mobilizations',
+    'id, job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow',
+    { orderBy: 'id', filterFn: q => q.in('job_id', jobIds) },
+  )
   if (error) {
     console.warn('[mobs] could not load job_mobilizations:', error.message)
   } else {

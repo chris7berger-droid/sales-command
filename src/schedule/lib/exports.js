@@ -1,6 +1,6 @@
 import { supabase } from '../../lib/supabase'
 import { loadMobilizationsByJobId, } from './queries'
-import { jobRanges, overlapsWeek } from './allocations'
+import { jobRanges, overlapsWeek, allocForWeek, pickAllocField } from './allocations'
 
 function getMonday(d) {
   const dt = new Date(d)
@@ -71,18 +71,6 @@ export async function printWeekSchedule() {
   // its own crew/vehicle/equipment/power drive that week's row (B87).
   const allocsByJobId = await loadMobilizationsByJobId(jobs, { liveOnly: true })
 
-  // The allocation block overlapping this week, if any (its fields win when set).
-  const allocForWeek = (j) => {
-    const map = allocsByJobId[j.job_id]
-    if (!map) return null
-    return Object.values(map).find(a => {
-      const s = a.start_date ? String(a.start_date).split('T')[0] : ''
-      const e = a.end_date ? String(a.end_date).split('T')[0] : ''
-      if (!s && !e) return false
-      return (s || '0000-01-01') <= weStr && (e || '9999-12-31') >= wsStr
-    }) || null
-  }
-
   const wkJobs = jobs.filter(j => {
     if (j.status !== 'Ongoing' && j.status !== 'On Hold') return false
     return overlapsWeek(jobRanges(j, allocsByJobId[j.job_id]), wsStr, weStr)
@@ -97,8 +85,8 @@ export async function printWeekSchedule() {
     }
     const names = Object.keys(crewNames)
     // Allocation fields for the week in view override the job's own when present.
-    const wa = allocForWeek(j)
-    const pick = (f) => (wa && wa[f] != null && wa[f] !== '' ? wa[f] : (j[f] ?? ''))
+    const wa = allocForWeek(allocsByJobId[j.job_id], wsStr, weStr)
+    const pick = (f) => pickAllocField(wa, j, f) ?? ''
     b += '<tr><td><b>' + j.job_num + '</b> - ' + j.job_name + '</td><td>' + (j.work_type || '') + '</td><td>' + (isPW(j) ? 'YES' : '') + '</td><td>' + (pick('crew_needed') || '') + '</td><td>' + names.map(flipName).join(', ') + '</td><td>' + (pick('vehicle') || '') + '</td><td>' + (pick('equipment') || '') + '</td><td>' + (pick('power_source') || '') + '</td></tr>'
   }
   b += '</tbody></table>'

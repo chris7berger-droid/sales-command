@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { loadJobs, updateJobField, loadMobilizationsByJobId } from '../lib/queries'
 import { useUser } from '../lib/user'
 import { getJobStatus } from '../lib/jobStatus'
-import { jobRanges, overlapsWeek, inRange } from '../lib/allocations'
+import { jobRanges, overlapsWeek, inRange, allocForWeek as allocForWeekAt, pickAllocField } from '../lib/allocations'
 
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const DAYS_LONG = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -286,16 +286,9 @@ export default function Schedule({ embedded = false } = {}) {
   // run a different crew size than the first run, so when its block is the one in
   // view its crew_needed drives that week's "needed" count. Null in a normal
   // first-block week → the job's own crew_needed is used.
-  const allocForWeek = useCallback((j) => {
-    const map = allocsByJobId[j.job_id]
-    if (!map) return null
-    return Object.values(map).find(a => {
-      const s = a.start_date ? String(a.start_date).split('T')[0] : ''
-      const e = a.end_date ? String(a.end_date).split('T')[0] : ''
-      if (!s && !e) return false
-      return (s || '0000-01-01') <= weStr && (e || '9999-12-31') >= wsStr
-    }) || null
-  }, [allocsByJobId, wsStr, weStr])
+  const allocForWeek = useCallback(
+    (j) => allocForWeekAt(allocsByJobId[j.job_id], wsStr, weStr),
+    [allocsByJobId, wsStr, weStr])
 
   // Week jobs: active jobs overlapping current week.
   // Uses getJobStatus() so legacy 'Parked'-status rows (normalized to
@@ -642,7 +635,7 @@ export default function Schedule({ embedded = false } = {}) {
     // Allocation-aware "needed": a go-back block in view uses its own crew_needed;
     // otherwise the job's own (B87).
     const wkAlloc = allocForWeek(j)
-    const nd = parseInt(wkAlloc && wkAlloc.crew_needed != null ? wkAlloc.crew_needed : j.crew_needed) || 0
+    const nd = parseInt(pickAllocField(wkAlloc, j, 'crew_needed')) || 0
     const pw = isPW(j)
     const unames = wkAsgnUnique(j.job_id)
     const ct = unames.length

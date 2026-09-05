@@ -66,3 +66,31 @@ export function inRange(ranges, ds) {
     return true
   })
 }
+
+// The allocation block overlapping the week [wsStr, weStr], if any (B87). Used by
+// the week-oriented surfaces (Schedule board, Daily, week printout): when a
+// go-back block is the one in view, its own crew/scope drives that week's display.
+// `allocsForJob` is the per-job value from loadMobilizationsByJobId — a
+// { [seq]: {...} } map, an array of those, or null.
+export function allocForWeek(allocsForJob, wsStr, weStr) {
+  const list = Array.isArray(allocsForJob)
+    ? allocsForJob
+    : (allocsForJob ? Object.values(allocsForJob) : [])
+  return list.find(a => {
+    if (!a) return false
+    const s = a.start_date ? String(a.start_date).split('T')[0] : ''
+    const e = a.end_date ? String(a.end_date).split('T')[0] : ''
+    if (!s && !e) return false
+    return (s || '0000-01-01') <= weStr && (e || '9999-12-31') >= wsStr
+  }) || null
+}
+
+// Effective value of an operational field (crew_needed/lead/vehicle/…) for the
+// week in view: the allocation's own value when it's meaningfully set, else the
+// job's own. One consistent merge rule for all surfaces — replaces the three
+// slightly different inline checks (null-vs-falsy) the copies had drifted into.
+export function pickAllocField(alloc, job, field) {
+  const v = alloc ? alloc[field] : undefined
+  if (v !== null && v !== undefined && v !== '') return v
+  return job ? job[field] : undefined
+}

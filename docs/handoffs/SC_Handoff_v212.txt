@@ -1,0 +1,120 @@
+SC Handoff v212 — Schedule Command re-skin, chunk 1: smoke-fix pass #2 (evening)
+Date: 2026-09-04
+Branch: feat/schedule-reskin  (pushed; HEAD ee08159; NOT merged, NOT deployed)
+Prior handoff: v211 (gates green + first smoke-fix pass).
+
+================================================================================
+SESSION SUMMARY
+================================================================================
+Continued SMOKE-FIX MODE on feat/schedule-reskin. Chris drove the browser (Vercel
+preview), flagged issues, this terminal fixed them on the branch. Eight commits
+tonight. As predicted, smoke keeps surfacing LATENT pre-existing bugs the reskin
+exposed (archived-crew string/boolean, the 1000-row assignments cap). One item —
+the manual "Add Job" duplicating jobs — was pulled OUT into its own initiative
+(see "SPUN OUT" below) because it needs a design pass, not a smoke patch.
+
+Preview note (unchanged): localhost/preview hit the REAL shared DB. On the
+marketing homepage the Login buttons now stay on the current origin (fixed
+tonight), so preview login works — open the branch's Vercel preview and log in.
+
+================================================================================
+CHANGES SHIPPED THIS SESSION (per commit, oldest→newest)
+================================================================================
+5db7e73  Actions menu no longer closes on cursor move. It had onMouseLeave→close;
+         reaching for the scrollbar dismissed it. Outside-click dismissal already
+         existed, so onMouseLeave was redundant + harmful. Removed it.
+3b49930  Marketing homepage Login links made origin-relative (/login). They were
+         hardcoded to https://www.scmybiz.com/login, so on a Vercel preview
+         clicking Login bounced you to PROD (main). Now preview login works.
+5c985c7  "Crew Available" header refreshes after crew list edits. Crew mutations
+         only reloaded the modal's own list, never the routed view. Added a
+         crewDirtyRef; closeModal remounts the view once so headers update.
+ff239c8  (superseded by d7b9ac7) First attempt to exclude archived crew from the
+         capacity scoreboard — used the WRONG comparison (see next).
+d7b9ac7  Archived-crew filter fix (the real one). crew.archived is a BOOLEAN
+         column, but the whole codebase compared it to the string 'Yes'
+         (c.archived !== 'Yes'), which never matches a boolean → archived crew
+         were NEVER filtered. Crew Available read 25 (20 active + 5 archived); the
+         Crew List modal showed all 25 as active w/ an empty Archived section.
+         Fixed reads to boolean (!c.archived) + writes to archived:true/false in
+         Jobs/Home/Daily/Schedule/exports/ScheduleLayout. Writes had only "worked"
+         because Postgres coerces 'Yes'→true. StatsBar (orphaned) left as-is.
+3984063  Paginated the assignments fetch. assignments is 3079 rows; Jobs.jsx (and
+         Home's all-assignments query) used a plain select('*'), which PostgREST
+         silently caps at 1000. Most of the current week fell outside that slice,
+         so the capacity strip showed 0 assigned Mon–Fri while the (week-scoped)
+         Crew Schedule grid showed crews. Now loadAllRows pages through all rows.
+0e6b58b  Shared Weekly Crew Capacity band on the functional screens. Reused the
+         existing pieces (computeHomeDashboard + HomeCapacityStrip) inside a new
+         self-contained components/WeeklyCapacityBand.jsx that loads its OWN
+         week-scoped data. Mounted ONCE in ScheduleLayout (the same slot the old
+         StatsBar day-strip used) gated to BAND_PATHS = /schedule/schedule,
+         /calendar, /daily, /materials(Logistics). Home & Jobs keep their embedded
+         band (excluded to avoid a double header).
+ee08159  Two fixes: (a) the band and <main> were siblings sharing key={refreshKey}
+         — duplicate sibling keys break React reconciliation, so navigating between
+         band screens left a GHOST band (two stacked). Gave the band a distinct
+         key. (b) HomeCapacityStrip now hides its "View Crew Schedule →" button
+         when already on /schedule/schedule (Home/Jobs still show it).
+
+================================================================================
+SPUN OUT — the Add Job / duplicating-jobs issue (was F58)
+================================================================================
+Root cause of the "Dave Lee #10252 shows crew on the grid but 'Crew not assigned'
+on the Next Up card": there are TWO jobs rows for job# 10252 — job_id 1191 (real,
+call_log 3847, fully crewed) and job_id 1278 (phantom manual add, call_log_id
+NULL, 1 stray "Bash Dave" assignment). The grid counts crew by the job row; the
+Next Up card checks crew through the call_log link, which the phantom lacks → the
+two disagree. This is NOT a display bug — it's bad data from manual Add Job blind-
+INSERTing.
+
+It's SYSTEMIC, not a one-off (verified against prod tonight):
+  • 42 job#s have duplicate jobs rows
+  • 67 of 289 active jobs have NULL call_log_id
+  • of the 42 dup job#s: 8 have a phantom (null-call_log manual add); 34 have
+    MULTIPLE Sales-linked rows (likely change orders legitimately sharing a job#
+    — must be distinguished from true dupes).
+
+Chris's call: this needs an IDEATE phase (ID8 = ideate / opus 4.8 / xhigh) in a
+SEPARATE terminal, on its OWN branch, NOT a reskin patch. Set up and waiting:
+  • Branch:  feat/add-job-dedup  (off main, pushed)
+  • Prompt:  docs/handoffs/ADD_JOB_DEDUP_ideate_prompt.md (on that branch)
+  • /resume pointer repointed there for the next session.
+The phantom-10252 in-app cleanup (delete job_id 1278) is folded into that
+initiative's backfill scope — do NOT do it piecemeal here.
+
+================================================================================
+STILL OPEN ON THIS BRANCH (reskin smoke)
+================================================================================
+- More latent bugs expected as smoke continues (Chris's read holds).
+- B84 (T4): 3 code-review + 2 security-review nits from the cold gates — file,
+  not fix; do in one pass. Security note (5) is a VERIFY: confirm billing_worklist
+  writes require Admin server-side.
+- Other crew-fetching screens: StatsBar.jsx (orphaned/zero-import) still has the
+  old archived!=='Yes' string compare — harmless (not rendered), left as-is.
+- WeeklyCapacityBand currently only on the 4 named screens; extending to
+  Production Rate/Schedules is a one-line BAND_PATHS change if wanted.
+
+================================================================================
+BEFORE ANY MERGE TO MAIN
+================================================================================
+The branch changed materially since the cold gates last ran (v211). Re-run all
+three COLD (buildvsplan → code-review → security-review) before merge/deploy.
+Nothing tonight touched schema. Build clean after every commit.
+
+================================================================================
+FILES TOUCHED THIS SESSION
+================================================================================
+src/schedule/ScheduleLayout.jsx (Actions menu, crewDirtyRef, archived booleans,
+  band mount + gate, band key), src/pages/SubConCommandPage.jsx (relative /login),
+  src/schedule/lib/queries.js (computeHomeDashboard archived filter),
+  src/schedule/views/{Jobs,Home,Daily,Schedule}.jsx (archived boolean + Jobs/Home
+  assignments pagination), src/schedule/lib/exports.js (archived boolean),
+  src/schedule/components/HomeCapacityStrip.jsx (hide View Crew Schedule on that
+  screen), src/schedule/components/WeeklyCapacityBand.jsx (NEW).
+
+================================================================================
+GIT STATE
+================================================================================
+feat/schedule-reskin @ ee08159 (+ this handoff commit), pushed to origin.
+Not merged, not deployed. Working tree clean.

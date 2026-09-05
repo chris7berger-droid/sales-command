@@ -424,6 +424,12 @@
   overflow: visible;
 }
 
+/* Full-bleed: Schedule runs edge-to-edge and up to the host header. Cancel the
+   host AppShell's inline content padding (App.jsx [data-app-content]: 28px 32px)
+   ONLY while Schedule is mounted — scoped by :has(.schedule-root) so Sales/Field
+   keep their padded frame. !important is required to beat the inline style. */
+[data-app-content]:has(.schedule-root) { padding: 0 !important; }
+
 /* Jobs View */
 .schedule-root .jobs-scoreboard {
   display: flex;

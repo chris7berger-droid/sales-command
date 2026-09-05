@@ -203,36 +203,44 @@ job list."* So the crew-capacity strip + the four panels — which live on **tod
 
 ## Screen 1 — New Home (`src/schedule/views/Home.jsx`, rewritten in place)
 
-Fresh operations dashboard. **No `JobsToPrepare`, no StageJobCard.** Every card below is powered by
-data already loaded; the only new code is a few aggregation lines added to the **existing**
-`computeHomeDashboard()` in `src/schedule/lib/queries.js` (extend the canonical function, not a twin).
+Fresh operations dashboard. **No `JobsToPrepare`, no StageJobCard.** New code is (a) a few
+aggregation lines threaded into the **existing** `computeHomeDashboard()` (`src/schedule/lib/queries.js`
+~1530) — extend the canonical function, not a twin — and (b) **[R1:B1, ratified Option A]** Home's
+`loadData` gains a call to the existing canonical **`loadBillingSurfaceData()` + `buildBillingSurface()`**
+(the same loaders `Billing.jsx:28` already uses) so the two money cards show real dollars per the mockup.
 
-### KPI hero cards + panels — data traffic-light [DERIVED]
-🟢 = real data now, just sum/rollup · 🟡 = real data now but reads fuller once Field Command is adopted
+**Data discipline [LOCKED, revised R1]:** no new tables, columns, migrations, or **data machinery**.
+Reusing an existing canonical loader (`loadBillingSurfaceData`) on Home is allowed — that is reuse,
+not the new-mechanism scope-creep Risk 10 guards against. (Supersedes the earlier "no new fetch"
+absolute, which collided with the mockup's filled `$428,000` / `$84,200` hero cards.) Cards that
+genuinely can't be powered render as labeled placeholders in the mockup's layout, not grown scope.
 
-| Card | Light | Powered by (already loaded) |
+### KPI hero cards + panels — data traffic-light [DERIVED, corrected R1]
+🟢 = powered now · 🟡 = powered now, reads fuller once Field Command is adopted · ⚙ = needs the build-time fix in its tag
+
+| Card | Light | Powered by · build note |
 |---|---|---|
-| Scheduled Work $ (30d / week / upcoming) | 🟢 | `authoritativeTotal()` (`proposals.total` / `billing_schedule.contract_sum`) × `jobs.scheduled_start` window |
-| Crew Capacity % (wk / next wk / 2-wk) | 🟢 | `computeHomeDashboard().capacityDays[]` |
-| Job Readiness % (ready / need attn) | 🟢 | `isReady()` predicate over jobs |
-| Production % of target (reporting / vs last wk) | 🟡 | `daily_production_reports.tasks[].target_pct/actual_pct`, already loaded via `loadPRTsForCallLogIds()` |
-| Ready to Bill $ (jobs / wk) | 🟢 | `buildBillingSurface()` row `remaining` / `authoritative` |
-| Scheduled Workload chart (Scheduled vs Completed $/wk) | 🟡 | jobs + contract value bucketed by week; "completed" = `status='Complete'` with `scheduled_end` in week |
-| At-a-Glance (scheduled / crew assigns / completion % / go-backs) | 🟢 | `computeHomeDashboard()` + `job_mobilizations.is_go_back` (already loaded, add count) |
-| Where management needs to look (crews / conflicts / behind target / go-backs) | 🟡 | `needCrews` + `conflicts` (exist) + production-behind rollup + go-back count |
-| Recent Activity feed | 🟡 | `job_changes` audit table (already logs status/field/billing edits) |
+| Scheduled Work $ (30d / week / upcoming) | 🟢 | `authoritativeTotal()` over `built.rows`; **[R1:B1]** needs the added Home billing-surface load; window by `jobs.scheduled_start` |
+| Ready to Bill $ (jobs / wk) | 🟢 | `built.rows` `remaining`; **[R1:B1]** same added load; window by schedule dates |
+| Crew Capacity % (this wk 🟢 · next wk / 2-wk ⚙) | 🟢/⚙ | `computeHomeDashboard().capacityDays[]` gives the current 6-day window only; **[R1:adj]** next-wk / 2-wk need the fn to emit forward windows — add them, or show this-week only at launch |
+| Job Readiness % (ready / need attn) | 🟢 | `isReady()` predicate over jobs (add the ready/total rollup) |
+| Production % of target (reporting / vs last wk) | 🟡⚙ | `daily_production_reports.tasks[].target_pct/actual_pct` (loaded, not passed); **[R1:C2]** thread `prtMap` into `computeHomeDashboard` (**signature change**), reuse the `taskRateSummary` null-guard (`ProductionRate.jsx:12-24`: skip null pairs, `null` when total=0, honor `target_pct ?? target` / `actual_pct ?? actual ?? pct_complete`); render "—" on empty |
+| Scheduled Workload chart (Scheduled vs Completed $/wk) | 🟡⚙ | contract value bucketed by week; **[R1:C3]** "completed" = `status='Complete'` bucketed by `effectiveEnd` (`queries.js:1468`) **or** a "no date" bucket — do not silently drop null-end jobs |
+| At-a-Glance (scheduled / crew assigns / completion % / go-backs) | 🟢⚙ | `computeHomeDashboard()` + go-back count; **[R1:C1]** `mobsByJobId` is a nested `[job_id][seq]` seq-map, **not** an array: `Σ Object.values(mobsByJobId[job_id]||{}).filter(m=>m.is_go_back).length` |
+| Where management needs to look (crews / conflicts / behind target / go-backs) | 🟡 | `needCrews` + `conflicts` (exist) + production-behind rollup (C2) + go-back count (C1); **[R1:A3]** keep AtAGlance's "View Analytics →" link (`HomePanels.jsx:114` → `/schedule/billing?tab=forecast`) in the Home rebuild |
+| Recent Activity feed | 🟡 | `job_changes` (logs status/field/billing edits). PRT-submitted / crew-reassigned not logged there yet — render what exists, don't add hooks |
 | Upcoming Milestones (starts / completions / PRT deadlines) | 🟢 | `jobs.scheduled_start/end`; PRT deadline inferred from `scheduled_end` |
 
-**Data discipline [LOCKED]:** no new tables, columns, migrations, or fetches for these cards.
-Recent Activity renders only event types already written to `job_changes` (PRT-submitted /
-crew-reassigned aren't logged there yet — not added in chunk 1). PRT "deadline" is inferred, not a
-new field. Where a card genuinely can't be powered, it renders as a labeled placeholder in the
-mockup's layout rather than growing scope.
+**[R1:E1] Realtime — must carry, not drop.** Home owns 3 Supabase channels + a 300 ms debounce +
+`removeChannel` cleanup (`Home.jsx:99-108`). The from-scratch rewrite MUST port this `useEffect`.
+Decide which channels the pure dashboard keeps: `jobs` + `assignments` minimum; the
+`job_material_lines` channel only if a surviving card reads materials (it doesn't today → drop it
+with the plumbing).
 
-**Cleanup:** removing `JobsToPrepare` orphans its data plumbing on Home
-(`proposalMaterialsByCallLog`, `mobsByJobId`, `prtMap`, `logsByCallLog`, `assignmentsByJobId`) —
-remove the now-dead state/memo in the same edit so lint passes. (Note: `mobsByJobId`/`prtMap` are
-now consumed by the new go-back / production aggregations, so keep those.)
+**Cleanup:** removing `JobsToPrepare` orphans some Home plumbing (`proposalMaterialsByCallLog`,
+`logsByCallLog`) — remove the now-dead state/memo in the same edit so lint passes. **Keep**
+`mobsByJobId` + `prtMap` (now consumed by the go-back / production aggregations) and
+`assignmentsByJobId` (capacity).
 
 ---
 
@@ -250,12 +258,14 @@ sibling, the `?tab=` redirect map, and the Recovery Bin all stay in one already-
 | Old-Jobs function (file) | Lands in New Jobs as |
 |---|---|
 | Stage tabs / drilling (`StagedCardList`/`OnHoldCardList`/`AllJobsList` wrappers) | Reuse the wrappers; stage tabs pick the predicate. Keep local `jobs` state (`OnHoldCardList` needs `setJobs`). |
-| Full `StageJobCard` (913 ln) + all modals (SOW/Materials/Days/Mobs/LoadOut/PRT/Logs) + promote/kickoff/resume/delete + budget panel | Rows render **full** variant (not `home-compact`); pass every prop the wrappers pass. |
-| **Recovery Bin** (24h soft-delete) — `openBin`/`restoreJob` + modal (`Jobs.jsx` ~606-629, 374-392) | **Port verbatim — critical.** Only reader of soft-deleted jobs; StageJobCard is the delete *writer* (line ~666). Sever = deletes become unrecoverable-in-app. |
-| `?tab=` redirect map (`Jobs.jsx` ~14-20: pipeline/ready/billing/ready-to-bill → canonical) | **Port verbatim.** Legacy bookmarks + StageJobCard's `/schedule/billing?tab=worklist` links depend on it. |
-| Capacity strip + Needs Attention / Next Up / At-a-Glance panels (today `HomeCapacityStrip`, `HomePanels`) | Move here as the band above the list (mockup). Reuse the components, repainted. |
-| Go-Backs panel | `job_mobilizations.is_go_back` count (already loaded). |
-| JobsPicker 11 count-tiles + attention math (`JobsPicker.jsx` 17-67: missing SOW/mats/crew/date, multi-week, ready-to-bill) | Picker *navigation* is replaced by stage tabs. Preserve the **attention counts** — they surface in the Needs Attention panel / At-a-Glance, not dropped. |
+| Full `StageJobCard` (913 ln) + all modals (SOW/Materials/Days/Mobs/LoadOut/PRT/Logs) + promote/kickoff/resume/delete + budget panel | Rows render **full** variant (not `home-compact`). **[R1:G1] Prop-completeness is a build gate** (whether table or `*CardList`): must supply `crewByCallLog, matsByJobId, logsByCallLog, assignmentsByJobId, proposalMaterialsByCallLog, mobsByJobId, prtMap, today, stage, onJobUpdate`. `stage` gates `canDelete` (`StageJobCard.jsx:664`) — omit it and the delete affordance vanishes, which removes the **only writer** feeding the Recovery Bin. `OnHoldCardList` uniquely needs `setJobs`. |
+| **Recovery Bin** (24h soft-delete) — modal + `restoreJob` (`Jobs.jsx` ~606-629, 374-392) **and its launch button** (`JobsPicker.jsx:83-85` `onOpenBin`) | **[R1:A1] Port the modal AND re-home the launch button.** The 🗑 button lives in the deleted picker; porting only the modal leaves the bin unreachable. New home for the button: the **Jobs stage-tab toolbar**. StageJobCard is the delete *writer* (~666); this bin is the only restore reader — sever = unrecoverable-in-app. |
+| `?tab=` key handling (`Jobs.jsx` ~14-20 `TAB_REDIRECTS`; legacy `scheduled` renders the **Ready** stage, `Jobs.jsx:523-537`) | **[R1:F1] Not "verbatim" — the picker is deleted and keys change.** Specify the explicit legacy→new map: `scheduled → ready`; keep `pipeline`, `billing`, `ready-to-bill`. Add a tolerant reader with **`all` as the hard default** for unknown keys. `?tab=all` (alerts / "View All Jobs") → stage All. Test each legacy value resolves. |
+| Capacity strip + Needs Attention / Next Up / At-a-Glance panels (today `HomeCapacityStrip`, `HomePanels`) | Move here as the band above the list (mockup). Reuse the components, repainted. **[R1:D1]** they render under `.jh-wrap`, not `.home-screen`, so the linen/panel/signal tokens must be promoted to base `.schedule-root` (see Repaint mechanics) or the band loses its charcoal panels + signal colors. |
+| Go-Backs panel | `job_mobilizations.is_go_back` count — **[R1:C1]** iterate `Object.values(mobsByJobId[job_id])` (nested seq-map, not array). |
+| **[R1:A2] JobsPicker attention math** (`JobsPicker.jsx:17-67`: missing SOW/mats/crew/date, multi-week, ready-to-bill) | **These are NOT computed in the panels today** — `HomePanels` consumes only `needCrews/conflicts/notReady` + `jobsScheduled/crewAssignments/completionPct` (`HomePanels.jsx:11-13, 95-97`). **Port the math** (inputs: `assignments` + `billingWorklist` + `crewByCallLog` + `matsByJobId`; multi-week needs `getJobMultiWeekAlert`) into a **named** panel/strip **before** deleting the picker (build step). |
+| **[R1:A3] JobsPicker cross-screen nav jumps** (`JobsPicker.jsx:71-76`: `goBilling/goForecast/goProductionRate/goSchedule/goDaily`) | Die with the picker. **Decide:** re-surface as toolbar/quick-links, or accept as sidebar-only (the sidebar already carries these routes). Record the call. |
+| **[R1:E1] Realtime** (`Jobs.jsx:318-339`: 3 channels + debounce + `removeChannel`) | Port the `useEffect` into the rewritten Jobs — a from-scratch rewrite easily omits it → screens stop live-updating (incl. from the crew's Field app). |
 | Sync warning (partial-load banner) | Port the banner. |
 
 ### Deep links New Jobs must honor (no 404) [DERIVED]
@@ -287,15 +297,32 @@ needs **no new queries**. [DERIVED]
 - **Shared FilterBar** (`src/components/FilterBar.jsx`) mounted on Schedule for the first time; add a
   new optional `statusOptions`/`status` prop set following its existing optional-prop pattern.
   Filters: Status (new) · Work type · Date · Customer · Job # · Salesperson.
-- Preserve **Total to Bill** (header number) and **Go Backs** (`nothing_to_bill`) as a filter/chip.
+  **[R1:H1] The FilterBar Clear button + `hasFilters` are hardcoded literals** (`FilterBar.jsx:17`
+  destructure, `:20` `hasFilters`, `:66` reset object) — adding `status` requires: add it to the
+  destructure, add it to `hasFilters`, and make Clear a **spread-reset**
+  (`Object.fromEntries(Object.keys(filters).map(k=>[k,""]))`) so a status-only filter shows Clear and
+  Clear actually resets it. (Adjacent: existing Sales callers lack `status` → `undefined` → safe.)
+- **[R1:A4] Lift `toBill` / `toBillRows` / `goBackRows` out of `BillingPicker`.** They are local
+  `useMemo`s today (`BillingPicker.jsx:25-37`), not in `billingForecast.js` — deleting the picker
+  drops them. Preferred: **return them from `buildBillingSurface()`** so the list header + list body
+  read one source (extend-canonical). Preserve **Total to Bill** (header) and **Go Backs**
+  (`nothing_to_bill`) as a filter/chip.
+- **[R1:I1] Admin write-gate is a property of `Billing.jsx` (`canEdit:17`, `onFlag:51`), not the
+  picker — not a regression, but a required guard:** the new flat list must render
+  `<BillingCard canEdit={canEdit} onFlag={onFlag}/>` (never default `canEdit` true).
 - Preserve every per-job detail already on `BillingCard`: billing badge, "held — do not invoice",
   Contract/Billed/Remaining, invoices sent (X of Y) with amounts, editable notes, mark Go Back,
   click-through to open the job in Sales.
 
 ### Forecast + Budget folded in [LOCKED]
-- **Forecast** → a section/tab rendering `BillingForecast` from `built.forecast` (past-due · weekly
-  buckets · held retention · drill-in reusing `BillingCard`). The `views/Forecast.jsx` **view** is
-  retired; the `BillingForecast.jsx` **component** stays.
+- **Forecast** → a section/tab rendering `BillingForecast` from **`built.forecast`** (past-due ·
+  weekly buckets · held retention · drill-in reusing `BillingCard`). The `views/Forecast.jsx` **view**
+  is retired; the `BillingForecast.jsx` **component** stays. **[R1:verified-safe]** consume the single
+  `built.forecast` from Billing's existing `buildBillingSurface()` — **drop `Forecast.jsx:37`'s own
+  second fetch**; do not add a parallel load.
+- **[R1:F1] Tolerant `?tab=` reader is net-new code** (`Billing.jsx` reads no `?tab=` today): accept
+  `worklist`/default → list, `forecast` → forecast section, `budget` → budget section; **unknown →
+  list (hard default)**. `StageJobCard` links to `?tab=worklist`; the retired routes redirect here.
 - **Budget** → the 10-line placeholder view folds in as a stub section = the **margin-card
   placeholder slot** (chunk 2). `views/Budget.jsx` retired.
 
@@ -319,6 +346,15 @@ Every schedule class reads `var(--bg)` / `var(--bg-card)` / `var(--teal)`.
 **Move (lowest risk, ~10-line diff, one file):** promote the linen token *values* from the
 `.home-screen` override into the base `.schedule-root` block. This repaints all screens at once with
 no per-class edits. File: **`src/schedule/index.css`** only.
+
+**[R1:D1] Promote ALL of `index.css:42-50`, not a subset.** `--panel-dark`, `--teal-ink`, and all
+four `--sig-*` are defined **only** under `.schedule-root .home-screen` today; base `.schedule-root`
+has `--bg`/`--bg-card`/`--teal` but not these. The full promotion set is: `--bg:#e7decb`,
+`--bg-card:#f3ede0`, `--panel-dark:#111110`, `--teal-ink:#0d5c4a`, `--sig-green:#3fae52`,
+`--sig-orange:#e0892a`, `--sig-red:#d24b3e`, `--sig-purple:#8b6fc7`. This is **required** by the
+Home→Jobs move: the capacity strip + panels now render under `.jh-wrap` (Jobs), not `.home-screen`,
+so if these tokens stay scoped to `.home-screen` the Jobs headline band loses its charcoal panels and
+signal colors. After promotion the `.home-screen` override is redundant (leave empty or delete).
 
 **Regression audit (Step 2):** inline `#fff` / `var(--white)` that aren't token-driven won't repaint
 and may become white patches on linen — check `views/Calendar.jsx`, `views/Daily.jsx`,
@@ -346,52 +382,90 @@ teal buttons keep black text (CLAUDE.md style rule 2).
 
 ## Build step sequence (lowest-risk first, each independently testable)
 
-1. **Repaint tokens** — `src/schedule/index.css`. Promote linen tokens to `.schedule-root`. Verify
-   every screen on linen, no white page/card, teal buttons legible, Home unchanged. Reversible, no JS.
+1. **Repaint tokens** — `src/schedule/index.css`. Promote the **full 8-token set** (`--bg`,
+   `--bg-card`, `--panel-dark`, `--teal-ink`, four `--sig-*`) from `.home-screen` to base
+   `.schedule-root` **[R1:D1]**. Verify every screen on linen, no white page/card, teal buttons
+   legible, Home unchanged, and a charcoal panel (e.g. capacity strip) keeps its `--panel-dark` +
+   signal colors when rendered outside `.home-screen`. Reversible, no JS.
 2. **Repaint regression cleanup** — `Calendar.jsx` / `Daily.jsx` / `Schedules.jsx` / `App.css`
    literals. Verify no white patches; open a Field SOW print preview to confirm print CSS untouched.
 3. **Nav rename** — `src/lib/nav.js`. Verify sidebar label + active state.
 4. **Finance/Billing consolidation** — `views/Billing.jsx`, `components/BillingPicker.jsx`,
-   `components/FilterBar.jsx` (+Status), `ScheduleLayout.jsx` redirects. Verify: one list with
-   per-row status; Status filter; Forecast + Budget tabs; `?tab=worklist` from a StageJobCard billed
-   click lands; `/schedule/billing/forecast` + `/schedule/budget` redirect (no 404); Go Backs
-   preserved; Admin write-gate on `onFlag` intact.
+   `lib/billingForecast.js` (**[R1:A4]** lift `toBill`/`toBillRows`/`goBackRows` into
+   `buildBillingSurface`), `components/FilterBar.jsx` (**[R1:H1]** +Status prop, spread-reset Clear,
+   `status` in `hasFilters` + destructure), `ScheduleLayout.jsx` redirects. Build the **tolerant
+   `?tab=` reader** (list = hard default) and **drop `Forecast.jsx`'s own fetch** (consume
+   `built.forecast`). Verify: one list with per-row status (from `billingCardKey`, never
+   `billingBadge`); Status filter narrows + Clear resets it; Forecast + Budget tabs; `?tab=worklist`
+   from a StageJobCard billed click lands; `/schedule/billing/forecast` + `/schedule/budget` redirect
+   (no 404); Go Backs + Total to Bill preserved; **[R1:I1]** load as **non-Admin** → Hold/GB/terms/
+   notes controls absent.
 5. **Home/Jobs split (riskiest, last):**
    - 5a. Rewrite `views/Jobs.jsx`: stage tabs + capacity strip + 4 panels + filter bar + list;
-     reuse `Staged/OnHold/AllJobs` wrappers; **port Recovery Bin + `?tab=` map + sync warning +
-     attention counts**. Verify: delete a job → appears in Recovery Bin → restore round-trips;
-     `?tab=all` sets stage=All; legacy `?tab=pipeline` redirects; a row expands to full StageJobCard
-     and every modal opens.
-   - 5b. Rewrite `views/Home.jsx`: remove `JobsToPrepare` + dead plumbing; add KPI cards + chart +
-     At-a-Glance + management-needs + Recent Activity + Upcoming Milestones + margin placeholder;
-     extend `computeHomeDashboard()` with `goBacksCount`/`readyCount`/`productionPct`. Verify: no
-     working rows; cards render real numbers; lint clean.
-6. **Retire dead files** — only after 4+5 verified: `views/Forecast.jsx`, `views/Budget.jsx`, and
-   (if fully absorbed) `components/JobsPicker.jsx`. Keep `BillingForecast.jsx`, `BillingCard.jsx`,
-   `ForecastCard.jsx`, `StageJobCard.jsx`, all `*CardList` wrappers. Verify build + no dangling
-   imports (`grep -rn "import.*\(Forecast\|Budget\|JobsPicker\)"`).
+     reuse `Staged/OnHold/AllJobs` wrappers. **Port BEFORE deleting the picker (step 6):** Recovery
+     Bin modal **+ its launch button** into the stage-tab toolbar **[R1:A1]**; the attention-count
+     math **[R1:A2]** into a named panel (inputs `assignments` + `billingWorklist` + crew + mats);
+     the `?tab=` key map (`scheduled→ready`, keep `pipeline/billing/ready-to-bill`, `all` default)
+     **[R1:F1]**; the realtime `useEffect` (3 channels + debounce + `removeChannel`) **[R1:E1]**;
+     sync warning; and decide the cross-screen nav-jumps **[R1:A3]**. Pass StageJobCard the full
+     prop set incl. `stage` + `setJobs` **[R1:G1]**. Verify: delete → Recovery Bin → restore
+     round-trips; `?tab=all` sets stage All; legacy `?tab=scheduled` resolves to Ready; a row
+     expands to full StageJobCard and every modal opens; list still live-updates.
+   - 5b. Rewrite `views/Home.jsx`: remove `JobsToPrepare` + dead plumbing (keep `mobsByJobId`/
+     `prtMap`/`assignmentsByJobId`); **add `loadBillingSurfaceData()` + `buildBillingSurface()` to
+     `loadData` [R1:B1]**; add KPI cards + chart + At-a-Glance + management-needs (keep "View
+     Analytics" link **[R1:A3]**) + Recent Activity + Upcoming Milestones + margin placeholder;
+     extend `computeHomeDashboard()` — **thread `prtMap` (signature change) [R1:C2]**, add
+     `goBacksCount` (**`Object.values` iteration [R1:C1]**) + `readyCount` + `productionPct`
+     (`taskRateSummary` guard); port Home's realtime `useEffect` **[R1:E1]**. Verify: no working
+     rows; both money cards show real $; production/go-back cards render numbers (or "—"), not
+     NaN/$0; lint clean.
+6. **Retire dead files** — only after 4+5 verified AND their stranded logic is confirmed re-homed:
+   `views/Forecast.jsx`, `views/Budget.jsx`, and (fully absorbed) `components/JobsPicker.jsx`. Keep
+   `BillingForecast.jsx`, `BillingCard.jsx`, `ForecastCard.jsx`, `StageJobCard.jsx`, all `*CardList`
+   wrappers. Verify build + no dangling imports (`grep -rn "import.*\(Forecast\|Budget\|JobsPicker\)"`).
 
 ---
 
 ## Risk register [DERIVED]
 
-1. **Recovery Bin severed from delete.** StageJobCard deletes; only Jobs.jsx restores. → Rewrite
-   Jobs.jsx in place; port bin first; test delete→restore before removing anything.
-2. **`?tab=` redirect map lost** → 404 on legacy bookmarks. → Port the map verbatim.
-3. **StageJobCard billed-click 404** (`/schedule/billing?tab=worklist`). → Billing tolerates unknown/
-   `worklist` tab → default list.
+_Round-1 audit confirmed each of these against code and refined the fix; `[R1:xx]` tags above are the
+detailed spec._
+
+1. **Recovery Bin severed from delete + launch button unreachable [R1:A1].** StageJobCard is the only
+   delete writer; Jobs.jsx the only restore reader; `JobsPicker` holds the only launch button. →
+   Rewrite Jobs.jsx in place; port modal **and** re-home the launch button to the stage-tab toolbar;
+   test delete→restore before deleting the picker.
+2. **`?tab=` keys change when the picker is deleted [R1:F1].** "Verbatim" is wrong. → Explicit
+   `scheduled→ready` map; keep `pipeline/billing/ready-to-bill`; tolerant reader, `all` hard default.
+3. **StageJobCard billed-click 404** (`/schedule/billing?tab=worklist`). → Billing's net-new tolerant
+   `?tab=` reader → default list on unknown/`worklist` [R1:F1].
 4. **`billing/forecast` + `budget` deep links 404** after retiring the views. → `<Navigate replace>`,
    not route deletion.
-5. **Attention/multi-week counts dropped with JobsPicker.** → Port the count math into the Needs
-   Attention / At-a-Glance panels.
-6. **Home dead-var lint break** removing JobsToPrepare. → Remove dead state/memo in the same edit.
-7. **Repaint white-patch regression** (non-token `#fff`). → Step-2 targeted audit; never touch print
-   CSS.
-8. **Billing/forecast desync** on optimistic override. → Both sections read the same `built` memo.
-9. **Row status vocabulary mismatch** (`billingCardKey` vs `billingBadge`). → `billingCardKey` →
-   `BILLING_CARDS[].label` is the single source for badge + filter.
-10. **Scope creep to power a card.** → No new tables/columns/fetches; unpowered cards render as
-    labeled placeholders (margin card stays that way for chunk 2).
+5. **Attention/multi-week counts silently dropped [R1:A2].** They are NOT in the panels today. → Port
+   the math (incl. `assignments`+`billingWorklist` inputs) into a named panel **before** deleting the
+   picker.
+6. **Home dead-var lint break** removing JobsToPrepare. → Remove dead state/memo in the same edit;
+   keep `mobsByJobId`/`prtMap`/`assignmentsByJobId`.
+7. **Repaint white-patch regression** (non-token `#fff`) — verified over-worried: the Calendar/Daily/
+   Schedules literals are text-on-dark chips, not backgrounds; print CSS is isolated. → Step-2 spot
+   check; never touch print CSS.
+8. **Billing/forecast desync** on optimistic override — verified already-correct. → One
+   `buildBillingSurface` returns both `rows`+`forecast`; fold-in consumes `built.forecast`; **drop
+   `Forecast.jsx:37`'s second fetch**.
+9. **Row status vocabulary mismatch** (`billingCardKey` vs `billingBadge`) — verified clean partition.
+   → Wire badge + Status filter to `billingCardKey` → `BILLING_CARDS[].label` only.
+10. **Scope creep to power a card** — reframed [R1:B1]. → No new **machinery** (tables/columns/
+    migrations/new mechanisms); reusing an existing canonical loader on Home is allowed. Unpowered
+    cards → labeled placeholders (margin stays that way for chunk 2).
+11. **[R1:E1] Realtime dropped in the rewrite.** Home (3 channels) + Jobs (3 channels) + 300 ms
+    debounce + `removeChannel`. → Port each `useEffect`; name which channels the pure Home keeps.
+12. **[R1:D1] Partial token promotion.** Promoting only `--bg/--bg-card/--panel-dark/--teal` leaves
+    `--teal-ink` + four `--sig-*` behind → panels moved to Jobs lose signal colors. → Promote all 8.
+13. **[R1:C1/C2/C3] Dashboard math traps.** Go-back count on a seq-map (not array) → NaN; production %
+    with no null-guard / no `prtMap` passed → NaN/Infinity + signature change; completed-$ dropping
+    null-`scheduled_end` jobs. → Object.values iteration; reuse `taskRateSummary` guard; `effectiveEnd`
+    or a no-date bucket.
 
 ---
 
@@ -400,16 +474,32 @@ teal buttons keep black text (CLAUDE.md style rule 2).
 Run locally (`npm run dev`) on `feat/schedule-reskin`; verify in-browser against the mockup + the
 design system (linen page, creamy cards, near-black hero cards, teal pop, no white in-app):
 
-- **Repaint:** every schedule screen on linen; print previews still white.
-- **Home:** no working job rows; all KPI cards + chart + feeds render real numbers (or labeled
-  placeholder); go-back/ready/production aggregations correct vs spot-checked data.
-- **Jobs:** stage tabs + capacity + 4 panels + filter bar + list; **delete → Recovery Bin → restore**
-  round-trips; a row expands to full StageJobCard and each modal opens; `?tab=all` + a legacy
-  `?tab=` both resolve.
-- **Finance/Billing:** one list, per-row status; Status filter narrows; Forecast + Budget tabs;
-  Go Backs + Total to Bill preserved; Admin-only write-gate holds; `?tab=worklist`, `/billing/forecast`,
-  `/budget` all land (no 404).
+- **Repaint:** every schedule screen on linen; a charcoal panel outside `.home-screen` keeps
+  `--panel-dark` + signal colors; print previews still white.
+- **Home:** no working job rows; **both money cards show real $** (not $0); production / go-back /
+  ready cards render numbers or "—" (never NaN/Infinity); "View Analytics" link works; screen
+  live-updates (realtime ported).
+- **Jobs:** stage tabs + capacity + 4 panels + filter bar + list; the **Recovery Bin launch button is
+  reachable**, and **delete → Recovery Bin → restore** round-trips; attention counts show; a row
+  expands to full StageJobCard and each modal opens (`stage`/`setJobs` wired); `?tab=all` → All and
+  legacy `?tab=scheduled` → Ready both resolve; list live-updates.
+- **Finance/Billing:** one list, per-row status (from `billingCardKey`); Status filter narrows **and
+  Clear resets it**; Forecast + Budget tabs (forecast reads `built.forecast`, no second fetch);
+  Go Backs + Total to Bill preserved; **load as non-Admin → Hold/GB/terms/notes controls absent**;
+  `?tab=worklist`/`forecast`/`budget`/unknown all land (no 404); `/billing/forecast` + `/budget`
+  redirect.
 - **Build:** `npm run build` clean; `grep` shows no dangling imports to retired views.
+
+**Verified-safe guards [R1] (confirmed correct — do not re-audit; verify the guard holds):**
+- Admin write-gate is a `Billing.jsx` parent/closure property, not the picker — new list must forward
+  `canEdit`+`onFlag` to `BillingCard`.
+- `billingCardKey` has an unconditional `'ready'` fallthrough (no null bucket) — safe to drive the
+  Status filter.
+- Retired views (`Forecast.jsx`/`Budget.jsx`) are imported only in `ScheduleLayout.jsx:19,25`; keep
+  `BillingForecast.jsx` (re-imported into Billing).
+- Repaint over-worries: white literals in Calendar/Daily/Schedules are text-on-dark chips (won't
+  patch); print CSS is a separate `window.open` doc with no `.schedule-root`; teal buttons already
+  carry black text; Sales side unaffected (tokens scoped to `src/schedule/`).
 
 ## Explicitly out of scope (chunk 1)
 - Margin engine + Margin Overview / Highest-Lowest Margin cards (chunk 2, its own plan). Placeholder

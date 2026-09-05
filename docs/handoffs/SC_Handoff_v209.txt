@@ -1,0 +1,145 @@
+SC_Handoff_v209 — Schedule: double-booking false-positive fixed + shipped live
+================================================================================
+Date: 2026-09-04
+Repo: sales-command  (the app is SUBCON COMMAND, scmybiz.com; Schedule is a driver)
+Branch: main (fix committed + pushed; Vercel auto-deploy on push)
+Shared DB: pbgvgjjuhnpsumnowuym   HDSP tenant_id: 246f6551-60de-4965-bb97-9a52971bc05d
+
+
+SESSION SUMMARY
+------------------------------------------------------------
+First task of the new Schedule polish/fixes stream (opened by v208). Fixed the
+double-booking false positive on the Crew Schedule that was diagnosed and parked
+last session. The Crew Schedule was flagging a crew as double-booked against jobs
+that weren't even on the board that week. Traced the cause, chose the display-layer
+fix (the true fix for the symptom), shipped it to main, and filed the two leftover
+data/import concerns as separate low-urgency backlog rows (B82, B83).
+
+
+THE BUG (what the user saw)
+------------------------------------------------------------
+Crew Schedule showed crews marked "double-booked" for days where they were only
+on one visible job — the phantom second job wasn't on the board that week.
+
+
+ROOT CAUSE (traced, not guessed)
+------------------------------------------------------------
+- Double-book detection (`crewDayJobs`, src/schedule/views/Schedule.jsx) counted
+  EVERY assignment row dated in the viewed week (fetchWeekData pulls all rows
+  gte/lte the week's Mon–Sat), grouping crew -> date -> jobIds; >1 job on a day
+  = double-booked.
+- But the board only renders `weekJobs` (active jobs overlapping the week). Stray
+  assignments for OFF-board jobs — e.g. an old HDSP-imported crew-day dated
+  outside that job's own schedule range (job 10053 runs Aug 24–Sep 4 yet has a
+  Jul 27 crew row) — were still counted, flagging a double-book against a job
+  the user can't even see.
+- Confirmed the current app CANNOT create such rows: the assign modal
+  (Schedule.jsx ~L1134) greys out and disables any day outside a job's range, so
+  out-of-range crew-days only enter via IMPORT, not normal use. That's why the
+  display-layer fix is the correct, permanent fix for the symptom.
+
+
+FIX SHIPPED (commit ed7a676, pushed to main)
+------------------------------------------------------------
+- src/schedule/views/Schedule.jsx:
+  * New `weekJobIds` memo = Set of String(job_id) for the jobs on the board this
+    week (derived from `weekJobs`).
+  * `crewDayJobs` now skips any assignment whose job_id isn't in `weekJobIds`
+    (`if (!weekJobIds.has(String(a.job_id))) continue`).
+  * Moved `crewDayJobs` (and added `weekJobIds`) to just AFTER `weekJobs` is
+    declared, so it can reference it without a use-before-declare (TDZ) error.
+    `getDoubleBookedDays`/`isDoubleBooked` stay above as function declarations —
+    they only read `crewDayJobs` at call time (render), so ordering is safe.
+- Real double-books (two ON-board jobs, same crew, same day) still flag —
+  detection is scoped, not disabled.
+- Build: `npm run build` green.
+
+
+DEPLOYED
+------------------------------------------------------------
+- Vercel (sales-command): commit ed7a676 pushed to main -> auto-deploy. Frontend-
+  only change; NO edge functions, NO migrations, NO config. "Make it live" for
+  this item = the push (done). Refresh Crew Schedule after the deploy finishes
+  (~1–2 min) to see phantom warnings gone.
+
+
+NEW BACKLOG ITEMS (filed this session)
+------------------------------------------------------------
+- B82 (T4, Open) — Clean up the leftover HDSP crew-days dated outside their job's
+  range (the stray rows that surfaced this bug). Data cleanup only; the display
+  fix means they no longer cause a visible bug. Delete or re-date assignments
+  whose date is outside the job's scheduled_start/end (or start_date/end_date).
+- B83 (T4, Open) — Guard the schedule import (src/schedule/lib/importData.js) so a
+  future tenant onboarding can't reintroduce out-of-range crew-days. Drop/clamp
+  any imported crew-day dated outside the matched job's range + report the count.
+  Do before the next tenant import; not urgent while HDSP is the only tenant.
+- B82 = clean the existing; B83 = prevent new. Neither is needed for the warning
+  to be correct — that's already fixed.
+
+
+DECISIONS / CHOICES MADE
+------------------------------------------------------------
+- Display-layer fix over data fix: chose to scope detection to on-board jobs
+  rather than clean the data first. Reasoning shared with Chris: the display fix
+  makes the UI truthful regardless of what's in the data and is permanent (a
+  detection-layer fix, so it can't "keep happening"); the stray data is a
+  separate history-only cleanup and the app can't create new strays anyway. The
+  only forward risk (future imports) is captured as B83.
+
+
+VERIFICATION
+------------------------------------------------------------
+- `npm run build` succeeded, no errors.
+- Traced every consumer of the double-book helpers (grep: uses at Schedule.jsx
+  657 + 940, both in render/JSX, below the moved declaration — no TDZ risk).
+- NOT verified: in-browser confirmation on the live/preview site (pushed straight
+  to main at Chris's direction — small, contained, build-green fix). Next session
+  or Chris: refresh Crew Schedule for a week that previously showed a phantom
+  double-book (e.g. the HDSP week with job 10053's Jul 27 strays) and confirm the
+  warning is gone while genuine same-day-two-job cases still warn.
+
+
+NOT TOUCHED THIS SESSION
+------------------------------------------------------------
+- The stray crew-day DATA itself (B82) — left in place; no longer harmful.
+- The import path (B83) — not yet guarded.
+- Everything else from v208 (old YES Schedule v2 sheet still live as source;
+  R3-1 blanket RLS policy on the 5 schedule tables, a command-suite-db prereq
+  before a 2nd tenant onboards).
+
+
+NEXT SESSION POINTERS
+------------------------------------------------------------
+- This Schedule polish/fixes stream continues on sales-command · main.
+- Quick win available: browser-confirm the double-book fix on the live site
+  (see VERIFICATION) if not already done.
+- Next candidate items if continuing the sweep: B82/B83 (the pair above), or the
+  next real-use Schedule glitch Chris surfaces.
+- Do NOT re-run scripts/hdsp_wipe_and_load — one-time wipe, already applied
+  (carried from v208).
+
+
+FILES TO KNOW
+------------------------------------------------------------
+- src/schedule/views/Schedule.jsx — Crew Schedule board. Double-book detection:
+  weekJobIds + crewDayJobs (now just below weekJobs, ~L296), getDoubleBookedDays/
+  isDoubleBooked (~L232), assign modal out-of-range day disable (~L1134),
+  fetchWeekData week-scoped assignment pull (~L185).
+- src/schedule/lib/importData.js — schedule import insert path (B83 target).
+- docs/BACKLOG.md — B82/B83 filed under ### Bugs.
+
+
+GIT STATE ON CLOSE
+------------------------------------------------------------
+- Branch: main. HEAD = ed7a676 (fix + backlog), pushed to origin/main.
+- Working tree: clean apart from this handoff.
+- Open PRs: none.
+- No feature branches this session (worked directly on main per the stream's
+  established pattern + Chris's "push it live").
+
+
+END STATE
+------------------------------------------------------------
+Double-booking false positive fixed, committed, and pushed live (Vercel auto-
+deploy). Leftover data cleanup (B82) + import guard (B83) filed as low-urgency
+backlog. Build green; live in-browser confirm is the one open verification.

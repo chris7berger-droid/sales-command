@@ -55,6 +55,10 @@ function ScheduleShell() {
   const [crewList, setCrewList] = useState([])
   const [showArchived, setShowArchived] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  // Set by any crew mutation; on modal close we remount the routed view once so
+  // headers like "Crew Available" (computed in the view via computeHomeDashboard)
+  // reflect the change. A ref, not state, so closeModal reads it synchronously.
+  const crewDirtyRef = useRef(false)
 
   const [actionsOpen, setActionsOpen] = useState(false)
   const actionsRef = useRef(null)
@@ -79,7 +83,10 @@ function ScheduleShell() {
 
   useEffect(() => { loadModalData() }, [loadModalData])
 
-  function closeModal() { setModal(null) }
+  function closeModal() {
+    if (crewDirtyRef.current) { crewDirtyRef.current = false; setRefreshKey(k => k + 1) }
+    setModal(null)
+  }
 
   // --- Add Job ---
   const [jobForm, setJobForm] = useState({})
@@ -137,6 +144,7 @@ function ScheduleShell() {
     const { error } = await supabase.from('crew').insert([row])
     if (error) { console.error(error); toast('Error', 'err'); return }
     toast('Crew added', 'ok')
+    crewDirtyRef.current = true
     await loadModalData()
     closeModal()
   }
@@ -167,6 +175,7 @@ function ScheduleShell() {
     const { error } = await supabase.from('crew').insert([row])
     if (error) { console.error(error); return }
     setClForm({ name: '', team: '', phone: '' })
+    crewDirtyRef.current = true
     await loadModalData()
   }
 
@@ -174,6 +183,7 @@ function ScheduleShell() {
     if (!confirm('Archive ' + flipName(name) + '? They will be hidden from active views.')) return
     const { error } = await supabase.from('crew').update({ archived: 'Yes' }).eq('name', name)
     if (error) { console.error(error); return }
+    crewDirtyRef.current = true
     await loadModalData()
   }
 
@@ -181,6 +191,7 @@ function ScheduleShell() {
     const { error } = await supabase.from('crew').update({ archived: 'No' }).eq('name', name)
     if (error) { console.error(error); return }
     toast(flipName(name) + ' restored', 'ok')
+    crewDirtyRef.current = true
     await loadModalData()
   }
 
@@ -201,6 +212,7 @@ function ScheduleShell() {
     }
     toast('Crew updated', 'ok')
     setEditingCrew(null)
+    crewDirtyRef.current = true
     await loadModalData()
   }
 
@@ -211,6 +223,7 @@ function ScheduleShell() {
     const { error } = await supabase.from('crew').delete().eq('name', name)
     if (error) { console.error(error); toast('Error', 'err'); return }
     toast(flipName(name) + ' deleted', 'wrn')
+    crewDirtyRef.current = true
     await loadModalData()
   }
 

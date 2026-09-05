@@ -4,7 +4,7 @@
 // Everything renders inside `.schedule-root` so App.css/index.css stay fenced
 // (Phase 2, Beat 5). Auth/access gate + duplicate sidebar from the old App.jsx
 // are dropped — the host handles login, entitlement, and navigation.
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import './App.css'
 import './index.css'
@@ -24,7 +24,6 @@ import ProductionRate from './views/ProductionRate'
 import JobDetail from './views/JobDetail'
 import Settings from './views/Settings'
 import Import from './views/Import'
-import StatsBar from './components/StatsBar'
 
 function flipName(n) {
   if (!n) return ''
@@ -57,9 +56,6 @@ function ScheduleShell() {
   const [showArchived, setShowArchived] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
-  const location = useLocation()
-  const path = location.pathname
-  const isHome = path === '/schedule/home' || path === '/schedule'
   const [actionsOpen, setActionsOpen] = useState(false)
   const actionsRef = useRef(null)
 
@@ -244,7 +240,6 @@ function ScheduleShell() {
           </div>
         </div>
       </div>
-      {!isHome && <StatsBar />}
       <main className="app-main" key={refreshKey}>
         <Routes>
           <Route index element={<Navigate to="/schedule/home" replace />} />

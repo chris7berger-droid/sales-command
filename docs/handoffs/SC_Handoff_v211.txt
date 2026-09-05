@@ -1,0 +1,131 @@
+SC Handoff v211 — Schedule Command re-skin, chunk 1: gates GREEN + smoke-fix pass
+Date: 2026-09-04
+Branch: feat/schedule-reskin  (pushed; HEAD ~b105743; NOT merged, NOT deployed)
+Prior handoff: v210 (the build itself, step-by-step). This one = the 3 cold gates
++ the in-browser smoke-fix pass that followed.
+
+================================================================================
+SESSION SUMMARY
+================================================================================
+The chunk-1 build (v210) went through all three cold gates, then Chris smoke-
+tested on localhost and we fixed what surfaced. Everything below is on
+feat/schedule-reskin. Nothing is merged or deployed. We are now in SMOKE-FIX MODE:
+Chris drives the browser, flags issues, this/next terminal fixes them on the
+branch. Chris's read (and mine): smoke is surfacing LATENT pre-existing bugs the
+reskin exposed (Add Job is the archetype — it had been fully broken for a while).
+Expect more of these.
+
+Preview note (important): localhost hits the REAL shared DB. To preview, open
+http://localhost:5173/login DIRECTLY — the marketing homepage's Login buttons are
+hardcoded to prod (https://www.scmybiz.com/login), so going through the homepage
+bounces you to prod. Navigate to /schedule/... by typing URLs.
+
+================================================================================
+THE OTHER TERMINALS (cold gates) — all GREEN
+================================================================================
+1. /buildvsplan — 0 blockers; 1 Tier-2 (prtMap not passed to Staged/Scheduled/
+   Complete lists) FIXED (2853369). Smoke: GO. No schema changed.
+2. /code-review (high) — 0 ship-blockers. 3 Low nits filed as B84 (limiter verdict
+   = file, not fix): goBacksCount m&& guard; workload chart drops scheduled-no-date
+   jobs; Home job_changes fetch error unchecked.
+3. /security-review — 0 exploitable-today; safe to ship. 2 pre-existing notes
+   folded into B84: Home job_changes select('*') over-broad; Billing write-gate is
+   client-side (verify billing_worklist writes are Admin-gated server-side/RLS).
+
+================================================================================
+CHANGES SHIPPED THIS SESSION (smoke-fix pass, per commit)
+================================================================================
+2853369  buildvsplan fix — pass prtMap to all StageJobCard lists ([R1:G1]).
+3ab4e90  Remove the StatsBar day-strip (MON–SAT AVAIL/OUT) from all screens
+         (dropped its render + import + now-unused isHome/path/location/useLocation
+         in ScheduleLayout). StatsBar.jsx now a zero-import orphan.
+c4a68b5  Full-bleed: the taupe frame/top-gap was the HOST AppShell's inline
+         padding (App.jsx:414 [data-app-content] 28px/32px on C.linen). Added
+         [data-app-content]:has(.schedule-root){padding:0!important} — Schedule
+         only; Sales/Field keep their frame. (Earlier c-dbc96bc also made
+         .jh-wrap/.bill-surface full-bleed by removing their max-width columns.)
+03406e8  Jobs rows RESTORED. 5a had wrongly kept the old Jobs stage-tab *CardList
+         drill-in as the list. The plan = old Home BECOMES Jobs, and old Home's
+         list IS the JobsToPrepare component. Jobs now renders JobsToPrepare (its
+         compact rows that expand to the full StageJobCard), with capacity strip +
+         panels + signals + Recovery Bin + "Go to" menu above it. Added
+         initialStage prop to JobsToPrepare for ?tab= deep-links. Dropped the
+         *CardList imports + unused shell-filter helpers.
+d9f9131  Add Job FIXED. Root cause (verified vs prod): jobs.amount is a NUMERIC
+         column, but doAddJob wrote '$'+amount (a string) → every insert rejected
+         ("invalid input syntax for type numeric"). Now stores the raw number
+         (strip $/commas, null if blank) + surfaces the real error.message. Work
+         types: sprawling checkbox grid → compact scrollable dropdown.
+6957b45  Corrected the stale num() comment (jobs.amount is numeric, not a
+         "$45,000" string). NOTE: that stale claim was a CODE comment, not
+         CLAUDE.md — CLAUDE.md has no jobs.amount line.
+b103493  Add Job now force-refreshes the routed view after a successful insert
+         (setRefreshKey) so a newly-added job shows immediately (the add fires from
+         the shell; only the view owns its data load; realtime timing not
+         guaranteed). Verified job DID save — it was a stale-list issue.
+b105743  Filed F58 (below).
+
+Full build detail (the 6 plan steps) is in SC_Handoff_v210.txt — not repeated here.
+
+================================================================================
+BACKLOG — new/updated this session
+================================================================================
+F58 (T3, Open, PLAN-mode) — Manual "Add Job" dedups on job# and adds a
+    MOBILIZATION to the original job instead of creating a duplicate jobs row.
+    Chris's model: a job# is one job; "going out again" = a mobilization (already
+    modelled in job_mobilizations, incl. go-backs). doAddJob currently blind-
+    INSERTs → duplicates (job# 10252 now has Sales-linked job_id 1191 + manual
+    1278). The manual path had been fully broken (amount bug) until d9f9131, so
+    it's barely used; jobs normally come from Sales. Open design Qs in the row:
+    which job to attach to; should manual add exist at all; typo-vs-deliberate;
+    dup backfill. → /decide → ideate → plan (its OWN plan, NOT a reskin patch).
+B84 (T4, Open) — 3 code-review + 2 security-review nits from the gates (see above).
+    File-not-fix; do in one small pass. Security note (5) is a VERIFY: confirm
+    billing_worklist writes require Admin server-side.
+
+================================================================================
+NOT DONE / PENDING
+================================================================================
+- DUPLICATE job# 10252 cleanup: delete job_id 1278 (the manual "Dave Lee" row,
+  call_log_id NULL, 0 child rows — safe). Could NOT delete from the terminal (the
+  Supabase MCP is read-only). Do it IN-APP: on the Jobs screen, find 10252 (the
+  one with no Sales link, starts 9/11) and delete it (→ Recovery Bin, auto-purges
+  in 24h). Do NOT touch job_id 1191 (the real Sales job, call_log 3847).
+- In-browser smoke of Home's Recent Activity (job_changes) + Production vs Target
+  (daily_production_reports.tasks) with real data — still the runtime-only check.
+- Orphan files left in place (not on plan's delete list; confirm-and-delete
+  candidates): components/JobsToPrepare.jsx is NOW USED again (Jobs list) — no
+  longer orphan; components/BillingPicker.jsx + components/StatsBar.jsx ARE now
+  zero-import orphans.
+
+================================================================================
+NEXT SESSION POINTERS
+================================================================================
+- Mode = smoke-fix. Chris finds it, you fix it, on feat/schedule-reskin. Keep
+  commits small + one-concern. Rebuild (npm run build) after each; targeted eslint
+  on touched files (repo has 2 pre-existing ScheduleLayout lint errors +
+  queries.js:805 — ignore those).
+- localhost = real DB. Preview via localhost:5173/login direct (see top).
+- Before any merge to main: re-run the 3 cold gates (buildvsplan → code-review →
+  security-review) since the branch changed materially after they last ran.
+- F58 is its own plan-mode initiative — don't fold it into the reskin.
+- Resume pointer (~/.claude-commands/active-work.txt) updated + pushed to point
+  here.
+
+================================================================================
+FILES TO KNOW
+================================================================================
+Plan/contract:  docs/plans/schedule_reskin.md ([R1]/[R2] trap tags)
+Changed this session: src/schedule/ScheduleLayout.jsx (StatsBar removal, Add Job
+  amount+dropdown+refresh), src/schedule/App.css (full-bleed), src/schedule/views/
+  Jobs.jsx (JobsToPrepare rows), src/schedule/components/JobsToPrepare.jsx
+  (initialStage), src/schedule/lib/billingForecast.js (num comment), docs/BACKLOG.md
+Earlier (build): index.css, nav.js, FilterBar.jsx, queries.js (computeHomeDashboard),
+  Billing.jsx, Home.jsx. Deleted: views/Forecast.jsx, views/Budget.jsx,
+  components/JobsPicker.jsx.
+
+================================================================================
+GIT STATE
+================================================================================
+feat/schedule-reskin @ ~b105743 (+ this handoff commit), pushed to origin.
+Not merged, not deployed. Working tree clean after this commit.

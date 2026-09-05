@@ -4,7 +4,7 @@
 // Everything renders inside `.schedule-root` so App.css/index.css stay fenced
 // (Phase 2, Beat 5). Auth/access gate + duplicate sidebar from the old App.jsx
 // are dropped — the host handles login, entitlement, and navigation.
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import './App.css'
 import './index.css'
@@ -24,6 +24,7 @@ import ProductionRate from './views/ProductionRate'
 import JobDetail from './views/JobDetail'
 import Settings from './views/Settings'
 import Import from './views/Import'
+import WeeklyCapacityBand from './components/WeeklyCapacityBand'
 
 function flipName(n) {
   if (!n) return ''
@@ -62,6 +63,13 @@ function ScheduleShell() {
 
   const [actionsOpen, setActionsOpen] = useState(false)
   const actionsRef = useRef(null)
+
+  // The Weekly Crew Capacity band rides along on the functional screens (Crew
+  // Schedule / Calendar / Daily / Logistics). Home and Jobs render their own band
+  // inside their dashboards, so they're excluded here to avoid a double header.
+  const location = useLocation()
+  const BAND_PATHS = ['/schedule/schedule', '/schedule/calendar', '/schedule/daily', '/schedule/materials']
+  const showCapacityBand = BAND_PATHS.includes(location.pathname)
 
   // Dismiss the Actions menu on any outside click/touch.
   useEffect(() => {
@@ -261,6 +269,7 @@ function ScheduleShell() {
           </div>
         </div>
       </div>
+      {showCapacityBand && <WeeklyCapacityBand key={refreshKey} />}
       <main className="app-main" key={refreshKey}>
         <Routes>
           <Route index element={<Navigate to="/schedule/home" replace />} />

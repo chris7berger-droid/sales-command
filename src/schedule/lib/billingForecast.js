@@ -8,7 +8,8 @@
 import { getJobStatus } from './jobStatus'
 
 // ── numeric coercion ────────────────────────────────────────────────────────
-// jobs.amount is a "$45,000" string; invoice numerics may arrive as strings.
+// jobs.amount is a NUMERIC column (verified against prod 2026-09-04); older rows
+// or invoice numerics may still arrive as "$45,000"-style strings, so coerce both.
 export function num(v) {
   if (v == null) return 0
   if (typeof v === 'number') return v

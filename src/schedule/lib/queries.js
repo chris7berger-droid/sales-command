@@ -363,9 +363,13 @@ function normalizeJob(row) {
     jobsite_city:       cl.jobsite_city        || null,
     jobsite_state:      cl.jobsite_state       || null,
     jobsite_zip:        cl.jobsite_zip         || null,
-    prevailing_wage:    cl.prevailing_wage != null
-                          ? (cl.prevailing_wage ? 'Yes' : 'No')
-                          : row.prevailing_wage,
+    // PW lives in two places: the master (call_log, set from a proposal) AND the
+    // jobs row (the schedule's own PW checkbox writes here, and imported jobs carry
+    // the old sheet's PW here). Show PW if EITHER says so — preferring call_log
+    // alone was masking imported/hand-checked PW jobs whose master was blank/false.
+    prevailing_wage:    (cl.prevailing_wage === true
+                          || row.prevailing_wage === 'Yes' || row.prevailing_wage === true)
+                          ? 'Yes' : 'No',
     stage:              cl.stage               || null,
     customer_id:        cl.customer_id         || null,
     is_change_order:    cl.is_change_order     || false,

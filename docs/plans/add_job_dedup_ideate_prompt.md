@@ -374,8 +374,16 @@ Shop Work loop, since overhead is the only consumer.)
   **63, 94, 113, 140**) that bypass `loadJobs()`, so an orphan prints as a
   blank-customer line in exported schedule/materials/crew spreadsheets. **Mandatory
   fix:** route these through `loadJobs()` or append `.not('call_log_id','is',null)`
-  inline. (`StatsBar.jsx:53` is also raw but **safe** — it only joins jobs to
-  assignments, and orphans have none; leave it.)
+  inline. (`StatsBar.jsx:53` is also raw but **safe — corrected reason (buildvsplan
+  T2-1/T2-2, 2026-09-05):** NOT "orphans have no assignments" — that's false, §0's
+  phantom job 1278 carries a stray "Bash Dave" assignment. It's safe because
+  StatsBar's actual output (avail/out counts) is computed from crew + assignments
+  ONLY (lines 69–85) and never touches `jobs`; `jobs` is consumed solely as a
+  name-lookup in the day drill-down modal (line 102). The fixed "+ Job" flow can't
+  mint new orphan assignments, so any exposure is bounded to pre-existing
+  workstream-B data, and filtering it here would only swap the label `10252 - Dave
+  Lee` for `?` in that modal — worse, not better. Leave it; real cleanup is
+  workstream B retiring job 1278.)
 - **N5:** confirm `attachDepositState` (called inside `loadJobs`) is null-safe on
   orphan rows (null `call_log_id` → null-keyed deposit join); the Unallocated view
   is the only true `includeUnlinked:true` caller.

@@ -514,18 +514,23 @@ export async function loadJobs({ includeDeleted = false, includeUnlinked = false
 // Matching is on the BARE integer job_number (compared as text), plus customer /
 // job name — NEVER display_job_number, which is a composite label like
 // "10252 - Flattening" that a bare "10252" would not usefully match (R2). Because
-// job_number is an integer column, PostgREST can't ilike it server-side, and the
-// active call_log set is bounded (≈380 rows — one page, well under the 1000-row
-// cap), so we fetch once ordered by call_log.id and filter the term in JS rather
-// than run a paginated server scan. Callers debounce input; result capped so the
-// dropdown stays a picker, not a data dump.
+// job_number is an integer column, PostgREST can't ilike it server-side, so the
+// term is matched in JS. The fetch is PAGINATED via loadAllRows on the qualified
+// base key call_log.id (buildvsplan T2-1): the active set is ~380 today — one
+// page — but ordering id-DESC without paging would silently drop the OLDEST
+// call_logs once the set crosses PostgREST's 1000-row cap, wrongly blocking a
+// trip on a long-running old job (the exact R2 failure). Paging removes that
+// cliff (one request until the set really exceeds 1000). loadAllRows tolerates
+// the embed: each paged row is a call_log row and the nested jobs come along.
+// Callers debounce input; result capped so the dropdown stays a picker.
 export async function searchExistingJobs(term) {
   const q = (term || '').trim().toLowerCase()
   if (!q) return { data: [], error: null }
-  const { data, error } = await supabase
-    .from('call_log')
-    .select('id, job_number, display_job_number, customer_name, job_name, jobs!inner(job_id, deleted)')
-    .order('id', { ascending: false })
+  const { data, error } = await loadAllRows(
+    'call_log',
+    'id, job_number, display_job_number, customer_name, job_name, jobs!inner(job_id, deleted)',
+    { orderBy: 'id', orderAsc: false },
+  )
   if (error) return { data: [], error }
   const out = []
   for (const cl of data || []) {

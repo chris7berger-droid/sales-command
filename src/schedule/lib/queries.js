@@ -1543,6 +1543,12 @@ export function computeHomeDashboard({
   // screen omits them (safe defaults), so this stays one canonical function.
   prtMap = new Map(), mobsByJobId = {},
 }) {
+  // Roster counts (Crew Available, per-day capacity denominators) must reflect
+  // ACTIVE crew only. Callers fetch crew with select('*'), which includes
+  // archived rows — filter them here so every scoreboard fed by this function
+  // agrees with the (active-only) Crew List. Matches activeCrew in ScheduleLayout.
+  crew = crew.filter(c => c.archived !== 'Yes')
+
   const crewByWeek = buildCrewByCallLog(jobs, weekAssignments)
   const crewByAll = buildCrewByCallLog(jobs, allAssignments)
 

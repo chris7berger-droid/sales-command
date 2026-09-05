@@ -31,6 +31,36 @@ The **grid** counts crew by the job row itself → shows the phantom's 1 assignm
 The **Next Up card** checks crew through the Sales/call-log link → the phantom has
 none → "not assigned." Two views, two answers, because the data is wrong.
 
+## §0 Reproduction (observed, verified 2026-09-04/05)
+
+**Trigger (third-party reproducible):** In Schedule Command → click **"+ Job"** →
+enter a job number that already exists (e.g. `10252`) → fill the form → **Add**.
+`doAddJob` (`src/schedule/ScheduleLayout.jsx:100`) runs
+`supabase.from('jobs').insert([row])` with **no existence check and no
+`call_log_id`** → a second, unlinked `jobs` row is created.
+
+**Observed pre-fix state — run-verified against prod `pbgvgjjuhnpsumnowuym`:**
+- `10252` has two rows: `job_id 1191` (real, `call_log_id 3847`, fully crewed) +
+  `job_id 1278` (phantom, `call_log_id NULL`, 1 stray "Bash Dave" assignment).
+  ```sql
+  select job_id, job_num, call_log_id, crew_needed from jobs where job_num='10252';
+  -- 1191 | 10252 | 3847 | (crewed)   ← real
+  -- 1278 | 10252 | NULL | (phantom)  ← manual add
+  ```
+- **Systemic:** 289 active jobs; **42** job#s have duplicate rows; **67** active
+  jobs have `call_log_id IS NULL`; of the 42 dupes, **8** are phantoms (null-
+  call_log) and **34** are multiple Sales-linked rows (legit change orders sharing
+  a job#). (Query in "Useful queries" below.)
+
+**Gate evidence (why two views disagree):** the crew grid keys crew by `job_id`
+→ shows the phantom's 1 assignment. `computeHomeDashboard` → `buildCrewByCallLog`
+(`src/schedule/lib/queries.js`) keys crew by `call_log_id` → the phantom's is
+NULL → "Crew not assigned." Two readers, two answers, because a null-`call_log_id`
+row exists at all. Read-verified in code + run-verified in prod.
+
+**Baseline verification:** run-verified (prod SQL, 2026-09-04) + read-verified
+(code paths `doAddJob`, `importData.js` internal bucket, `buildCrewByCallLog`).
+
 ## Chris's mental model (the starting hypothesis — NOW REFINED + LOCKED, see Identity model below)
 
 > **RESOLVED 2026-09-05.** The hypothesis was right for go-backs but needed one
@@ -223,3 +253,160 @@ select (select count(*) from dups) as dup_jobnums,
 -- the 10252 example
 select job_id, job_num, job_name, call_log_id, crew_needed, deleted from jobs where job_num='10252' order by job_id;
 ```
+
+---
+
+# BUILD PLAN — [workstream A: ship now] 2026-09-05
+
+Written in the ID8 terminal with full ideate context (no /decide handoff, per
+Chris). Scope = workstream A only (forward fix + guardrail). Workstream B (manual
+allocation of the 67) and F59 (overhead report) are explicitly out.
+
+## Outcome (what "done" looks like)
+
+- The schedule "+ Job" button can no longer create a floating, unlinked job.
+- Three outcomes only: attach a **mobilization** to an existing job, **block** a
+  new customer job ("create in Sales first"), or create a **Shop Work** overhead
+  record.
+- The import tool's "internal bucket" writes **Shop Work overhead records**, not
+  null-`call_log_id` rows.
+- Invariant holds in prod: **no code path writes a `jobs` row with a null
+  `call_log_id`.** Any remaining null row is therefore, by definition, an
+  un-migrated orphan awaiting workstream-B allocation.
+- The 10252 "Crew not assigned" mismatch stops being produced going forward
+  (existing instance handled in B).
+
+## Ground truth (verified 2026-09-04/05, prod pbgvgjjuhnpsumnowuym)
+
+- `jobs`: `call_log_id bigint NULL`, `status text default 'Parked'`,
+  `is_change_order bool`, `co_number int`, `deleted text 'Yes'/'No'`. No overhead
+  flag exists. ("Parked" already means new-job default — do NOT reuse it for
+  orphans.)
+- `call_log` (Sales record) has no overhead flag (see CLAUDE.md column ref).
+- `job_mobilizations` already has `is_go_back` + `addJobMobilization()` in
+  `src/schedule/lib/queries.js` — reuse as-is.
+- Clean "Send to Schedule" (`ProposalDetail.jsx:752`) already stamps
+  `call_log_id` — that path is correct and untouched.
+
+## Schema change (author in `command-suite-db`, NOT here)
+
+Per repo rule, DB changes live in `command-suite-db` (`npm run db:push` there),
+rehearsed first (`scripts/rehearse.sh`). One column:
+
+1. **`call_log.is_overhead boolean NOT NULL DEFAULT false`** — marks a Sales
+   record as no-customer overhead (shop work / training). Standard tenant RLS
+   already applies (inherited by column). No anon grant needed — `call_log` is
+   authenticated-only and no public page selects it (confirm against
+   `check-public-select-grants` — expected no-op).
+
+**Derived state, no column:** "Unallocated" = `jobs.call_log_id IS NULL`. After
+this fix that state is unambiguous (nothing writes it intentionally — overhead
+rows carry their overhead `call_log_id`). So the parking bucket is a filter, not
+a new field.
+
+## Code changes (all in `sales-command`)
+
+**Step 1 — Rework the "+ Job" flow** (`src/schedule/ScheduleLayout.jsx`,
+`doAddJob` + Add Job modal, lines ~90–317).
+- Remove the blind `supabase.from('jobs').insert([row])`.
+- Add a **searchable dropdown** of existing Sales jobs (source: `call_log` joined
+  to its `jobs` row; show `display_job_number` · customer · job_name). New helper
+  in `queries.js` e.g. `searchExistingJobs(term)`.
+- Resolve to one of three outcomes:
+  - **Existing job picked** → "Add mobilization" panel → **"Is this go-back
+    work?"** checkbox → existing crew/dates/prevailing-wage inputs → call the
+    existing `addJobMobilization(job_id, {…, is_go_back})`. No new `jobs` row.
+  - **Typed job# not found in Sales** → **block** with message *"Job #### isn't in
+    Sales yet — create it in Sales first."* No insert.
+  - **Shop Work button** (see Step 2).
+
+**Step 2 — Shop Work creation** (shared helper `createShopWorkRecord()` in
+`queries.js`; entry points: schedule "+ Job" modal button + a Sales-side action).
+- Insert a `call_log` row with `is_overhead=true`, `customer_id=null`, a generated
+  hidden identifier (no user-facing job#), then create its linked `jobs` row
+  (`call_log_id` set) exactly like Send-to-Schedule does — so it obeys the
+  invariant.
+- Button copy: *"This work has no customer. It's overhead to the business."*
+- Overhead records must be excluded from customer-billing surfaces (they have no
+  customer) — verify billing/forecast readers skip `is_overhead` (see Step 5).
+
+**Step 3 — Import path** (`src/schedule/lib/importData.js`, ~line 145–162).
+- The "Internal bucket" branch (`clId = null`) must instead create an **overhead
+  `call_log` record** per internal job and link the imported `jobs` row to it —
+  reuse `createShopWorkRecord()` logic. Result: import produces zero null-
+  `call_log_id` rows.
+
+**Step 4 — Parking bucket + live-view exclusion** (`queries.js`,
+`computeHomeDashboard`/`buildCrewByCallLog` + Jobs/Schedule list readers).
+- Add a dedicated **"Unallocated" view** listing `jobs WHERE call_log_id IS NULL
+  AND deleted='No'`.
+- **Exclude** those same rows from Home "Next Up", Jobs list, and the crew grid so
+  orphans stop cluttering / mis-reporting. This makes the dashboard read path safe
+  without rewriting crew keying (Q5 resolution).
+
+**Step 5 — Overhead billing safety** (billing readers:
+`src/schedule/lib/billingForecast.js`, billing worklist).
+- Confirm overhead records (no customer, `is_overhead`) never enter billing/
+  forecast/pay-app surfaces. Add an `is_overhead` exclusion where those readers
+  key off `call_log_id`.
+
+## UI / layout (per UI-first rule)
+
+Add Job modal, redesigned — preserves the existing field set:
+```
+┌ Add to Schedule ───────────────────────────┐
+│  [ 🔎 Search existing job by #, customer…  ]│  ← dropdown of Sales jobs
+│                                             │
+│  (on pick)  ▸ Job #10231 · Acme · Ste 200   │
+│             ☐ Is this go-back work?          │
+│             Crew# [ ] Lead [ ] Dates [ ][ ]  │  ← existing inputs
+│             ☐ Prevailing wage    [ Add trip ]│
+│                                             │
+│  ─ or ─                                      │
+│  [ + Shop Work (no customer · overhead) ]    │
+│                                             │
+│  Typed a # not in Sales?  → "Create it in    │
+│  Sales first."  (blocks, links to Sales)     │
+└─────────────────────────────────────────────┘
+```
+Style per CLAUDE.md (linen bg, teal buttons w/ black text). End the build with an
+in-browser verify against the design system.
+
+## Files to touch
+
+- `src/schedule/ScheduleLayout.jsx` — `doAddJob`, Add Job modal (Steps 1–2).
+- `src/schedule/lib/queries.js` — `searchExistingJobs`, `createShopWorkRecord`,
+  live-view exclusion, Unallocated view (Steps 1,2,4).
+- `src/schedule/lib/importData.js` — internal bucket → overhead (Step 3).
+- `src/schedule/lib/billingForecast.js` — overhead exclusion (Step 5).
+- Sales-side entry point for Shop Work (component TBD in build — likely a
+  `CallLog`/`NewInquiryWizard` action).
+- `command-suite-db` — the `call_log.is_overhead` migration (separate repo).
+
+## Out of scope (do NOT build here)
+
+- **Workstream B:** manual allocation/merge of the existing 67 orphans + 8
+  phantoms (incl. retiring 10252 job_id 1278). Parked worklist; Chris researches.
+- **F59:** overhead-hours cost report.
+- No hard DB uniqueness constraint on `job#` (breaks change orders).
+
+## Verification / smoke (run before calling done)
+
+1. "+ Job" → pick existing job → add mobilization → confirm **one** new
+   `job_mobilizations` row, **zero** new `jobs` rows; go-back checkbox sets
+   `is_go_back`.
+2. "+ Job" → type a job# not in Sales → **blocked**, no insert.
+3. Shop Work → creates one `call_log` (`is_overhead=true`, no customer) + one
+   linked `jobs` row; appears on schedule; **absent** from billing/forecast.
+4. Run import on a throwaway with an internal-bucket job → produces an overhead
+   record, **zero** null-`call_log_id` rows.
+5. Dashboard: a normal job shows crew consistently on grid AND Next Up (no
+   mismatch); an orphan (if any remain) appears only in the Unallocated view.
+6. `npm run build` clean; in-browser design check.
+
+## §7 Estimate
+
+- **Code:** ~300–400 lines across 4 files (`ScheduleLayout.jsx`, `queries.js`,
+  `importData.js`, `billingForecast.js`) + 1 additive migration in
+  `command-suite-db` + a Sales-side Shop Work entry point.
+- **Build time budget:** ~150 min (workstream A only; B + F59 excluded).

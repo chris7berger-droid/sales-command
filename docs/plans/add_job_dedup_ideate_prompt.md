@@ -160,20 +160,21 @@ Clicking "+ Job" on the schedule resolves to one of three outcomes:
    NOT in workstream A. The design decision stands; only the build order changed.)*
 
 Net effect (end-state, across workstream A + the Shop Work loop): the blind `jobs`
-INSERT in `doAddJob` is gone, "Send to Schedule" refuses a null-`call_log_id`
-send, and every remaining path attaches to a Sales record, bounces to Sales, or
-creates a typed overhead record. No path produces a schedule row with a null
-`call_log_id`. **In workstream A alone**, the button + Send-to-Schedule are closed
-and orphans are hidden; the import writer is closed later in the Shop Work loop.
+INSERT in `doAddJob` is gone, and every remaining path attaches to a Sales record,
+bounces to Sales, or creates a typed overhead record. No path produces a schedule
+row with a null `call_log_id`. **In workstream A alone**, the button is closed and
+orphans are hidden; the import writer is closed later in the Shop Work loop.
+*(rev2: "Send to Schedule" is NOT a live phantom source — prod 0/378 — so it is
+not part of A; see Guardrail writer #3.)*
 
 ## Scope split — [LOCKED 2026-09-05]
 
 The forward fix and the cleanup are **independent** and ship separately:
 
 - **Ship now (workstream A):** new "+ Job" button (dropdown → mobilization + go-back
-  checkbox; block new-customer jobs → "create in Sales first") + the
-  Send-to-Schedule guard + hide orphans. UI-level; does not depend on clean data.
-  *(rev1: Shop Work button split into its own loop — see below.)*
+  checkbox; block when no Sales job) + hide orphans (incl. exports). UI-level; does
+  not depend on clean data. *(rev1: Shop Work split out. rev2: Send-to-Schedule
+  guard dropped — dead code, prod 0/378.)*
 - **Shop Work loop (`docs/plans/shop_work_overhead_type.md`):** the overhead
   record type — Shop Work button, `is_overhead` column, import→overhead, Field
   sync + UI, billing exclusion. Split out after round-1 audit (carries findings
@@ -191,22 +192,22 @@ Workstream A does not wait on B.
 
 - **No hard DB uniqueness on job#.** A "one row per job number" constraint would
   break legit change orders (which share a job#) and choke on the existing dupes.
-- **Prevention lives at the app layer, across FOUR job-writers** (round-1 audit
-  corrected the earlier "two"):
-  1. `doAddJob` "+ Job" button → dropdown/mobilization/block. **[workstream A]**
-  2. **"Send to Schedule"** (`ProposalDetail.jsx:729`, writes `call_log_id ||
-     null`) → block when the proposal has no `call_log_id`. **[workstream A]**
-     (This was wrongly exempted as "correct and untouched" — it is a real phantom
-     source for archive-origin proposals.)
+- **Prevention lives at the app layer. Job-writers (round-2 corrected):**
+  1. `doAddJob` "+ Job" button → dropdown/mobilization/block. **[workstream A —
+     the one live phantom source.]**
+  2. **"Send to Schedule"** (`ProposalDetail.jsx:729`, `call_log_id || null`) →
+     **NOT a live source, not touched.** Prod: 0/378 proposals have a null
+     `call_log_id`; `ArchiveProposalModal.jsx:100` always sets it, so `|| null` is
+     inert. (Round-1 "guard it" was a misdiagnosis; round-2 verified vs prod.)
   3. `importData.js` "Internal bucket" (deliberate `call_log_id = null`, the old
      BuilderTrend 1111 shop work) → becomes a Shop Work overhead record.
      **[Shop Work loop]** — still writes nulls until then; parked (1 tenant,
      onboarding-only), and hidden as orphans by A's reader exclusion meanwhile.
   4. `createShopWorkRecord` (new). **[Shop Work loop]**
 - **Invariant (end-state, after both loops):** a null `call_log_id` on a schedule
-  row *always* means "bug / unallocated," never "intentional." Workstream A makes
-  it hold for the two live writers (button, Send-to-Schedule) and hides existing
-  nulls; the import writer is closed in the Shop Work loop. That single
+  row *always* means "bug / unallocated," never "intentional." Workstream A closes
+  the one live writer (the "+ Job" button) and hides existing nulls everywhere
+  (grids + exports); the import writer is closed in the Shop Work loop. That single
   unambiguous rule is what makes the dashboard read path safe (killed the 10252
   mismatch) and prevents recurrence.
 
@@ -270,29 +271,28 @@ select job_id, job_num, job_name, call_log_id, crew_needed, deleted from jobs wh
 
 ---
 
-# BUILD PLAN — [workstream A: ship now] 2026-09-05 · rev1 (round-1 audit response)
+# BUILD PLAN — [workstream A: ship now] 2026-09-05 · rev2 (round-2 audit response)
 
 Written in the ID8 terminal with full ideate context (no /decide handoff, per
-Chris). **Scope narrowed after round-1 audit (2026-09-05):** Shop Work + the
-import-overhead rework are SPLIT into their own loop (see
-`docs/plans/shop_work_overhead_type.md`), because they carry ~half the risk
-(atomicity, Field-crew visibility, billing leakage) for a fix whose real job is
-"stop new unlinked jobs." Chris ratified the split.
+Chris). Shop Work + import-overhead are SPLIT into their own loop (see
+`docs/plans/shop_work_overhead_type.md`), ratified after round 1.
 
-**Workstream A now = the guardrail only:** close every path that can create a
-null-`call_log_id` job, hide the orphans that already exist, and route the "+ Job"
-button to a mobilization. No new column, no Shop Work, no import change here.
+**Round-2 audit (verified vs prod) killed two round-1 fixes that were written
+against the wrong field:** the Send-to-Schedule guard guarded nothing (0/378
+proposals have a null link), and the "not in Sales" match keyed on a composite
+label so it would have blocked *every* job. Both corrected below.
+
+**Workstream A = the guardrail only:** route the "+ Job" button to a mobilization
+or a clean block, and hide the orphans that already exist. One writer actively
+fixed (the button), no new column, no Shop Work, no import change.
 
 ## Outcome (what "done" looks like)
 
 - The schedule "+ Job" button can no longer create a floating, unlinked job —
-  it either attaches a **mobilization** to an existing job or **blocks** ("create
-  it in Sales first").
-- **"Send to Schedule" can no longer create an unlinked job either** — it is a
-  4th job-writer that today writes `call_log_id: null` for archive-origin
-  proposals (`ProposalDetail.jsx:729`). It gets the same block.
-- Existing orphans (null `call_log_id`) are **hidden from every live view** and
-  surface only in a dedicated "Unallocated" bucket.
+  it either attaches a **mobilization** to an existing job (resolved by the picked
+  job's `job_id`) or **blocks** ("create it in Sales first").
+- Existing orphans (null `call_log_id`) are **hidden from every live view**,
+  including exports, and surface only in a dedicated "Unallocated" bucket.
 - The 10252 "Crew not assigned" mismatch stops being produced going forward, and
   the existing instance reads as "unallocated" (existing-data merge handled in B).
 
@@ -301,23 +301,30 @@ bucket" rows until the Shop Work loop lands. Those rows are hidden as orphans by
 this workstream's reader exclusion, and import only runs per new-tenant onboarding
 (1 tenant live) — parked as a known writer, not a regression.
 
-## Ground truth (verified 2026-09-04/05, prod pbgvgjjuhnpsumnowuym)
+## Ground truth (verified 2026-09-04/05, re-verified vs prod 2026-09-05)
 
-- **Four job-writers exist** (round-1 audit corrected the earlier "two"):
+- **Job-writers (round-2 corrected):**
   1. `doAddJob` — the "+ Job" button (`ScheduleLayout.jsx:100`, blind insert).
+     **The one live phantom source. Fixed in A (Step 1).**
   2. `applyImport` — import "internal bucket" (`importData.js:149`, deliberate
      null). → deferred to Shop Work loop; parked.
-  3. **Send to Schedule** (`ProposalDetail.jsx:729`) — `call_log_id: p.call_log_id
-     || null`; an archive-origin proposal has a null `call_log_id`, so this
-     canonical path DOES create phantoms. NOT "correct and untouched" (prior claim
-     was wrong).
+  3. **Send to Schedule** (`ProposalDetail.jsx:729`, `call_log_id: p.call_log_id
+     || null`) — **NOT a live phantom source.** Prod: **0/378** active proposals
+     have a null `call_log_id`; `ArchiveProposalModal.jsx:100` always sets
+     `call_log_id: selJob.id`, so the `|| null` never resolves to null. The
+     round-1 "guard it" finding was a misdiagnosis — no A change here.
   4. `createShopWorkRecord` — new, in the Shop Work loop.
+- `job_number` is a **bare integer**; `display_job_number` is a **composite label**
+  (`"10276 - Grind & Seal…"`, `"10017 CO1 - …"`) — verified in prod. Match logic
+  must use `job_number`, never the label (see Step 1 / R2).
 - `jobs`: `call_log_id bigint NULL`, `status text default 'Parked'`,
-  `deleted text 'Yes'/'No'`. ("Parked" is the new-job default — do NOT reuse it for
-  orphans; the orphan signal is `call_log_id IS NULL`.)
-- `job_mobilizations` already has `is_go_back` + `addJobMobilization()` — reuse.
-- Central job loader = `loadJobs()` (`queries.js:481`), selects `CALL_LOG_SELECT`
-  + `normalizeJob`. This is the one chokepoint to add the orphan filter (finding B).
+  `deleted text 'Yes'/'No'`. (Orphan signal = `call_log_id IS NULL`.)
+- `job_mobilizations` already has `is_go_back` + `addJobMobilization()`
+  (`queries.js:1220`), called by **two** sites: the new "+ Job" flow AND
+  `MobsModal.jsx:103` — so the parent-null guard belongs in the function (N1).
+- Central list loader = `loadJobs()` (`queries.js:481`, current signature
+  `{includeDeleted, withWTCs}`). Most grids route through it, but `exports.js`
+  (4 raw reads) and `StatsBar.jsx:53` do not (N3).
 
 ## Derived state (no new column in A)
 
@@ -329,42 +336,49 @@ Shop Work loop, since overhead is the only consumer.)
 ## Code changes (all in `sales-command` — no migration in A)
 
 **Step 1 — Rework the "+ Job" flow** (`src/schedule/ScheduleLayout.jsx`,
-`doAddJob` + Add Job modal). Integrates findings G + H.
+`doAddJob` + Add Job modal). Integrates R2, G, H, N1, N2.
 - Remove the blind `supabase.from('jobs').insert([row])`.
-- New helper `searchExistingJobs(term)` in `queries.js`: source from
-  **`call_log` INNER JOIN `jobs`** (INNER drops phantoms so a phantom parent can
-  never be picked); return `job_id, display_job_number, customer, job_name`. Use
-  `loadAllRows` (PostgREST 1000-cap safe), `orderBy: 'id'`, `deleted<>'Yes'`,
-  input **debounced**.
+- New helper `searchExistingJobs(term)` in `queries.js` (N2 — spec it precisely):
+  base table **`call_log`**, embed **`jobs!inner(...)`** (inner embed drops
+  phantoms so a phantom parent can never be picked); return
+  `{ job_id, call_log_id, job_number, display_job_number, customer, job_name }`.
+  Paginate with a **qualified order column** (`call_log.id`); confirm
+  `loadAllRows` `.range()` tolerates the embed, else write a bespoke paginated
+  query — do NOT cite `loadAllRows` blindly (its signature is single-table). Input
+  **debounced**; filter `jobs.deleted<>'Yes'`.
 - Two outcomes only in A:
-  - **Existing job picked** → "Add mobilization" panel → **"Is this go-back
-    work?"** checkbox → existing crew/dates/prevailing-wage inputs →
-    `addJobMobilization(job_id, {…, is_go_back})`. **Refuse** if the picked
-    parent has a null `call_log_id` (never attach a mobilization that inherits the
-    orphan). No new `jobs` row.
-  - **Typed job# not found** → **block**: *"Job #### isn't in Sales yet — create
-    it in Sales first."* No insert. Match on **one canonical field
-    (`display_job_number`), normalized** (trim + string compare) — do not mix
-    `job_number` / `job_num` (format skew mis-blocks; finding G).
+  - **Existing job picked from the dropdown** → resolve by the row's **`job_id`**
+    (never re-derive from typed text) → "Add mobilization" panel → **"Is this
+    go-back work?"** checkbox → existing crew/dates/prevailing-wage inputs →
+    `addJobMobilization(job_id, {…, is_go_back})`. No new `jobs` row.
+  - **Typed text matches nothing** → **block**: *"Job #### isn't in Sales yet —
+    create it in Sales first."* No insert.
+- **R2 — match key:** the search matches on **`call_log.job_number`** (the bare
+  integer, compared as `::text`), NOT `display_job_number` (a composite label like
+  `"10252 - Flattening"` — a bare "10252" never equals it, which would block every
+  job). The label is display-only.
+- **N1 — parent guard in the function:** put the "refuse if parent has null
+  `call_log_id`" check **inside `addJobMobilization()`** (`queries.js:1220`), not
+  in the "+ Job" caller — because `MobsModal.jsx:103` also calls it. (The dropdown
+  inner-embed already prevents picking a phantom on the "+ Job" side; the function
+  guard covers the other caller.)
 - (Shop Work button is NOT in A — it arrives with the Shop Work loop.)
 
-**Step 2 — Guard "Send to Schedule"** (`src/components/ProposalDetail.jsx:729`).
-Integrates finding A (the High).
-- Block the send when `!p.call_log_id`: *"This job isn't linked to a Sales record
-  — create it in Sales first,"* mirroring the "+ Job" block. Prevents the
-  archive-origin phantom at the canonical writer. Add `ProposalDetail.jsx` to the
-  touch list (it was wrongly exempted before).
-
-**Step 3 — Hide orphans centrally + Unallocated bucket** (`queries.js`).
-Integrates finding B.
-- Add `.not('call_log_id','is',null)` (plus `deleted<>'Yes'`) **once, in
-  `loadJobs()`** (`queries.js:481`) — the single chokepoint — behind an opt-out
-  param (`includeUnlinked = false`) so the Unallocated view can request them.
-- **Audit every live reader** to confirm it routes through `loadJobs()`; any that
-  query `jobs` directly must be pointed at it or get the same filter. Readers to
-  verify (from audit): `Schedule.jsx:165`, `Calendar.jsx:234`, `Daily.jsx:98`,
-  `Materials.jsx:35`, `Schedules.jsx:128`, `StatsBar.jsx:53`, `exports.js`, plus
-  `computeHomeDashboard`/Jobs list.
+**Step 2 — Hide orphans across ALL readers + Unallocated bucket** (`queries.js`,
+`exports.js`). Integrates B + N3 + N5.
+- Add `includeUnlinked = false` to `loadJobs()` (`queries.js:481` — the param does
+  NOT exist yet); when false, append `.not('call_log_id','is',null)`. Most grids
+  already route through `loadJobs()` (Schedule/Calendar/Daily/Materials/Schedules/
+  Home/Jobs) — that's a **verify, largely no-op**, not the fix.
+- **The real leak is `exports.js`** — 4 raw `from('jobs')` reads (lines
+  **63, 94, 113, 140**) that bypass `loadJobs()`, so an orphan prints as a
+  blank-customer line in exported schedule/materials/crew spreadsheets. **Mandatory
+  fix:** route these through `loadJobs()` or append `.not('call_log_id','is',null)`
+  inline. (`StatsBar.jsx:53` is also raw but **safe** — it only joins jobs to
+  assignments, and orphans have none; leave it.)
+- **N5:** confirm `attachDepositState` (called inside `loadJobs`) is null-safe on
+  orphan rows (null `call_log_id` → null-keyed deposit join); the Unallocated view
+  is the only true `includeUnlinked:true` caller.
 - Add a dedicated **"Unallocated" view** = `loadJobs({ includeUnlinked: true })`
   filtered to null-`call_log_id`, so orphans are worked from one place (workstream
   B allocates them).
@@ -381,8 +395,8 @@ Add Job modal, redesigned — preserves the existing field set:
 │             Crew# [ ] Lead [ ] Dates [ ][ ]  │  ← existing inputs
 │             ☐ Prevailing wage    [ Add trip ]│
 │                                             │
-│  Typed a # not in Sales?  → "Create it in    │
-│  Sales first."  (blocks, links to Sales)     │
+│  Typed text matches nothing?  → "Create it   │
+│  in Sales first."  (blocks, links to Sales)  │
 └─────────────────────────────────────────────┘
    (Shop Work button added in the Shop Work loop)
 ```
@@ -392,13 +406,20 @@ in-browser verify against the design system.
 ## Files to touch (A)
 
 - `src/schedule/ScheduleLayout.jsx` — `doAddJob`, Add Job modal (Step 1).
-- `src/schedule/lib/queries.js` — `searchExistingJobs`, `loadJobs` orphan filter +
-  `includeUnlinked` param, Unallocated view (Steps 1, 3).
-- `src/components/ProposalDetail.jsx` — Send-to-Schedule null-`call_log_id` guard
-  (Step 2).
-- Live readers listed in Step 3 — verify each routes through `loadJobs()`.
-- **No migration, no `command-suite-db`, no `importData.js`, no
-  `billingForecast.js` in A** (all moved to the Shop Work loop).
+- `src/schedule/lib/queries.js` — `searchExistingJobs` (call_log + jobs!inner),
+  parent-null guard **inside `addJobMobilization`** (covers `MobsModal` too),
+  `loadJobs` `includeUnlinked` param + orphan filter, `attachDepositState`
+  null-safety, Unallocated view (Steps 1, 2).
+- `src/schedule/lib/exports.js` — 4 raw `from('jobs')` reads (63/94/113/140) get
+  the orphan filter (Step 2, N3) — **the real leak.**
+- **NOT touched:** `ProposalDetail.jsx` (R1 — guard was dead code, dropped),
+  `StatsBar.jsx` (raw but safe), `importData.js`/`billingForecast.js`/
+  `command-suite-db` (Shop Work loop). No migration.
+- **Field / PowerSync — no A change needed** (round-2 disproved the worry):
+  orphans sync to phones but **cannot render** — every Field entry point drives
+  off `call_log WHERE stage IN(...)` and resolves jobs by `call_log_id`, so a
+  null-`call_log_id` orphan is unreachable on-device (`HomeScreen.js:60`,
+  `TasksTab.js:104`). Residual wasted sync bandwidth only → Shop Work loop.
 
 ## Out of scope (do NOT build here)
 
@@ -412,24 +433,23 @@ in-browser verify against the design system.
 
 ## Verification / smoke (run before calling done)
 
-1. "+ Job" → pick existing job → add mobilization → **one** new
+1. "+ Job" → search an existing job by its **bare number** (e.g. `10252`) → it
+   appears in the dropdown → pick it → add mobilization → **one** new
    `job_mobilizations` row, **zero** new `jobs` rows; go-back checkbox sets
-   `is_go_back`.
-2. "+ Job" → type a job# not in Sales (and a format-skewed one — leading zero / CO
-   suffix) → **blocked**, no insert, and a legit job is NOT wrongly blocked.
-3. "Send to Schedule" on an **archive-origin proposal (null `call_log_id`)** →
-   **blocked**, no `jobs` row written.
-4. Orphan job (null `call_log_id`) is **absent from every live reader** in Step 3
-   and appears **only** in the Unallocated view.
-5. Picking a job in the dropdown never surfaces a phantom (INNER JOIN); mobilization
-   refused on a null-`call_log_id` parent.
-6. `npm run build` clean; in-browser design check.
+   `is_go_back`. (R2 guard: a real job is NOT wrongly blocked.)
+2. "+ Job" → type a number with no Sales job → **blocked**, no insert.
+3. `addJobMobilization` on a null-`call_log_id` parent is refused **from both**
+   the "+ Job" flow and `MobsModal` (N1).
+4. Orphan job (null `call_log_id`) is **absent from every live reader AND from an
+   actual schedule/materials export run with an orphan present** (N4), and appears
+   **only** in the Unallocated view.
+5. `npm run build` clean; in-browser design check.
 
-## §7 Estimate (rev1)
+## §7 Estimate (rev2)
 
-- **Code:** ~200–260 lines across 3 files (`ScheduleLayout.jsx`, `queries.js`,
-  `ProposalDetail.jsx`) + reader-routing verification. **No migration.**
-- **Build time budget:** ~120 min (workstream A only).
+- **Code:** ~180–230 lines across 3 files (`ScheduleLayout.jsx`, `queries.js`,
+  `exports.js`). **No migration; `ProposalDetail.jsx` no longer touched.**
+- **Build time budget:** ~110 min (workstream A only).
 
 ---
 

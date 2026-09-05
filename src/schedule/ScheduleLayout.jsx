@@ -117,6 +117,10 @@ function ScheduleShell() {
     if (error) { console.error(error); toast(`Couldn’t add job: ${error.message}`, 'err'); return }
     toast('Job added', 'ok')
     closeModal()
+    // Force the routed view to remount + refetch so the new job shows immediately
+    // (the add happens from the shell; the view owns its own data load, and
+    // realtime timing isn't guaranteed). Same mechanism as the Refresh button.
+    setRefreshKey(k => k + 1)
   }
 
   // --- Add Crew ---

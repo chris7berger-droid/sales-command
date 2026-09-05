@@ -145,7 +145,10 @@ export default function Jobs() {
     const weStr = dates[dates.length - 1]
     const [jobsRes, assignRes, billRes, matsRes, logsRes, crewRes, csRes] = await Promise.all([
       loadJobs({ withWTCs: true }),
-      supabase.from('assignments').select('*'),
+      // Paginated: the assignments table is >1000 rows, so a plain select('*')
+      // silently caps at 1000 and drops most of the current week — which zeroed
+      // the capacity strip's per-day Assigned counts.
+      loadAllRows('assignments', '*', { orderBy: 'id' }),
       loadBillingWorklist(),
       loadAllRows('job_material_lines', 'id, job_id, status', { orderBy: 'id' }),
       loadAllRows('daily_log_entries', 'id, job_id', { orderBy: 'id' }),
@@ -163,7 +166,7 @@ export default function Jobs() {
     const csMap = {}
     for (const c of (csRes.data || [])) csMap[c.crew_name + '|' + c.date] = c.status
     setCrewStatusMap(csMap)
-    setSyncWarning(matsRes.partial || logsRes.partial ? 'Counts may be stale — partial data loaded' : null)
+    setSyncWarning(assignRes.partial || matsRes.partial || logsRes.partial ? 'Counts may be stale — partial data loaded' : null)
 
     const loadedJobs = jobsRes.data || []
 

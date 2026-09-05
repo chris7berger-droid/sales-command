@@ -47,7 +47,10 @@ export default function Home() {
     const weStr = dates[dates.length - 1]
     const [jobsRes, allAsgnRes, weekAsgnRes, crewRes, csRes, matsRes, billRes, actRes] = await Promise.all([
       loadJobs({ withWTCs: true }),
-      supabase.from('assignments').select('*'),
+      // Paginated: assignments is >1000 rows; a plain select('*') caps at 1000
+      // and under-counts crewByAll (drives the "not ready" check). The week query
+      // below is date-scoped so it stays under the cap.
+      loadAllRows('assignments', '*', { orderBy: 'id' }),
       supabase.from('assignments').select('*').gte('date', wsStr).lte('date', weStr),
       supabase.from('crew').select('*'),
       supabase.from('crew_status').select('*').gte('date', wsStr).lte('date', weStr),

@@ -84,10 +84,12 @@ function ScheduleShell() {
   // --- Add Job ---
   const [jobForm, setJobForm] = useState({})
   const [jobWtSelected, setJobWtSelected] = useState([])
+  const [wtDropOpen, setWtDropOpen] = useState(false)
 
   function openAddJob() {
     setJobForm({ job_num: '', job_name: '', amount: '', crew_needed: '3', lead: '', vehicle: '', equipment: '', power_source: '', sow: '', start_date: '', end_date: '', prevailing_wage: false })
     setJobWtSelected([])
+    setWtDropOpen(false)
     setModal('job')
   }
 
@@ -96,7 +98,9 @@ function ScheduleShell() {
     const row = {
       job_num: f.job_num || 'NEW',
       job_name: f.job_name || 'Untitled',
-      amount: f.amount ? '$' + f.amount : '',
+      // jobs.amount is a NUMERIC column — store the raw number (strip any $ / commas),
+      // null when blank. (The old '$'+amount wrote a string and always failed insert.)
+      amount: f.amount ? (Number(String(f.amount).replace(/[$,]/g, '')) || null) : null,
       work_type: jobWtSelected.join(','),
       crew_needed: f.crew_needed || '',
       lead: f.lead,
@@ -110,7 +114,7 @@ function ScheduleShell() {
       status: 'Scheduled',
     }
     const { error } = await supabase.from('jobs').insert([row])
-    if (error) { console.error(error); toast('Error adding job', 'err'); return }
+    if (error) { console.error(error); toast(`Couldn’t add job: ${error.message}`, 'err'); return }
     toast('Job added', 'ok')
     closeModal()
   }
@@ -276,13 +280,42 @@ function ScheduleShell() {
               <input placeholder="Proposal $" value={jobForm.amount || ''} onChange={e => setJobForm(p => ({ ...p, amount: e.target.value }))} />
             </div>
             <div className="mfr-label">Work Types</div>
-            <div className="mwt-wrap">
-              {workTypes.map(wt => (
-                <label key={wt} className={`mwt-chip${jobWtSelected.includes(wt) ? ' mwt-on' : ''}`}>
-                  <input type="checkbox" checked={jobWtSelected.includes(wt)} onChange={() => setJobWtSelected(p => p.includes(wt) ? p.filter(x => x !== wt) : [...p, wt])} style={{ width: 12, height: 12 }} />
-                  {wt}
-                </label>
-              ))}
+            <div style={{ position: 'relative', marginBottom: 8 }}>
+              <button
+                type="button"
+                onClick={() => setWtDropOpen(o => !o)}
+                style={{
+                  width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '7px 10px', fontSize: 12, borderRadius: 8, cursor: 'pointer',
+                  border: '1px solid rgba(28,24,20,0.2)', background: 'var(--bg-card)',
+                  fontFamily: 'var(--font-body)', color: jobWtSelected.length ? 'var(--text-primary)' : 'var(--sand-dark)',
+                }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {jobWtSelected.length ? `${jobWtSelected.length} selected — ${jobWtSelected.join(', ')}` : 'Select work types…'}
+                </span>
+                <span style={{ flexShrink: 0, marginLeft: 8 }}>▾</span>
+              </button>
+              {wtDropOpen && (
+                <div style={{
+                  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, marginTop: 4,
+                  maxHeight: 200, overflowY: 'auto', background: 'var(--bg-card)',
+                  border: '1px solid rgba(28,24,20,0.2)', borderRadius: 8, boxShadow: '0 6px 20px rgba(28,24,20,0.18)',
+                }}>
+                  {workTypes.length === 0 && <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--sand-dark)' }}>No work types yet.</div>}
+                  {workTypes.map(wt => (
+                    <label key={wt} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', fontSize: 12, cursor: 'pointer', borderBottom: '1px solid rgba(28,24,20,0.06)' }}>
+                      <input
+                        type="checkbox"
+                        checked={jobWtSelected.includes(wt)}
+                        onChange={() => setJobWtSelected(p => p.includes(wt) ? p.filter(x => x !== wt) : [...p, wt])}
+                        style={{ width: 13, height: 13, flexShrink: 0 }}
+                      />
+                      {wt}
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="mfr">
               <input type="number" min="1" placeholder="Crew#" value={jobForm.crew_needed || ''} onChange={e => setJobForm(p => ({ ...p, crew_needed: e.target.value }))} />

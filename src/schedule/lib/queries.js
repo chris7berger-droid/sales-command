@@ -478,7 +478,7 @@ async function attachDepositState(jobs) {
 //
 // withWTCs: when true, also left-joins job_wtcs and attaches j._wtcs.
 // Legacy rows have zero job_wtcs children — _wtcs comes back as [].
-export async function loadJobs({ includeDeleted = false, withWTCs = false } = {}) {
+export async function loadJobs({ includeDeleted = false, includeUnlinked = false, withWTCs = false } = {}) {
   const sel = withWTCs
     ? `*, ${CALL_LOG_SELECT}, job_wtcs(*)`
     : `*, ${CALL_LOG_SELECT}`
@@ -491,11 +491,72 @@ export async function loadJobs({ includeDeleted = false, withWTCs = false } = {}
     query = query.or('deleted.is.null,deleted.eq.No')
   }
 
+  // add-job-dedup (workstream A): orphans — jobs with no Sales link
+  // (call_log_id IS NULL) — are the phantom/unallocated rows. Hide them from
+  // every live reader by default; only the Unallocated bucket opts back in.
+  if (!includeUnlinked) {
+    query = query.not('call_log_id', 'is', null)
+  }
+
   const { data, error } = await query
   if (error) return { data: null, error }
   const jobs = (data || []).map(normalizeJob)
   await attachDepositState(jobs)
   return { data: jobs, error: null }
+}
+
+// ── Add-Job search — existing Sales-linked jobs (add-job-dedup, workstream A) ─
+// Powers the schedule "+ Job" dropdown. The identity of "the same job" is the
+// Sales record (call_log), so the search is ROOTED at call_log and embeds
+// jobs!inner — a phantom (a jobs row with a null call_log_id) is unreachable
+// from call_log and can therefore NEVER be surfaced or picked here.
+//
+// Matching is on the BARE integer job_number (compared as text), plus customer /
+// job name — NEVER display_job_number, which is a composite label like
+// "10252 - Flattening" that a bare "10252" would not usefully match (R2). Because
+// job_number is an integer column, PostgREST can't ilike it server-side, and the
+// active call_log set is bounded (≈380 rows — one page, well under the 1000-row
+// cap), so we fetch once ordered by call_log.id and filter the term in JS rather
+// than run a paginated server scan. Callers debounce input; result capped so the
+// dropdown stays a picker, not a data dump.
+export async function searchExistingJobs(term) {
+  const q = (term || '').trim().toLowerCase()
+  if (!q) return { data: [], error: null }
+  const { data, error } = await supabase
+    .from('call_log')
+    .select('id, job_number, display_job_number, customer_name, job_name, jobs!inner(job_id, deleted)')
+    .order('id', { ascending: false })
+  if (error) return { data: [], error }
+  const out = []
+  for (const cl of data || []) {
+    const jobsArr = Array.isArray(cl.jobs) ? cl.jobs : (cl.jobs ? [cl.jobs] : [])
+    for (const j of jobsArr) {
+      if (j.deleted === 'Yes') continue
+      const num = cl.job_number == null ? '' : String(cl.job_number)
+      const hay = `${num} ${cl.customer_name || ''} ${cl.job_name || ''}`.toLowerCase()
+      if (!hay.includes(q)) continue
+      out.push({
+        job_id: j.job_id,
+        call_log_id: cl.id,
+        job_number: cl.job_number,
+        display_job_number: cl.display_job_number,
+        customer: cl.customer_name,
+        job_name: cl.job_name,
+      })
+    }
+  }
+  return { data: out.slice(0, 25), error: null }
+}
+
+// ── Unallocated bucket (add-job-dedup, workstream A) ─────────────────────────
+// The orphans the live views now hide: active jobs with no Sales link
+// (call_log_id IS NULL). Opts back into the rows loadJobs hides by default, then
+// keeps only the null-link ones. Workstream B works them from here (allocate /
+// merge into the real Sales-linked row).
+export async function loadUnallocatedJobs() {
+  const { data, error } = await loadJobs({ includeUnlinked: true })
+  if (error) return { data: null, error }
+  return { data: (data || []).filter(j => j.call_log_id == null), error: null }
 }
 
 // ── Load a single job by job_id ─────────────────────────────────────────────
@@ -1213,12 +1274,42 @@ export async function loadJobMobilizationRows(jobId) {
   return { data: data || [], error: null }
 }
 
+// Next mobilization seq for a job — max+1 over BOTH existing job_mobilizations
+// rows AND every mobilization_seq tagged on the job's field-SOW days (audit O2),
+// so a new trip can't collide with a seq that lives only on tagged days. Mirrors
+// MobsModal's local nextSeq for the "+ Job" add-mobilization flow (add-job-dedup),
+// which resolves a job by id and has no fully-loaded job object in hand.
+export async function getNextMobSeq(jobId) {
+  const jid = parseInt(jobId)
+  const { data: job, error: jErr } = await loadJobWithWTCs(jid)
+  if (jErr) return { seq: null, error: jErr }
+  const { data: rows, error: rErr } = await loadJobMobilizationRows(jid)
+  if (rErr) return { seq: null, error: rErr }
+  const daySeqs = []
+  const wtcs = Array.isArray(job?._wtcs) ? job._wtcs : []
+  const pushFrom = arr => { if (Array.isArray(arr)) for (const d of arr) { const s = d?.mobilization_seq; if (s != null) daySeqs.push(Number(s)) } }
+  if (wtcs.length) for (const w of wtcs) pushFrom(w.field_sow)
+  else pushFrom(job?.field_sow)
+  const seq = Math.max(0, ...(rows || []).map(r => r.seq || 0), ...daySeqs) + 1
+  return { seq, error: null }
+}
+
 // Add a mobilization to a live job. `seq` is computed by the caller as max+1 over
 // BOTH existing rows AND every day's mobilization_seq (audit O2), so a new mob
 // can't collide with a seq that lives only on tagged days. is_go_back distinguishes
 // a tracked return trip (+ Add Go Back) from rescheduled sold work (+ Add trip).
 export async function addJobMobilization(jobId, { seq, label, start_date, end_date, is_go_back }, changedBy, source = 'schedule_mobs') {
   const jid = parseInt(jobId)
+  // add-job-dedup N1: a mobilization must attach to a Sales-linked job. Refuse if
+  // the parent has a null call_log_id (a phantom/unallocated orphan). Lives INSIDE
+  // this function — not the "+ Job" caller — because MobsModal.jsx also calls here,
+  // so the invariant ("no trip on an orphan") holds for BOTH writers.
+  const { data: parent, error: pErr } = await supabase
+    .from('jobs').select('call_log_id').eq('job_id', jid).single()
+  if (pErr) return { data: null, error: pErr }
+  if (!parent || parent.call_log_id == null) {
+    return { data: null, error: new Error('This job has no Sales link — create it in Sales first before adding a mobilization.') }
+  }
   const { data, error } = await supabase
     .from('job_mobilizations')
     .insert({ job_id: jid, seq, label: label || null, start_date: start_date || null, end_date: end_date || null, is_go_back: !!is_go_back })

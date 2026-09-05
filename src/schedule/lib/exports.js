@@ -60,7 +60,7 @@ export async function printWeekSchedule() {
   const wsStr = dates[0]
 
   const [jobRes, asgnRes] = await Promise.all([
-    supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No'),
+    supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No').not('call_log_id', 'is', null),
     supabase.from('assignments').select('*').gte('date', wsStr).lte('date', weStr),
   ])
   const jobs = jobRes.data || []
@@ -91,7 +91,7 @@ export async function printWeekSchedule() {
 }
 
 export async function printJobList() {
-  const { data: jobs } = await supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No')
+  const { data: jobs } = await supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No').not('call_log_id', 'is', null)
   if (!jobs) return
 
   let b = '<h2>Job List</h2><div class="sub">All active jobs</div>'
@@ -110,7 +110,7 @@ export async function printJobList() {
 export async function printMaterialsList() {
   // DMS-1 Phase 3: repointed off the dead `materials` table to job_material_lines.
   const [jobRes, matRes] = await Promise.all([
-    supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No'),
+    supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No').not('call_log_id', 'is', null),
     supabase.from('job_material_lines').select('*'),
   ])
   const jobs = jobRes.data || []
@@ -137,7 +137,7 @@ export async function printDailyStatus() {
     supabase.from('crew').select('*'),
     supabase.from('assignments').select('*').gte('date', wsStr).lte('date', weStr),
     supabase.from('crew_status').select('*').gte('date', wsStr).lte('date', weStr),
-    supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No'),
+    supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No').not('call_log_id', 'is', null),
   ])
   const crew = (crewRes.data || []).filter(c => c.archived !== 'Yes')
   const assignments = asgnRes.data || []

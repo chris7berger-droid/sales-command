@@ -10,7 +10,8 @@ import './App.css'
 import './index.css'
 import { supabase } from '../lib/supabase'
 import { ToastProvider, useToast } from './lib/toast'
-import { UserProvider } from './lib/user'
+import { UserProvider, useUser } from './lib/user'
+import { searchExistingJobs, getNextMobSeq, addJobMobilization } from './lib/queries'
 import { printWeekSchedule, printJobList, printMaterialsList, printDailyStatus } from './lib/exports'
 import Home from './views/Home'
 import Jobs from './views/Jobs'
@@ -53,6 +54,8 @@ export default function ScheduleLayout({ teamMember }) {
 
 function ScheduleShell() {
   const toast = useToast()
+  const user = useUser()
+  const changedBy = user?.name || 'unknown'
   const [modal, setModal] = useState(null)
   const [workTypes, setWorkTypes] = useState([])
   const [crewList, setCrewList] = useState([])
@@ -87,37 +90,69 @@ function ScheduleShell() {
 
   function closeModal() { setModal(null) }
 
-  // --- Add Job ---
-  const [jobForm, setJobForm] = useState({})
-  const [jobWtSelected, setJobWtSelected] = useState([])
+  // --- Add to Schedule (add-job-dedup, workstream A) ---
+  // The "+ Job" button no longer blind-inserts a jobs row (which produced phantom,
+  // Sales-unlinked jobs). It resolves to exactly two outcomes:
+  //   1. Pick an existing Sales-linked job from the search dropdown → add a
+  //      mobilization (a trip) to it, with an "is this go-back work?" flag.
+  //   2. Typed text matches no Sales job → BLOCK ("create it in Sales first").
+  // No path here creates a jobs row, so it can never mint a null-call_log_id orphan.
+  const [jobSearch, setJobSearch] = useState('')
+  const [jobResults, setJobResults] = useState([])
+  const [jobSearching, setJobSearching] = useState(false)
+  const [pickedJob, setPickedJob] = useState(null)   // { job_id, call_log_id, job_number, customer, job_name }
+  const [mobDraft, setMobDraft] = useState(null)      // { label, start_date, end_date, is_go_back }
+  const [addBusy, setAddBusy] = useState(false)
 
   function openAddJob() {
-    setJobForm({ job_num: '', job_name: '', amount: '', crew_needed: '3', lead: '', vehicle: '', equipment: '', power_source: '', sow: '', start_date: '', end_date: '', prevailing_wage: false })
-    setJobWtSelected([])
+    setJobSearch('')
+    setJobResults([])
+    setJobSearching(false)
+    setPickedJob(null)
+    setMobDraft(null)
+    setAddBusy(false)
     setModal('job')
   }
 
-  async function doAddJob() {
-    const f = jobForm
-    const row = {
-      job_num: f.job_num || 'NEW',
-      job_name: f.job_name || 'Untitled',
-      amount: f.amount ? '$' + f.amount : '',
-      work_type: jobWtSelected.join(','),
-      crew_needed: f.crew_needed || '',
-      lead: f.lead,
-      vehicle: f.vehicle,
-      equipment: f.equipment,
-      power_source: f.power_source,
-      sow: f.sow,
-      start_date: f.start_date || null,
-      end_date: f.end_date || null,
-      prevailing_wage: f.prevailing_wage ? 'Yes' : 'No',
-      status: 'Scheduled',
+  // Debounced search — only while the modal is open and nothing is picked yet.
+  useEffect(() => {
+    if (modal !== 'job' || pickedJob) return
+    const term = jobSearch.trim()
+    if (!term) { setJobResults([]); setJobSearching(false); return }
+    let alive = true
+    setJobSearching(true)
+    const t = setTimeout(async () => {
+      const { data } = await searchExistingJobs(term)
+      if (alive) { setJobResults(data || []); setJobSearching(false) }
+    }, 300)
+    return () => { alive = false; clearTimeout(t) }
+  }, [jobSearch, modal, pickedJob])
+
+  function pickJob(r) {
+    setPickedJob(r)
+    setJobResults([])
+    setMobDraft({ label: '', start_date: '', end_date: '', is_go_back: false })
+  }
+
+  async function doAddMobilization() {
+    if (!pickedJob || addBusy) return
+    const d = mobDraft
+    if (d.start_date && d.end_date && d.end_date < d.start_date) {
+      toast('End date can’t be before the start date', 'err'); return
     }
-    const { error } = await supabase.from('jobs').insert([row])
-    if (error) { console.error(error); toast('Error adding job', 'err'); return }
-    toast('Job added', 'ok')
+    setAddBusy(true)
+    // seq must clear BOTH existing rows AND day-tagged seqs (audit O2) — resolved
+    // by the picked job's id, never re-derived from the typed text.
+    const { seq, error: seqErr } = await getNextMobSeq(pickedJob.job_id)
+    if (seqErr) { console.error(seqErr); setAddBusy(false); toast('Error preparing trip', 'err'); return }
+    const { error } = await addJobMobilization(
+      pickedJob.job_id,
+      { seq, label: d.label, start_date: d.start_date || null, end_date: d.end_date || null, is_go_back: d.is_go_back },
+      changedBy,
+    )
+    setAddBusy(false)
+    if (error) { console.error(error); toast(error.message || 'Error adding trip', 'err'); return }
+    toast(d.is_go_back ? 'Go-back added' : 'Trip added', 'ok')
     closeModal()
   }
 
@@ -268,50 +303,69 @@ function ScheduleShell() {
         </Routes>
       </main>
 
-      {/* Add Job Modal */}
+      {/* Add to Schedule Modal (add-job-dedup) — search a Sales-linked job → add a
+          mobilization; typed text with no match blocks ("create it in Sales first"). */}
       {modal === 'job' && (
         <div className="mbg" onClick={e => { if (e.target === e.currentTarget) closeModal() }}>
           <div className="mdl">
-            <h3>Add Job</h3>
-            <div className="mfr">
-              <input placeholder="Job #" value={jobForm.job_num || ''} onChange={e => setJobForm(p => ({ ...p, job_num: e.target.value }))} />
-              <input placeholder="Customer Name" value={jobForm.job_name || ''} onChange={e => setJobForm(p => ({ ...p, job_name: e.target.value }))} />
-            </div>
-            <div className="mfr">
-              <input placeholder="Proposal $" value={jobForm.amount || ''} onChange={e => setJobForm(p => ({ ...p, amount: e.target.value }))} />
-            </div>
-            <div className="mfr-label">Work Types</div>
-            <div className="mwt-wrap">
-              {workTypes.map(wt => (
-                <label key={wt} className={`mwt-chip${jobWtSelected.includes(wt) ? ' mwt-on' : ''}`}>
-                  <input type="checkbox" checked={jobWtSelected.includes(wt)} onChange={() => setJobWtSelected(p => p.includes(wt) ? p.filter(x => x !== wt) : [...p, wt])} style={{ width: 12, height: 12 }} />
-                  {wt}
-                </label>
-              ))}
-            </div>
-            <div className="mfr">
-              <input type="number" min="1" placeholder="Crew#" value={jobForm.crew_needed || ''} onChange={e => setJobForm(p => ({ ...p, crew_needed: e.target.value }))} />
-              <input placeholder="Lead/Sales" value={jobForm.lead || ''} onChange={e => setJobForm(p => ({ ...p, lead: e.target.value }))} />
-            </div>
-            <div className="mfr">
-              <input placeholder="Vehicle" value={jobForm.vehicle || ''} onChange={e => setJobForm(p => ({ ...p, vehicle: e.target.value }))} />
-              <input placeholder="Equipment" value={jobForm.equipment || ''} onChange={e => setJobForm(p => ({ ...p, equipment: e.target.value }))} />
-            </div>
-            <div className="mfr">
-              <input placeholder="Power Source" value={jobForm.power_source || ''} onChange={e => setJobForm(p => ({ ...p, power_source: e.target.value }))} />
-              <input placeholder="Scope of Work" value={jobForm.sow || ''} onChange={e => setJobForm(p => ({ ...p, sow: e.target.value }))} />
-            </div>
-            <div className="mfr">
-              <input type="date" value={jobForm.start_date || ''} onChange={e => setJobForm(p => ({ ...p, start_date: e.target.value }))} />
-              <input type="date" value={jobForm.end_date || ''} onChange={e => setJobForm(p => ({ ...p, end_date: e.target.value }))} />
-            </div>
-            <div className="mfr">
-              <label className="mchk"><input type="checkbox" checked={jobForm.prevailing_wage || false} onChange={e => setJobForm(p => ({ ...p, prevailing_wage: e.target.checked }))} /> Prevailing Wage</label>
-            </div>
-            <div className="macts">
-              <button className="app-act-btn" onClick={closeModal}>Cancel</button>
-              <button className="app-act-btn app-act-primary" onClick={doAddJob}>Add</button>
-            </div>
+            <h3>Add to Schedule</h3>
+
+            {!pickedJob && (
+              <>
+                <div className="mfr">
+                  <input
+                    autoFocus
+                    placeholder="🔎 Search existing job by #, customer…"
+                    value={jobSearch}
+                    onChange={e => setJobSearch(e.target.value)}
+                  />
+                </div>
+                {jobResults.length > 0 && (
+                  <div className="mwt-list">
+                    {jobResults.map(r => (
+                      <div key={`${r.call_log_id}-${r.job_id}`} className="mwt-row" style={{ cursor: 'pointer' }} onClick={() => pickJob(r)}>
+                        <span><b>#{r.job_number}</b>{r.customer ? ` · ${r.customer}` : ''}{r.job_name ? ` · ${r.job_name}` : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {jobSearch.trim() && jobSearching && (
+                  <div className="mfr-label" style={{ color: 'var(--sand-dark)' }}>Searching…</div>
+                )}
+                {jobSearch.trim() && !jobSearching && jobResults.length === 0 && (
+                  <div className="mfr-label" style={{ color: 'var(--sand-dark)' }}>
+                    {/^\d+$/.test(jobSearch.trim())
+                      ? `Job #${jobSearch.trim()} isn’t in Sales yet — create it in Sales first.`
+                      : 'No matching job — create it in Sales first.'}
+                  </div>
+                )}
+                <div className="macts">
+                  <button className="app-act-btn" onClick={closeModal}>Cancel</button>
+                </div>
+              </>
+            )}
+
+            {pickedJob && mobDraft && (
+              <>
+                <div className="mfr-label">
+                  ▸ Job #{pickedJob.job_number}{pickedJob.customer ? ` · ${pickedJob.customer}` : ''}{pickedJob.job_name ? ` · ${pickedJob.job_name}` : ''}
+                </div>
+                <div className="mfr">
+                  <label className="mchk"><input type="checkbox" checked={mobDraft.is_go_back} onChange={e => setMobDraft(p => ({ ...p, is_go_back: e.target.checked }))} /> Is this go-back work?</label>
+                </div>
+                <div className="mfr">
+                  <input placeholder="Trip label (optional)" value={mobDraft.label} onChange={e => setMobDraft(p => ({ ...p, label: e.target.value }))} />
+                </div>
+                <div className="mfr">
+                  <input type="date" value={mobDraft.start_date} onChange={e => setMobDraft(p => ({ ...p, start_date: e.target.value }))} />
+                  <input type="date" value={mobDraft.end_date} onChange={e => setMobDraft(p => ({ ...p, end_date: e.target.value }))} />
+                </div>
+                <div className="macts">
+                  <button className="app-act-btn" onClick={() => { setPickedJob(null); setMobDraft(null) }}>Back</button>
+                  <button className="app-act-btn app-act-primary" disabled={addBusy} onClick={doAddMobilization}>{mobDraft.is_go_back ? 'Add Go-Back' : 'Add Trip'}</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

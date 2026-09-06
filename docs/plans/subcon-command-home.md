@@ -4,7 +4,7 @@ Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from c
 
 **Type:** feature
 
-**Status:** PARKED (scaffolded 2026-09-05) — not yet planned. Next: ID8 (ideate) → T6 build.
+**Status:** BUILT (2026-09-06) — ID8 locked, full build shipped in the worktree, round-1 audit applied (5 KPI defs ratified: 1 math fix + 4 relabels; drill-downs + hero + perf fixed). Awaiting smoke + merge. Prior "PARKED" status was stale.
 
 **Migrations:** none expected. This is a read-only summary/launch surface that reuses existing module queries. No DDL → no shared-DB collision with the live sales/schedule builds. Confirm during planning; if any KPI needs an upstream aggregate that requires DDL, flag it before writing a migration.
 
@@ -42,14 +42,14 @@ Rebuild `SubconHome.jsx` into: (0) photographic welcome hero [beat 3a], (1) FOUR
 
 ### Card 1 — SALES COMMAND ("Fill the pipeline")
 - **Active Leads** — count active sales opportunities (existing Call Log active-stage logic).
-- **Hot Opportunities** — high-priority/attention opportunities (reuse Call Log priority/attention logic).
+- **Bids Out** — count of bids submitted, awaiting decision (`pipelineStats.hasBid.count`). *Was "Hot Opportunities" — relabeled per round-1 audit A5: no priority/attention source exists, so name what it actually counts.*
 - **Potential Revenue** — sum active-pipeline potential revenue (exclude sold/lost/archived unless existing pipeline logic includes them).
-- Enter → Sales Command Home. Quick links: Call Log, Proposals, Customers. Metrics clickable → filtered records.
+- Enter → Sales Command Home. Quick links: Call Log, Proposals, Customers. **Bids Out** drills to Call Log filtered to the "Has Bid" stage (`navState.stageFilter`); other cells launch into their section.
 
 ### Card 2 — SCHEDULE COMMAND ("Plan the work")
 - **Crew Available** — current-week crew/employee availability (existing Schedule availability logic).
 - **Jobs Assigned** — distinct jobs scheduled this week. **Multi-day job = ONE job. Allocation ≠ new mobilization.**
-- **Scheduled to Bill** — $ expected to become billable THIS MONTH (existing Schedule finance/billing forecast). This is FUTURE EXPECTED BILLING, not AR.
+- **Next 30 Days** — contract value of jobs starting in the next 30 days (rolling), from the billing surface's authoritative totals. This is FUTURE EXPECTED BILLING, not AR. *Was "Scheduled to Bill — THIS MONTH" — relabeled per round-1 audit A3: the reused calc is a rolling 30-day window, not calendar-month; label now matches the code and Schedule Home's own wording.*
 - Enter → Schedule Command Home. Quick links: Jobs, Crew Schedule, Calendar.
 
 ### Card 3 — FIELD COMMAND ("Execute the work")
@@ -59,13 +59,13 @@ Rebuild `SubconHome.jsx` into: (0) photographic welcome hero [beat 3a], (1) FOUR
 - Enter → Field Command Home. Quick links: Daily Logs, Production Rate, Photos/Reports.
 
 ### Card 4 — AR COMMAND ("Get paid")
-- **Outstanding AR** — total open A/R.
-- **Open Invoices** — count of invoices with outstanding balance.
-- **Expected This Month** — expected cash collections this month (existing AR/payment forecast). AR ≠ Schedule billing forecast.
-- Enter → AR Command Home. Quick links: A/R Aging, Payments, Statements.
+- **Outstanding AR** — NET open A/R over the live `invoices` table: active + sent + unpaid, non-release rows, summed via `netOfInvoice` (gross − discount − retention held). *Round-1 audit A1: summing gross `amount` overstated AR by held retention + discounts — fixed to the canonical net.*
+- **Open Invoices** — count of those open invoices.
+- **Expected This Month** — "Coming soon" (expected-cash forecast doesn't exist yet).
+- Enter → AR Command Home. Quick links: A/R Aging, Invoices, Triage. **Drill-down disabled on the AR numbers** (round-1 audit B2): the AR module still gates on its QuickBooks-import store, so a click would land on "upload a QB export." Re-enable when AR reads `invoices` (§4).
 
 ### Company Snapshot (keep small)
-- **Billed YTD** (existing billing calc) · **Average Margin** = CLOSED jobs YTD (Margin Closed, NOT in-progress) · **Jobs YTD** = distinct jobs in production this year (no workday/allocation double-count) · **Active Crews** = current deployed crews.
+- **Sold YTD** = contract value of jobs won this year (Sold proposals approved this year). *Round-1 audit A2: was "Billed YTD" but the number is sold/contract value, not invoiced dollars — relabeled; true "billed" needs the AR-live invoice work deferred in §4.* · **Avg Quoted Margin (Sold YTD)** = blended margin quoted AT SALE across those Sold jobs' WTCs. *Round-1 audit A4: realized margin needs field actuals that don't flow yet — labeled as quoted.* · **Jobs YTD** = distinct Sold jobs this year (no allocation double-count) · **Active Crews** = current deployed crews. All four derive from ONE Sold-YTD population so they can't drift (audit A2).
 
 ### Needs Attention (compact cross-command exception list)
 Rows: count · description · severity indicator · click-through with filter applied. Examples: jobs behind schedule, change orders pending approval, invoices >30 days, crew conflicts, jobs behind production target, missing daily logs, go-backs. Home identifies; does NOT resolve.

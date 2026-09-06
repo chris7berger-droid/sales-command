@@ -213,12 +213,12 @@ async function loadAR() {
 async function loadScheduleActivity() {
   const res = await supabase
     .from("job_changes")
-    .select("id, field, new_value, job_id, created_at")
-    .order("created_at", { ascending: false })
+    .select("id, field, new_value, job_id, changed_at")
+    .order("changed_at", { ascending: false })
     .limit(15);
   if (res.error) throw res.error;
   return (res.data || []).map(r => ({
-    when: r.created_at,
+    when: r.changed_at,
     kind: "schedule",
     text: `Job ${r.job_id} — ${r.field} → ${r.new_value}`,
     to: `/schedule/jobs/${r.job_id}`,

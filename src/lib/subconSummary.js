@@ -210,6 +210,19 @@ async function loadAR() {
 // Schedule job_changes + AR invoice events, merged, most-recent first. Field
 // events (job started, production completed) wait on DPRs. Default window: THIS
 // WEEK (last 7 days).
+// Turn a raw job_changes row into a human business event (audit D1 / Beat 3b —
+// "meaningful business events only, not every DB change").
+function humanizeChange(r) {
+  const j = `Job ${r.job_id}`;
+  const f = String(r.field || "").toLowerCase();
+  const v = r.new_value;
+  if (f === "status") return `${j} moved to ${v}`;
+  if (f.includes("go_back") || f.includes("mobilization")) return `${j} — go-back added`;
+  if (f.includes("date")) return `${j} rescheduled`;        // scheduled_start/end, start_date/end_date
+  if (f.includes("crew")) return `${j} — crew updated`;
+  return `${j} updated`;
+}
+
 async function loadScheduleActivity() {
   const res = await supabase
     .from("job_changes")
@@ -220,7 +233,7 @@ async function loadScheduleActivity() {
   return (res.data || []).map(r => ({
     when: r.changed_at,
     kind: "schedule",
-    text: `Job ${r.job_id} — ${r.field} → ${r.new_value}`,
+    text: humanizeChange(r),
     to: `/schedule/jobs/${r.job_id}`,
   }));
 }
@@ -251,11 +264,15 @@ export async function loadSubconSummary() {
   if (ar?.overdueInvoices) attention.push({ label: "Invoices past due 30+ days", count: ar.overdueInvoices, severity: "high", to: "/ar/aging" });
   if (sales?.overdueBids) attention.push({ label: "Bids past due", count: sales.overdueBids, severity: "med", to: "/sales/calllog" });
 
-  // Merge activity, keep THIS WEEK, most-recent first, cap ~6.
+  // Merge activity, keep THIS WEEK, most-recent first, drop consecutive
+  // duplicates (a job whose start AND end changed logs two "rescheduled" rows),
+  // cap ~6.
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+  const seenText = new Set();
   const activity = [...activityRows, ...(ar?.invoiceEvents || [])]
     .filter(e => e.when && new Date(e.when) >= weekAgo)
     .sort((a, b) => new Date(b.when) - new Date(a.when))
+    .filter(e => { if (seenText.has(e.text)) return false; seenText.add(e.text); return true; })
     .slice(0, 6);
 
   return {

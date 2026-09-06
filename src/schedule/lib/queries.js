@@ -1659,6 +1659,12 @@ function _parseTasks(v) {
 }
 
 const _SCHEDULING_STATUSES = new Set(['Scheduled', 'In Progress', 'Ongoing'])
+// Statuses the Crew Schedule BOARD draws crew for (Schedule.jsx weekJobs). Note
+// this INCLUDES 'On Hold' — a paused job still shows its crew on the board, so a
+// double-booking on it is real and must be counted — whereas _SCHEDULING_STATUSES
+// (crew-shortfall / jobs-scheduled) deliberately EXCLUDES 'On Hold' (a paused job
+// isn't "short on crew"). Conflict detection follows the board set; shortfall does not.
+const _BOARD_STATUSES = new Set(['Scheduled', 'In Progress', 'On Hold', 'Ongoing'])
 
 // Compute every Home dashboard number from loaded slices. TWO crew maps (§11 G3a):
 //  • weekAssignments (Mon–Sat window) → capacity strip + "needs crew" + per-day.
@@ -1736,9 +1742,21 @@ export function computeHomeDashboard({
   const needCrews = weekJobs.filter(j => weekCrew(j) < need(j))
   // Double-booked: a crew_name on ≥2 distinct job_id the same date (§11 — count
   // distinct job_id, not rows; split shifts on one job are not a conflict).
+  // SCOPE to the jobs the board actually draws crew for this week (_BOARD_STATUSES
+  // + week overlap) — an assignment tied to an off-board job (stale import,
+  // completed/off-board status, or dates outside the week) must NOT flag a conflict
+  // the Crew Schedule board doesn't show. Mirrors the board's weekJobIds guard
+  // (Schedule.jsx `crewDayJobs`). Uses _BOARD_STATUSES (incl. On Hold), NOT weekJobs
+  // — a paused job's crew still shows on the board, so a clash on it is real, even
+  // though it's excluded from crew-shortfall. Without this the count inflated vs the
+  // board (the 4-vs-0 discrepancy: off-board assignments counted as clashes).
+  const boardWeekJobIds = new Set(
+    jobs.filter(j => _BOARD_STATUSES.has(getJobStatus(j)) && intersectsWeek(j)).map(j => String(j.job_id))
+  )
   const byCrewDate = {}
   for (const a of weekAssignments) {
     if (!a.crew_name || !a.date) continue
+    if (!boardWeekJobIds.has(String(a.job_id))) continue
     ;(byCrewDate[a.crew_name + '|' + a.date] ||= new Set()).add(String(a.job_id))
   }
   const conflictCrew = new Set()

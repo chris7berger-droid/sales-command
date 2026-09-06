@@ -1,0 +1,89 @@
+SC Handoff v218 — Subcon Command executive home dashboard built, audited, polished, and shipped to prod (+ shared double-booked-count fix)
+================================================================================
+Date: 2026-09-06
+Repo: sales-command — new home on the / route (src/pages/SubconHome.jsx, src/lib/subconSummary.js) + a shared Schedule calc fix (src/schedule/lib/queries.js)
+Branch: main (HEAD = this handoff commit; origin/main = 2d252b5 before handoff). Work was built on feat/subcon-command-home (worktree ~/sales-command-subcon-command-home), now merged.
+Backlog: 5 new IDs — B92, B93, B94, B95, R7. None closed (this was a new-feature plan build, not a backlog row).
+Prior handoff: SC_Handoff_v217.txt
+
+SESSION SUMMARY
+---------------
+Built the Subcon Command executive home — the company-level command center on the app's / route — from the parked, ID8-locked plan in the feat/subcon-command-home worktree. It shows a cross-command read (Sales / Schedule / Field / AR) plus a launch surface, reusing each module's canonical calc via a new loader (subconSummary.js), never re-deriving totals from raw rows. Flow: generated the audit manifest (/auditcriteria), a T2 audit (which became a code audit because the build was already written) found the headline theme "KPI labels don't match what the code computes" — Chris ratified 1 real math fix (Outstanding AR) + 4 honest relabels, and I applied those plus drill-down and perf fixes. Then a polish pass brought the visuals up to the executive-dashboard mockup (dark accent command cards, photo hero, icon circles, humanized activity feed) — the visual gap Chris flagged. Chris then caught a real data discrepancy: Home showed "4 crews double-booked" while the Crew Schedule board showed none; root cause was the shared conflict count scanning off-board assignments — fixed at the shared calc, and extended to include On-Hold jobs so it matches the board exactly. All three gates passed (buildvsplan / security-review / code-review, 0 ship-blockers), merged --no-ff to main and pushed (auto-deploys prod). The one open cosmetic: the hero still uses the placeholder mountain photo, not a construction shot.
+
+CHANGES SHIPPED
+---------------
+sales-command — built on feat/subcon-command-home, merged to main (prod auto-deploys on push):
+- 1df67c3  Add audit manifest (round 1). Appended the /auditcriteria manifest (3 agents; angles: reuse-contract / business-rules / UI-degradation) to the plan doc. Plan-only commit.
+- abcb65b  Plan revision pass 1 — round-1 audit response (0C/4H/4M/2L). The build itself (SubconHome.jsx rewrite + new subconSummary.js) folded together with the ratified audit fixes, since the build was still uncommitted when T2 audited: A1 net-AR math, A2 Sold YTD, A3 Next 30 Days, A4 Avg Quoted Margin, A5 Bids Out, B1 drill-down state, B2 AR display-only, C1 cache, C2 hero.
+- 1d0e435  Fix What's Happening feed: job_changes column created_at → changed_at. buildvsplan live-DB probe caught the schedule half of the activity feed silently dropping (no created_at column; real one is changed_at). Filed B95 for the identical pre-existing bug in Schedule Home's own activity panel.
+- 8721ed3  Polish pass: match executive-dashboard mockup. Visual-only: dark per-command accent cards (Sales green / Schedule teal / Field amber / AR purple), hero to mockup layout (value-props + quote card), Company-Snapshot icon circles, Needs-Attention count badges, humanized What's-Happening events + relative "2h ago" times.
+- ecad49c  Fix inflated double-booked count: scope conflicts to on-board week jobs. computeHomeDashboard counted crew double-booked across ALL week assignments incl. off-board jobs; scoped to weekJobs' job_ids to match the board's weekJobIds guard.
+- 3c28b29  Conflict count: include On Hold jobs (match board status set exactly). The prior fix scoped to weekJobs (which excludes On Hold on purpose for crew-shortfall). Added _BOARD_STATUSES (Scheduled/In Progress/On Hold/Ongoing) and scoped conflict detection to it — so a real clash on a paused job counts, while shortfall/jobs-scheduled stay on _SCHEDULING_STATUSES.
+- 808007a  Gates green: file code-review hardening (R7), mark plan ready to merge.
+- 2d252b5  Merge feat/subcon-command-home → main (--no-ff).
+
+DEPLOYED
+--------
+- Frontend only: pushing main (2d252b5) auto-deploys to www.scmybiz.com (Vercel project sales-command). Merged tree built green locally before push (`npm run build`).
+- No DB migrations, no edge functions, no DB data writes this session. Nothing on the shared Supabase project (pbgvgjjuhnpsumnowuym) changed.
+
+DECISIONS / CHOICES MADE
+------------------------
+- Relabel, don't rebuild, for 4 of 5 KPIs (Chris ratified). "Billed YTD"→"Sold YTD", "Scheduled to Bill (This Month)"→"Next 30 Days", "Average Margin"→"Avg Quoted Margin (Sold YTD)", "Hot Opportunities"→"Bids Out". Each read plausibly but meant something other than its label; rebuilding two of them (true billed, realized margin) needs data that doesn't flow yet (AR-live invoices; field actuals). Honest labels now, rebuild when the data exists.
+- Outstanding AR was the one real math bug, not a label choice. It summed gross invoice `amount` (incl. retention held + discounts); fixed to net collectable via the canonical netOfInvoice + isActiveInvoice/isSent/isPaid predicates, excluding retention-release rows. One Sold-YTD population now drives Sold YTD, Jobs YTD, and Avg Quoted Margin so they can't drift.
+- AR KPI drill-downs are display-only (audit B2). Home's AR numbers come from the live `invoices` table, but the AR module still gates on its QuickBooks-import store, so a click would land on "upload a QB export." Disabled the click until AR reads `invoices` (§4 deferred).
+- Fixed the double-booked count at the SHARED calc, not a Home-only twin. It also corrects Schedule Command's own "At a Glance" conflict number (HomePanels.jsx reads the same value), which was inflated the same way. Kept conflict-scope (_BOARD_STATUSES, incl. On Hold) separate from crew-shortfall (_SCHEDULING_STATUSES, excl. On Hold) — conflicts follow what the board draws crew for; shortfall does not.
+- 6 code-review findings filed as hardening (R7), not fixed. 0 ship-blockers; the 2 finder "HIGH"s were false positives against canonical code. Per /code-review-limiter, optional polish is filed, not chased.
+- Built ahead of the audit gate at Chris's explicit direction (parallel build + audit). The plan's "PARKED / not yet planned" status was stale (ID8 was complete); flipped it to BUILT + GATES GREEN.
+
+NEW BACKLOG ITEMS
+-----------------
+- B92 (T4) — Schedule "Jobs Assigned" count not deduped by call_log_id (over-counts a job with multiple jobs rows vs MOBILIZATION≠ALLOCATION). Pre-existing in Schedule; surfaced by this build. Fix at computeHomeDashboard.
+- B93 (T4) — No partial-payment column on invoices; a partially-paid invoice reads full-outstanding everywhere (AR aging, this dashboard). Product/schema gap.
+- B94 (T4) — Two different "YTD" definitions: Managers.jsx buckets by created_at; this dashboard's Sold YTD by approved_at. Reconcile on one canonical YTD.
+- B95 (T3) — Schedule Command "Recent Activity" panel empty in prod: Home.jsx:59 selects job_changes by created_at (doesn't exist; real column changed_at). One-word fix; the twin of the bug fixed here.
+- R7 (T4) — Subcon Home code-review hardening (6 low/trivial, non-blocking): billRes guard, array-index keys, activity dedup null-job_name edge, cache staleness (by design), snap.error generic message, "30+ days" label vs ≥31d.
+
+CLOSED THIS SESSION
+-------------------
+- None numbered. The deliverable was the docs/plans/subcon-command-home.md build (a plan, not a backlog row) — status now BUILT + GATES GREEN, shipped to main.
+
+VERIFICATION
+------------
+- buildvsplan gate (cold terminal): 0 Tier-1 blockers; verified reuse contract field-by-field against source AND via live-DB probe; caught 1 Tier-2 bug (job_changes column) which was fixed (1d0e435).
+- security-review gate (cold terminal, limiter-gated): 0 exploitable-today. Read-only dashboard; all reads under the signed-in user's RLS; no service-role path; sessionStorage cache holds only the caller's own on-screen data.
+- code-review gate (cold terminal, limiter-gated): 0 ship-blockers; 2 finder HIGHs refuted as false positives; 6 low/trivial → R7. Shared-calc change confirmed correct + correctly scoped; AR math, field mappings, KPI relabels check out.
+- Build: `npm run build` green on the feature branch after every change AND on the merged main tree before push.
+- Chris (live, on the branch preview): confirmed the polished design "looks way better"; drove the double-booked discovery and confirmed the fix reasoning.
+- NOT DONE: no in-browser smoke of the deployed PROD home by Claude; prod deploy not yet confirmed green. Schedule Command's "At a Glance" conflict number (also corrected by the shared-calc change) not re-smoked. Note: on the preview login only Sales + Schedule cards render (that tenant/user has only those apps on) — all four appear for a full-app account.
+
+NOT TOUCHED THIS SESSION
+------------------------
+- feat/calendar-modernization — the other parked update; checked out in worktree ~/sales-command-calendar-modernization. Left alone.
+- The construction hero photo — still the placeholder mountain shot (src/assets/hero/hero-01.jpg). Drop-in replacement, needs Chris to supply the image.
+- B95 (Schedule Home activity panel twin bug) — filed, not fixed (out of this build's scope).
+
+NEXT SESSION POINTERS
+---------------------
+- FIRST: confirm the prod deploy went green and eyeball the home at www.scmybiz.com (hard-refresh). Check the double-booked row reads correctly and Schedule's "At a Glance" conflict number looks sane.
+- Drop the real construction-sunset photo in as src/assets/hero/hero-01.jpg (overwrite; no code change — it's already imported).
+- B95 is a quick win (1h): Home.jsx:59 created_at → changed_at (both .select and .order), matching JobDetail.jsx:81.
+- Branch cleanup: feat/subcon-command-home is merged but still present (local + origin) AND checked out in worktree ~/sales-command-subcon-command-home — remove that worktree before deleting the branch. Offered at close (see below).
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+- src/pages/SubconHome.jsx — the executive home (hero + 4 accent command cards + Company Snapshot + Needs Attention + What's Happening). Cards gated by groupVisible; per-command accent via ACCENTS map.
+- src/lib/subconSummary.js — NEW. loadSubconSummary() fans out (Promise.allSettled) to sales snapshot, computeHomeDashboard/buildBillingSurface, live invoices, job_changes; humanizes the activity feed; net-AR math; sessionStorage cache (sc_subcon_home_cache, 60s TTL).
+- src/schedule/lib/queries.js — computeHomeDashboard now has _BOARD_STATUSES (incl On Hold) + boardWeekJobIds scoping the conflict count to on-board jobs. _SCHEDULING_STATUSES (crew-shortfall) unchanged. Feeds Schedule Home's At-a-Glance too.
+- docs/plans/subcon-command-home.md — the plan + audit manifest; status BUILT + GATES GREEN.
+- src/lib/nav.js — groupVisible = AVAILABLE_APPS ∩ tenantApps ∩ memberApps; controls which command cards render.
+
+GIT STATE ON CLOSE
+------------------
+- sales-command: on main; origin/main = 2d252b5 (merge) before this handoff commit. feat/subcon-command-home MERGED into main but still present local + origin, and checked out in worktree ~/sales-command-subcon-command-home. feat/calendar-modernization present + checked out in worktree ~/sales-command-calendar-modernization. Working tree clean apart from this handoff.
+- No DB / edge-fn / cross-repo changes this session.
+- Open PRs: none.
+
+END STATE
+---------
+Merged + pushed to prod (auto-deploy in flight); all three gates green; Chris confirmed the polish and drove the double-booking fix. Pending: in-browser prod smoke, the real construction hero photo, and B95 (Schedule activity twin bug). Ready for a fresh session.

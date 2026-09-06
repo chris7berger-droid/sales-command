@@ -4,7 +4,7 @@ Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from c
 
 **Type:** feature
 
-**Status:** BUILT (2026-09-06) — ID8 locked, full build shipped in the worktree, round-1 audit applied (5 KPI defs ratified: 1 math fix + 4 relabels; drill-downs + hero + perf fixed). Awaiting smoke + merge. Prior "PARKED" status was stale.
+**Status:** BUILT + GATES GREEN (2026-09-06) — ID8 locked; full build shipped; round-1 audit applied (5 KPI defs ratified: 1 AR-math fix + 4 relabels; drill-downs, hero, perf); polish pass to mockup; shared-calc conflict fix (on-board scope + On Hold). buildvsplan ✅ (1 bug found+fixed: job_changes column), security-review ✅ (0 exploitable), code-review ✅ (0 ship-blockers; 6 low/trivial → R7). **Ready to merge to main.** Prior "PARKED" status was stale.
 
 **Migrations:** none expected. This is a read-only summary/launch surface that reuses existing module queries. No DDL → no shared-DB collision with the live sales/schedule builds. Confirm during planning; if any KPI needs an upstream aggregate that requires DDL, flag it before writing a migration.
 

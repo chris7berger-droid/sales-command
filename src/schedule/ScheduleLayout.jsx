@@ -11,7 +11,7 @@ import './index.css'
 import { supabase } from '../lib/supabase'
 import { ToastProvider, useToast } from './lib/toast'
 import { UserProvider, useUser } from './lib/user'
-import { searchExistingJobs, getNextMobSeq, addJobMobilization } from './lib/queries'
+import { searchExistingJobs, getNextMobSeq, addJobMobilization, loadTeamMemberMap } from './lib/queries'
 import { printWeekSchedule, printJobList, printMaterialsList, printDailyStatus } from './lib/exports'
 import Home from './views/Home'
 import Jobs from './views/Jobs'
@@ -57,6 +57,7 @@ function ScheduleShell() {
   const [modal, setModal] = useState(null)
   const [workTypes, setWorkTypes] = useState([])
   const [crewList, setCrewList] = useState([])
+  const [leadNames, setLeadNames] = useState([])   // team members, for the Lead picker
   const [showArchived, setShowArchived] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   // Set by any crew mutation; on modal close we remount the routed view once so
@@ -84,12 +85,16 @@ function ScheduleShell() {
 
   // Load work types + crew for modals
   const loadModalData = useCallback(async () => {
-    const [wtRes, crewRes] = await Promise.all([
+    const [wtRes, crewRes, tmRes] = await Promise.all([
       supabase.from('work_types').select('*'),
       supabase.from('crew').select('*'),
+      loadTeamMemberMap(),
     ])
     if (wtRes.data) setWorkTypes(wtRes.data.map(w => w.name))
     if (crewRes.data) setCrewList(crewRes.data)
+    if (tmRes.data) {
+      setLeadNames(Object.values(tmRes.data).map(m => m.name).filter(Boolean).sort((a, b) => a.localeCompare(b)))
+    }
   }, [])
 
   useEffect(() => { loadModalData() }, [loadModalData])
@@ -148,6 +153,11 @@ function ScheduleShell() {
     const d = mobDraft
     if (d.start_date && d.end_date && d.end_date < d.start_date) {
       toast('End date can’t be before the start date', 'err'); return
+    }
+    // Lead is mandatory — every trip/go-back names who's running it (no more
+    // lead-blank allocations on the board/calendar).
+    if (!d.lead || !d.lead.trim()) {
+      toast('Pick a crew lead for this trip', 'err'); return
     }
     setAddBusy(true)
     // seq must clear BOTH existing rows AND day-tagged seqs (audit O2) — resolved
@@ -394,7 +404,10 @@ function ScheduleShell() {
                 </div>
                 <div className="mfr">
                   <input type="number" min="1" placeholder="Crew #" value={mobDraft.crew_needed} onChange={e => setMobDraft(p => ({ ...p, crew_needed: e.target.value }))} />
-                  <input placeholder="Lead" value={mobDraft.lead} onChange={e => setMobDraft(p => ({ ...p, lead: e.target.value }))} />
+                  <select value={mobDraft.lead} onChange={e => setMobDraft(p => ({ ...p, lead: e.target.value }))}>
+                    <option value="">Lead (required)…</option>
+                    {leadNames.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
                 </div>
                 <div className="mfr">
                   <input placeholder="Vehicle" value={mobDraft.vehicle} onChange={e => setMobDraft(p => ({ ...p, vehicle: e.target.value }))} />

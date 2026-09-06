@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { loadJobs, updateJobField, loadMobilizationsByJobId } from '../lib/queries'
+import { loadJobs, updateJobField, loadMobilizationsByJobId, loadTeamMemberMap } from '../lib/queries'
 import { useUser } from '../lib/user'
 import { getJobStatus } from '../lib/jobStatus'
 import { jobRanges, overlapsWeek, inRange, allocForWeek as allocForWeekAt, pickAllocField } from '../lib/allocations'
@@ -97,6 +97,7 @@ export default function Schedule({ embedded = false } = {}) {
   const changedBy = user?.name || 'unknown'
   const [jobs, setJobs] = useState([])
   const [crew, setCrew] = useState([])
+  const [leadNames, setLeadNames] = useState([])   // team members, for the Lead picker
   const [assignments, setAssignments] = useState([])
   const [crewStatus, setCrewStatus] = useState({})
   const [loading, setLoading] = useState(true)
@@ -153,10 +154,11 @@ export default function Schedule({ embedded = false } = {}) {
   // Load static data once on mount
   useEffect(() => {
     async function loadStatic() {
-      const [jobRes, crewRes, wtRes] = await Promise.all([
+      const [jobRes, crewRes, wtRes, tmRes] = await Promise.all([
         loadJobs(),
         supabase.from('crew').select('*'),
         supabase.from('work_types').select('*'),
+        loadTeamMemberMap(),
       ])
       if (jobRes.error || crewRes.error || wtRes.error) {
         setError((jobRes.error || crewRes.error || wtRes.error).message)
@@ -165,6 +167,9 @@ export default function Schedule({ embedded = false } = {}) {
       setJobs(jobRes.data)
       setCrew(crewRes.data.filter(c => !c.archived))
       setWorkTypes(wtRes.data.map(w => w.name))
+      if (tmRes.data) {
+        setLeadNames(Object.values(tmRes.data).map(m => m.name).filter(Boolean).sort((a, b) => a.localeCompare(b)))
+      }
       // Live allocations for every job (liveOnly: a legacy proposal mobilization
       // is not a schedulable block). Non-fatal — the board still renders first
       // blocks if this fails.
@@ -733,8 +738,17 @@ export default function Schedule({ embedded = false } = {}) {
                 <input className="sch-dinp" defaultValue={j.power_source || ''} onBlur={e => handleUpdateJob(j.job_id, 'power_source', e.target.value)} />
               </div>
               <div>
-                <label>Lead</label>
-                <input className="sch-dinp" defaultValue={j.lead || ''} onBlur={e => handleUpdateJob(j.job_id, 'lead', e.target.value)} />
+                <label>Lead{(effStart(j) || j.start_date) && !j.lead ? ' — required' : ''}</label>
+                <select
+                  className="sch-dinp"
+                  value={j.lead || ''}
+                  style={(effStart(j) || j.start_date) && !j.lead ? { borderColor: '#c0392b' } : undefined}
+                  onChange={e => handleUpdateJob(j.job_id, 'lead', e.target.value || null)}
+                >
+                  <option value="">Select lead…</option>
+                  {j.lead && !leadNames.includes(j.lead) && <option value={j.lead}>{j.lead}</option>}
+                  {leadNames.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
               </div>
             </div>
             <div className="sch-det-grid">

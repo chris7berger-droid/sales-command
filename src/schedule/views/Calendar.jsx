@@ -1,7 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../../lib/supabase'
-import { loadJobs, loadMobilizationsByJobId } from '../lib/queries'
-import { jobRanges, inRange } from '../lib/allocations'
+import { loadJobs, loadMobilizationsByJobId, wkDates } from '../lib/queries'
+import { getMonday } from '../lib/weeks'
+import { pickAllocField } from '../lib/allocations'
+import { getJobStatus } from '../lib/jobStatus'
+import { jobBlocks, buildCalendarBars } from '../lib/calendarBars'
+import CalendarBar from '../components/CalendarBar'
 
 /* ---------- helpers ---------- */
 
@@ -20,17 +24,14 @@ function isPW(job) {
 }
 
 function fmtD(d) {
-  // format Date -> YYYY-MM-DD
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
 
-function parseDate(s) {
-  if (!s) return null
-  const [y, m, d] = s.split('-').map(Number)
-  return new Date(y, m - 1, d)
+function parseYmd(s) {
+  return new Date(s + 'T00:00:00')
 }
 
 function sameDay(a, b) {
@@ -44,8 +45,11 @@ const MONTH_NAMES = [
   'January','February','March','April','May','June',
   'July','August','September','October','November','December',
 ]
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-/* Build the 6-row calendar grid for a given month */
+const STATUS_FILTER_OPTIONS = ['Scheduled', 'In Progress', 'On Hold', 'Complete', 'Ongoing']
+
+/* Build the 6-row (42-cell) month grid, Sun–Sat. */
 function buildGrid(year, month) {
   const first = new Date(year, month, 1)
   const startDay = first.getDay() // 0=Sun
@@ -59,159 +63,91 @@ function buildGrid(year, month) {
   return cells
 }
 
-/* ---------- styles (inline, prefixed cal-) ---------- */
+/* ---------- layout constants ---------- */
+const CELL_HEADER = 20   // day-number strip at the top of each cell
+const LANE_H = 18        // one bar lane
+const MONTH_MAX_LANES = 4
+const WEEK_MAX_LANES = 10
+
+/* ---------- styles (schedule module CSS-variable convention) ---------- */
 
 const styles = {
-  wrapper: {
-    padding: '16px 24px',
-  },
+  wrapper: { padding: '16px 24px' },
   toolbar: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-    fontFamily: 'var(--font-heading)',
+    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
+    fontFamily: 'var(--font-heading)', flexWrap: 'wrap',
   },
   navBtn: {
-    fontFamily: 'var(--font-heading)',
-    fontWeight: 700,
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    padding: '5px 12px',
-    border: '2px solid var(--border)',
-    borderRadius: 4,
-    background: 'var(--bg-card)',
-    color: 'var(--text-primary)',
-    cursor: 'pointer',
+    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 12,
+    textTransform: 'uppercase', letterSpacing: 0.5, padding: '5px 12px',
+    border: '2px solid var(--border)', borderRadius: 4,
+    background: 'var(--bg-card)', color: 'var(--text-primary)', cursor: 'pointer',
   },
   monthLabel: {
-    fontFamily: 'var(--font-heading)',
-    fontWeight: 700,
-    fontSize: 22,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginLeft: 8,
-    marginRight: 8,
+    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 22,
+    textTransform: 'uppercase', letterSpacing: 1, marginLeft: 8, marginRight: 8,
+  },
+  toggleWrap: {
+    display: 'inline-flex', border: '2px solid var(--border)', borderRadius: 4, overflow: 'hidden',
+  },
+  toggleBtn: (active) => ({
+    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 12,
+    textTransform: 'uppercase', letterSpacing: 0.5, padding: '5px 14px',
+    border: 'none', cursor: 'pointer',
+    background: active ? 'var(--header-dark)' : 'var(--bg-card)',
+    color: active ? 'var(--white)' : 'var(--text-primary)',
+  }),
+  spacer: { flex: 1 },
+  filter: {
+    fontFamily: 'var(--font-body)', fontSize: 12, padding: '5px 8px',
+    border: '2px solid var(--border)', borderRadius: 4,
+    background: 'var(--bg-card)', color: 'var(--text-primary)', cursor: 'pointer',
+  },
+  filterDisabled: {
+    fontFamily: 'var(--font-body)', fontSize: 12, padding: '5px 8px',
+    border: '2px solid var(--border)', borderRadius: 4,
+    background: 'var(--bg-muted, var(--bg-card))', color: 'var(--text-light)', cursor: 'not-allowed',
   },
   grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(7, 1fr)',
-    border: '2px solid var(--border)',
-    borderRadius: 4,
-    overflow: 'hidden',
-    background: 'var(--border)',
-    gap: 1,
+    display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
+    border: '2px solid var(--border)', borderRadius: 4, overflow: 'hidden',
+    background: 'var(--border)', gap: 1,
   },
   dayHeader: {
-    background: 'var(--header-dark)',
-    color: 'var(--white)',
-    fontFamily: 'var(--font-heading)',
-    fontWeight: 700,
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    textAlign: 'center',
-    padding: '6px 0',
+    background: 'var(--header-dark)', color: 'var(--white)',
+    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 12,
+    textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center', padding: '6px 0',
   },
+  weekRow: { position: 'relative', display: 'grid', gap: 1, background: 'var(--border)' },
   cell: {
-    background: 'var(--bg-card)',
-    minHeight: 100,
-    padding: 4,
-    position: 'relative',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
+    background: 'var(--bg-card)', padding: 4, position: 'relative',
+    display: 'flex', flexDirection: 'column',
   },
-  cellOutside: {
-    opacity: 0.35,
-  },
-  cellToday: {
-    background: '#fef9c3',
-  },
+  cellOutside: { opacity: 0.4 },
+  cellToday: { background: '#fef9c3' },
+  cellSelected: { boxShadow: 'inset 0 0 0 2px var(--text-primary)' },
   dayNum: {
-    fontFamily: 'var(--font-mono)',
-    fontSize: 11,
-    fontWeight: 700,
-    textAlign: 'right',
-    marginBottom: 2,
-    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
+    textAlign: 'right', color: 'var(--text-secondary)', height: CELL_HEADER - 4,
   },
-  bar: {
-    fontSize: 10,
-    fontFamily: 'var(--font-heading)',
-    fontWeight: 600,
-    color: '#fff',
-    padding: '2px 5px',
-    borderRadius: 3,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    cursor: 'pointer',
-    display: 'flex',
+  barsLayer: {
+    position: 'absolute', top: CELL_HEADER, left: 0, right: 0, bottom: 2,
+    display: 'grid', gridAutoRows: LANE_H, columnGap: 1, rowGap: 1,
+    pointerEvents: 'none',
+  },
+  moreLink: {
+    fontFamily: 'var(--font-heading)', fontSize: 9, fontWeight: 700,
+    color: 'var(--text-secondary)', cursor: 'pointer', pointerEvents: 'auto',
+    textAlign: 'left', padding: '0 4px', alignSelf: 'center',
+  },
+  legend: {
+    marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap',
+    fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)',
     alignItems: 'center',
-    gap: 4,
-    lineHeight: '16px',
-  },
-  badge: {
-    fontFamily: 'var(--font-mono)',
-    fontSize: 9,
-    fontWeight: 700,
-    background: 'rgba(0,0,0,0.3)',
-    color: '#fff',
-    borderRadius: 3,
-    padding: '0 4px',
-    lineHeight: '14px',
-    flexShrink: 0,
-  },
-  legendWrap: {
-    marginTop: 16,
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  legendTitle: {
-    fontFamily: 'var(--font-heading)',
-    fontWeight: 700,
-    fontSize: 14,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginTop: 16,
-    marginBottom: 4,
-    color: 'var(--text-secondary)',
-  },
-  legendItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    fontSize: 12,
-    fontFamily: 'var(--font-body)',
-  },
-  legendSwatch: {
-    width: 14,
-    height: 14,
-    borderRadius: 3,
-    border: '1px solid rgba(0,0,0,0.15)',
-    flexShrink: 0,
-  },
-  pwTag: {
-    fontFamily: 'var(--font-mono)',
-    fontSize: 9,
-    fontWeight: 700,
-    color: '#6d28d9',
-    border: '1px solid #6d28d9',
-    borderRadius: 3,
-    padding: '0 3px',
-    marginLeft: 4,
   },
   loading: {
-    textAlign: 'center',
-    padding: 40,
-    fontFamily: 'var(--font-heading)',
-    fontSize: 14,
-    color: 'var(--text-light)',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    textAlign: 'center', padding: 40, fontFamily: 'var(--font-heading)', fontSize: 14,
+    color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: 1,
   },
 }
 
@@ -219,41 +155,56 @@ const styles = {
 
 export default function Calendar() {
   const today = new Date()
+
+  // --- state (all useState BEFORE any useEffect — TDZ) ---
+  const [view, setView] = useState('month')          // 'month' | 'week'
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
+  const [weekStart, setWeekStart] = useState(fmtD(getMonday(today)))  // ymd of a Monday
   const [jobs, setJobs] = useState([])
   const [assignments, setAssignments] = useState([])
   const [allocsByJobId, setAllocsByJobId] = useState({})  // live allocations per job (B87)
   const [loading, setLoading] = useState(true)
+  const [filterCrew, setFilterCrew] = useState('')       // '' = All Crews
+  const [filterStatus, setFilterStatus] = useState('')   // '' = All Statuses
+  const [selectedDate, setSelectedDate] = useState(null)   // ymd — day pane hook (Chunk B)
+  const [selectedJobId, setSelectedJobId] = useState(null) // job pane hook (Chunk C)
 
-  /* Fetch jobs + assignments */
+  // Assignments fetch range = union of the month grid and the focused week
+  // (B1). Keyed on YYYY-MM-DD strings, never a Date object.
+  const range = useMemo(() => {
+    const cells = buildGrid(year, month)
+    const gStart = fmtD(cells[0])
+    const gEnd = fmtD(cells[cells.length - 1])
+    const monday = parseYmd(weekStart)
+    const sun = new Date(monday); sun.setDate(monday.getDate() - 1)
+    const sat = new Date(monday); sat.setDate(monday.getDate() + 5)
+    const wStart = fmtD(sun)   // include Sunday so the weekend rule can see it
+    const wEnd = fmtD(sat)
+    return {
+      start: gStart < wStart ? gStart : wStart,
+      end: gEnd > wEnd ? gEnd : wEnd,
+    }
+  }, [year, month, weekStart])
+
+  // --- data load (the only effect; after the useState block) ---
   useEffect(() => {
     let cancelled = false
     async function load() {
       setLoading(true)
-
-      // Get jobs that have dates and are not deleted
       const { data: allJobs, error: jobErr } = await loadJobs()
+      if (jobErr) console.error('jobs fetch error', jobErr)
       const jobData = (allJobs || []).filter(j => j.scheduled_start || j.start_date)
 
-      if (jobErr) {
-        console.error('jobs fetch error', jobErr)
-      }
-
-      // Build date range for assignments query — full grid (prev month tail through next month head)
-      const gridCells = buildGrid(year, month)
-      const rangeStart = fmtD(gridCells[0])
-      const rangeEnd = fmtD(gridCells[gridCells.length - 1])
-
+      // B1: fetch over the union of the month grid + focused week (range memo).
+      // Ordering/pagination of this query is B92 — deliberately out of scope here
+      // (window stays ~monthly; bar aggregation is order-independent).
       const { data: assignData, error: assignErr } = await supabase
         .from('assignments')
         .select('job_id, crew_name, date')
-        .gte('date', rangeStart)
-        .lte('date', rangeEnd)
-
-      if (assignErr) {
-        console.error('assignments fetch error', assignErr)
-      }
+        .gte('date', range.start)
+        .lte('date', range.end)
+      if (assignErr) console.error('assignments fetch error', assignErr)
 
       // Live allocations so a job also lands on its go-back block's dates (B87).
       const allocs = await loadMobilizationsByJobId(jobData || [], { liveOnly: true })
@@ -267,26 +218,20 @@ export default function Calendar() {
     }
     load()
     return () => { cancelled = true }
-  }, [year, month])
+  }, [range.start, range.end])
 
-  /* Build grid cells */
-  const grid = useMemo(() => buildGrid(year, month), [year, month])
+  // --- derived data ---
 
-  /* Index: jobId -> colorIndex (stable ordering by job_num) */
+  // jobId -> alternating color index (stable order by job_num)
   const jobColorMap = useMemo(() => {
-    const sorted = [...jobs].sort((a, b) => {
-      const an = a.job_num || ''
-      const bn = b.job_num || ''
-      return an.localeCompare(bn, undefined, { numeric: true })
-    })
+    const sorted = [...jobs].sort((a, b) =>
+      String(a.job_num || '').localeCompare(String(b.job_num || ''), undefined, { numeric: true }))
     const map = {}
-    sorted.forEach((j, i) => {
-      map[j.job_id] = i
-    })
+    sorted.forEach((j, i) => { map[j.job_id] = i })
     return map
   }, [jobs])
 
-  /* Index: "jobId|YYYY-MM-DD" -> crew count */
+  // "jobId|YYYY-MM-DD" -> crew count
   const crewCountMap = useMemo(() => {
     const map = {}
     for (const a of assignments) {
@@ -296,148 +241,309 @@ export default function Calendar() {
     return map
   }, [assignments])
 
-  /* Per-job dated blocks = own first block + every live allocation (B87). */
-  const rangesByJobId = useMemo(() => {
+  // jobId -> Set of YYYY-MM-DD it has any crew assigned (weekend-exception input)
+  const assignedDaysByJob = useMemo(() => {
+    const map = {}
+    for (const a of assignments) {
+      (map[String(a.job_id)] ||= new Set()).add(a.date)
+    }
+    return map
+  }, [assignments])
+
+  // jobId -> dated allocation blocks (own block + go-backs, alloc preserved)
+  const blocksByJobId = useMemo(() => {
     const m = {}
-    for (const j of jobs) m[String(j.job_id)] = jobRanges(j, allocsByJobId[j.job_id])
+    for (const j of jobs) m[String(j.job_id)] = jobBlocks(j, allocsByJobId[j.job_id])
     return m
   }, [jobs, allocsByJobId])
 
-  /* For a given date, return jobs active on that day — on ANY of their blocks,
-     so a go-back shows on its own dates, not just the first run. A block with a
-     start but no end collapses to a single day (its start), preserving the old
-     Calendar behavior — otherwise a start-only job would paint every day forward.
-     (The board/Daily intentionally treat an open end as open-ended; the month
-     grid does not.) */
-  function jobsForDate(d) {
-    const ds = fmtD(d)
-    return jobs.filter(j => {
-      const ranges = (rangesByJobId[String(j.job_id)] || jobRanges(j, allocsByJobId[j.job_id]))
-        .map(r => ({ start: r.start, end: r.end || r.start }))
-      return inRange(ranges, ds)
-    })
+  // jobId -> Set of crew names on it (for the All Crews filter)
+  const crewNamesByJob = useMemo(() => {
+    const map = {}
+    for (const a of assignments) {
+      if (!a.crew_name) continue
+      (map[String(a.job_id)] ||= new Set()).add(a.crew_name)
+    }
+    return map
+  }, [assignments])
+
+  // Crew filter options = crews on the board + job leads, sorted
+  const crewOptions = useMemo(() => {
+    const set = new Set()
+    for (const a of assignments) if (a.crew_name) set.add(a.crew_name)
+    for (const j of jobs) if (j.lead) set.add(j.lead)
+    return [...set].sort((a, b) => a.localeCompare(b))
+  }, [assignments, jobs])
+
+  function getCrewCountByYmd(jobId, ds) {
+    return crewCountMap[`${jobId}|${ds}`] || 0
   }
 
+  // Apply crew + status filters
+  const filteredJobs = useMemo(() => {
+    return jobs.filter(j => {
+      if (filterStatus && getJobStatus(j) !== filterStatus) return false
+      if (filterCrew) {
+        const names = crewNamesByJob[String(j.job_id)]
+        const hit = (names && names.has(filterCrew)) || j.lead === filterCrew
+        if (!hit) return false
+      }
+      return true
+    })
+  }, [jobs, filterStatus, filterCrew, crewNamesByJob])
+
+  // Month rows (6×7) — memoized independent of week nav
+  const monthRows = useMemo(() => {
+    const cells = buildGrid(year, month)
+    const rows = []
+    for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7))
+    return rows
+  }, [year, month])
+
+  // Week columns: Mon–Sat, plus a Sunday column only when that week has Sunday
+  // work (Month/Week Sunday consistency — finding D).
+  const weekCols = useMemo(() => {
+    const monday = parseYmd(weekStart)
+    const cols = []
+    // Sunday column only when this week has Sunday work (Month/Week consistency).
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() - 1)
+    const sundayWorked = filteredJobs.some(j => getCrewCountByYmd(j.job_id, fmtD(sunday)) > 0)
+    if (sundayWorked) cols.push(sunday)
+    // Mon–Sat via the canonical wkDates (queries.js) — no re-derived week math.
+    for (const ds of wkDates(monday)) cols.push(parseYmd(ds))
+    return cols
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart, filteredJobs, crewCountMap])
+
+  const rows = useMemo(() => (view === 'month' ? monthRows : [weekCols]), [view, monthRows, weekCols])
+  const maxLanes = view === 'month' ? MONTH_MAX_LANES : WEEK_MAX_LANES
+  const nCols = view === 'month' ? 7 : weekCols.length
+
+  const bars = useMemo(
+    () => buildCalendarBars({ rows, jobs: filteredJobs, blocksByJobId, assignedDaysByJob, maxLanes }),
+    [rows, filteredJobs, blocksByJobId, assignedDaysByJob, maxLanes])
+
   function getJobColor(job) {
-    if (isPW(job)) return '#6d28d9'
     if (job.color) return job.color
     const idx = jobColorMap[job.job_id]
     return idx !== undefined ? jCol(idx) : '#7f8c8d'
   }
 
-  function getCrewCount(jobId, d) {
-    const key = `${jobId}|${fmtD(d)}`
-    return crewCountMap[key] || 0
+  // Resolve the label pieces for a bar segment (crew via crew_needed else the
+  // block start-day assignment count; lead via the block-then-job fallback).
+  function barMeta(seg) {
+    const crewNeeded = pickAllocField(seg.alloc, seg.job, 'crew_needed')
+    let crewCount = (crewNeeded != null && crewNeeded !== '' && !isNaN(crewNeeded)) ? Number(crewNeeded) : 0
+    if (!crewCount) {
+      const blockStart = seg.alloc
+        ? String(seg.alloc.start_date || '').slice(0, 10)
+        : String(seg.job.scheduled_start || seg.job.start_date || '').slice(0, 10)
+      crewCount = getCrewCountByYmd(seg.jobId, blockStart)
+    }
+    const lead = pickAllocField(seg.alloc, seg.job, 'lead') || ''
+    return { crewCount, lead }
   }
 
-  /* Nav handlers */
-  function prevMonth() {
-    if (month === 0) { setMonth(11); setYear(y => y - 1) }
-    else setMonth(m => m - 1)
+  // --- selection reset (E1 + finding K): any nav / toggle / filter change
+  // clears an open selection so a filtered-out job can't leave a stale pane. ---
+  function resetSelection() {
+    setSelectedDate(null)
+    setSelectedJobId(null)
   }
 
-  function nextMonth() {
-    if (month === 11) { setMonth(0); setYear(y => y + 1) }
-    else setMonth(m => m + 1)
+  function changeView(v) {
+    if (v === view) return
+    if (v === 'week') {
+      // Align the week to the month being viewed (today's week if it's in view).
+      const base = (today.getFullYear() === year && today.getMonth() === month)
+        ? today : new Date(year, month, 1)
+      setWeekStart(fmtD(getMonday(base)))
+    }
+    resetSelection()
+    setView(v)
+  }
+
+  function goPrev() {
+    resetSelection()
+    if (view === 'month') {
+      if (month === 0) { setMonth(11); setYear(y => y - 1) } else setMonth(m => m - 1)
+    } else {
+      const d = parseYmd(weekStart); d.setDate(d.getDate() - 7); setWeekStart(fmtD(d))
+    }
+  }
+
+  function goNext() {
+    resetSelection()
+    if (view === 'month') {
+      if (month === 11) { setMonth(0); setYear(y => y + 1) } else setMonth(m => m + 1)
+    } else {
+      const d = parseYmd(weekStart); d.setDate(d.getDate() + 7); setWeekStart(fmtD(d))
+    }
   }
 
   function goToday() {
+    resetSelection()
     setYear(today.getFullYear())
     setMonth(today.getMonth())
+    setWeekStart(fmtD(getMonday(today)))
   }
 
-  /* Legend jobs — all jobs with start_date, sorted */
-  const legendJobs = useMemo(() => {
-    return [...jobs].sort((a, b) => {
-      const an = a.job_num || ''
-      const bn = b.job_num || ''
-      return an.localeCompare(bn, undefined, { numeric: true })
-    })
-  }, [jobs])
+  function onFilterCrew(v) { resetSelection(); setFilterCrew(v) }
+  function onFilterStatus(v) { resetSelection(); setFilterStatus(v) }
+
+  function selectDay(ds, e) {
+    if (e) e.stopPropagation()
+    setSelectedDate(cur => (cur === ds ? null : ds))
+  }
+  function selectJob(jobId) {
+    setSelectedJobId(cur => (cur === jobId ? null : jobId))
+  }
+
+  const periodLabel = view === 'month'
+    ? `${MONTH_NAMES[month]} ${year}`
+    : (() => {
+        const first = weekCols[0], last = weekCols[weekCols.length - 1]
+        const sameMonth = first.getMonth() === last.getMonth()
+        return sameMonth
+          ? `${MONTH_ABBR[first.getMonth()]} ${first.getDate()}–${last.getDate()}, ${last.getFullYear()}`
+          : `${MONTH_ABBR[first.getMonth()]} ${first.getDate()} – ${MONTH_ABBR[last.getMonth()]} ${last.getDate()}, ${last.getFullYear()}`
+      })()
 
   if (loading) {
     return <div style={styles.loading}>Loading calendar...</div>
   }
 
+  const gridTemplate = `repeat(${nCols}, 1fr)`
+  const cellMinHeight = CELL_HEADER + maxLanes * LANE_H + (view === 'week' ? 120 : 16)
+  const hasAnyBar = bars.segmentsByRow.some(r => r.length > 0)
+
   return (
     <div className="cal-wrapper" style={styles.wrapper}>
       {/* Toolbar */}
       <div className="cal-toolbar" style={styles.toolbar}>
-        <button className="cal-nav-btn" style={styles.navBtn} onClick={prevMonth}>Prev</button>
-        <button className="cal-nav-btn" style={styles.navBtn} onClick={goToday}>Today</button>
-        <button className="cal-nav-btn" style={styles.navBtn} onClick={nextMonth}>Next</button>
-        <span className="cal-month-label" style={styles.monthLabel}>
-          {MONTH_NAMES[month]} {year}
-        </span>
+        <button style={styles.navBtn} onClick={goPrev}>Prev</button>
+        <button style={styles.navBtn} onClick={goToday}>Today</button>
+        <button style={styles.navBtn} onClick={goNext}>Next</button>
+        <span style={styles.monthLabel}>{periodLabel}</span>
+
+        <div style={styles.toggleWrap}>
+          <button style={styles.toggleBtn(view === 'month')} onClick={() => changeView('month')}>Month</button>
+          <button style={styles.toggleBtn(view === 'week')} onClick={() => changeView('week')}>Week</button>
+        </div>
+
+        <span style={styles.spacer} />
+
+        <select
+          style={styles.filter}
+          value={filterCrew}
+          onChange={e => onFilterCrew(e.target.value)}
+          onClick={e => e.stopPropagation()}
+        >
+          <option value="">All Crews</option>
+          {crewOptions.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+
+        {/* Work-type filter needs per-job WTC data not loaded this build (Chunk C). */}
+        <select style={styles.filterDisabled} disabled value="" title="Coming soon">
+          <option value="">All Work Types — Coming soon</option>
+        </select>
+
+        <select
+          style={styles.filter}
+          value={filterStatus}
+          onChange={e => onFilterStatus(e.target.value)}
+          onClick={e => e.stopPropagation()}
+        >
+          <option value="">All Statuses</option>
+          {STATUS_FILTER_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
       </div>
 
-      {/* Grid */}
-      <div className="cal-grid" style={styles.grid}>
-        {/* Day-name headers */}
-        {DAY_NAMES.map(dn => (
-          <div key={dn} className="cal-day-header" style={styles.dayHeader}>{dn}</div>
+      {/* Day-name header */}
+      <div style={{ ...styles.grid, gridTemplateColumns: gridTemplate, marginBottom: 1 }}>
+        {(view === 'month' ? DAY_NAMES : weekCols.map(d => `${DAY_NAMES[d.getDay()]} ${d.getDate()}`)).map((dn, i) => (
+          <div key={i} style={styles.dayHeader}>{dn}</div>
         ))}
+      </div>
 
-        {/* Calendar cells */}
-        {grid.map((d, i) => {
-          const isOutside = d.getMonth() !== month
-          const isToday = sameDay(d, today)
-          const dayJobs = jobsForDate(d)
-
-          const cellStyle = {
-            ...styles.cell,
-            ...(isOutside ? styles.cellOutside : {}),
-            ...(isToday ? styles.cellToday : {}),
-          }
-
+      {/* Week rows */}
+      <div style={{ ...styles.grid, gridTemplateColumns: '1fr', gap: 1, gridAutoRows: 'min-content' }}>
+        {rows.map((week, r) => {
+          const rowSegs = bars.segmentsByRow[r] || []
           return (
-            <div key={i} className="cal-cell" style={cellStyle}>
-              <div className="cal-day-num" style={styles.dayNum}>{d.getDate()}</div>
-              {dayJobs.map(job => {
-                const cc = getCrewCount(job.job_id, d)
-                const bgColor = getJobColor(job)
-                const label = `${job.job_num || ''} ${job.job_name || ''}`.trim()
+            <div key={r} style={{ ...styles.weekRow, gridTemplateColumns: gridTemplate, minHeight: cellMinHeight }}>
+              {/* Day cells */}
+              {week.map((d, c) => {
+                const ds = fmtD(d)
+                const isOutside = view === 'month' && d.getMonth() !== month
+                const isToday = sameDay(d, today)
+                const isSel = selectedDate === ds
+                const cellStyle = {
+                  ...styles.cell,
+                  ...(isOutside ? styles.cellOutside : {}),
+                  ...(isToday ? styles.cellToday : {}),
+                  ...(isSel ? styles.cellSelected : {}),
+                }
                 return (
-                  <div
-                    key={job.job_id}
-                    className="cal-bar"
-                    style={{ ...styles.bar, background: bgColor }}
-                    title={`${label}${isPW(job) ? ' (PW)' : ''}${cc ? ' — ' + cc + ' crew' : ''}`}
-                  >
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {label}
-                    </span>
-                    {cc > 0 && (
-                      <span className="cal-badge" style={styles.badge}>{cc}</span>
-                    )}
+                  <div key={c} style={cellStyle} onClick={() => selectDay(ds)}>
+                    <div style={styles.dayNum}>{d.getDate()}</div>
                   </div>
                 )
               })}
+
+              {/* Spanning-bar overlay (bars + "+N more" markers) */}
+              <div style={{ ...styles.barsLayer, gridTemplateColumns: gridTemplate }}>
+                {rowSegs.map((seg, i) => {
+                  const { crewCount, lead } = barMeta(seg)
+                  return (
+                    <CalendarBar
+                      key={`${seg.jobId}-${seg.alloc?.seq ?? 'own'}-${seg.startYmd}-${i}`}
+                      gridColumn={`${seg.startCol + 1} / ${seg.endCol + 2}`}
+                      gridRow={seg.lane + 1}
+                      color={getJobColor(seg.job)}
+                      jobNum={seg.job.job_num}
+                      jobName={seg.job.job_name}
+                      crewCount={crewCount}
+                      lead={lead}
+                      isPW={isPW(seg.job)}
+                      selected={selectedJobId === seg.jobId}
+                      onSelect={() => selectJob(seg.jobId)}
+                    />
+                  )
+                })}
+                {week.map((d, c) => {
+                  const ds = fmtD(d)
+                  const overflow = bars.overflowByYmd[ds] || 0
+                  if (!overflow) return null
+                  return (
+                    <div
+                      key={`more-${c}`}
+                      style={{ ...styles.moreLink, gridColumn: c + 1, gridRow: maxLanes + 1 }}
+                      onClick={e => selectDay(ds, e)}
+                    >
+                      +{overflow} more
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )
         })}
       </div>
 
-      {/* Legend */}
-      {legendJobs.length > 0 && (
-        <>
-          <div className="cal-legend-title" style={styles.legendTitle}>Jobs This Period</div>
-          <div className="cal-legend" style={styles.legendWrap}>
-            {legendJobs.map(job => (
-              <div key={job.job_id} className="cal-legend-item" style={styles.legendItem}>
-                <div
-                  className="cal-legend-swatch"
-                  style={{ ...styles.legendSwatch, background: getJobColor(job) }}
-                />
-                <span>
-                  {job.job_num} - {job.job_name}
-                </span>
-                {isPW(job) && <span style={styles.pwTag}>PW</span>}
-              </div>
-            ))}
-          </div>
-        </>
+      {!hasAnyBar && (
+        <div style={{ ...styles.legend, color: 'var(--text-light)', fontStyle: 'italic' }}>
+          No crew scheduled this {view === 'week' ? 'week' : 'month'}
+          {(filterCrew || filterStatus) ? ' for the current filters' : ''}.
+        </div>
       )}
+
+      {/* Minimal legend */}
+      <div style={styles.legend}>
+        <span><strong style={{ color: '#6d28d9' }}>PW</strong> = Prevailing Wage</span>
+        <span><strong>+N more</strong> = additional jobs that day (click the day)</span>
+        <span style={{ color: 'var(--text-light)' }}>Bar colors are for readability only.</span>
+      </div>
     </div>
   )
 }

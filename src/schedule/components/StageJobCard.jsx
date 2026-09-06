@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { updateJobField, updateJobStatus, deleteJob } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
 import { baseChecklistPasses, hasFieldSow, materialsDecided, getJobMobilizations } from '../lib/queries'
+import { workedDaySet } from '../lib/workdays'
 import { useUser } from '../lib/user'
 import FieldSowModal from './FieldSowModal'
 import CardSowModal from './CardSowModal'
@@ -50,23 +51,13 @@ function fmtMD(dateStr) {
 
 // Plan §4.1: calendar days start→end, excluding BOTH weekend days unless an
 // assignment exists on that weekend day. assignmentDates = Set of 'YYYY-MM-DD'
-// for this job (null → no weekend exception applied).
+// for this job (null → no weekend exception applied). The worked-day rule is the
+// canonical one in lib/workdays.js (shared with DaysModal + the calendar bars).
 function totalWorkDays(job, assignmentDates = null) {
   const start = effectiveStart(job)
   const end = effectiveEnd(job)
   if (!start || !end) return null
-  const s = new Date(start + 'T00:00:00')
-  const e = new Date(end + 'T00:00:00')
-  let count = 0
-  const cursor = new Date(s)
-  while (cursor <= e) {
-    const dow = cursor.getDay()
-    const isWeekend = dow === 0 || dow === 6
-    if (!isWeekend) count++
-    else if (assignmentDates && assignmentDates.has(ymd(cursor))) count++
-    cursor.setDate(cursor.getDate() + 1)
-  }
-  return count
+  return workedDaySet(start, end, assignmentDates).size
 }
 
 function sowRowsForCard(job) {

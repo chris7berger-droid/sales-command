@@ -118,6 +118,14 @@ export default function JobDetail() {
     return billingLog.reduce((sum, b) => sum + (parseFloat(b.percent) || 0), 0)
   }, [billingLog])
 
+  // Team members for the Lead picker (mandatory-lead tweak). Keep any existing
+  // free-text lead as an option so a legacy value still displays + saves.
+  const leadOptions = useMemo(() => {
+    const names = Object.values(teamMap).map(m => m.name).filter(Boolean).sort((a, b) => a.localeCompare(b))
+    if (job?.lead && !names.includes(job.lead)) names.unshift(job.lead)
+    return names
+  }, [teamMap, job?.lead])
+
   const amount = job?.amount ? parseFloat(job.amount) : 0
 
   if (loading) return <div className="jd-wrap"><div className="jh-empty">Loading...</div></div>
@@ -271,16 +279,22 @@ export default function JobDetail() {
                 />
               </div>
               <div className="jd-field">
-                <span className="jd-label">Lead</span>
-                <input
-                  type="text"
+                <span className="jd-label">
+                  Lead{(job.scheduled_start || job.start_date) && !job.lead ? ' — required' : ''}
+                </span>
+                <select
                   className="jd-input"
-                  defaultValue={job.lead || ''}
-                  placeholder="Crew lead"
-                  onBlur={e => {
-                    updateJobField(job.job_id, 'lead', e.target.value || null, changedBy)
+                  value={job.lead || ''}
+                  style={(job.scheduled_start || job.start_date) && !job.lead ? { borderColor: '#c0392b' } : undefined}
+                  onChange={e => {
+                    const v = e.target.value || null
+                    setJob(prev => ({ ...prev, lead: v }))
+                    updateJobField(job.job_id, 'lead', v, changedBy)
                   }}
-                />
+                >
+                  <option value="">Select lead…</option>
+                  {leadOptions.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
               </div>
               <div className="jd-field">
                 <span className="jd-label">Crew Needed</span>

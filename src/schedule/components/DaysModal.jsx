@@ -4,6 +4,8 @@
 // Scheduled days come from the canonical per-WTC job_wtcs[*].field_sow rows;
 // legacy zero-WTC jobs fall back to working days across the job span.
 
+import { workedDaySet } from '../lib/workdays'
+
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
 
@@ -41,15 +43,8 @@ function collectScheduledDates(job, assignmentDates) {
     const start = effectiveStart(job)
     const end = effectiveEnd(job)
     if (start && end) {
-      const s = new Date(start + 'T00:00:00')
-      const e = new Date(end + 'T00:00:00')
-      const cur = new Date(s)
-      while (cur <= e) {
-        const dow = cur.getDay()
-        const weekend = dow === 0 || dow === 6
-        if (!weekend || (assignmentDates && assignmentDates.has(ymd(cur)))) set.add(ymd(cur))
-        cur.setDate(cur.getDate() + 1)
-      }
+      // Canonical Mon–Sat + assigned-weekend rule (lib/workdays.js).
+      for (const d of workedDaySet(start, end, assignmentDates)) set.add(d)
     } else if (start) {
       set.add(start.slice(0, 10))
     }

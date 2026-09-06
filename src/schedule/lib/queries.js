@@ -1702,16 +1702,27 @@ export function computeHomeDashboard({
   // Precompute crew_name|date presence so the per-day loop is O(crew·days),
   // not O(crew·days·assignments) (the .some() scan it replaces).
   const asgKey = new Set(weekAssignments.map(a => a.crew_name + '|' + a.date))
+  // Job lookup for the per-day allocated-crew detail (day-click drilldown).
+  const jobById = {}
+  for (const j of jobs) jobById[String(j.job_id)] = j
   const capacityDays = dates.map(d => {
     let out = 0, assigned = 0
+    // detail lists so the capacity strip can show WHO is free / allocated / off on day-click
+    const availableList = [], assignedList = [], outList = []
     for (const c of crew) {
       const st = getCSt(c.name, d)
-      if (st !== 'available') out++
-      else if (asgKey.has(c.name + '|' + d)) assigned++
+      if (st !== 'available') { out++; outList.push({ name: c.name, status: st }) }
+      else if (asgKey.has(c.name + '|' + d)) {
+        assigned++
+        const asgns = weekAssignments.filter(a => a.crew_name === c.name && a.date === d)
+        for (const a of asgns) assignedList.push({ name: c.name, job: jobById[String(a.job_id)] || null })
+      } else availableList.push({ name: c.name })
     }
     const avail = crew.length - out
+    const free = availableList.length            // not off AND not assigned = deployable today
     const pct = avail > 0 ? Math.round((assigned / avail) * 100) : 0
-    return { date: d, assigned, avail, out, pct, isToday: d === todayStr }
+    return { date: d, assigned, avail, free, out, pct, isToday: d === todayStr,
+      detail: { available: availableList, assigned: assignedList, out: outList } }
   })
 
   const crewAvailable = crew.length

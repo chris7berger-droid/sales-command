@@ -1787,6 +1787,7 @@
 .schedule-root .sch-dd-row {
   font-size: 12px;
   padding: 2px 0;
+  color: var(--text-primary);
 }
 
 .schedule-root .sch-dd-arrow {
@@ -6500,6 +6501,13 @@
 
 .schedule-root .hcs-days { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; flex: 1; }
 .schedule-root .hcs-day { position: relative; padding: 4px 6px 18px; text-align: center; }
+.schedule-root .hcs-day-click { cursor: pointer; border-radius: 8px; transition: background 0.12s; }
+.schedule-root .hcs-day-click:hover { background: rgba(255,255,255,0.06); }
+.schedule-root .hcs-day-badges { position: absolute; top: -2px; left: 2px; right: 2px; display: flex; justify-content: space-between; pointer-events: none; }
+.schedule-root .hcs-day-avail,
+.schedule-root .hcs-day-off { min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; color: #fff; font-family: var(--font-mono); font-weight: 700; font-size: 10px; line-height: 15px; text-align: center; }
+.schedule-root .hcs-day-avail { background: var(--sig-green); }
+.schedule-root .hcs-day-off { background: var(--sig-red); margin-left: auto; }
 .schedule-root .hcs-day-today { background: rgba(48,207,172,0.08); border-radius: 8px; }
 .schedule-root .hcs-day-label { font-family: var(--font-heading); font-weight: 700; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.55); }
 .schedule-root .hcs-day-count { font-family: var(--font-mono); font-weight: 700; font-size: 15px; margin: 4px 0 5px; }

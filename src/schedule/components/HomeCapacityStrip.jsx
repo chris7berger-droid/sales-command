@@ -1,6 +1,13 @@
+import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 
 const DAYS_LONG = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+
+function flipName(n) {
+  if (!n) return ''
+  const p = n.split(',')
+  return p.length === 2 ? p[1].trim() + ' ' + p[0].trim() : n
+}
 
 // Weekly Crew Capacity — the full-width charcoal strip (§8 composition #2). Left:
 // three circular summary badges. Right: six per-day capacity indicators (assigned
@@ -27,6 +34,7 @@ export default function HomeCapacityStrip({ data, weekLabel }) {
   const navigate = useNavigate()
   const location = useLocation()
   const days = data?.capacityDays || []
+  const [detailDay, setDetailDay] = useState(null)
   // No point linking to the Crew Schedule when we're already on it.
   const onCrewSchedule = location.pathname === '/schedule/schedule'
 
@@ -51,8 +59,13 @@ export default function HomeCapacityStrip({ data, weekLabel }) {
           {days.map((d, i) => {
             const [, mm, dd] = d.date.split('-')
             const color = pctColor(d.pct)
+            const free = d.free ?? Math.max(0, d.avail - d.assigned)
             return (
-              <div key={d.date} className={`hcs-day${d.isToday ? ' hcs-day-today' : ''}`}>
+              <div key={d.date} className={`hcs-day hcs-day-click${d.isToday ? ' hcs-day-today' : ''}`} onClick={() => setDetailDay(d)}>
+                <div className="hcs-day-badges">
+                  <span className="hcs-day-avail" title={`${free} crew free`}>{free}</span>
+                  {d.out > 0 && <span className="hcs-day-off" title={`${d.out} crew off`}>{d.out}</span>}
+                </div>
                 <div className="hcs-day-label">{DAYS_LONG[i]} {parseInt(dd, 10)}</div>
                 <div className="hcs-day-count">{d.assigned} / {d.avail}</div>
                 <div className="hcs-day-bar">
@@ -65,6 +78,37 @@ export default function HomeCapacityStrip({ data, weekLabel }) {
           })}
         </div>
       </div>
+
+      {detailDay && (() => {
+        const di = days.indexOf(detailDay)
+        const [, mm, dd] = detailDay.date.split('-')
+        const dayLabel = DAYS_LONG[di] || ''
+        const det = detailDay.detail || { available: [], assigned: [], out: [] }
+        return (
+          <div className="sch-modal-overlay" onClick={() => setDetailDay(null)}>
+            <div className="sch-modal sch-modal-detail" onClick={e => e.stopPropagation()}>
+              <div className="sch-modal-title">{dayLabel} {parseInt(mm, 10)}/{parseInt(dd, 10)}</div>
+              <div className="sch-dd-section-hdr" style={{ color: 'var(--command-green)' }}>Available ({det.available.length})</div>
+              {det.available.map(c => (
+                <div key={c.name} className="sch-dd-row">{'•'} {flipName(c.name)}</div>
+              ))}
+              <div className="sch-dd-section-hdr" style={{ color: '#3498db' }}>Assigned ({det.assigned.length})</div>
+              {det.assigned.map((c, idx) => (
+                <div key={c.name + idx} className="sch-dd-row">
+                  {'•'} {flipName(c.name)} <span className="sch-dd-arrow">{'→'}</span> {c.job ? c.job.job_num + ' - ' + c.job.job_name : '?'}
+                </div>
+              ))}
+              <div className="sch-dd-section-hdr" style={{ color: 'var(--danger)' }}>Out ({det.out.length})</div>
+              {det.out.map(c => (
+                <div key={c.name} className="sch-dd-row">{'•'} {flipName(c.name)} <span className="sch-dd-status">({c.status})</span></div>
+              ))}
+              <div className="sch-modal-actions">
+                <button className="sch-btn" onClick={() => setDetailDay(null)}>CLOSE</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </section>
   )
 }

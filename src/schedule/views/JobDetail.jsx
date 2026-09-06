@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { loadJobWithWTCs, updateJobField, loadPRTsForJob, loadDailyLogsForJob, loadTeamMemberMap } from '../lib/queries'
 import { useUser } from '../lib/user'
+import { useToast } from '../lib/toast'
 import { getJobStatus, getStatusBadgeClass } from '../lib/jobStatus'
 import PRTDetail from '../components/PRTDetail'
 import { FieldSowView } from '../components/FieldSowModal'
@@ -55,6 +56,7 @@ export default function JobDetail() {
   const mode = searchParams.get('mode') // 'planning' | 'management' | null
   const user = useUser()
   const changedBy = user?.name || 'unknown'
+  const toast = useToast()
   const [job, setJob] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState(null)
@@ -259,6 +261,8 @@ export default function JobDetail() {
                   max={effectiveEnd(job) || ''}
                   onChange={e => {
                     const val = e.target.value
+                    // A job can't go on the board with nobody running it.
+                    if (val && !job.lead) { toast('Set a crew lead before scheduling this job', 'err'); return }
                     setJob(prev => ({ ...prev, scheduled_start: val }))
                     updateJobField(job.job_id, 'scheduled_start', val || null, changedBy)
                   }}
@@ -273,6 +277,7 @@ export default function JobDetail() {
                   min={effectiveStart(job) || ''}
                   onChange={e => {
                     const val = e.target.value
+                    if (val && !job.lead) { toast('Set a crew lead before scheduling this job', 'err'); return }
                     setJob(prev => ({ ...prev, scheduled_end: val }))
                     updateJobField(job.job_id, 'scheduled_end', val || null, changedBy)
                   }}
@@ -288,6 +293,10 @@ export default function JobDetail() {
                   style={(job.scheduled_start || job.start_date) && !job.lead ? { borderColor: '#c0392b' } : undefined}
                   onChange={e => {
                     const v = e.target.value || null
+                    // Can't blank the lead on an already-scheduled job.
+                    if (!v && (job.scheduled_start || job.start_date)) {
+                      toast('A scheduled job needs a crew lead', 'err'); return
+                    }
                     setJob(prev => ({ ...prev, lead: v }))
                     updateJobField(job.job_id, 'lead', v, changedBy)
                   }}

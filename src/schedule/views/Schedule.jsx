@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { loadJobs, updateJobField, loadMobilizationsByJobId, loadTeamMemberMap } from '../lib/queries'
 import { useUser } from '../lib/user'
+import { useToast } from '../lib/toast'
 import { getJobStatus } from '../lib/jobStatus'
 import { jobRanges, overlapsWeek, inRange, allocForWeek as allocForWeekAt, pickAllocField } from '../lib/allocations'
 
@@ -94,6 +95,7 @@ function gTagClass(t) {
 export default function Schedule({ embedded = false } = {}) {
   const user = useUser()
   const navigate = useNavigate()
+  const toast = useToast()
   const changedBy = user?.name || 'unknown'
   const [jobs, setJobs] = useState([])
   const [crew, setCrew] = useState([])
@@ -743,7 +745,11 @@ export default function Schedule({ embedded = false } = {}) {
                   className="sch-dinp"
                   value={j.lead || ''}
                   style={(effStart(j) || j.start_date) && !j.lead ? { borderColor: '#c0392b' } : undefined}
-                  onChange={e => handleUpdateJob(j.job_id, 'lead', e.target.value || null)}
+                  onChange={e => {
+                    const v = e.target.value || null
+                    if (!v && (effStart(j) || j.start_date)) { toast('A scheduled job needs a crew lead', 'err'); return }
+                    handleUpdateJob(j.job_id, 'lead', v)
+                  }}
                 >
                   <option value="">Select lead…</option>
                   {j.lead && !leadNames.includes(j.lead) && <option value={j.lead}>{j.lead}</option>}
@@ -754,11 +760,17 @@ export default function Schedule({ embedded = false } = {}) {
             <div className="sch-det-grid">
               <div>
                 <label>Start</label>
-                <input className="sch-dinp" type="date" defaultValue={effStart(j) || ''} onBlur={e => handleUpdateJob(j.job_id, 'scheduled_start', e.target.value)} />
+                <input className="sch-dinp" type="date" defaultValue={effStart(j) || ''} onBlur={e => {
+                  if (e.target.value && !j.lead) { toast('Set a crew lead before scheduling this job', 'err'); e.target.value = effStart(j) || ''; return }
+                  handleUpdateJob(j.job_id, 'scheduled_start', e.target.value)
+                }} />
               </div>
               <div>
                 <label>End</label>
-                <input className="sch-dinp" type="date" defaultValue={effEnd(j) || ''} onBlur={e => handleUpdateJob(j.job_id, 'scheduled_end', e.target.value)} />
+                <input className="sch-dinp" type="date" defaultValue={effEnd(j) || ''} onBlur={e => {
+                  if (e.target.value && !j.lead) { toast('Set a crew lead before scheduling this job', 'err'); e.target.value = effEnd(j) || ''; return }
+                  handleUpdateJob(j.job_id, 'scheduled_end', e.target.value)
+                }} />
               </div>
               <div>
                 <label>Scope / SOW</label>

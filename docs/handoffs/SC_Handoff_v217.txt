@@ -1,0 +1,165 @@
+SC Handoff v217 — Crew scheduled-off indicator restored on Weekly Crew Capacity strip + dead sch-command repo decommissioned + HDSP schedule entitlement re-enabled
+================================================================================
+Date: 2026-09-06
+Repo: sales-command (Schedule Command, src/schedule/) — plus cross-repo housekeeping in sch-command, .claude-commands, claude-personal-state
+Branch: main (HEAD e63909e = origin/main); fix branch merged but not yet deleted
+Backlog: no new IDs (fix-in-flow); B91 part-1 still open from v216
+Prior handoff: SC_Handoff_v216.txt
+
+SESSION SUMMARY
+---------------
+Started as a /fix: "the new crew-count header lost the red 'crew scheduled off'
+indicator (a red number you could click to see who's allocated vs off) — get it
+back." First mistake, caught by Chris: the fix landed in the RETIRED standalone
+sch-command repo (~/sch-command), not the live app. Root cause — Schedule moved
+into sales-command/src/schedule on 2026-09-02 but the old repo was never killed,
+so it still looked live (in active-repos, "Production:" in its CLAUDE.md, live
+Vercel deploy). Reverted that, redid the fix correctly in sales-command against
+the SHARED HomeCapacityStrip (so it covers Home + Jobs + Crew Schedule + Calendar
+in one change): red badge = crew off, green badge = crew free, click-a-day → modal
+listing Available / Assigned(→job) / Out, plus fixed a white-on-linen modal-text
+bug. Then decommissioned the dead repo (archived on GitHub, RETIRED banner, dropped
+from active-repos) and added a new global standing discipline #3 so the next repo
+move can't orphan a live-but-unmaintained app. Mid-session scare: Schedule Command
+vanished from the nav — traced NOT to any of today's work but to HDSP's
+tenant_config.apps being ["sales"] (last changed Sep 3); flipped it back to include
+"schedule" and the nav returned. Merged the crew-off fix to main; Chris confirmed
+in-app that both the indicator and the restored Schedule nav work.
+
+CHANGES SHIPPED
+---------------
+sales-command (on main; prod auto-deploys on push):
+- bca8ae1  Fix: crew-off + available indicators + day drilldown on Weekly Crew
+           Capacity strip. Red badge (crew off) + green badge (crew free) per day;
+           click a day → Available/Assigned/Out modal. Per-day crew detail computed
+           in computeHomeDashboard (canonical) so HomeCapacityStrip stays
+           presentational. Fixed sch-dd-row rendering white-on-linen (→ text-primary).
+           Touches: src/schedule/lib/queries.js, src/schedule/components/
+           HomeCapacityStrip.jsx, src/schedule/App.css.
+- e63909e  Merge fix/schedule-crew-off-indicator → main (--no-ff).
+
+Cross-repo housekeeping (decommission the retired standalone Schedule app):
+- sch-command (GitHub chris7berger-droid/sch-command): RETIRED banner atop CLAUDE.md
+  pointing to sales-command/src/schedule; committed + pushed to its main; then the
+  whole repo ARCHIVED (read-only) via `gh repo archive`. An earlier wrong-target fix
+  branch was deleted (local + remote). Repo is otherwise untouched/frozen.
+- .claude-commands (synced): removed /Users/chrisberger/sch-command from
+  active-repos.txt; committed + pushed to origin/main.
+- claude-personal-state (~/.claude/CLAUDE.md source): added Standing discipline #3
+  "Decommission the source when an app/repo moves." COMMITTED LOCALLY, NOT PUSHED —
+  that repo is diverged (ahead 7 / behind 17, plus uncommitted memory files); left
+  for Chris's normal sync to reconcile.
+
+DEPLOYED
+--------
+Project ref: pbgvgjjuhnpsumnowuym (shared: Sales + Schedule + Field).
+- Frontend: crew-off fix auto-deploys to www.scmybiz.com on the push to main (e63909e).
+- DB DATA WRITE (not a migration): re-enabled Schedule for HDSP —
+    update tenant_config set apps = '["sales","schedule"]'::jsonb
+    where id = '246f6551-60de-4965-bb97-9a52971bc05d';
+  Run via `supabase db query --linked` from command-suite-db (Supabase MCP is
+  read-only). Verified by RETURNING: apps = [sales schedule]. This is per-tenant
+  entitlement data, not schema — no migration/ledger entry.
+
+DECISIONS / CHOICES MADE
+------------------------
+- Redo the fix in sales-command/src/schedule, NOT sch-command. The embedded module
+  is the live source of truth (scmybiz.com); the standalone repo is a retired
+  predecessor that still points at the shared prod DB — editing it was editing a
+  corpse.
+- Fix the shared HomeCapacityStrip once instead of per-screen. In sales-command it's
+  the single strip used by both the Home dashboard and WeeklyCapacityBand (mounted in
+  ScheduleLayout across Crew Schedule/Calendar/Daily), so one change covers all four
+  named screens.
+- Delete (not redirect) the sch-command Vercel project. Chris doesn't want
+  schedulecommand.com as a front door. Also found www.schmybiz.com (typo-adjacent to
+  the live www.scmybiz.com) bound to the DEAD project and serving the old app against
+  the shared DB — a real multi-tenant footgun. Chris chose full delete (Option B);
+  he confirmed schmybiz.com is his and unused.
+- New Standing discipline #3 (global CLAUDE.md): when an app/repo is superseded by a
+  move, actively kill the source in the SAME session — tear down deploy, release
+  domains, archive repo, drop from active-repos, RETIRED banner. Born from this repo
+  sitting live 4 days post-move.
+- The "Schedule vanished from nav" scare was NOT caused by this session. Proven:
+  nav-gating rule live since Sep 1; HDSP tenant setting last changed Sep 3 (3 days
+  prior); every DB action this session was read-only until the authorized flip; the
+  crew-off branch never touched nav/routing. Likely a stale cached screen finally
+  loading the real setting. Fix was the tenant flip regardless.
+- tenant_config.apps is the per-tenant driver on/off switch (sales/schedule/field/ar)
+  — the knob to flip per customer as multi-tenant rolls out. Gate is AND of
+  AVAILABLE_APPS ∩ tenantApps ∩ memberApps (src/lib/nav.js groupVisible).
+
+NEW BACKLOG ITEMS
+-----------------
+- None filed. One open non-code action tracked in NEXT SESSION POINTERS: delete the
+  sch-command Vercel project.
+
+CLOSED THIS SESSION
+-------------------
+- Crew scheduled-off indicator restored (the /fix ask). Shipped bca8ae1, merged
+  e63909e. Not a numbered backlog item.
+
+VERIFICATION
+------------
+- Build: `npx vite build` green after the edits (and earlier on the wrong-repo pass).
+- In-app (Chris, live): confirmed the crew-off + available badges and day-click modal
+  "look great" on the branch preview before merge, and "everything works" after the
+  merge to prod. Confirmed Schedule Command returned to the nav after the tenant flip
+  (hard-refresh of scmybiz.com).
+- Tenant flip: verified via RETURNING row (apps=[sales schedule]).
+- NOT INDEPENDENTLY SMOKED BY CLAUDE: the badge counts / modal contents were eyeballed
+  by Chris, not re-derived against prod data by Claude. Logic mirrors the existing
+  StatsBar drilldown, and computeHomeDashboard already produced the out/assigned
+  numbers the strip shows.
+
+NOT TOUCHED THIS SESSION
+------------------------
+- feat/calendar-modernization and feat/subcon-command-home — checked out in OTHER
+  worktrees (~/sales-command-calendar-modernization, ~/sales-command-subcon-command-home).
+  Another session may be using them. Left alone.
+- B91 part-1 (suite-wide anon-grant revoke) — still open/deferred from v216.
+- B85 (schedule surfaces don't live-update on job state change) — pre-existing.
+
+NEXT SESSION POINTERS
+---------------------
+- CHRIS'S OPEN ACTION: delete the sch-command Vercel project (Vercel → sch-command →
+  Settings → Delete Project). Removes all 4 domain bindings (schedulecommand.com ×2,
+  schmybiz.com, sch-command.vercel.app) at once. Safe — code history lives in the
+  archived GitHub repo; the live www.scmybiz.com is a SEPARATE Vercel project.
+- claude-personal-state has an UNPUSHED local commit (Standing discipline #3) and is
+  diverged (ahead/behind). Reconcile via Chris's normal personal-state sync — needs a
+  real merge, do NOT force-push.
+- fix/schedule-crew-off-indicator is merged but still present (local + remote) — safe
+  to delete both (see GIT STATE); offered at close.
+- Any per-tenant driver enable/disable: it's tenant_config.apps (jsonb array), read at
+  app load — no redeploy needed.
+
+FILES TO PROBABLY KNOW ABOUT NEXT SESSION
+-----------------------------------------
+- src/schedule/components/HomeCapacityStrip.jsx — now renders per-day green (free) +
+  red (off) badges and owns the day-detail modal (Available/Assigned/Out). Shared by
+  the Home dashboard and WeeklyCapacityBand.
+- src/schedule/lib/queries.js — computeHomeDashboard capacityDays now carries `free`
+  and a `detail` object (available/assigned/out lists) per day.
+- src/schedule/App.css — new .hcs-day-badges/.hcs-day-avail/.hcs-day-off/.hcs-day-click
+  styles; sch-dd-row given explicit text-primary (was inheriting white).
+- src/lib/nav.js — groupVisible = AVAILABLE_APPS ∩ tenantApps ∩ memberApps. This is
+  the gate that hid Schedule when HDSP's tenant apps were sales-only.
+- src/components/AppSidebar.jsx — filters GROUPS through groupVisible for the sidebar.
+
+GIT STATE ON CLOSE
+------------------
+- sales-command: on main, HEAD e63909e = origin/main (merge already pushed).
+  Merged-but-undeleted branch: fix/schedule-crew-off-indicator (local + origin).
+  Other-worktree branches (leave alone): feat/calendar-modernization,
+  feat/subcon-command-home. Working tree clean apart from this handoff file.
+- sch-command: main pushed (RETIRED banner); GitHub repo ARCHIVED (read-only).
+- .claude-commands: main pushed (active-repos updated).
+- claude-personal-state: 1 local commit unpushed (discipline #3); repo diverged.
+- Open PRs: none.
+
+END STATE
+---------
+Merged + deployed to prod (crew-off indicator) and Chris-confirmed in-app; dead
+sch-command repo frozen + archived; HDSP schedule entitlement restored. One manual
+action left for Chris: delete the sch-command Vercel project. Ready for a fresh session.

@@ -1721,9 +1721,16 @@ export function computeHomeDashboard({
   const needCrews = weekJobs.filter(j => weekCrew(j) < need(j))
   // Double-booked: a crew_name on ≥2 distinct job_id the same date (§11 — count
   // distinct job_id, not rows; split shifts on one job are not a conflict).
+  // SCOPE to on-board week jobs (weekJobs) — an assignment tied to an off-board
+  // job (stale import, non-scheduling status, or dates outside the week) must NOT
+  // flag a conflict the Crew Schedule board doesn't show. Mirrors the board's
+  // weekJobIds guard (Schedule.jsx `crewDayJobs`). Without this the count inflated
+  // vs the board (the 4-vs-0 discrepancy: off-board assignments counted as clashes).
+  const weekJobIds = new Set(weekJobs.map(j => String(j.job_id)))
   const byCrewDate = {}
   for (const a of weekAssignments) {
     if (!a.crew_name || !a.date) continue
+    if (!weekJobIds.has(String(a.job_id))) continue
     ;(byCrewDate[a.crew_name + '|' + a.date] ||= new Set()).add(String(a.job_id))
   }
   const conflictCrew = new Set()

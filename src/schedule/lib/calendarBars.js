@@ -175,8 +175,11 @@ export function buildCalendarBars({ rows, jobs, blocksByJobId, assignedDaysByJob
         // Worked days over the FULL block range (pre grid-clip) → the job total.
         const wset = (workedDaysByJob[jid] ||= new Set())
         eachDay(run.start, run.end, (d, ds) => wset.add(ds))
+        // One run = one visual chain; its per-row segments share a chainId so the
+        // lane packer can keep them on a single lane across the weeks they span.
+        const chainId = `${jid}|${bi}|${run.start}`
         for (const seg of runSegments(run, cellMap)) {
-          segments.push({ ...seg, jobId: job.job_id, job, alloc: block.alloc })
+          segments.push({ ...seg, jobId: job.job_id, job, alloc: block.alloc, chainId })
         }
       }
     })
@@ -194,26 +197,51 @@ export function buildCalendarBars({ rows, jobs, blocksByJobId, assignedDaysByJob
     membersByYmd[ds].sort((a, b) => segmentSort(a.seg, b.seg))
   }
 
-  // 2. Lane-pack per row (greedy over the deterministic sort); cap → overflow.
+  // 2. Lane-pack, chain-aware. A run that spans multiple week rows is ONE chain
+  //    and gets a single lane across every row it touches — so a multi-week job
+  //    shown in week 1 also shows (same lane) in week 2, never split by the cap or
+  //    jumping lanes. Multi-row chains are laid first (the backbone); single-week
+  //    segments then fill the remaining lanes. lane ≥ maxLanes → "+N more".
   const segmentsByRow = rows.map(() => [])
   const overflowByYmd = {}
-  const byRow = {}
-  for (const seg of segments) (byRow[seg.rowIndex] ||= []).push(seg)
 
-  for (const [rowStr, rowSegs] of Object.entries(byRow)) {
-    const row = Number(rowStr)
-    rowSegs.sort(segmentSort)
-    const laneEnd = []  // laneEnd[lane] = last occupied col in that lane
-    for (const seg of rowSegs) {
-      let lane = laneEnd.findIndex(end => end < seg.startCol)
-      if (lane === -1) { lane = laneEnd.length; laneEnd.push(seg.endCol) }
-      else laneEnd[lane] = seg.endCol
+  const chains = {}
+  for (const seg of segments) (chains[seg.chainId] ||= []).push(seg)
+  const chainList = Object.values(chains)
+
+  // Per-row, per-lane occupied column intervals — real overlap test (not a single
+  // laneEnd), so out-of-order placement across phases packs correctly.
+  const occ = {}  // row -> lane -> [{ s, e }]
+  const fits = (row, lane, s, e) => {
+    const lanes = occ[row]
+    if (!lanes || !lanes[lane]) return true
+    return !lanes[lane].some(iv => s <= iv.e && e >= iv.s)
+  }
+  const place = (row, lane, s, e) => { ((occ[row] ||= [])[lane] ||= []).push({ s, e }) }
+  const lowestLane = (segs) => {
+    for (let lane = 0; ; lane++) {
+      if (segs.every(sg => fits(sg.rowIndex, lane, sg.startCol, sg.endCol))) return lane
+    }
+  }
+
+  const chainStart = (c) => c.reduce((m, s) => (s.startYmd < m ? s.startYmd : m), c[0].startYmd)
+  const chainKey = (c) => `${chainStart(c)}|${String(c[0].job?.job_num || '')}`
+  const rowsSpanned = (c) => new Set(c.map(s => s.rowIndex)).size
+  const multi = chainList.filter(c => rowsSpanned(c) > 1)
+    .sort((a, b) => chainKey(a).localeCompare(chainKey(b), undefined, { numeric: true }))
+  const single = chainList.filter(c => rowsSpanned(c) === 1)
+    .sort((a, b) => segmentSort(a[0], b[0]))
+
+  for (const chain of [...multi, ...single]) {
+    const lane = lowestLane(chain)
+    for (const seg of chain) {
+      place(seg.rowIndex, lane, seg.startCol, seg.endCol)
       if (lane < maxLanes) {
-        segmentsByRow[row].push({ ...seg, lane })
+        segmentsByRow[seg.rowIndex].push({ ...seg, lane })
       } else {
         // Surplus — count it against every date it covers for a "+N more".
         for (let c = seg.startCol; c <= seg.endCol; c++) {
-          const ds = ymd(rows[row][c])
+          const ds = ymd(rows[seg.rowIndex][c])
           overflowByYmd[ds] = (overflowByYmd[ds] || 0) + 1
         }
       }

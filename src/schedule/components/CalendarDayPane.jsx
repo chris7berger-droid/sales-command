@@ -6,7 +6,7 @@ import ComingSoon from './ComingSoon'
 // from Calendar() — the pane just lays them out. Rail sibling (not nested in a
 // clickable cell), so internal buttons use plain onClick, no stopPropagation.
 
-const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 function fmtHeader(ds) {
@@ -18,54 +18,63 @@ function fmtHeader(ds) {
 const s = {
   pane: {
     width: 300, flexShrink: 0, alignSelf: 'stretch',
-    background: 'var(--bg-card)', border: '2px solid var(--border)', borderRadius: 4,
+    background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8,
     display: 'flex', flexDirection: 'column', overflow: 'hidden',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
   header: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '8px 12px', background: 'var(--header-dark)', color: 'var(--white)',
-    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 13,
-    textTransform: 'uppercase', letterSpacing: 0.5,
+    padding: '12px 14px', borderBottom: '1px solid var(--border)',
   },
+  hTitle: { fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' },
   close: {
-    background: 'none', border: 'none', color: 'var(--white)', cursor: 'pointer',
-    fontSize: 18, lineHeight: 1, padding: 0,
+    background: 'none', border: 'none', color: 'var(--text-light)', cursor: 'pointer',
+    fontSize: 20, lineHeight: 1, padding: 0,
   },
-  tabs: { display: 'flex', borderBottom: '1px solid var(--border)' },
+  tabs: { display: 'flex', gap: 4, padding: '8px 10px 0' },
   tab: (active) => ({
-    flex: 1, padding: '6px 4px', border: 'none', cursor: 'pointer',
-    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 11,
-    textTransform: 'uppercase', letterSpacing: 0.5,
-    background: active ? 'var(--bg-card)' : 'var(--bg-muted, rgba(0,0,0,0.03))',
-    color: active ? 'var(--text-primary)' : 'var(--text-light)',
-    borderBottom: active ? '2px solid var(--text-primary)' : '2px solid transparent',
+    padding: '5px 10px', border: 'none', cursor: 'pointer', borderRadius: 6,
+    fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 11,
+    background: active ? '#1c1814' : 'transparent',
+    color: active ? '#30cfac' : 'var(--text-light)',
   }),
   body: { padding: 8, overflowY: 'auto', flex: 1 },
   row: (selected) => ({
-    display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px',
-    borderRadius: 4, cursor: 'pointer', marginBottom: 2,
-    background: selected ? 'var(--bg-muted, rgba(0,0,0,0.06))' : 'transparent',
-    boxShadow: selected ? 'inset 0 0 0 1px var(--text-primary)' : 'none',
+    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 8px',
+    borderRadius: 6, cursor: 'pointer', marginBottom: 2,
+    background: selected ? 'rgba(48,207,172,0.12)' : 'transparent',
+    boxShadow: selected ? 'inset 0 0 0 1px #30cfac' : 'none',
+    transition: 'background 0.12s',
   }),
-  dot: (color) => ({ width: 10, height: 10, borderRadius: '50%', background: color, flexShrink: 0 }),
+  dot: (color) => ({ width: 12, height: 12, borderRadius: '50%', background: color, flexShrink: 0 }),
   rowMain: { flex: 1, minWidth: 0 },
   rowTitle: {
-    fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 12,
+    fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 13,
     color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   },
   rowSub: {
     fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)',
-    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1,
   },
   crew: {
-    fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, flexShrink: 0,
-    background: 'var(--header-dark)', color: 'var(--white)', borderRadius: 3, padding: '1px 5px',
+    display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0,
+    fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)',
   },
-  chev: { color: 'var(--text-light)', flexShrink: 0, fontSize: 14 },
+  chev: { color: 'var(--text-light)', flexShrink: 0, fontSize: 16 },
   empty: {
     fontFamily: 'var(--font-body)', fontSize: 12, fontStyle: 'italic',
-    color: 'var(--text-light)', padding: 12, textAlign: 'center',
+    color: 'var(--text-light)', padding: 16, textAlign: 'center',
   },
+}
+
+// Small person glyph for the crew count (matches the mockup's "person · N").
+function PersonIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <circle cx="8" cy="5" r="3" />
+      <path d="M2 14c0-3 2.7-5 6-5s6 2 6 5" />
+    </svg>
+  )
 }
 
 export default function CalendarDayPane({
@@ -77,7 +86,7 @@ export default function CalendarDayPane({
   return (
     <div className="cal-day-pane" style={s.pane}>
       <div style={s.header}>
-        <span>{fmtHeader(date)}</span>
+        <span style={s.hTitle}>{fmtHeader(date)}</span>
         <button style={s.close} onClick={onClose} title="Close">×</button>
       </div>
 
@@ -103,11 +112,9 @@ export default function CalendarDayPane({
                     <span style={s.dot(getJobColor(job))} />
                     <div style={s.rowMain}>
                       <div style={s.rowTitle}>{`${job.job_num || ''} · ${job.job_name || ''}`}</div>
-                      <div style={s.rowSub}>
-                        {getJobStatus(job)}{lead ? ` · ${lead}` : ''}
-                      </div>
+                      <div style={s.rowSub}>{lead || getJobStatus(job)}</div>
                     </div>
-                    {crewCount > 0 && <span style={s.crew}>{crewCount}</span>}
+                    {crewCount > 0 && <span style={s.crew}><PersonIcon />{crewCount}</span>}
                     <span style={s.chev}>›</span>
                   </div>
                 )

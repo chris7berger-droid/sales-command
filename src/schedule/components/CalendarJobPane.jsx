@@ -1,16 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { loadJobWithWTCs, loadMobilizationsByJobId, getJobMobilizations } from '../lib/queries'
+import { getStatusBadgeClass } from '../lib/jobStatus'
 import { jobBlocks } from '../lib/calendarBars'
 import ComingSoon from './ComingSoon'
 
 // Job pane (plan §8.2). Overview renders SYNCHRONOUSLY from the job the calendar
 // already loaded; only the mobilization list needs _wtcs, so we lazy-hydrate just
-// the selected job (guarded against a stale-race). Material cost is intentionally
-// cut to counts-only (plan §8.2 allowed option) — the cost helpers degrade
-// silently to $0 without their catalog/rate args, so we never render a fabricated
-// dollar figure. Read-only: Open/Edit navigates to JobDetail. Rail sibling → plain
-// onClick, no stopPropagation.
+// the selected job (guarded against a stale-race). Material cost is cut to
+// counts-only (plan §8.2 allowed option) — the cost helpers degrade silently to $0
+// without their catalog/rate args, so we never render a fabricated dollar figure.
+// Tabs (ratified 2026-09-06): Overview (wired) · Crew · Daily Logs · Production —
+// the last three pull from Field Command (loadDailyLogsForJob / loadPRTsForJob),
+// wired in a later pass. Read-only: Open/Edit navigates to JobDetail (management).
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 function fmtDate(ds) {
@@ -23,45 +25,49 @@ function ymdToday() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+const TEAL = '#30cfac'
+const DARK = '#1c1814'
+
 const s = {
   pane: {
     width: 320, flexShrink: 0, alignSelf: 'stretch',
-    background: 'var(--bg-card)', border: '2px solid var(--border)', borderRadius: 4,
+    background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8,
     display: 'flex', flexDirection: 'column', overflow: 'hidden',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
   header: {
     display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-    padding: '8px 12px', background: 'var(--header-dark)', color: 'var(--white)',
+    padding: '12px 14px', borderBottom: '1px solid var(--border)',
   },
-  hTitle: { fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 14 },
-  hSub: { fontFamily: 'var(--font-body)', fontSize: 11, opacity: 0.85, marginTop: 2 },
-  badge: {
-    display: 'inline-block', marginTop: 4, fontFamily: 'var(--font-heading)', fontSize: 10,
-    fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
-    background: 'rgba(255,255,255,0.2)', borderRadius: 3, padding: '1px 6px',
-  },
-  close: { background: 'none', border: 'none', color: 'var(--white)', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 0 },
-  tabs: { display: 'flex', borderBottom: '1px solid var(--border)' },
+  hTitle: { fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' },
+  hSub: { fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 },
+  close: { background: 'none', border: 'none', color: 'var(--text-light)', cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: 0 },
+  tabs: { display: 'flex', gap: 4, padding: '8px 10px 0', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' },
   tab: (active) => ({
-    flex: 1, padding: '6px 4px', border: 'none', cursor: 'pointer',
-    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 10,
-    textTransform: 'uppercase', letterSpacing: 0.5,
-    background: active ? 'var(--bg-card)' : 'var(--bg-muted, rgba(0,0,0,0.03))',
-    color: active ? 'var(--text-primary)' : 'var(--text-light)',
-    borderBottom: active ? '2px solid var(--text-primary)' : '2px solid transparent',
+    padding: '5px 9px', border: 'none', cursor: 'pointer', borderRadius: '6px 6px 0 0',
+    fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 11, marginBottom: -1,
+    background: active ? DARK : 'transparent',
+    color: active ? TEAL : 'var(--text-light)',
   }),
-  body: { padding: 12, overflowY: 'auto', flex: 1 },
-  field: { marginBottom: 8 },
-  label: {
-    fontFamily: 'var(--font-heading)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: 0.5, color: 'var(--text-light)', marginBottom: 1,
+  body: { padding: 14, overflowY: 'auto', flex: 1 },
+  photo: {
+    height: 120, borderRadius: 8, marginBottom: 12,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'var(--bg-muted, rgba(0,0,0,0.04))', border: '1px dashed var(--border)',
+    fontFamily: 'var(--font-body)', fontSize: 12, fontStyle: 'italic', color: 'var(--text-light)',
   },
-  value: { fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-primary)' },
-  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
+  field: { display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 10 },
+  icon: { fontSize: 13, lineHeight: '16px', opacity: 0.7, flexShrink: 0, width: 16, textAlign: 'center' },
+  fMain: { minWidth: 0, flex: 1 },
+  label: { fontFamily: 'var(--font-heading)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--text-light)' },
+  value: { fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-primary)', marginTop: 1 },
+  progressWrap: { marginTop: 2 },
+  progressTrack: { height: 6, borderRadius: 3, background: 'var(--bg-muted, rgba(0,0,0,0.08))', overflow: 'hidden', marginTop: 4 },
+  progressFill: (pct) => ({ height: '100%', width: `${pct}%`, background: TEAL, borderRadius: 3 }),
   sectionTitle: {
     fontFamily: 'var(--font-heading)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: 0.5, color: 'var(--text-secondary)', margin: '12px 0 6px',
-    borderTop: '1px solid var(--border)', paddingTop: 8,
+    letterSpacing: 0.5, color: 'var(--text-secondary)', margin: '14px 0 8px',
+    borderTop: '1px solid var(--border)', paddingTop: 10,
   },
   mobRow: {
     display: 'flex', justifyContent: 'space-between', fontSize: 12,
@@ -69,21 +75,23 @@ const s = {
   },
   actions: { display: 'flex', gap: 8, padding: 12, borderTop: '1px solid var(--border)' },
   actBtn: {
-    flex: 1, padding: '7px 8px', cursor: 'pointer', borderRadius: 4,
-    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 11,
-    textTransform: 'uppercase', letterSpacing: 0.5,
-    border: '2px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)',
+    flex: 1, padding: '9px 8px', cursor: 'pointer', borderRadius: 6,
+    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 12,
+    border: `1px solid ${TEAL}`, background: 'var(--bg-card)', color: 'var(--text-primary)',
   },
-  actPrimary: { background: 'var(--header-dark)', color: 'var(--white)', borderColor: 'var(--header-dark)' },
+  actPrimary: { background: TEAL, color: DARK, borderColor: TEAL },
   muted: { fontFamily: 'var(--font-body)', fontSize: 12, fontStyle: 'italic', color: 'var(--text-light)' },
   notFound: { padding: 20, textAlign: 'center', fontFamily: 'var(--font-body)', color: 'var(--text-light)' },
 }
 
-function Field({ label, children }) {
+function Field({ icon, label, children }) {
   return (
     <div style={s.field}>
-      <div style={s.label}>{label}</div>
-      <div style={s.value}>{children}</div>
+      <span style={s.icon}>{icon}</span>
+      <div style={s.fMain}>
+        <div style={s.label}>{label}</div>
+        <div style={s.value}>{children}</div>
+      </div>
     </div>
   )
 }
@@ -132,22 +140,23 @@ export default function CalendarJobPane({ job, workedDaySet, getJobStatus, onClo
   const end = job.scheduled_end || job.end_date
   const totalWorkDays = workedDaySet ? workedDaySet.size : null
   const loc = [job.jobsite_address, job.jobsite_city, job.jobsite_state].filter(Boolean).join(', ')
+  const status = getJobStatus(job)
 
   // Schedule Progress (Day X of N) — N≤0 guard (round-2 L).
-  let progress = null
+  let progressLabel = null, progressPct = 0
   if (totalWorkDays && totalWorkDays > 0) {
-    const today = ymdToday()
-    const elapsed = [...workedDaySet].filter(d => d <= today).length
-    progress = `Day ${Math.min(elapsed, totalWorkDays)} of ${totalWorkDays}`
+    const elapsed = Math.min([...workedDaySet].filter(d => d <= ymdToday()).length, totalWorkDays)
+    progressPct = Math.round((elapsed / totalWorkDays) * 100)
+    progressLabel = `Day ${elapsed} of ${totalWorkDays} (${progressPct}%)`
   }
 
   return (
     <div className="cal-job-pane" style={s.pane}>
       <div style={s.header}>
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div style={s.hTitle}>{`${job.job_num || ''} · ${job.job_name || ''}`}</div>
           {subtitle && <div style={s.hSub}>{subtitle}</div>}
-          <span style={s.badge}>{getJobStatus(job)}</span>
+          <span className={`jh-status-badge ${getStatusBadgeClass(status)}`} style={{ marginTop: 6, display: 'inline-block' }}>{status}</span>
         </div>
         <button style={s.close} onClick={onClose} title="Close">×</button>
       </div>
@@ -155,57 +164,57 @@ export default function CalendarJobPane({ job, workedDaySet, getJobStatus, onClo
       <div style={s.tabs}>
         <button style={s.tab(tab === 'overview')} onClick={() => setTab('overview')}>Overview</button>
         <button style={s.tab(tab === 'crew')} onClick={() => setTab('crew')}>Crew</button>
+        <button style={s.tab(tab === 'daily-logs')} onClick={() => setTab('daily-logs')}>Daily Logs</button>
         <button style={s.tab(tab === 'production')} onClick={() => setTab('production')}>Production</button>
-        <button style={s.tab(tab === 'files')} onClick={() => setTab('files')}>Files</button>
       </div>
 
       <div style={s.body}>
         {tab === 'overview' && (
           <>
-            <Field label="Customer">{job.customer_name || '—'}</Field>
-            <Field label="Location">{loc || '—'}</Field>
-            <div style={s.grid2}>
-              <Field label="Job Type">{job.is_change_order ? 'Change Order' : 'Job'}</Field>
-              <Field label="Status">{getJobStatus(job)}</Field>
-              <Field label="Start">{fmtDate(start)}</Field>
-              <Field label="End">{fmtDate(end)}</Field>
-              <Field label="Work Days">{totalWorkDays != null ? totalWorkDays : '—'}</Field>
-              <Field label="Crew Needed">{job.crew_needed || '—'}</Field>
-            </div>
-            {progress && <Field label="Schedule Progress">{progress}</Field>}
+            <div style={s.photo}>Photo — coming soon</div>
+
+            <Field icon="🏢" label="Customer">{job.customer_name || '—'}</Field>
+            <Field icon="📍" label="Location">{loc || '—'}</Field>
+            <Field icon="🏷️" label="Job Type">{job.is_change_order ? 'Change Order' : 'Job'}</Field>
+            <Field icon="📅" label="Start">{fmtDate(start)}</Field>
+            <Field icon="🏁" label="End">{fmtDate(end)}</Field>
+            <Field icon="🗓️" label="Total Scheduled Work Days">{totalWorkDays != null ? `${totalWorkDays} day${totalWorkDays === 1 ? '' : 's'}` : '—'}</Field>
+            <Field icon="👥" label="Crew Needed">{job.crew_needed || '—'}</Field>
+            <Field icon="📊" label="Allocations">{hydrating ? '…' : (allocCount != null ? allocCount : '—')}</Field>
+
+            {progressLabel && (
+              <Field icon="📈" label="Schedule Progress">
+                <div style={s.progressWrap}>
+                  {progressLabel}
+                  <div style={s.progressTrack}><div style={s.progressFill(progressPct)} /></div>
+                </div>
+              </Field>
+            )}
 
             <div style={s.sectionTitle}>Mobilizations</div>
             {hydrating
               ? <div style={s.muted}>Loading…</div>
               : (mobs && mobs.length
-                  ? (
-                    <>
-                      <div style={{ ...s.value, marginBottom: 4 }}>
-                        {mobs.length} mobilization{mobs.length === 1 ? '' : 's'}
-                        {allocCount != null ? ` · ${allocCount} allocation${allocCount === 1 ? '' : 's'}` : ''}
+                  ? mobs.map(m => (
+                      <div key={m.seq} style={s.mobRow}>
+                        <span>{m.label}</span>
+                        <span style={{ color: 'var(--text-secondary)' }}>
+                          {m.start_date ? `${fmtDate(m.start_date)}${m.end_date && m.end_date !== m.start_date ? ' – ' + fmtDate(m.end_date) : ''}` : 'No dates'}
+                        </span>
                       </div>
-                      {mobs.map(m => (
-                        <div key={m.seq} style={s.mobRow}>
-                          <span>{m.label}</span>
-                          <span style={{ color: 'var(--text-secondary)' }}>
-                            {m.start_date ? `${fmtDate(m.start_date)}${m.end_date && m.end_date !== m.start_date ? ' – ' + fmtDate(m.end_date) : ''}` : 'No dates'}
-                          </span>
-                        </div>
-                      ))}
-                    </>
-                  )
+                    ))
                   : <div style={s.muted}>No mobilizations</div>
                 )}
 
-            <Field label="Notes"><span style={{ whiteSpace: 'pre-wrap' }}>{job.notes || '—'}</span></Field>
+            <Field icon="📝" label="Notes"><span style={{ whiteSpace: 'pre-wrap' }}>{job.notes || '—'}</span></Field>
 
             <div style={s.sectionTitle}>Production</div>
-            <ComingSoon label="Production %, photos, and activity — coming soon" />
+            <ComingSoon label="Production %, photos & activity — from Field Command (coming soon)" />
           </>
         )}
-        {tab === 'crew' && <ComingSoon label="Crew detail — coming soon" />}
-        {tab === 'production' && <ComingSoon label="Production tracking — coming soon" />}
-        {tab === 'files' && <ComingSoon label="Files — coming soon" />}
+        {tab === 'crew' && <ComingSoon label="Crew — coming soon" />}
+        {tab === 'daily-logs' && <ComingSoon label="Daily Logs — from Field Command (coming soon)" />}
+        {tab === 'production' && <ComingSoon label="Production PRT — from Field Command (coming soon)" />}
       </div>
 
       <div style={s.actions}>

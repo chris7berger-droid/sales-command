@@ -4,6 +4,15 @@
 // readability color (NOT work type / lead / customer) — a small PW marker rides
 // on top without recoloring the whole bar. Read-only: clicking selects the job.
 
+// Fade a hex color to an rgba string — softens the bar fill against the linen
+// theme (less visual strain) while a fuller-color border keeps each bar distinct.
+function hexA(hex, a) {
+  const h = String(hex).replace('#', '')
+  const n = h.length === 3 ? h.split('').map(c => c + c).join('') : h
+  const r = parseInt(n.slice(0, 2), 16), g = parseInt(n.slice(2, 4), 16), b = parseInt(n.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${a})`
+}
+
 export default function CalendarBar({
   gridColumn, gridRow, color, jobNum, jobName, crewCount, lead, isPW, selected, onSelect,
   height = 16, fontSize = 10,
@@ -21,7 +30,9 @@ export default function CalendarBar({
       style={{
         gridColumn,
         gridRow,
-        background: color,
+        background: hexA(color, 0.55),
+        border: `1px solid ${hexA(color, 0.85)}`,
+        boxSizing: 'border-box',
         color: '#fff',
         fontSize,
         fontFamily: 'var(--font-heading)',

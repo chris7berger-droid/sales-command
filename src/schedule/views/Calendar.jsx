@@ -154,7 +154,7 @@ const styles = {
     display: 'flex', flexDirection: 'column',
   },
   cellOutside: { opacity: 0.4 },
-  cellToday: { background: '#fef9c3' },
+  cellToday: { background: 'rgba(48,207,172,0.10)' },
   cellSelected: { boxShadow: 'inset 0 0 0 2px #30cfac' },
   // Top strip of each cell: the "+N more" overflow chip (left) + day number
   // (right). Keeping the chip up here means it never gets clipped and frees a

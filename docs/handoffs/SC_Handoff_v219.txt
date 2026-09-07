@@ -1,0 +1,173 @@
+SC Handoff v219 — Calendar Modernization (Chunks A/B/C) + JobDetail Retirement
+Date: 2026-09-06
+Worktree: ~/sales-command-calendar-modernization
+Branches: feat/calendar-modernization (Chunk A, MERGED to main) ·
+          feat/calendar-panes (Chunk B/C + polish) ·
+          feat/retire-jobdetail (JobDetail retirement, STACKED on calendar-panes)
+Plan: docs/plans/calendar-modernization.md (§1–§7 Chunk A · §8 Chunk B/C, round-4 clean)
+
+════════════════════════════════════════════════════════════════════════
+SESSION SUMMARY
+════════════════════════════════════════════════════════════════════════
+Rebuilt Schedule Command > Calendar from a month-only per-cell grid into a
+command center: weekend-aware continuous spanning bars, Month/Week views,
+filters, a day pane, and a job pane. Then — on Chris's call — retired the legacy
+full-page JobDetail screen app-wide, consolidating every "open a job" path onto
+the inline StageJobCard on the Jobs screen.
+
+Delivered in three build chunks + one retirement, each gated in its own cold
+terminals:
+  • Chunk A — spanning-bar engine + Month/Week + filters + mandatory-lead. MERGED
+    to main (0b72613). Gates green; T2-1 (hard-block job-level lead) resolved.
+  • Chunk B/C — day pane + job pane (Option 2: grid-derived index, panes derive
+    nothing). On feat/calendar-panes.
+  • Cosmetic polish pass — panes reskinned to the ratified mockup (light headers,
+    status badge, teal accents, icons, progress bar); job-pane tabs ratified to
+    Overview/Crew/Daily Logs/Production.
+  • JobDetail retirement — History ported to a card panel; all 6 doors repointed
+    to /schedule/jobs?job=<id>; route + component deleted. On feat/retire-jobdetail.
+
+All three final-round gates on feat/retire-jobdetail (a73f9ad..HEAD): GREEN.
+  Security   ✅ 0 exploitable-today
+  Code-review ✅ 0 ship-blockers (5 non-blocking cleanups filed)
+  buildvsplan ✅ 0 ship-blockers, SMOKE=GO (3 Tier-2 optional)
+
+════════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED
+════════════════════════════════════════════════════════════════════════
+Chunk A (MERGED to main, 0b72613):
+  • src/schedule/lib/workdays.js (NEW) — canonical Mon–Sat + assigned-weekend
+    worked-day predicate; DaysModal + StageJobCard repointed to it (no 4th copy).
+  • src/schedule/lib/calendarBars.js (NEW) — weekend-aware, lane-packed spanning
+    bar segmentation. Go-backs = separate spans (B87). "+N more" overflow.
+  • src/schedule/components/CalendarBar.jsx (NEW) — one bar segment; alternating
+    color (NOT work-type), small PW marker.
+  • src/schedule/views/Calendar.jsx — rewrite: Month/Week toggle, All Crews/All
+    Statuses filters (Work Types = coming soon), B1 union-range fetch keyed on
+    string bounds, Sunday consistency, selection state + reset, empty state.
+  • Mandatory lead: ScheduleLayout crew-allocation modal Lead → required
+    team-member <select>; JobDetail + Schedule job-level Lead → team-member
+    <select> with a hard block (can't set a scheduled date while lead is blank,
+    can't blank a lead on a scheduled job).
+
+Chunk B/C + polish (feat/calendar-panes):
+  • calendarBars.js — buildCalendarBars now also returns membersByYmd (from the
+    PRE-CAP segments, so a >maxLanes day lists ALL its jobs incl. "+N more") and
+    per-job workedDaysByJob (the grid's own worked-day set).
+  • components/CalendarDayPane.jsx (NEW) — off selectedDate; lists the day's
+    members (color dot · job#·name · lead/status · crew · chevron→job pane).
+    Jobs tab wired; Crew View / Summary = ComingSoon.
+  • components/CalendarJobPane.jsx (NEW) — off selectedJobId; Overview synchronous
+    from the loaded job; lazy-hydrate mobs only (loadJobWithWTCs +
+    loadMobilizationsByJobId([job],{})[job_id] → getJobMobilizations); loadIdRef
+    stale-race guard; Total Work Days from the grid; material COST cut to
+    counts-only (no fabricated $0); tabs Overview(wired)/Crew/Daily Logs/Production.
+  • components/ComingSoon.jsx (NEW) — shared honest placeholder.
+  • Calendar.jsx — three-column layout (flex on a dedicated row only; toolbar/
+    legend/WeeklyCapacityBand untouched); renders both panes; "+N more" force-opens.
+  • Polish: light pane headers, colored status badge (jh-status-badge), teal
+    (#30cfac) accents/primary button, field icons, Schedule Progress bar, photo
+    slot, person-icon crew counts.
+
+JobDetail retirement (feat/retire-jobdetail):
+  • components/HistoryPanel.jsx (NEW) — ports the JobDetail History tab (reads
+    job_changes, grouped log, reuses jd-history CSS). Added as a 5th card panel
+    (PLANNING/MANAGEMENT/DETAILS/BUDGET/HISTORY).
+  • components/StageJobCard.jsx — autoOpen prop (starts expanded + scrollIntoView
+    + teal highlight ring); header no longer navigates; HISTORY panel.
+  • components/JobsToPrepare.jsx — focusJobId prop: widens filters + force-includes
+    the target so a deep-link always surfaces it; passes autoOpen.
+  • views/Jobs.jsx — reads ?job= → focusJobId.
+  • Doors repointed to /schedule/jobs?job=<id>: HomePanels "View Job", Home
+    milestones, Schedule board back-button, CalendarJobPane Open/Edit, and
+    src/lib/subconSummary.js (Subcon Command home activity links).
+  • ScheduleLayout.jsx — /schedule/jobs/:jobId route + import removed.
+  • views/JobDetail.jsx — DELETED.
+
+════════════════════════════════════════════════════════════════════════
+DECISIONS (this session)
+════════════════════════════════════════════════════════════════════════
+  • T2-1 (Chunk A): job-level lead made a HARD block, not a nudge (Chris ratified).
+  • Job-pane material cost → counts-only (plan-allowed) to avoid a fabricated $0.
+  • Job-pane tabs ratified: Overview / Crew / Daily Logs / Production; Daily Logs +
+    Production pull from Field Command (loaders exist: loadDailyLogsForJob /
+    loadPRTsForJob) — wired in a later pass.
+  • Cosmetic polish to match the ratified mockup (emoji field-icons are a first
+    pass; swap to line icons later if wanted).
+  • JobDetail retired app-wide (Option B) — kept getting passed over; History was
+    its only unique feature, so it was ported, then the screen deleted.
+  • B92 ID collision cleared: Subcon Home "Jobs Assigned count" renumbered → B98.
+
+════════════════════════════════════════════════════════════════════════
+NEW / CLOSED BACKLOG ITEMS
+════════════════════════════════════════════════════════════════════════
+Closed pre/at merge: B89, B90 (Closed on main).
+Filed this session:
+  • B92 — Calendar assignments query unpaginated/unordered (pre-existing, out of
+    scope; window kept bounded).
+  • B96 — mandatory-lead invariant leaks via the per-WTC SOW date editor (3rd path
+    not gated). SHOULD-FIX.
+  • B97 — "scheduled job has a lead" is UI-only, no DB constraint. HARDENING.
+  • B99 — Schedule board has no "clear job focus" control (from JobDetail smoke).
+  • B100 — calendar-panes minor cleanups (redundant setManualDate; job-pane
+    re-hydrate on bg reload; membersByYmd O(jobs²); day-pane subtitle; crew label).
+  • B101 — job pane Open Job + Edit Schedule are the same action (product decision).
+  • B102 — JobDetail retirement dropped the per-job Billing tab view (billing_log);
+    PENDING HDSP confirm it's unused (billing_log is retired placeholder data).
+
+════════════════════════════════════════════════════════════════════════
+VERIFICATION
+════════════════════════════════════════════════════════════════════════
+  • npm run build ✅ · eslint ✅ (no new issues; only pre-existing Schedule.jsx
+    baseline noise remains).
+  • calendarBars engine unit-tested (esbuild bundle): weekend break/run-through,
+    row-wrap, go-back separate spans, overflow cap, membersByYmd parity (overflow
+    day lists all jobs), workedDaysByJob counts. All correct.
+  • Chris smoked the panes + all JobDetail-retire doors on the Vercel preview:
+    day pane, job pane, deep-link + highlight, HISTORY — all working.
+  • NOT auto-verifiable from the build terminal (needs the running app):
+    - Open a completed/INVOICED job from the calendar job pane's "Open Job" —
+      confirm the deep-link surfaces it (force-included, but it's the edge of the
+      loadJobs set). (buildvsplan smoke note.)
+    - B102 billing confirm.
+
+════════════════════════════════════════════════════════════════════════
+NOT TOUCHED / DEFERRED (intentional)
+════════════════════════════════════════════════════════════════════════
+  • Work-type bar coloring + legend — voided in ID8 (alternating color instead).
+  • Health-status chips (On Track/Behind/Issue) — no data source (D7).
+  • Photo, Production %, Recent Activity, Crew/Daily-Logs/Production job-pane tabs,
+    Crew View/Summary day-pane tabs — ComingSoon (Field Command / no source yet).
+  • Sunday CREATION — sibling plan docs/plans/sunday-scheduling.md (this build only
+    keeps Month/Week Sunday DISPLAY consistent).
+  • B92 (assignments pagination), B91 (anon grants) — pre-existing, out of scope.
+
+════════════════════════════════════════════════════════════════════════
+NEXT SESSION POINTERS
+════════════════════════════════════════════════════════════════════════
+  1. MERGE (make-it-live; Vercel auto-deploys, no migration/edge-fn):
+     order — feat/calendar-panes → main, then feat/retire-jobdetail
+     fast-forwards (it's stacked on calendar-panes). Confirm B102 (billing) first.
+  2. Post-merge cleanups: B100, B101 (needs your call), B96/B97 (lead invariant),
+     B99 (board clear-focus).
+  3. Field Command wiring: job-pane Daily Logs + Production PRT (loaders exist).
+  4. Delete the merged feature branches after merge.
+
+════════════════════════════════════════════════════════════════════════
+FILES TO KNOW
+════════════════════════════════════════════════════════════════════════
+  Engine:   src/schedule/lib/calendarBars.js · lib/workdays.js
+  Calendar: src/schedule/views/Calendar.jsx
+  Panes:    src/schedule/components/CalendarDayPane.jsx · CalendarJobPane.jsx ·
+            CalendarBar.jsx · ComingSoon.jsx · HistoryPanel.jsx
+  Job card (now THE job surface): src/schedule/components/StageJobCard.jsx +
+            JobsToPrepare.jsx (deep-link) + views/Jobs.jsx
+  Plan:     docs/plans/calendar-modernization.md (§8 = Chunk B/C spec)
+
+════════════════════════════════════════════════════════════════════════
+GIT STATE
+════════════════════════════════════════════════════════════════════════
+  main @ 0b72613 (Chunk A merged + gated)
+  feat/calendar-panes — Chunk B/C + polish (pushed)
+  feat/retire-jobdetail @ 4a6a6b3 — stacked; History port + retirement (pushed)
+  All gates green on a73f9ad..HEAD. Ready to merge pending B102 confirm.

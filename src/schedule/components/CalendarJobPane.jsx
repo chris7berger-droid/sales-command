@@ -209,8 +209,8 @@ export default function CalendarJobPane({ job, workedDaySet, getJobStatus, onClo
       </div>
 
       <div style={s.actions}>
-        <button style={s.actBtn} onClick={() => navigate(`/schedule/jobs/${job.job_id}`)}>Open Job</button>
-        <button style={{ ...s.actBtn, ...s.actPrimary }} onClick={() => navigate(`/schedule/jobs/${job.job_id}`)}>Edit Schedule</button>
+        <button style={s.actBtn} onClick={() => navigate(`/schedule/jobs/${job.job_id}?mode=management`)}>Open Job</button>
+        <button style={{ ...s.actBtn, ...s.actPrimary }} onClick={() => navigate(`/schedule/jobs/${job.job_id}?mode=management`)}>Edit Schedule</button>
       </div>
     </div>
   )

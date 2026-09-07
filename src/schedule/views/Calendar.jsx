@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { loadJobs, loadMobilizationsByJobId, wkDates } from '../lib/queries'
 import { getMonday } from '../lib/weeks'
@@ -198,6 +198,11 @@ export default function Calendar() {
   const [filterStatus, setFilterStatus] = useState('')   // '' = All Statuses
   const [selectedDate, setSelectedDate] = useState(null)   // ymd — day pane hook (Chunk B)
   const [selectedJobId, setSelectedJobId] = useState(null) // job pane hook (Chunk C)
+  // Available height for the week-rows grid so it fills the viewport exactly —
+  // populated weeks grow to absorb slack (no dead space at the bottom) and the
+  // page stops overflowing into a stray scroll. Measured from the grid's top.
+  const weeksRef = useRef(null)
+  const [gridH, setGridH] = useState(null)
 
   // Assignments fetch range = union of the month grid and the focused week
   // (B1). Keyed on YYYY-MM-DD strings, never a Date object.
@@ -248,6 +253,20 @@ export default function Calendar() {
     load()
     return () => { cancelled = true }
   }, [range.start, range.end])
+
+  // Size the week-rows grid to the space left under the toolbar, down to the
+  // bottom of the viewport. Recomputes on view/period change and window resize.
+  useEffect(() => {
+    function measure() {
+      const el = weeksRef.current
+      if (!el) return
+      const top = el.getBoundingClientRect().top
+      setGridH(Math.max(240, Math.round(window.innerHeight - top - 16)))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [view, loading, month, year, weekStart])
 
   // --- derived data ---
 
@@ -455,15 +474,6 @@ export default function Calendar() {
   }
 
   const gridTemplate = `repeat(${nCols}, 1fr)`
-  // Content-driven row heights: a month week with no jobs collapses to just the
-  // day-number strip; a week with jobs grows to fit exactly the lanes it uses.
-  // That reclaimed space is what lets populated weeks (and their bars) be taller.
-  function rowHeight(r) {
-    const segs = bars.segmentsByRow[r] || []
-    const lanesUsed = segs.reduce((m, s) => Math.max(m, s.lane + 1), 0)
-    if (view === 'week') return CELL_HEADER + Math.max(lanesUsed, 6) * laneH + 40
-    return CELL_HEADER + lanesUsed * laneH + (lanesUsed ? 10 : 8)
-  }
   const hasAnyBar = bars.segmentsByRow.some(r => r.length > 0)
 
   return (
@@ -520,12 +530,17 @@ export default function Calendar() {
         ))}
       </div>
 
-      {/* Week rows */}
-      <div style={{ ...styles.grid, gridTemplateColumns: '1fr', gap: 1, gridAutoRows: 'min-content' }}>
+      {/* Week rows — flex column sized to fill the viewport; each row grows in
+          proportion to the lanes it uses, so busy weeks get the space and empty
+          weeks stay collapsed. No dead block at the bottom, no page overflow. */}
+      <div ref={weeksRef} style={{ ...styles.grid, display: 'flex', flexDirection: 'column', gap: 1, height: gridH || 'auto', overflowY: 'auto', overflowX: 'hidden' }}>
         {rows.map((week, r) => {
           const rowSegs = bars.segmentsByRow[r] || []
+          const lanesUsed = rowSegs.reduce((m, s) => Math.max(m, s.lane + 1), 0)
+          const minH = CELL_HEADER + (lanesUsed ? lanesUsed * laneH + 6 : 8)
+          const flexStyle = lanesUsed ? { flex: `${lanesUsed} 1 0` } : { flex: '0 0 auto' }
           return (
-            <div key={r} style={{ ...styles.weekRow, gridTemplateColumns: gridTemplate, minHeight: rowHeight(r) }}>
+            <div key={r} style={{ ...styles.weekRow, gridTemplateColumns: gridTemplate, minHeight: minH, ...flexStyle }}>
               {/* Day cells */}
               {week.map((d, c) => {
                 const ds = fmtD(d)

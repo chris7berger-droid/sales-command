@@ -41,18 +41,17 @@ export default function CalendarBar({
         boxShadow: selected ? '0 0 0 2px var(--text-primary)' : 'none',
       }}
     >
-      {/* Job number in a dark pill with teal text — the same treatment the sales
-          lists (Call Log / Proposals / Invoices) use, so the number reads on any
-          bar color and the app shares one visual language. Name stays white. */}
+      {/* Job identifier as a single dark pill with teal text — the same treatment
+          the sales lists (Call Log / Proposals / Invoices) use. jobNum is already
+          the composite "num - name" (display_job_number), so no separate white
+          name is needed. Ellipsis handles long labels on short bars. */}
       {jobNum && (
         <span style={{
           fontFamily: 'var(--font-heading)', fontWeight: 700, letterSpacing: '0.04em',
           color: '#30cfac', background: '#1c1814', borderRadius: 4,
-          padding: '0 5px', lineHeight: `${height - 4}px`, flexShrink: 0,
+          padding: '0 6px', lineHeight: `${height - 4}px`,
+          flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
         }}>{jobNum}</span>
-      )}
-      {jobName && (
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: '0 1 auto' }}>{jobName}</span>
       )}
       {isPW && (
         <span style={{

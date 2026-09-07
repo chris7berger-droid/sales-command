@@ -207,6 +207,10 @@ export default function Calendar() {
   // page stops overflowing into a stray scroll. Measured from the grid's top.
   const weeksRef = useRef(null)
   const [gridH, setGridH] = useState(null)
+  // "Show all": lift the per-day bar cap so every job renders; weeks then grow to
+  // their full job count and the calendar scrolls vertically (vs the default
+  // compact mode, which fills the viewport and caps overflow into "+N more").
+  const [showAll, setShowAll] = useState(false)
 
   // Assignments fetch range = union of the month grid and the focused week
   // (B1). Keyed on YYYY-MM-DD strings, never a Date object.
@@ -368,7 +372,7 @@ export default function Calendar() {
   }, [weekStart, filteredJobs, crewCountMap])
 
   const rows = useMemo(() => (view === 'month' ? monthRows : [weekCols]), [view, monthRows, weekCols])
-  const maxLanes = view === 'month' ? MONTH_MAX_LANES : WEEK_MAX_LANES
+  const maxLanes = showAll ? 999 : (view === 'month' ? MONTH_MAX_LANES : WEEK_MAX_LANES)
   const nCols = view === 'month' ? 7 : weekCols.length
   // Week has one full-width row and lots of vertical room, so its bars run taller
   // with bigger text; month bars are more compact.
@@ -494,6 +498,14 @@ export default function Calendar() {
           <button style={styles.toggleBtn(view === 'week')} onClick={() => changeView('week')}>Week</button>
         </div>
 
+        <button
+          style={{ ...styles.navBtn, ...(showAll ? { background: 'var(--header-dark)', color: 'var(--white)', borderColor: 'var(--header-dark)' } : {}) }}
+          onClick={() => setShowAll(s => !s)}
+          title={showAll ? 'Cap busy days and fit to screen' : 'Show every job; the calendar scrolls'}
+        >
+          Show all
+        </button>
+
         <span style={styles.spacer} />
 
         <select
@@ -527,24 +539,28 @@ export default function Calendar() {
         {/* Calendar column wraps the day-name header + week rows together so the
             two sibling grids share gridTemplate and the panes sit beside them. */}
         <div style={styles.calendarColumn}>
-      {/* Day-name header */}
-      <div style={{ ...styles.grid, gridTemplateColumns: gridTemplate, marginBottom: 1 }}>
+      {/* Day-name header — pinned while scrolling in Show-all mode so the columns
+          stay labeled as tall weeks scroll past. */}
+      <div style={{ ...styles.grid, gridTemplateColumns: gridTemplate, marginBottom: 1, ...(showAll ? { position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg)' } : {}) }}>
         {(view === 'month' ? DAY_NAMES : weekCols.map(d => `${DAY_NAMES[d.getDay()]} ${d.getDate()}`)).map((dn, i) => (
           <div key={i} style={styles.dayHeader}>{dn}</div>
         ))}
       </div>
 
-      {/* Week rows — flex column sized to fill the viewport; each row grows in
-          proportion to the lanes it uses, so busy weeks get the space and empty
-          weeks stay collapsed. No dead block at the bottom, no page overflow. */}
-      <div ref={weeksRef} style={{ ...styles.grid, display: 'flex', flexDirection: 'column', gap: 1, height: gridH || 'auto', overflowY: 'auto', overflowX: 'hidden' }}>
+      {/* Week rows. Compact: flex column sized to the viewport; rows grow by lane
+          count so busy weeks get the space and empty weeks collapse (no bottom
+          gap, no page overflow). Show-all: rows take their full content height and
+          the page scrolls through them. */}
+      <div ref={weeksRef} style={{ ...styles.grid, display: 'flex', flexDirection: 'column', gap: 1,
+        height: showAll ? 'auto' : (gridH || 'auto'),
+        overflowY: showAll ? 'visible' : 'auto', overflowX: 'hidden' }}>
         {rows.map((week, r) => {
           const rowSegs = bars.segmentsByRow[r] || []
           const lanesUsed = rowSegs.reduce((m, s) => Math.max(m, s.lane + 1), 0)
           const minH = CELL_HEADER + (lanesUsed ? lanesUsed * laneH + 6 : 8)
-          const flexStyle = lanesUsed ? { flex: `${lanesUsed} 1 0` } : { flex: '0 0 auto' }
+          const rowFlex = (!showAll && lanesUsed) ? { flex: `${lanesUsed} 1 0` } : { flex: '0 0 auto' }
           return (
-            <div key={r} style={{ ...styles.weekRow, gridTemplateColumns: gridTemplate, minHeight: minH, ...flexStyle }}>
+            <div key={r} style={{ ...styles.weekRow, gridTemplateColumns: gridTemplate, minHeight: minH, ...rowFlex }}>
               {/* Day cells */}
               {week.map((d, c) => {
                 const ds = fmtD(d)

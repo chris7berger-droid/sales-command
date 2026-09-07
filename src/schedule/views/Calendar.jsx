@@ -11,10 +11,20 @@ import CalendarJobPane from '../components/CalendarJobPane'
 
 /* ---------- helpers ---------- */
 
+// Readability-only palette (see legend). 10 maximally-distinct hues — no near
+// duplicates — so any two jobs on a day are tellable apart. Each is dark enough
+// for white bar text. A job keeps ONE color across all its spanning days.
 const JOB_COLORS = [
-  '#3498db','#e74c3c','#2ecc71','#9b59b6','#e67e22','#1abc9c',
-  '#f39c12','#c0392b','#2980b9','#8e44ad','#27ae60','#d35400',
-  '#16a085','#7f8c8d','#2c3e50','#d4a017',
+  '#2563eb', // blue
+  '#dc2626', // red
+  '#16a34a', // green
+  '#d97706', // amber
+  '#7c3aed', // violet
+  '#0891b2', // cyan
+  '#db2777', // pink
+  '#65a30d', // olive
+  '#b45309', // brown
+  '#475569', // slate
 ]
 
 function jCol(idx) {
@@ -70,6 +80,11 @@ const CELL_HEADER = 20   // day-number strip at the top of each cell
 const LANE_H = 18        // one bar lane
 const MONTH_MAX_LANES = 4
 const WEEK_MAX_LANES = 10
+// Light grid lines — the token --border is near-black (#1c1814), intentionally
+// heavy for buttons/filters, but too heavy as calendar gridlines. Scope a soft
+// line color to this grid only.
+const LINE = 'rgba(28,24,20,0.12)'
+const LINE_OUTER = 'rgba(28,24,20,0.18)'
 
 /* ---------- styles (schedule module CSS-variable convention) ---------- */
 
@@ -116,15 +131,15 @@ const styles = {
   },
   grid: {
     display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
-    border: '2px solid var(--border)', borderRadius: 4, overflow: 'hidden',
-    background: 'var(--border)', gap: 1,
+    border: `1px solid ${LINE_OUTER}`, borderRadius: 4, overflow: 'hidden',
+    background: LINE, gap: 1,
   },
   dayHeader: {
-    background: 'var(--header-dark)', color: 'var(--white)',
-    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 12,
-    textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center', padding: '6px 0',
+    background: 'var(--bg)', color: 'var(--text-light)',
+    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 11,
+    textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center', padding: '7px 0',
   },
-  weekRow: { position: 'relative', display: 'grid', gap: 1, background: 'var(--border)' },
+  weekRow: { position: 'relative', display: 'grid', gap: 1, background: LINE },
   cell: {
     background: 'var(--bg-card)', padding: 4, position: 'relative',
     display: 'flex', flexDirection: 'column',
@@ -141,10 +156,13 @@ const styles = {
     display: 'grid', gridAutoRows: LANE_H, columnGap: 1, rowGap: 1,
     pointerEvents: 'none',
   },
+  // Dark pill + teal text (brand pill style) so "+N more" clearly reads as a
+  // clickable affordance to open the day pane — not a faint label.
   moreLink: {
-    fontFamily: 'var(--font-heading)', fontSize: 9, fontWeight: 700,
-    color: 'var(--text-secondary)', cursor: 'pointer', pointerEvents: 'auto',
-    textAlign: 'left', padding: '0 4px', alignSelf: 'center',
+    fontFamily: 'var(--font-heading)', fontSize: 10.5, fontWeight: 800,
+    letterSpacing: 0.3, color: '#30cfac', background: 'var(--header-dark)',
+    borderRadius: 4, padding: '1px 7px', cursor: 'pointer', pointerEvents: 'auto',
+    justifySelf: 'start', alignSelf: 'center', whiteSpace: 'nowrap',
   },
   legend: {
     marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap',

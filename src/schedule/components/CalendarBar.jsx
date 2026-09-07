@@ -6,6 +6,7 @@
 
 export default function CalendarBar({
   gridColumn, gridRow, color, jobNum, jobName, crewCount, lead, isPW, selected, onSelect,
+  height = 16, fontSize = 10,
 }) {
   const label = `${jobNum || ''}${jobNum && jobName ? ' · ' : ''}${jobName || ''}`.trim()
   const title = `${label}${isPW ? ' (PW)' : ''}`
@@ -22,14 +23,14 @@ export default function CalendarBar({
         gridRow,
         background: color,
         color: '#fff',
-        fontSize: 10,
+        fontSize,
         fontFamily: 'var(--font-heading)',
         fontWeight: 600,
-        padding: '1px 5px',
+        padding: '1px 6px',
         margin: '0 1px',
         borderRadius: 3,
-        height: 16,
-        lineHeight: '14px',
+        height,
+        lineHeight: `${height - 2}px`,
         display: 'flex',
         alignItems: 'center',
         gap: 4,

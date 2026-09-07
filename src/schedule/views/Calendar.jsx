@@ -89,7 +89,7 @@ const LINE_OUTER = 'rgba(28,24,20,0.18)'
 /* ---------- styles (schedule module CSS-variable convention) ---------- */
 
 const styles = {
-  wrapper: { padding: '16px 24px' },
+  wrapper: { padding: '4px 24px 16px' },
   // D3 three-column: calendar | day pane | job pane. Flex lives on THIS row only —
   // never on wrapper (that would sweep the toolbar + legend into the flex too).
   layoutRow: { display: 'flex', gap: 12, alignItems: 'flex-start' },
@@ -148,22 +148,23 @@ const styles = {
   cellOutside: { opacity: 0.4 },
   cellToday: { background: '#fef9c3' },
   cellSelected: { boxShadow: 'inset 0 0 0 2px var(--text-primary)' },
+  // Top strip of each cell: the "+N more" overflow chip (left) + day number
+  // (right). Keeping the chip up here means it never gets clipped and frees a
+  // full bar lane below.
+  dayHead: { display: 'flex', alignItems: 'center', gap: 6, height: CELL_HEADER - 4 },
   dayNum: {
     fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
-    textAlign: 'right', color: 'var(--text-secondary)', height: CELL_HEADER - 4,
+    color: 'var(--text-secondary)', marginLeft: 'auto',
+  },
+  moreChip: {
+    fontFamily: 'var(--font-heading)', fontSize: 10, fontWeight: 800, letterSpacing: 0.3,
+    color: '#30cfac', background: 'var(--header-dark)', borderRadius: 4,
+    padding: '1px 6px', cursor: 'pointer', whiteSpace: 'nowrap', pointerEvents: 'auto',
   },
   barsLayer: {
     position: 'absolute', top: CELL_HEADER, left: 0, right: 0, bottom: 2,
     display: 'grid', gridAutoRows: LANE_H, columnGap: 1, rowGap: 1,
     pointerEvents: 'none',
-  },
-  // Dark pill + teal text (brand pill style) so "+N more" clearly reads as a
-  // clickable affordance to open the day pane — not a faint label.
-  moreLink: {
-    fontFamily: 'var(--font-heading)', fontSize: 10.5, fontWeight: 800,
-    letterSpacing: 0.3, color: '#30cfac', background: 'var(--header-dark)',
-    borderRadius: 4, padding: '1px 7px', cursor: 'pointer', pointerEvents: 'auto',
-    justifySelf: 'start', alignSelf: 'center', whiteSpace: 'nowrap',
   },
   legend: {
     marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap',
@@ -343,6 +344,11 @@ export default function Calendar() {
   const rows = useMemo(() => (view === 'month' ? monthRows : [weekCols]), [view, monthRows, weekCols])
   const maxLanes = view === 'month' ? MONTH_MAX_LANES : WEEK_MAX_LANES
   const nCols = view === 'month' ? 7 : weekCols.length
+  // Week has one full-width row and lots of vertical room, so its bars run taller
+  // with bigger text; month bars are more compact.
+  const laneH = view === 'week' ? 30 : 22
+  const barH = laneH - 5
+  const barFont = view === 'week' ? 13 : 11
 
   const bars = useMemo(
     () => buildCalendarBars({ rows, jobs: filteredJobs, blocksByJobId, assignedDaysByJob, maxLanes }),
@@ -445,7 +451,15 @@ export default function Calendar() {
   }
 
   const gridTemplate = `repeat(${nCols}, 1fr)`
-  const cellMinHeight = CELL_HEADER + maxLanes * LANE_H + (view === 'week' ? 120 : 16)
+  // Content-driven row heights: a month week with no jobs collapses to just the
+  // day-number strip; a week with jobs grows to fit exactly the lanes it uses.
+  // That reclaimed space is what lets populated weeks (and their bars) be taller.
+  function rowHeight(r) {
+    const segs = bars.segmentsByRow[r] || []
+    const lanesUsed = segs.reduce((m, s) => Math.max(m, s.lane + 1), 0)
+    if (view === 'week') return CELL_HEADER + Math.max(lanesUsed, 6) * laneH + 40
+    return CELL_HEADER + lanesUsed * laneH + (lanesUsed ? 10 : 8)
+  }
   const hasAnyBar = bars.segmentsByRow.some(r => r.length > 0)
 
   return (
@@ -507,10 +521,11 @@ export default function Calendar() {
         {rows.map((week, r) => {
           const rowSegs = bars.segmentsByRow[r] || []
           return (
-            <div key={r} style={{ ...styles.weekRow, gridTemplateColumns: gridTemplate, minHeight: cellMinHeight }}>
+            <div key={r} style={{ ...styles.weekRow, gridTemplateColumns: gridTemplate, minHeight: rowHeight(r) }}>
               {/* Day cells */}
               {week.map((d, c) => {
                 const ds = fmtD(d)
+                const overflow = bars.overflowByYmd[ds] || 0
                 const isOutside = view === 'month' && d.getMonth() !== month
                 const isToday = sameDay(d, today)
                 const isSel = selectedDate === ds
@@ -522,13 +537,18 @@ export default function Calendar() {
                 }
                 return (
                   <div key={c} style={cellStyle} onClick={() => selectDay(ds)}>
-                    <div style={styles.dayNum}>{d.getDate()}</div>
+                    <div style={styles.dayHead}>
+                      {overflow > 0 && (
+                        <span style={styles.moreChip} onClick={e => openDay(ds, e)}>+{overflow} more</span>
+                      )}
+                      <span style={styles.dayNum}>{d.getDate()}</span>
+                    </div>
                   </div>
                 )
               })}
 
-              {/* Spanning-bar overlay (bars + "+N more" markers) */}
-              <div style={{ ...styles.barsLayer, gridTemplateColumns: gridTemplate }}>
+              {/* Spanning-bar overlay */}
+              <div style={{ ...styles.barsLayer, gridTemplateColumns: gridTemplate, gridAutoRows: laneH }}>
                 {rowSegs.map((seg, i) => {
                   const { crewCount, lead } = barMeta(seg)
                   return (
@@ -544,21 +564,9 @@ export default function Calendar() {
                       isPW={isPW(seg.job)}
                       selected={selectedJobId === seg.jobId}
                       onSelect={() => selectJob(seg.jobId)}
+                      height={barH}
+                      fontSize={barFont}
                     />
-                  )
-                })}
-                {week.map((d, c) => {
-                  const ds = fmtD(d)
-                  const overflow = bars.overflowByYmd[ds] || 0
-                  if (!overflow) return null
-                  return (
-                    <div
-                      key={`more-${c}`}
-                      style={{ ...styles.moreLink, gridColumn: c + 1, gridRow: maxLanes + 1 }}
-                      onClick={e => openDay(ds, e)}
-                    >
-                      +{overflow} more
-                    </div>
                   )
                 })}
               </div>

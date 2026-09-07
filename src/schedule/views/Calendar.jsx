@@ -11,28 +11,30 @@ import CalendarJobPane from '../components/CalendarJobPane'
 
 /* ---------- helpers ---------- */
 
-// Readability-only palette (see legend). 10 maximally-distinct hues — no near
-// duplicates — so any two jobs on a day are tellable apart. Each is dark enough
-// for white bar text. A job keeps ONE color across all its spanning days.
+// Readability palette for NON-PW jobs. Purple is deliberately absent — it's
+// reserved for prevailing-wage jobs (PW_COLOR), mirroring the crew scheduler so
+// purple always means PW across the app. 9 distinct hues, dark enough for the
+// white job name; a job keeps ONE color across all its spanning days.
 const JOB_COLORS = [
   '#2563eb', // blue
   '#dc2626', // red
   '#16a34a', // green
   '#d97706', // amber
-  '#7c3aed', // violet
   '#0891b2', // cyan
   '#db2777', // pink
   '#65a30d', // olive
   '#b45309', // brown
   '#475569', // slate
 ]
+// Prevailing-wage color — same token the crew scheduler uses (--pw / #6d28d9).
+const PW_COLOR = '#6d28d9'
 
 function jCol(idx) {
   return JOB_COLORS[idx % JOB_COLORS.length]
 }
 
 function isPW(job) {
-  return job.prevailing_wage === 'Yes' || job.prevailing_wage === true
+  return job.prevailing_wage === 'Yes' || job.prevailing_wage === 'true' || job.prevailing_wage === true
 }
 
 function fmtD(d) {
@@ -78,7 +80,7 @@ function buildGrid(year, month) {
 /* ---------- layout constants ---------- */
 const CELL_HEADER = 20   // day-number strip at the top of each cell
 const LANE_H = 18        // one bar lane
-const MONTH_MAX_LANES = 4
+const MONTH_MAX_LANES = 3
 const WEEK_MAX_LANES = 10
 // Light grid lines — the token --border is near-black (#1c1814), intentionally
 // heavy for buttons/filters, but too heavy as calendar gridlines. Scope a soft
@@ -89,7 +91,9 @@ const LINE_OUTER = 'rgba(28,24,20,0.18)'
 /* ---------- styles (schedule module CSS-variable convention) ---------- */
 
 const styles = {
-  wrapper: { padding: '4px 24px 16px' },
+  // Negative top margin eats most of .app-main's 24px top padding + the band's
+  // bottom margin so the toolbar sits snug under the capacity band (was ~46px gap).
+  wrapper: { padding: '2px 24px 16px', marginTop: -30 },
   // D3 three-column: calendar | day pane | job pane. Flex lives on THIS row only —
   // never on wrapper (that would sweep the toolbar + legend into the flex too).
   layoutRow: { display: 'flex', gap: 12, alignItems: 'flex-start' },
@@ -166,10 +170,9 @@ const styles = {
     display: 'grid', gridAutoRows: LANE_H, columnGap: 1, rowGap: 1,
     pointerEvents: 'none',
   },
-  legend: {
-    marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap',
-    fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)',
-    alignItems: 'center',
+  emptyNote: {
+    marginTop: 12, fontFamily: 'var(--font-body)', fontSize: 12,
+    fontStyle: 'italic', color: 'var(--text-light)',
   },
   loading: {
     textAlign: 'center', padding: 40, fontFamily: 'var(--font-heading)', fontSize: 14,
@@ -346,15 +349,16 @@ export default function Calendar() {
   const nCols = view === 'month' ? 7 : weekCols.length
   // Week has one full-width row and lots of vertical room, so its bars run taller
   // with bigger text; month bars are more compact.
-  const laneH = view === 'week' ? 30 : 22
-  const barH = laneH - 5
-  const barFont = view === 'week' ? 13 : 11
+  const laneH = view === 'week' ? 36 : 30
+  const barH = laneH - 6
+  const barFont = view === 'week' ? 14 : 12
 
   const bars = useMemo(
     () => buildCalendarBars({ rows, jobs: filteredJobs, blocksByJobId, assignedDaysByJob, maxLanes }),
     [rows, filteredJobs, blocksByJobId, assignedDaysByJob, maxLanes])
 
   function getJobColor(job) {
+    if (isPW(job)) return PW_COLOR   // PW always purple (reserved), reads first
     if (job.color) return job.color
     const idx = jobColorMap[job.job_id]
     return idx !== undefined ? jCol(idx) : '#7f8c8d'
@@ -604,18 +608,11 @@ export default function Calendar() {
       </div>{/* /layoutRow */}
 
       {!hasAnyBar && (
-        <div style={{ ...styles.legend, color: 'var(--text-light)', fontStyle: 'italic' }}>
+        <div style={styles.emptyNote}>
           No crew scheduled this {view === 'week' ? 'week' : 'month'}
           {(filterCrew || filterStatus) ? ' for the current filters' : ''}.
         </div>
       )}
-
-      {/* Minimal legend */}
-      <div style={styles.legend}>
-        <span><strong style={{ color: '#6d28d9' }}>PW</strong> = Prevailing Wage</span>
-        <span><strong>+N more</strong> = additional jobs that day (click the day)</span>
-        <span style={{ color: 'var(--text-light)' }}>Bar colors are for readability only.</span>
-      </div>
     </div>
   )
 }

@@ -95,9 +95,10 @@ const LINE_OUTER = 'rgba(28,24,20,0.18)'
 /* ---------- styles (schedule module CSS-variable convention) ---------- */
 
 const styles = {
-  // Negative top margin eats most of .app-main's 24px top padding + the band's
-  // bottom margin so the toolbar sits snug under the capacity band (was ~46px gap).
-  wrapper: { padding: '2px 24px 16px', marginTop: -30 },
+  // Gap under the capacity band is closed by trimming .app-main's top padding for
+  // this screen (see App.css .app-main:has(.cal-wrapper)) — NOT a negative margin,
+  // which sheared the toolbar tops against .app-main's overflow:hidden.
+  wrapper: { padding: '0 24px 16px' },
   // D3 three-column: calendar | day pane | job pane. Flex lives on THIS row only —
   // never on wrapper (that would sweep the toolbar + legend into the flex too).
   layoutRow: { display: 'flex', gap: 12, alignItems: 'flex-start' },

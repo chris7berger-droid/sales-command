@@ -753,7 +753,11 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   }
 
   return (
-    <div ref={cardRef} className={`sjc-card${compactMode ? ' sjc-card-home-expanded' : ''}`}>
+    <div
+      ref={cardRef}
+      className={`sjc-card${compactMode ? ' sjc-card-home-expanded' : ''}`}
+      style={autoOpen ? { boxShadow: '0 0 0 3px #30cfac', borderRadius: 8 } : undefined}
+    >
       {compactMode && (
         <button className="jtp-collapse" onClick={() => setExpanded(false)} title="Collapse">Close ✕</button>
       )}

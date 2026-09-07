@@ -4,7 +4,7 @@ Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from c
 
 **Type:** feature
 
-**Status:** Chunk A **SHIPPED** (gates clean, 2026-09-06). **Chunk B/C planned** (§8) + audit-ready (B/C manifest at end, 2 agents). Build B/C on one branch off `main` once A merges.
+**Status:** Chunk A **SHIPPED** (gates clean). **Chunk B/C — round-3 audit responded** (Option 2 ratified; §8 revised, §8.6). Awaiting round-4 §8 spot-check, then build B/C on one branch off `main` once A merges.
 
 > **Provenance note:** the original ID8 planning session was accidentally closed before its decisions were captured, so this plan was reconstructed from the `/detach` stub (only §1 survived) + a later mockup. Several decisions below were **re-ratified verbally by Chris on 2026-09-06** (color scheme, lead handling, Sunday split) — those are the authority, not the mockup, where they differ.
 
@@ -82,11 +82,11 @@ Replaces the per-cell `dayJobs.map` paint (`Calendar.jsx:396–415`).
 ### §2.2 Month view [LOCKED]
 Sun–Sat 6-row grid (existing `buildGrid`), now rendering §2.1 spanning bars + "+N more" overflow. Clicking a day cell → day pane for that date; clicking a bar → job pane for that job.
 
-### §2.3 Week view [LOCKED — Option 1, ratified]
-Single Mon–Sat strip of 6 day-columns for the focused week. `getMonday` from `weeks.js`; `wkDates(weekMonday)` from **`queries.js`** (NOT `weeks.js`). Membership per column via the in-file `jobsForDate(d)` (`Calendar.jsx:312`) so Week matches Month (fixes F); needs no `allocForWeek`/`pickAllocField`. Same spanning/label/color rules as §2.1 within the single row.
+### §2.3 Week view [LOCKED — Option 1, ratified] · [SHIPPED in Chunk A]
+Single Mon–Sat strip of 6 day-columns for the focused week. `getMonday` from `weeks.js`; `wkDates(weekMonday)` from **`queries.js`** (NOT `weeks.js`). ~~Membership per column via `jobsForDate(d)`~~ — **superseded (ADJ-1):** Chunk A embedded per-day membership inside `buildCalendarBars` (`calendarBars.js`); there is no `jobsForDate` helper. Same spanning/label/color rules as §2.1 within the single row.
 
 ### §2.4 Day pane [LOCKED — mockup]
-Header: selected date + close. Tabs **Jobs (N) / Crew View / Summary** (Jobs wired this build; Crew View / Summary may be "Coming soon" stubs if their aggregation isn't trivial — [DERIVED]). Jobs tab = list of every job active that date (`jobsForDate`), each row: the job's alternating-palette color dot, `job# · name`, subtitle (work-type *text* / scope — text is fine; only the *color* was voided), **crew count** + **lead**, chevron → selects the job pane. Opened by clicking a day or a "+N more".
+Header: selected date + close. Tabs **Jobs (N) / Crew View / Summary** (Jobs wired this build; Crew View / Summary may be "Coming soon" stubs if their aggregation isn't trivial — [DERIVED]). Jobs tab = the day's jobs **from the grid index** (`jobIdsByYmd`, §8.1 — not a phantom `jobsForDate`; ADJ-1), each row: the job's alternating-palette color dot, `job# · name`, subtitle (work-type *text* / scope — text is fine; only the *color* was voided), **crew count** + **lead**, chevron → selects the job pane. Opened by clicking a day or a "+N more". **Authoritative spec: §8.1.**
 
 ### §2.5 Job pane — full scaffold, wire-what's-live [LOCKED — "scaffold full pane" ratified]
 Build the mockup's pane **layout in full**; wire live data; stub the rest behind **"Coming soon"** (do NOT fabricate values).
@@ -172,7 +172,7 @@ Build the mockup's pane **layout in full**; wire live data; stub the rest behind
   - **N (no side-pane precedent)** → §3 pin-one-convention + backlog note.
   - **Net: surface shrank** (color map + work-type join removed; health stubbed). Additions are small (mandatory-lead tweak; alternating color reuses existing code). **No round 3 needed** — Chunk-A build may proceed after the rebase.
 - **Chunk A — SHIPPED 2026-09-06, all gates clean** (branch `feat/calendar-modernization`, commits `6808237`/`8a5c728`/`1c875e1`). Grid + weekend-aware spanning bars (`calendarBars.js`, `CalendarBar.jsx`) + extracted `workdays.js` predicate (DaysModal/StageJobCard refactored to it) + alternating color + crew/lead labels + Month/Week toggle + filters + "+N more" + mandatory-lead modal/job-level gate. Filed follow-ups **B96** (mandatory-lead invariant leaks via the SOW date editor) + **B97** (UI-only invariant, no DB constraint) — both T4, not blockers.
-- **Chunk B/C — audited separately** (this pass). Fresh, B/C-scoped manifest below (2 agents); round-2/Chunk-A history summarized above.
+- **Chunk B/C — Round 3 (2026-09-06, 2 agents, `derivation-drifts-from-grid`)** — 6 caused-by (2H/4M) + 2 adjacent, 0 regressions, no scope cut. **Ratified Option 2** (grid-derived index + props); all fixes folded into §8 (see §8.6). Back for a round-4 §8 spot-check (expected clean).
 
 ## §8 Chunk B + C — build spec (grounded in merged Chunk A)
 
@@ -183,36 +183,46 @@ Chunk A shipped (gates clean, §7). It left explicit seams for the panes. **Buil
 - **Data already in-component (reuse for the day pane — don't refetch):** `jobs` (from `loadJobs()`, **no WTCs**), `allocsByJobId`, `crewCountMap` + `getCrewCountByYmd(jobId,ds)` (`:278`), `jobBlocks(job,allocs)` (`calendarBars.js:28`), `barMeta(seg)→{crewCount,lead}` (`:334`), `getJobColor`, `getJobStatus`, `filteredJobs` (`:285`), and **`workdays.js`** `isWorkedDay`/`workedDaySet` (the canonical predicate A extracted).
 - **Layout:** the calendar renders as a **single full-width column** (`:420–547`) — **no rail/pane container yet**. B/C add the D3 three-column wrapper.
 
-### §8.1 Chunk B — Day pane (renders off `selectedDate`)
+### §8.1 Chunk B — Day pane (renders off `selectedDate`) [Option 2 — round-3 ratified]
 - New `components/CalendarDayPane.jsx`, shown in the new rail when `selectedDate` is set.
-- **Day's jobs = `filteredJobs` worked on `selectedDate`, derived the SAME way as the bars** — `jobBlocks` + `workdays.isWorkedDay(date, assignmentsForJob)` — so the list ≡ what the grid draws (no separate membership rule). Reuse `getCrewCountByYmd`/`barMeta` for crew + lead.
-- Row: `getJobColor` dot · `job# · name` · subtitle · crew count · lead · chevron → `selectJob(jobId)` (opens Chunk C).
+- **Day's jobs come FROM the grid — the pane derives NOTHING (round-3 A/C).** `buildCalendarBars` (extended per §8.4) returns a `jobIdsByYmd` index built from the exact segments it draws. `Calendar.jsx` passes the selected date's **member list** + `getCrewCountByYmd` + `getJobColor` + `barMeta` **down as props** (these are `Calendar()` closures — not importable, so a prop contract, not an import). **Deleted:** the old `jobBlocks + isWorkedDay(date, assignmentsForJob)` recipe — it's looser than the grid (bare `isWorkedDay` is true for any weekday regardless of block coverage) and reintroduces the round-2-F drift.
+- Row: color dot (prop) · `job# · name` · subtitle · crew count (prop) · lead (from `barMeta` prop) · chevron → `selectJob(jobId)` (opens Chunk C).
 - Tabs **Jobs** (wired) / **Crew View** / **Summary** (Coming-soon unless trivial). Close → `setSelectedDate(null)`.
-- **Verify "+N more" now opens the pane** (it already sets `selectedDate`; B supplies the consumer).
-- `stopPropagation` on rows/chevrons/close/tabs (M). Pane convention (N): local `useState` tabs, CSS-var styling.
+- **"+N more" must FORCE-OPEN (round-3 E):** today it calls the *toggling* `selectDay` (`:394,:522`), so clicking it on an already-selected day sets `selectedDate→null` and the pane vanishes. Change "+N more" to `setSelectedDate(ds)` (force-open); reserve the toggle for re-clicking the bare cell.
+- Pane convention (N): local `useState` tabs, CSS-var styling. **No `stopPropagation` enumeration** — the panes are rail *siblings*, not nested inside clickable cells (round-3 F), so internal buttons use plain `onClick`.
 
-### §8.2 Chunk C — Job pane (renders off `selectedJobId`)
+### §8.2 Chunk C — Job pane (renders off `selectedJobId`) [Option 2 — round-3 ratified]
 - New `components/CalendarJobPane.jsx`, shown in the rail when `selectedJobId` is set.
-- **Lazy-load the selected job on selection** — `loadJobWithWTCs(selectedJobId)` (`queries.js:598`) + `getJobMobilizations`/`computeMobCosts`. **Do NOT switch whole-grid `loadJobs()` to `withWTCs:true`** (would hydrate every job) — fetch the one job (resolves round-2 E cheaply). Handle loading + not-found + rapid-switch race (cancel stale response).
+- **Render most of Overview synchronously (round-3 premise note).** Customer/location/dates/status/notes already live on the in-component `jobs` array (`queries.js:370–414`) — no fetch needed. Only mob/cost need `_wtcs`, so **lazy-hydrate just the selected job:**
+  - `loadJobWithWTCs(selectedJobId)` (`:598`) for `_wtcs` (round-2 E — genuinely resolved), **PLUS**
+  - `loadMobilizationsByJobId([job], {})` (paginated via `loadAllRows`, `:299`) → pass as `getJobMobilizations`'s **2nd arg** `mobsBySeq` (mirror `StageJobCard.jsx:605`), **PLUS**
+  - `loadMaterialsCatalog()` → `computeMobCosts`'s **2nd arg** `catalog` (mirror `MobsModal.jsx:65`) — **OR** cut material cost from Overview and show mobilization/allocation **counts only**.
+  - **Never render a fabricated `$0` materials or blank mob date (round-3 B)** — those helpers degrade silently to $0/"Mob N" without their 2nd arg. Do NOT switch whole-grid `loadJobs()` to `withWTCs:true`.
+  - **Stale-race + states (round-3 D):** guard the fetch with a `cancelled` flag (`Calendar.jsx:192`) or `loadIdRef` (`Jobs.jsx:105`) so a slow job-A response can't land under job-B's header. Render three explicit states: in-flight spinner (`Calendar.jsx:148` style) · `error||!data` → "Job not found" · loaded → pane.
 - Header: `job# · name`, **workflow** status badge (`getJobStatus` — NOT the voided health badge), work-type subtitle, close.
 - Tabs Overview/Crew/Production/Files — **Overview wired; Crew partial; Production + Files "Coming soon."**
 - Overview (wire live): Customer, Location, Job Type, Job Status, Start/End, **Total Scheduled Work Days**, Crew Size (avg), Allocations, Mobilizations, Notes.
-  - **Work-day count MUST match the bars (round-2 F):** compute via `workedDaySet` over the job's block ranges — the same source the bars use — NOT `DaysModal`'s WTC-tagged-date path. Pane ≡ bars, or label a differing figure distinctly.
+  - **Work-day count comes FROM the grid index (Option 2, round-3 A):** consume the per-job `workedDaySet` that `buildCalendarBars` returns (§8.4) — the exact source the bars use. **Deleted:** the "pane recomputes `workedDaySet` over block ranges" recipe (a second call that omits the assigned-weekend 3rd arg and drifts from the grid).
 - Schedule Progress (Day X of N) with **N≤0 guard** (round-2 L). Production %, photo slot, Recent Activity → shared **"Coming soon"** placeholder (L).
 - **Open Job / Edit Schedule** → `useNavigate()` to `/schedule/jobs/:jobId`. Health badge omitted/Coming-soon (D7).
 
 ### §8.3 Interaction (both panes)
-- **Filter change closes a filtered-out selection (round-2 K):** if a crew/status filter drops the `selectedJobId`, clear it; the day pane re-derives from `filteredJobs`. Verify A's filter handlers do this; add if not.
+- **Filter-out selection = render-guard, NOT a new reset (round-3 ADJ-2).** Chunk A already resets selection on nav/filter/view (`resetSelection`, `Calendar.jsx:349,391,392`). So the panes simply **null-render** a `selectedJobId`/`selectedDate` that's no longer in the grid index / `filteredJobs` — do not add a second reset path.
 - **Coming-soon integrity:** honest placeholders only — never a fabricated/zero value that reads as real.
 - One shared `ComingSoon` placeholder component (L); pin the side-pane convention (N).
 
 ### §8.4 Files
 - **New:** `components/CalendarDayPane.jsx`, `components/CalendarJobPane.jsx`, a shared `ComingSoon` placeholder.
-- **Edit:** `Calendar.jsx` — three-column layout wrapper + render both panes off `selectedDate`/`selectedJobId` + the lazy per-job fetch.
-- **Reuse:** `loadJobWithWTCs`, `getJobMobilizations`, `computeMobCosts`, `workdays.js`, `barMeta`, `getJobColor`, `getJobStatus`. **No** table/RLS/migration; read-only (Open/Edit navigates to `JobDetail`).
+- **Edit `lib/calendarBars.js` (a Chunk-A file) — Option 2 core:** extend `buildCalendarBars`'s return with **`jobIdsByYmd`** (built from the same segments it already emits) + a **per-job `workedDaySet`**. This is the single grid-derived index the panes consume; the panes recompute nothing.
+- **Edit `Calendar.jsx`:** three-column layout wrapper + render both panes off `selectedDate`/`selectedJobId` + the lazy per-job hydration (§8.2) + **pass `members`/`getCrewCountByYmd`/`getJobColor`/`barMeta` down as props** (they're `Calendar()` closures — round-3 C).
+  - **Wrapper structure (round-3 F — required):** the **left column must enclose the day-name header (`:463`) AND the week rows (`:470`) together** — they're sibling grids sharing `gridTemplate`, so wrapping only the rows decouples the day names. Panes are **flex siblings inside the existing `styles.wrapper` root** (never hoisted to `<main>`); `WeeklyCapacityBand` above in `ScheduleLayout` stays intact.
+- **Reuse:** `loadJobWithWTCs`, `loadMobilizationsByJobId`, `loadMaterialsCatalog`, `getJobMobilizations`, `computeMobCosts`, `workdays.js`, `barMeta`, `getJobColor`, `getJobStatus`. **No** table/RLS/migration; read-only (Open/Edit navigates to `JobDetail`).
 
 ### §8.5 Estimate
 ~1 day (B ~half, C ~half). Build both on one branch off updated `main`; gate together. Model: opus 4.8, medium.
+
+### §8.6 Round-3 audit response (2026-09-06)
+Round-3 audit (2 agents, `derivation-drifts-from-grid`) — 6 caused-by (2H/4M) + 2 adjacent, 0 regressions, no scope cut. **Ratified Option 2** (grid-derived index + props). All folded above: **A/C** (panes consume `jobIdsByYmd`/`workedDaySet` from `buildCalendarBars`, closures passed as props — §8.1/§8.2/§8.4); **B** (load `mobsBySeq` + `catalog` or cut cost — §8.2); **D** (named race guard + 3 states — §8.2); **E** ("+N more" force-open — §8.1); **F** (wrapper pins header+rows together, panes are siblings, stopPropagation moot — §8.4/§8.1/§8.3); **ADJ-1** (scrub phantom `jobsForDate` — §2.3/§2.4); **ADJ-2** (filter-reset → render-guard — §8.3). Back for a **round-4 spot-check of §8 only** (expected clean).
 
 ---
 
@@ -227,7 +237,7 @@ This slice is the two side panels — the day list and the job-detail card. The 
 - Plan type: feature
 - Slice: **Chunk B/C** (separate build slice from the shipped Chunk A)
 - Sizing basis: full-surface for the B/C slice (§8) — the bar algorithm (Chunk A) is already shipped + audited; do NOT re-audit it.
-- Findings trend: round 1 (11) → round 2 / Chunk A (14, shipped clean) → Chunk B/C (?)
+- Findings trend: round 1 (11) → round 2 / Chunk A (14, shipped clean) → round 3 / Chunk B/C (6 caused-by, 2H/4M, **responded — Option 2**; round-4 spot-check pending)
 
 ### Prior rounds
 - Round 1: `a41283d`/`23b68dc` · 2H/4M/5L · `phantom-helper-refs`

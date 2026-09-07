@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { loadJobs, loadMobilizationsByJobId, wkDates } from '../lib/queries'
 import { getMonday } from '../lib/weeks'
@@ -11,18 +11,34 @@ import CalendarJobPane from '../components/CalendarJobPane'
 
 /* ---------- helpers ---------- */
 
+// Readability palette for NON-PW jobs. Purple is deliberately absent — reserved
+// for prevailing-wage jobs (PW_COLOR), mirroring the crew scheduler so purple
+// always means PW across the app. 11 hues with NO two in the same family (one
+// blue only) and ordered to alternate across the wheel, so consecutive jobs — and
+// any two co-visible in a week — read as clearly different. A job keeps ONE color
+// across all its spanning days (color is assigned per job, by sorted job order).
 const JOB_COLORS = [
-  '#3498db','#e74c3c','#2ecc71','#9b59b6','#e67e22','#1abc9c',
-  '#f39c12','#c0392b','#2980b9','#8e44ad','#27ae60','#d35400',
-  '#16a085','#7f8c8d','#2c3e50','#d4a017',
+  '#2563eb', // blue
+  '#dc2626', // red
+  '#16a34a', // green
+  '#ea580c', // orange
+  '#db2777', // pink
+  '#ca8a04', // gold
+  '#0d9488', // teal
+  '#b45309', // brown
+  '#4d7c0f', // olive
+  '#be185d', // magenta
+  '#475569', // slate
 ]
+// Prevailing-wage color — same token the crew scheduler uses (--pw / #6d28d9).
+const PW_COLOR = '#6d28d9'
 
 function jCol(idx) {
   return JOB_COLORS[idx % JOB_COLORS.length]
 }
 
 function isPW(job) {
-  return job.prevailing_wage === 'Yes' || job.prevailing_wage === true
+  return job.prevailing_wage === 'Yes' || job.prevailing_wage === 'true' || job.prevailing_wage === true
 }
 
 function fmtD(d) {
@@ -70,11 +86,19 @@ const CELL_HEADER = 20   // day-number strip at the top of each cell
 const LANE_H = 18        // one bar lane
 const MONTH_MAX_LANES = 4
 const WEEK_MAX_LANES = 10
+// Light grid lines — the token --border is near-black (#1c1814), intentionally
+// heavy for buttons/filters, but too heavy as calendar gridlines. Scope a soft
+// line color to this grid only.
+const LINE = 'rgba(28,24,20,0.12)'
+const LINE_OUTER = 'rgba(28,24,20,0.18)'
 
 /* ---------- styles (schedule module CSS-variable convention) ---------- */
 
 const styles = {
-  wrapper: { padding: '16px 24px' },
+  // Gap under the capacity band is closed by trimming .app-main's top padding for
+  // this screen (see App.css .app-main:has(.cal-wrapper)) — NOT a negative margin,
+  // which sheared the toolbar tops against .app-main's overflow:hidden.
+  wrapper: { padding: '0 24px 16px' },
   // D3 three-column: calendar | day pane | job pane. Flex lives on THIS row only —
   // never on wrapper (that would sweep the toolbar + legend into the flex too).
   layoutRow: { display: 'flex', gap: 12, alignItems: 'flex-start' },
@@ -84,72 +108,76 @@ const styles = {
     fontFamily: 'var(--font-heading)', flexWrap: 'wrap',
   },
   navBtn: {
-    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 12,
-    textTransform: 'uppercase', letterSpacing: 0.5, padding: '5px 12px',
-    border: '2px solid var(--border)', borderRadius: 4,
-    background: 'var(--bg-card)', color: 'var(--text-primary)', cursor: 'pointer',
+    fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 12,
+    textTransform: 'uppercase', letterSpacing: 0.5, padding: '6px 13px',
+    border: `1px solid ${LINE_OUTER}`, borderRadius: 4,
+    background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer',
   },
   monthLabel: {
-    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 22,
+    fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 22,
     textTransform: 'uppercase', letterSpacing: 1, marginLeft: 8, marginRight: 8,
+    color: 'var(--text-secondary)',
   },
   toggleWrap: {
-    display: 'inline-flex', border: '2px solid var(--border)', borderRadius: 4, overflow: 'hidden',
+    display: 'inline-flex', border: `1px solid ${LINE_OUTER}`, borderRadius: 4, overflow: 'hidden',
   },
   toggleBtn: (active) => ({
-    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 12,
-    textTransform: 'uppercase', letterSpacing: 0.5, padding: '5px 14px',
+    fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 12,
+    textTransform: 'uppercase', letterSpacing: 0.5, padding: '6px 15px',
     border: 'none', cursor: 'pointer',
     background: active ? 'var(--header-dark)' : 'var(--bg-card)',
-    color: active ? 'var(--white)' : 'var(--text-primary)',
+    color: active ? 'var(--white)' : 'var(--text-secondary)',
   }),
   spacer: { flex: 1 },
   filter: {
-    fontFamily: 'var(--font-body)', fontSize: 12, padding: '5px 8px',
-    border: '2px solid var(--border)', borderRadius: 4,
-    background: 'var(--bg-card)', color: 'var(--text-primary)', cursor: 'pointer',
+    fontFamily: 'var(--font-body)', fontSize: 12, padding: '6px 9px',
+    border: `1px solid ${LINE_OUTER}`, borderRadius: 4,
+    background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer',
   },
   filterDisabled: {
-    fontFamily: 'var(--font-body)', fontSize: 12, padding: '5px 8px',
-    border: '2px solid var(--border)', borderRadius: 4,
+    fontFamily: 'var(--font-body)', fontSize: 12, padding: '6px 9px',
+    border: `1px solid ${LINE_OUTER}`, borderRadius: 4,
     background: 'var(--bg-muted, var(--bg-card))', color: 'var(--text-light)', cursor: 'not-allowed',
   },
   grid: {
     display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
-    border: '2px solid var(--border)', borderRadius: 4, overflow: 'hidden',
-    background: 'var(--border)', gap: 1,
+    border: `1px solid ${LINE_OUTER}`, borderRadius: 4, overflow: 'hidden',
+    background: LINE, gap: 1,
   },
   dayHeader: {
-    background: 'var(--header-dark)', color: 'var(--white)',
-    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 12,
-    textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center', padding: '6px 0',
+    background: 'var(--bg)', color: 'var(--text-light)',
+    fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 11,
+    textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center', padding: '7px 0',
   },
-  weekRow: { position: 'relative', display: 'grid', gap: 1, background: 'var(--border)' },
+  weekRow: { position: 'relative', display: 'grid', gap: 1, background: LINE },
   cell: {
     background: 'var(--bg-card)', padding: 4, position: 'relative',
     display: 'flex', flexDirection: 'column',
   },
   cellOutside: { opacity: 0.4 },
-  cellToday: { background: '#fef9c3' },
-  cellSelected: { boxShadow: 'inset 0 0 0 2px var(--text-primary)' },
+  cellToday: { background: 'rgba(48,207,172,0.10)' },
+  cellSelected: { boxShadow: 'inset 0 0 0 2px #30cfac' },
+  // Top strip of each cell: the "+N more" overflow chip (left) + day number
+  // (right). Keeping the chip up here means it never gets clipped and frees a
+  // full bar lane below.
+  dayHead: { display: 'flex', alignItems: 'center', gap: 6, height: CELL_HEADER - 4 },
   dayNum: {
     fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
-    textAlign: 'right', color: 'var(--text-secondary)', height: CELL_HEADER - 4,
+    color: 'var(--text-secondary)', marginLeft: 'auto',
+  },
+  moreChip: {
+    fontFamily: 'var(--font-heading)', fontSize: 10, fontWeight: 800, letterSpacing: 0.3,
+    color: '#30cfac', background: 'var(--header-dark)', borderRadius: 4,
+    padding: '1px 6px', cursor: 'pointer', whiteSpace: 'nowrap', pointerEvents: 'auto',
   },
   barsLayer: {
     position: 'absolute', top: CELL_HEADER, left: 0, right: 0, bottom: 2,
     display: 'grid', gridAutoRows: LANE_H, columnGap: 1, rowGap: 1,
     pointerEvents: 'none',
   },
-  moreLink: {
-    fontFamily: 'var(--font-heading)', fontSize: 9, fontWeight: 700,
-    color: 'var(--text-secondary)', cursor: 'pointer', pointerEvents: 'auto',
-    textAlign: 'left', padding: '0 4px', alignSelf: 'center',
-  },
-  legend: {
-    marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap',
-    fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)',
-    alignItems: 'center',
+  emptyNote: {
+    marginTop: 12, fontFamily: 'var(--font-body)', fontSize: 12,
+    fontStyle: 'italic', color: 'var(--text-light)',
   },
   loading: {
     textAlign: 'center', padding: 40, fontFamily: 'var(--font-heading)', fontSize: 14,
@@ -175,6 +203,15 @@ export default function Calendar() {
   const [filterStatus, setFilterStatus] = useState('')   // '' = All Statuses
   const [selectedDate, setSelectedDate] = useState(null)   // ymd — day pane hook (Chunk B)
   const [selectedJobId, setSelectedJobId] = useState(null) // job pane hook (Chunk C)
+  // Available height for the week-rows grid so it fills the viewport exactly —
+  // populated weeks grow to absorb slack (no dead space at the bottom) and the
+  // page stops overflowing into a stray scroll. Measured from the grid's top.
+  const weeksRef = useRef(null)
+  const [gridH, setGridH] = useState(null)
+  // "Show all": lift the per-day bar cap so every job renders; weeks then grow to
+  // their full job count and the calendar scrolls vertically (vs the default
+  // compact mode, which fills the viewport and caps overflow into "+N more").
+  const [showAll, setShowAll] = useState(false)
 
   // Assignments fetch range = union of the month grid and the focused week
   // (B1). Keyed on YYYY-MM-DD strings, never a Date object.
@@ -225,6 +262,20 @@ export default function Calendar() {
     load()
     return () => { cancelled = true }
   }, [range.start, range.end])
+
+  // Size the week-rows grid to the space left under the toolbar, down to the
+  // bottom of the viewport. Recomputes on view/period change and window resize.
+  useEffect(() => {
+    function measure() {
+      const el = weeksRef.current
+      if (!el) return
+      const top = el.getBoundingClientRect().top
+      setGridH(Math.max(240, Math.round(window.innerHeight - top - 16)))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [view, loading, month, year, weekStart])
 
   // --- derived data ---
 
@@ -322,14 +373,20 @@ export default function Calendar() {
   }, [weekStart, filteredJobs, crewCountMap])
 
   const rows = useMemo(() => (view === 'month' ? monthRows : [weekCols]), [view, monthRows, weekCols])
-  const maxLanes = view === 'month' ? MONTH_MAX_LANES : WEEK_MAX_LANES
+  const maxLanes = showAll ? 999 : (view === 'month' ? MONTH_MAX_LANES : WEEK_MAX_LANES)
   const nCols = view === 'month' ? 7 : weekCols.length
+  // Week has one full-width row and lots of vertical room, so its bars run taller
+  // with bigger text; month bars are more compact.
+  const laneH = view === 'week' ? 36 : 30
+  const barH = laneH - 6
+  const barFont = view === 'week' ? 14 : 12
 
   const bars = useMemo(
     () => buildCalendarBars({ rows, jobs: filteredJobs, blocksByJobId, assignedDaysByJob, maxLanes }),
     [rows, filteredJobs, blocksByJobId, assignedDaysByJob, maxLanes])
 
   function getJobColor(job) {
+    if (isPW(job)) return PW_COLOR   // PW always purple (reserved), reads first
     if (job.color) return job.color
     const idx = jobColorMap[job.job_id]
     return idx !== undefined ? jCol(idx) : '#7f8c8d'
@@ -426,7 +483,6 @@ export default function Calendar() {
   }
 
   const gridTemplate = `repeat(${nCols}, 1fr)`
-  const cellMinHeight = CELL_HEADER + maxLanes * LANE_H + (view === 'week' ? 120 : 16)
   const hasAnyBar = bars.segmentsByRow.some(r => r.length > 0)
 
   return (
@@ -442,6 +498,14 @@ export default function Calendar() {
           <button style={styles.toggleBtn(view === 'month')} onClick={() => changeView('month')}>Month</button>
           <button style={styles.toggleBtn(view === 'week')} onClick={() => changeView('week')}>Week</button>
         </div>
+
+        <button
+          style={{ ...styles.navBtn, ...(showAll ? { background: 'var(--header-dark)', color: 'var(--white)', borderColor: 'var(--header-dark)' } : {}) }}
+          onClick={() => setShowAll(s => !s)}
+          title={showAll ? 'Cap busy days and fit to screen' : 'Show every job; the calendar scrolls'}
+        >
+          Show all
+        </button>
 
         <span style={styles.spacer} />
 
@@ -476,22 +540,32 @@ export default function Calendar() {
         {/* Calendar column wraps the day-name header + week rows together so the
             two sibling grids share gridTemplate and the panes sit beside them. */}
         <div style={styles.calendarColumn}>
-      {/* Day-name header */}
-      <div style={{ ...styles.grid, gridTemplateColumns: gridTemplate, marginBottom: 1 }}>
+      {/* Day-name header — pinned while scrolling in Show-all mode so the columns
+          stay labeled as tall weeks scroll past. */}
+      <div style={{ ...styles.grid, gridTemplateColumns: gridTemplate, marginBottom: 1, ...(showAll ? { position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg)' } : {}) }}>
         {(view === 'month' ? DAY_NAMES : weekCols.map(d => `${DAY_NAMES[d.getDay()]} ${d.getDate()}`)).map((dn, i) => (
           <div key={i} style={styles.dayHeader}>{dn}</div>
         ))}
       </div>
 
-      {/* Week rows */}
-      <div style={{ ...styles.grid, gridTemplateColumns: '1fr', gap: 1, gridAutoRows: 'min-content' }}>
+      {/* Week rows. Compact: flex column sized to the viewport; rows grow by lane
+          count so busy weeks get the space and empty weeks collapse (no bottom
+          gap, no page overflow). Show-all: rows take their full content height and
+          the page scrolls through them. */}
+      <div ref={weeksRef} style={{ ...styles.grid, display: 'flex', flexDirection: 'column', gap: 1,
+        height: showAll ? 'auto' : (gridH || 'auto'),
+        overflowY: showAll ? 'visible' : 'auto', overflowX: 'hidden' }}>
         {rows.map((week, r) => {
           const rowSegs = bars.segmentsByRow[r] || []
+          const lanesUsed = rowSegs.reduce((m, s) => Math.max(m, s.lane + 1), 0)
+          const minH = CELL_HEADER + (lanesUsed ? lanesUsed * laneH + 6 : 8)
+          const rowFlex = (!showAll && lanesUsed) ? { flex: `${lanesUsed} 1 0` } : { flex: '0 0 auto' }
           return (
-            <div key={r} style={{ ...styles.weekRow, gridTemplateColumns: gridTemplate, minHeight: cellMinHeight }}>
+            <div key={r} style={{ ...styles.weekRow, gridTemplateColumns: gridTemplate, minHeight: minH, ...rowFlex }}>
               {/* Day cells */}
               {week.map((d, c) => {
                 const ds = fmtD(d)
+                const overflow = bars.overflowByYmd[ds] || 0
                 const isOutside = view === 'month' && d.getMonth() !== month
                 const isToday = sameDay(d, today)
                 const isSel = selectedDate === ds
@@ -503,13 +577,18 @@ export default function Calendar() {
                 }
                 return (
                   <div key={c} style={cellStyle} onClick={() => selectDay(ds)}>
-                    <div style={styles.dayNum}>{d.getDate()}</div>
+                    <div style={styles.dayHead}>
+                      {overflow > 0 && (
+                        <span style={styles.moreChip} onClick={e => openDay(ds, e)}>+{overflow} more</span>
+                      )}
+                      <span style={styles.dayNum}>{d.getDate()}</span>
+                    </div>
                   </div>
                 )
               })}
 
-              {/* Spanning-bar overlay (bars + "+N more" markers) */}
-              <div style={{ ...styles.barsLayer, gridTemplateColumns: gridTemplate }}>
+              {/* Spanning-bar overlay */}
+              <div style={{ ...styles.barsLayer, gridTemplateColumns: gridTemplate, gridAutoRows: laneH }}>
                 {rowSegs.map((seg, i) => {
                   const { crewCount, lead } = barMeta(seg)
                   return (
@@ -525,21 +604,9 @@ export default function Calendar() {
                       isPW={isPW(seg.job)}
                       selected={selectedJobId === seg.jobId}
                       onSelect={() => selectJob(seg.jobId)}
+                      height={barH}
+                      fontSize={barFont}
                     />
-                  )
-                })}
-                {week.map((d, c) => {
-                  const ds = fmtD(d)
-                  const overflow = bars.overflowByYmd[ds] || 0
-                  if (!overflow) return null
-                  return (
-                    <div
-                      key={`more-${c}`}
-                      style={{ ...styles.moreLink, gridColumn: c + 1, gridRow: maxLanes + 1 }}
-                      onClick={e => openDay(ds, e)}
-                    >
-                      +{overflow} more
-                    </div>
                   )
                 })}
               </div>
@@ -577,18 +644,11 @@ export default function Calendar() {
       </div>{/* /layoutRow */}
 
       {!hasAnyBar && (
-        <div style={{ ...styles.legend, color: 'var(--text-light)', fontStyle: 'italic' }}>
+        <div style={styles.emptyNote}>
           No crew scheduled this {view === 'week' ? 'week' : 'month'}
           {(filterCrew || filterStatus) ? ' for the current filters' : ''}.
         </div>
       )}
-
-      {/* Minimal legend */}
-      <div style={styles.legend}>
-        <span><strong style={{ color: '#6d28d9' }}>PW</strong> = Prevailing Wage</span>
-        <span><strong>+N more</strong> = additional jobs that day (click the day)</span>
-        <span style={{ color: 'var(--text-light)' }}>Bar colors are for readability only.</span>
-      </div>
     </div>
   )
 }

@@ -52,11 +52,10 @@ const s = {
   }),
   body: { padding: 14, overflowY: 'auto', flex: 1 },
   photo: {
-    height: 120, borderRadius: 8, marginBottom: 12,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: 'var(--bg-muted, rgba(0,0,0,0.04))', border: '1px dashed var(--border)',
-    fontFamily: 'var(--font-body)', fontSize: 12, fontStyle: 'italic', color: 'var(--text-light)',
+    height: 120, borderRadius: 8, marginBottom: 12, overflow: 'hidden',
+    border: '1px solid var(--border)',
   },
+  photoImg: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
   field: { display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 10 },
   icon: { fontSize: 13, lineHeight: '16px', opacity: 0.7, flexShrink: 0, width: 16, textAlign: 'center' },
   fMain: { minWidth: 0, flex: 1 },
@@ -172,7 +171,16 @@ export default function CalendarJobPane({ job, workedDaySet, getJobStatus, onClo
       <div style={s.body}>
         {tab === 'overview' && (
           <>
-            <div style={s.photo}>Photo — coming soon</div>
+            {/* Temporary sample jobsite photo — same Unsplash placeholder
+                convention as the marketing pages; real per-job photos come
+                from Field Command later. */}
+            <div style={s.photo}>
+              <img
+                src="https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=600&q=80"
+                alt="Jobsite (sample)"
+                style={s.photoImg}
+              />
+            </div>
 
             <Field icon="🏢" label="Customer">{job.customer_name || '—'}</Field>
             <Field icon="📍" label="Location">{loc || '—'}</Field>

@@ -6,6 +6,8 @@ import { pickAllocField } from '../lib/allocations'
 import { getJobStatus } from '../lib/jobStatus'
 import { jobBlocks, buildCalendarBars } from '../lib/calendarBars'
 import CalendarBar from '../components/CalendarBar'
+import CalendarDayPane from '../components/CalendarDayPane'
+import CalendarJobPane from '../components/CalendarJobPane'
 
 /* ---------- helpers ---------- */
 
@@ -73,6 +75,10 @@ const WEEK_MAX_LANES = 10
 
 const styles = {
   wrapper: { padding: '16px 24px' },
+  // D3 three-column: calendar | day pane | job pane. Flex lives on THIS row only —
+  // never on wrapper (that would sweep the toolbar + legend into the flex too).
+  layoutRow: { display: 'flex', gap: 12, alignItems: 'flex-start' },
+  calendarColumn: { flex: 1, minWidth: 0 },
   toolbar: {
     display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
     fontFamily: 'var(--font-heading)', flexWrap: 'wrap',
@@ -395,6 +401,12 @@ export default function Calendar() {
     if (e) e.stopPropagation()
     setSelectedDate(cur => (cur === ds ? null : ds))
   }
+  // "+N more" must FORCE-OPEN the day pane (round-3 E) — never toggle it shut when
+  // clicked on the already-selected day.
+  function openDay(ds, e) {
+    if (e) e.stopPropagation()
+    setSelectedDate(ds)
+  }
   function selectJob(jobId) {
     setSelectedJobId(cur => (cur === jobId ? null : jobId))
   }
@@ -459,6 +471,11 @@ export default function Calendar() {
         </select>
       </div>
 
+      {/* Three-column row: calendar | day pane | job pane */}
+      <div style={styles.layoutRow}>
+        {/* Calendar column wraps the day-name header + week rows together so the
+            two sibling grids share gridTemplate and the panes sit beside them. */}
+        <div style={styles.calendarColumn}>
       {/* Day-name header */}
       <div style={{ ...styles.grid, gridTemplateColumns: gridTemplate, marginBottom: 1 }}>
         {(view === 'month' ? DAY_NAMES : weekCols.map(d => `${DAY_NAMES[d.getDay()]} ${d.getDate()}`)).map((dn, i) => (
@@ -519,7 +536,7 @@ export default function Calendar() {
                     <div
                       key={`more-${c}`}
                       style={{ ...styles.moreLink, gridColumn: c + 1, gridRow: maxLanes + 1 }}
-                      onClick={e => selectDay(ds, e)}
+                      onClick={e => openDay(ds, e)}
                     >
                       +{overflow} more
                     </div>
@@ -530,6 +547,34 @@ export default function Calendar() {
           )
         })}
       </div>
+        </div>{/* /calendarColumn */}
+
+        {/* Day pane (Chunk B) — renders off selectedDate; derives nothing */}
+        {selectedDate && (
+          <CalendarDayPane
+            date={selectedDate}
+            members={bars.membersByYmd[selectedDate] || []}
+            selectedJobId={selectedJobId}
+            getJobColor={getJobColor}
+            getJobStatus={getJobStatus}
+            barMeta={barMeta}
+            onSelectJob={selectJob}
+            onClose={() => setSelectedDate(null)}
+          />
+        )}
+
+        {/* Job pane (Chunk C) — renders off selectedJobId. Render-guard on the grid
+            index (round-3 ADJ-2): a job no longer in the drawn set null-renders,
+            rather than adding a second reset path. */}
+        {selectedJobId && bars.workedDaysByJob[String(selectedJobId)] && (
+          <CalendarJobPane
+            job={jobs.find(j => String(j.job_id) === String(selectedJobId)) || null}
+            workedDaySet={bars.workedDaysByJob[String(selectedJobId)]}
+            getJobStatus={getJobStatus}
+            onClose={() => setSelectedJobId(null)}
+          />
+        )}
+      </div>{/* /layoutRow */}
 
       {!hasAnyBar && (
         <div style={{ ...styles.legend, color: 'var(--text-light)', fontStyle: 'italic' }}>

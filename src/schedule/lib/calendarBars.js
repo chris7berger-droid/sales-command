@@ -148,26 +148,50 @@ function segmentSort(a, b) {
   return as - bs
 }
 
-// Main entry. Returns { segmentsByRow, overflowByYmd }.
+// Main entry. Returns { segmentsByRow, overflowByYmd, membersByYmd, workedDaysByJob }.
 //   segmentsByRow: Array (one per grid row) of positioned segments with a lane.
 //   overflowByYmd: { ymd: count } for cells whose surplus segments were dropped.
+//   membersByYmd:  { ymd: [{ jobId, seg }] } — every job on that day (§8.4). Built
+//     from the PRE-CAP `segments` array (NOT segmentsByRow, which drops lanes ≥
+//     maxLanes into overflow — round-4 N-1), so the day pane can list a >maxLanes
+//     day's jobs in full, matching its own "+N more" count. One entry per job/day.
+//   workedDaysByJob: { jobId: Set<ymd> } — the exact worked-day set the bars are
+//     drawn from (weekend rule + attribution), so the job pane's "Total Scheduled
+//     Work Days" reads the grid's own count, never a drifting recompute.
 export function buildCalendarBars({ rows, jobs, blocksByJobId, assignedDaysByJob, maxLanes = 4 }) {
   const cellMap = cellIndex(rows)
 
-  // 1. Segment every block of every job.
+  // 1. Segment every block of every job; accumulate each job's worked-day set.
   const segments = []
+  const workedDaysByJob = {}
   for (const job of jobs) {
     const blocks = blocksByJobId[String(job.job_id)] || []
     if (!blocks.length) continue
-    const assignedSet = assignedDaysByJob[String(job.job_id)] || null
+    const jid = String(job.job_id)
+    const assignedSet = assignedDaysByJob[jid] || null
     const owner = weekendOwners(blocks, assignedSet)
     blocks.forEach((block, bi) => {
       for (const run of blockRuns(block, bi, assignedSet, owner)) {
+        // Worked days over the FULL block range (pre grid-clip) → the job total.
+        const wset = (workedDaysByJob[jid] ||= new Set())
+        eachDay(run.start, run.end, (d, ds) => wset.add(ds))
         for (const seg of runSegments(run, cellMap)) {
           segments.push({ ...seg, jobId: job.job_id, job, alloc: block.alloc })
         }
       }
     })
+  }
+
+  // 1b. Day membership index from the pre-cap segments (one entry per job/day).
+  const membersByYmd = {}
+  for (const seg of segments) {
+    eachDay(seg.startYmd, seg.endYmd, (d, ds) => {
+      const list = (membersByYmd[ds] ||= [])
+      if (!list.some(m => m.jobId === seg.jobId)) list.push({ jobId: seg.jobId, seg })
+    })
+  }
+  for (const ds of Object.keys(membersByYmd)) {
+    membersByYmd[ds].sort((a, b) => segmentSort(a.seg, b.seg))
   }
 
   // 2. Lane-pack per row (greedy over the deterministic sort); cap → overflow.
@@ -196,5 +220,5 @@ export function buildCalendarBars({ rows, jobs, blocksByJobId, assignedDaysByJob
     }
   }
 
-  return { segmentsByRow, overflowByYmd }
+  return { segmentsByRow, overflowByYmd, membersByYmd, workedDaysByJob }
 }

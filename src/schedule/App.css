@@ -6488,6 +6488,13 @@
   letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap;
 }
 .schedule-root .hcs-view-btn:hover { background: rgba(48,207,172,0.14); }
+/* +Job / Actions relocated into the band header (right cluster, next to View
+   Crew Schedule). On the dark band the plain Actions button needs light ink;
+   the teal +Job primary keeps its black text. */
+.schedule-root .hcs-head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.schedule-root .hcs-head-actions .app-header-actions { margin-left: 0; }
+.schedule-root .hcs-head-actions .app-act-btn:not(.app-act-primary) { color: #fff; border-color: rgba(255,255,255,0.25); }
+.schedule-root .hcs-head-actions .app-act-btn:not(.app-act-primary):hover { border-color: #30cfac; }
 
 .schedule-root .hcs-body { display: flex; align-items: center; gap: 28px; }
 .schedule-root .hcs-badges { display: flex; gap: 22px; flex-shrink: 0; padding-right: 28px; border-right: 1px solid rgba(255,255,255,0.1); }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { useToolbarActions } from '../lib/toolbar'
 
 const DAYS_LONG = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
@@ -37,6 +38,10 @@ export default function HomeCapacityStrip({ data, weekLabel }) {
   const [detailDay, setDetailDay] = useState(null)
   // No point linking to the Crew Schedule when we're already on it.
   const onCrewSchedule = location.pathname === '/schedule/schedule'
+  // +Job / Actions, provided by ScheduleShell — rendered here so they sit inside
+  // the band header instead of a separate strip above it. Null on any screen
+  // outside the shell (defensive; the band only mounts under it today).
+  const toolbarActions = useToolbarActions()
 
   return (
     <section className="hcs">
@@ -45,7 +50,10 @@ export default function HomeCapacityStrip({ data, weekLabel }) {
           <div className="hcs-title">Weekly Crew Capacity</div>
           {weekLabel && <div className="hcs-week">{weekLabel}</div>}
         </div>
-        {!onCrewSchedule && <button className="hcs-view-btn" onClick={() => navigate('/schedule/schedule')}>View Crew Schedule →</button>}
+        <div className="hcs-head-actions">
+          {toolbarActions}
+          {!onCrewSchedule && <button className="hcs-view-btn" onClick={() => navigate('/schedule/schedule')}>View Crew Schedule →</button>}
+        </div>
       </div>
 
       <div className="hcs-body">

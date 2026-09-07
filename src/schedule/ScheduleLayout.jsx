@@ -11,6 +11,7 @@ import './index.css'
 import { supabase } from '../lib/supabase'
 import { ToastProvider, useToast } from './lib/toast'
 import { UserProvider, useUser } from './lib/user'
+import { ToolbarContext } from './lib/toolbar'
 import { searchExistingJobs, getNextMobSeq, addJobMobilization, loadTeamMemberMap } from './lib/queries'
 import { printWeekSchedule, printJobList, printMaterialsList, printDailyStatus } from './lib/exports'
 import Home from './views/Home'
@@ -73,6 +74,10 @@ function ScheduleShell() {
   const location = useLocation()
   const BAND_PATHS = ['/schedule/schedule', '/schedule/calendar', '/schedule/daily', '/schedule/materials']
   const showCapacityBand = BAND_PATHS.includes(location.pathname)
+  // The +Job/Actions buttons ride inside the Weekly Crew Capacity band header on
+  // every screen that shows the band (the 4 functional screens + Jobs, which
+  // renders its own band). Elsewhere (Home, Billing, …) they keep their own strip.
+  const toolbarInBand = showCapacityBand || location.pathname === '/schedule/jobs'
 
   // Dismiss the Actions menu on any outside click/touch.
   useEffect(() => {
@@ -295,26 +300,31 @@ function ScheduleShell() {
   const activeCrew = crewList.filter(c => !c.archived)
   const archivedCrew = crewList.filter(c => c.archived)
 
-  return (
-    <>
-      <div className="app-schedule-toolbar">
-        <div className="app-header-actions">
-          <button className="app-act-btn app-act-primary" onClick={openAddJob}>+ Job</button>
-          <div className="app-actions-menu" ref={actionsRef}>
-            <button className="app-act-btn" onClick={() => setActionsOpen(o => !o)}>Actions ▾</button>
-            {actionsOpen && (
-              <div className="app-actions-dropdown">
-                <button onClick={() => { setActionsOpen(false); handleRefresh() }}>Refresh</button>
-                <button onClick={() => { setActionsOpen(false); openAddCrew() }}>+ Crew</button>
-                <button onClick={() => { setActionsOpen(false); setModal('workTypes') }}>Work Types</button>
-                <button onClick={() => { setActionsOpen(false); setModal('crewList') }}>Crew List</button>
-                <button onClick={() => { setActionsOpen(false); setModal('sendSchedules') }}>Send Schedules</button>
-                <button onClick={() => { setActionsOpen(false); setModal('export') }}>Export</button>
-              </div>
-            )}
+  // Built once here (owns actionsRef + all handlers), then either dropped into the
+  // capacity band's header via context, or rendered in its own strip on screens
+  // without a band. Only one render site is live per route.
+  const toolbarActions = (
+    <div className="app-header-actions">
+      <button className="app-act-btn app-act-primary" onClick={openAddJob}>+ Job</button>
+      <div className="app-actions-menu" ref={actionsRef}>
+        <button className="app-act-btn" onClick={() => setActionsOpen(o => !o)}>Actions ▾</button>
+        {actionsOpen && (
+          <div className="app-actions-dropdown">
+            <button onClick={() => { setActionsOpen(false); handleRefresh() }}>Refresh</button>
+            <button onClick={() => { setActionsOpen(false); openAddCrew() }}>+ Crew</button>
+            <button onClick={() => { setActionsOpen(false); setModal('workTypes') }}>Work Types</button>
+            <button onClick={() => { setActionsOpen(false); setModal('crewList') }}>Crew List</button>
+            <button onClick={() => { setActionsOpen(false); setModal('sendSchedules') }}>Send Schedules</button>
+            <button onClick={() => { setActionsOpen(false); setModal('export') }}>Export</button>
           </div>
-        </div>
+        )}
       </div>
+    </div>
+  )
+
+  return (
+    <ToolbarContext.Provider value={toolbarActions}>
+      {!toolbarInBand && <div className="app-schedule-toolbar">{toolbarActions}</div>}
       {showCapacityBand && <WeeklyCapacityBand key={`capacity-band-${refreshKey}`} />}
       <main className="app-main" key={refreshKey}>
         <Routes>
@@ -563,6 +573,6 @@ function ScheduleShell() {
           </div>
         </div>
       )}
-    </>
+    </ToolbarContext.Provider>
   )
 }

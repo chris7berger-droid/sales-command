@@ -11,19 +11,23 @@ import CalendarJobPane from '../components/CalendarJobPane'
 
 /* ---------- helpers ---------- */
 
-// Readability palette for NON-PW jobs. Purple is deliberately absent — it's
-// reserved for prevailing-wage jobs (PW_COLOR), mirroring the crew scheduler so
-// purple always means PW across the app. 9 distinct hues, dark enough for the
-// white job name; a job keeps ONE color across all its spanning days.
+// Readability palette for NON-PW jobs. Purple is deliberately absent — reserved
+// for prevailing-wage jobs (PW_COLOR), mirroring the crew scheduler so purple
+// always means PW across the app. 11 hues with NO two in the same family (one
+// blue only) and ordered to alternate across the wheel, so consecutive jobs — and
+// any two co-visible in a week — read as clearly different. A job keeps ONE color
+// across all its spanning days (color is assigned per job, by sorted job order).
 const JOB_COLORS = [
   '#2563eb', // blue
   '#dc2626', // red
   '#16a34a', // green
-  '#d97706', // amber
-  '#0891b2', // cyan
+  '#ea580c', // orange
   '#db2777', // pink
-  '#65a30d', // olive
+  '#ca8a04', // gold
+  '#0d9488', // teal
   '#b45309', // brown
+  '#4d7c0f', // olive
+  '#be185d', // magenta
   '#475569', // slate
 ]
 // Prevailing-wage color — same token the crew scheduler uses (--pw / #6d28d9).
@@ -80,7 +84,7 @@ function buildGrid(year, month) {
 /* ---------- layout constants ---------- */
 const CELL_HEADER = 20   // day-number strip at the top of each cell
 const LANE_H = 18        // one bar lane
-const MONTH_MAX_LANES = 3
+const MONTH_MAX_LANES = 4
 const WEEK_MAX_LANES = 10
 // Light grid lines — the token --border is near-black (#1c1814), intentionally
 // heavy for buttons/filters, but too heavy as calendar gridlines. Scope a soft

@@ -234,7 +234,12 @@ function SalesCommandApp() {
           <Route path="/invoice-paid" element={<InvoicePaidPage />} />
           <Route path="/invoice/:token" element={<PublicInvoicePage />} />
           <Route path="/qb/callback" element={<QBCallbackPage />} />
-          <Route path="*" element={<SubConCommandPage />} />
+          {/* App domains (scmybiz.com, salescommand.app, *.vercel.app previews) are
+              login-first: an unauthed visitor lands on /login, never the marketing
+              page. Marketing lives on its own host (sccmybiz.com → SCC_HOST above),
+              and stays reachable here at /suite. Logged-in users skip this branch
+              entirely and land on Subcon Command Home at "/". */}
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
     );

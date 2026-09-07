@@ -197,53 +197,60 @@ export function buildCalendarBars({ rows, jobs, blocksByJobId, assignedDaysByJob
     membersByYmd[ds].sort((a, b) => segmentSort(a.seg, b.seg))
   }
 
-  // 2. Lane-pack, chain-aware. A run that spans multiple week rows is ONE chain
-  //    and gets a single lane across every row it touches — so a multi-week job
-  //    shown in week 1 also shows (same lane) in week 2, never split by the cap or
-  //    jumping lanes. Multi-row chains are laid first (the backbone); single-week
-  //    segments then fill the remaining lanes. lane ≥ maxLanes → "+N more".
+  // 2. Lane-pack compactly PER ROW (no wasted lanes), then guarantee continuity:
+  //    a multi-week job shown in ANY week is shown in ALL its weeks, so it never
+  //    appears in one week and hides behind "+N more" in the next. This beats a
+  //    single-lane-across-rows rule, which could inflate a busy week's lane usage
+  //    and spill a job to overflow while a lower lane sat empty.
   const segmentsByRow = rows.map(() => [])
   const overflowByYmd = {}
 
-  const chains = {}
-  for (const seg of segments) (chains[seg.chainId] ||= []).push(seg)
-  const chainList = Object.values(chains)
-
-  // Per-row, per-lane occupied column intervals — real overlap test (not a single
-  // laneEnd), so out-of-order placement across phases packs correctly.
-  const occ = {}  // row -> lane -> [{ s, e }]
-  const fits = (row, lane, s, e) => {
-    const lanes = occ[row]
-    if (!lanes || !lanes[lane]) return true
-    return !lanes[lane].some(iv => s <= iv.e && e >= iv.s)
-  }
-  const place = (row, lane, s, e) => { ((occ[row] ||= [])[lane] ||= []).push({ s, e }) }
-  const lowestLane = (segs) => {
-    for (let lane = 0; ; lane++) {
-      if (segs.every(sg => fits(sg.rowIndex, lane, sg.startCol, sg.endCol))) return lane
+  // Greedy interval lane-pack of one row's segments → Map(seg -> lane). Compact
+  // (lanes 0..k, no gaps) via a real column-overlap test per lane.
+  function packRow(rowSegs) {
+    const sorted = [...rowSegs].sort(segmentSort)
+    const occ = []            // lane -> [{ s, e }]
+    const laneBySeg = new Map()
+    for (const seg of sorted) {
+      let lane = 0
+      for (; ; lane++) {
+        const iv = occ[lane]
+        if (!iv || !iv.some(x => seg.startCol <= x.e && seg.endCol >= x.s)) break
+      }
+      occ[lane] = occ[lane] || []
+      occ[lane].push({ s: seg.startCol, e: seg.endCol })
+      laneBySeg.set(seg, lane)
     }
+    return laneBySeg
   }
 
-  const chainStart = (c) => c.reduce((m, s) => (s.startYmd < m ? s.startYmd : m), c[0].startYmd)
-  const chainKey = (c) => `${chainStart(c)}|${String(c[0].job?.job_num || '')}`
-  const rowsSpanned = (c) => new Set(c.map(s => s.rowIndex)).size
-  const multi = chainList.filter(c => rowsSpanned(c) > 1)
-    .sort((a, b) => chainKey(a).localeCompare(chainKey(b), undefined, { numeric: true }))
-  const single = chainList.filter(c => rowsSpanned(c) === 1)
-    .sort((a, b) => segmentSort(a[0], b[0]))
+  const byRow = {}
+  for (const seg of segments) (byRow[seg.rowIndex] ||= []).push(seg)
 
-  for (const chain of [...multi, ...single]) {
-    const lane = lowestLane(chain)
-    for (const seg of chain) {
-      place(seg.rowIndex, lane, seg.startCol, seg.endCol)
-      if (lane < maxLanes) {
-        segmentsByRow[seg.rowIndex].push({ ...seg, lane })
-      } else {
-        // Surplus — count it against every date it covers for a "+N more".
-        for (let c = seg.startCol; c <= seg.endCol; c++) {
-          const ds = ymd(rows[seg.rowIndex][c])
-          overflowByYmd[ds] = (overflowByYmd[ds] || 0) + 1
-        }
+  // Pass 1 — tentative compact lanes per row; any chain that fits under the cap in
+  // at least one row is "shown" (and must therefore show in all its rows).
+  const shownChain = new Set()
+  const tentative = {}
+  for (const [rowStr, rowSegs] of Object.entries(byRow)) {
+    const lanes = packRow(rowSegs)
+    tentative[rowStr] = lanes
+    for (const [seg, lane] of lanes) if (lane < maxLanes) shownChain.add(seg.chainId)
+  }
+
+  // Pass 2 — a segment renders if it fits the cap OR its chain shows elsewhere
+  // (continuity). Re-pack the rendered set so lanes stay compact; the rest → "+N".
+  for (const [rowStr, rowSegs] of Object.entries(byRow)) {
+    const row = Number(rowStr)
+    const tent = tentative[rowStr]
+    const willShow = (s) => tent.get(s) < maxLanes || shownChain.has(s.chainId)
+    const render = rowSegs.filter(willShow)
+    const lanes = packRow(render)
+    for (const seg of render) segmentsByRow[row].push({ ...seg, lane: lanes.get(seg) })
+    for (const seg of rowSegs) {
+      if (willShow(seg)) continue
+      for (let c = seg.startCol; c <= seg.endCol; c++) {
+        const ds = ymd(rows[row][c])
+        overflowByYmd[ds] = (overflowByYmd[ds] || 0) + 1
       }
     }
   }

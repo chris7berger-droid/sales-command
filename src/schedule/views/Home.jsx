@@ -314,7 +314,7 @@ export default function Home() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               {milestones.map((m, i) => (
-                <button key={`${m.job.job_id}-${m.kind}-${i}`} onClick={() => navigate(`/schedule/jobs/${m.job.job_id}`)}
+                <button key={`${m.job.job_id}-${m.kind}-${i}`} onClick={() => navigate(`/schedule/jobs?job=${m.job.job_id}`)}
                   style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: 0, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 12.5, color: 'var(--text-secondary)' }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     <span style={{ color: m.kind === 'Start' ? 'var(--sig-green)' : 'var(--sig-purple)', fontWeight: 700 }}>{m.kind}</span> · {m.job.job_name || m.job.job_num || 'Job'}

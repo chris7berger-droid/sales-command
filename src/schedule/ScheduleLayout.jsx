@@ -22,7 +22,6 @@ import Calendar from './views/Calendar'
 import Daily from './views/Daily'
 import Schedules from './views/Schedules'
 import ProductionRate from './views/ProductionRate'
-import JobDetail from './views/JobDetail'
 import Settings from './views/Settings'
 import Import from './views/Import'
 import WeeklyCapacityBand from './components/WeeklyCapacityBand'
@@ -322,7 +321,6 @@ function ScheduleShell() {
           <Route index element={<Navigate to="/schedule/home" replace />} />
           <Route path="home" element={<Home />} />
           <Route path="jobs" element={<Jobs />} />
-          <Route path="jobs/:jobId" element={<JobDetail />} />
           <Route path="schedule" element={<Schedule />} />
           <Route path="billing" element={<Billing />} />
           {/* Forecast + Budget folded into Finance/Billing (reskin chunk 1);

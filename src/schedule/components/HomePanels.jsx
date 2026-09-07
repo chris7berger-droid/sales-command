@@ -82,7 +82,7 @@ export function NextUp({ nextUp }) {
       </div>
       <div className="hp-nu-actions">
         <button className="hp-btn hp-btn-fill" onClick={goCrewSchedule}>Build Schedule →</button>
-        <button className="hp-btn hp-btn-outline" onClick={() => navigate(`/schedule/jobs/${job.job_id}?mode=management`)}>View Job</button>
+        <button className="hp-btn hp-btn-outline" onClick={() => navigate(`/schedule/jobs?job=${job.job_id}`)}>View Job</button>
       </div>
     </section>
   )

@@ -234,7 +234,7 @@ async function loadScheduleActivity() {
     when: r.changed_at,
     kind: "schedule",
     text: humanizeChange(r),
-    to: `/schedule/jobs/${r.job_id}`,
+    to: `/schedule/jobs?job=${r.job_id}`,
   }));
 }
 

@@ -52,13 +52,19 @@ function matchesSearch(j, q) {
 export default function JobsToPrepare({
   jobs = [], crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {},
   assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByJobId = {},
-  prtMap = new Map(), today = new Date(), onJobUpdate, initialStage = 'all',
+  prtMap = new Map(), today = new Date(), onJobUpdate, initialStage = 'all', focusJobId = null,
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [dateFilter, setDateFilter] = useState('month') // §14: Home default = month
   const [stageFilter, setStageFilter] = useState(initialStage)
   const [manualDate, setManualDate] = useState(false)
+
+  // Deep-link (/schedule/jobs?job=<id>): widen the filters so the target job can
+  // surface, then it's force-included in `shown` + auto-opened below.
+  useEffect(() => {
+    if (focusJobId) { setStageFilter('all'); setSearch(''); setManualDate(true); setDateFilter('all') }
+  }, [focusJobId])
 
   const q = search.toLowerCase().trim()
 
@@ -96,7 +102,12 @@ export default function JobsToPrepare({
       })
   }, [stageSearched, dateFilter])
 
-  const shown = filtered.slice(0, CAP)
+  let shown = filtered.slice(0, CAP)
+  // Force the deep-link target into view even if filters would drop it.
+  if (focusJobId && !shown.some(j => String(j.job_id) === String(focusJobId))) {
+    const fj = jobs.find(j => String(j.job_id) === String(focusJobId))
+    if (fj) shown = [fj, ...shown]
+  }
   const n = filtered.length
   const stageLabel = STAGE_OPTIONS.find(s => s.key === stageFilter)?.label || 'All Stages'
 
@@ -147,6 +158,7 @@ export default function JobsToPrepare({
             key={j.job_id}
             job={j}
             variant="home-compact"
+            autoOpen={focusJobId != null && String(j.job_id) === String(focusJobId)}
             stage={stageOf(j, crewByCallLog, matsByJobId)}
             crewByCallLog={crewByCallLog}
             matsByJobId={matsByJobId}

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { updateJobField, updateJobStatus, deleteJob } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
@@ -13,6 +13,7 @@ import MobsModal from './MobsModal'
 import LoadOutModal from './LoadOutModal'
 import PRTModal from './PRTModal'
 import LogsModal from './LogsModal'
+import HistoryPanel from './HistoryPanel'
 
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
@@ -575,7 +576,7 @@ function NotesPanel({ job, changedBy, onSaved }) {
   )
 }
 
-export default function StageJobCard({ job, stage, variant = null, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByJobId = {}, prtMap = new Map(), today = new Date(), onJobUpdate }) {
+export default function StageJobCard({ job, stage, variant = null, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByJobId = {}, prtMap = new Map(), today = new Date(), onJobUpdate, autoOpen = false }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || 'unknown'
@@ -583,8 +584,15 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   const compactMode = variant === 'home-compact'
   // Home compact row is collapsed by default; clicking it expands the SAME full
   // card inline (Option B). The /jobs path never sets `variant`, so it is untouched.
-  const [expanded, setExpanded] = useState(false)
-  const [panels, setPanels] = useState({ planning: false, management: false, details: false, budget: false })
+  // A deep-link (/schedule/jobs?job=<id>) opens the card already expanded and
+  // scrolls it into view — this is the target Open Job / Edit Schedule / View Job
+  // now land on (JobDetail retired).
+  const [expanded, setExpanded] = useState(!!autoOpen)
+  const [panels, setPanels] = useState({ planning: false, management: false, details: false, budget: false, history: false })
+  const cardRef = useRef(null)
+  useEffect(() => {
+    if (autoOpen && cardRef.current) cardRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [autoOpen])
   const [acting, setActing] = useState(false)
   const [showSowModal, setShowSowModal] = useState(false)
   const [sowFocus, setSowFocus] = useState(null)        // { wtcId, dayIndex } from DaysModal handoff (Option 3)
@@ -745,13 +753,13 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   }
 
   return (
-    <div className={`sjc-card${compactMode ? ' sjc-card-home-expanded' : ''}`}>
+    <div ref={cardRef} className={`sjc-card${compactMode ? ' sjc-card-home-expanded' : ''}`}>
       {compactMode && (
         <button className="jtp-collapse" onClick={() => setExpanded(false)} title="Collapse">Close ✕</button>
       )}
       <StageBanner job={job} stage={stage} crewRows={crewRows} matRows={matRows} prtMap={prtMap} today={today} />
 
-      <div className="sjc-header" onClick={() => navigate(`/schedule/jobs/${job.job_id}?mode=management`)}>
+      <div className="sjc-header">
         <span className="sjc-header-title">{getCardTitle(job, job._wtcs)}</span>
       </div>
 
@@ -762,6 +770,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
         <button className={`sjc-toggle${panels.management ? ' open' : ''}`} onClick={() => togglePanel('management')}>MANAGEMENT</button>
         <button className={`sjc-toggle${panels.details ? ' open' : ''}`} onClick={() => togglePanel('details')}>DETAILS</button>
         <button className={`sjc-toggle${panels.budget ? ' open' : ''}`} onClick={() => togglePanel('budget')}>BUDGET</button>
+        <button className={`sjc-toggle${panels.history ? ' open' : ''}`} onClick={() => togglePanel('history')}>HISTORY</button>
       </div>
 
       {panels.planning && (
@@ -800,6 +809,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
       )}
       {panels.details && <DetailsPanel job={job} crewRows={crewRows} />}
       {panels.budget && <BudgetPanel job={job} />}
+      {panels.history && <HistoryPanel job={job} />}
 
       <div className="sjc-action">
         {stage === 'staged' && (

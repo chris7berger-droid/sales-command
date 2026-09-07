@@ -403,6 +403,7 @@ export default function Jobs() {
         prtMap={prtMap}
         today={today}
         initialStage={initialStage}
+        focusJobId={searchParams.get('job')}
         onJobUpdate={() => loadData({ background: true })}
       />
 

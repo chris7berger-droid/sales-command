@@ -124,7 +124,7 @@ export default function Schedule({ embedded = false } = {}) {
   // no history, fall back to that job. Otherwise the generic stages landing.
   const goBack = useCallback(() => {
     if (focusJobId && location.state?.fromCard) navigate(-1)
-    else if (focusJobId) navigate(`/schedule/jobs/${focusJobId}?mode=management`)
+    else if (focusJobId) navigate(`/schedule/jobs?job=${focusJobId}`)
     else navigate('/schedule/jobs')
   }, [navigate, focusJobId, location.state])
   const focusedJobRowRef = useRef(null)

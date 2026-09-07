@@ -12,7 +12,8 @@ import ComingSoon from './ComingSoon'
 // without their catalog/rate args, so we never render a fabricated dollar figure.
 // Tabs (ratified 2026-09-06): Overview (wired) · Crew · Daily Logs · Production —
 // the last three pull from Field Command (loadDailyLogsForJob / loadPRTsForJob),
-// wired in a later pass. Read-only: Open/Edit navigates to JobDetail (management).
+// wired in a later pass. Read-only: Open/Edit deep-links to the job's card on the
+// Jobs screen (/schedule/jobs?job=<id>) — JobDetail was retired.
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 function fmtDate(ds) {
@@ -218,8 +219,8 @@ export default function CalendarJobPane({ job, workedDaySet, getJobStatus, onClo
       </div>
 
       <div style={s.actions}>
-        <button style={s.actBtn} onClick={() => navigate(`/schedule/jobs/${job.job_id}?mode=management`)}>Open Job</button>
-        <button style={{ ...s.actBtn, ...s.actPrimary }} onClick={() => navigate(`/schedule/jobs/${job.job_id}?mode=management`)}>Edit Schedule</button>
+        <button style={s.actBtn} onClick={() => navigate(`/schedule/jobs?job=${job.job_id}`)}>Open Job</button>
+        <button style={{ ...s.actBtn, ...s.actPrimary }} onClick={() => navigate(`/schedule/jobs?job=${job.job_id}`)}>Edit Schedule</button>
       </div>
     </div>
   )

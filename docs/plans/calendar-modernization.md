@@ -4,7 +4,7 @@ Confidence tags: **[LOCKED]** = user-ratified · **[DERIVED]** = inferred from c
 
 **Type:** feature
 
-**Status:** Chunk A **SHIPPED** (gates clean). **Chunk B/C — round-3 audit responded** (Option 2 ratified; §8 revised, §8.6). Awaiting round-4 §8 spot-check, then build B/C on one branch off `main` once A merges.
+**Status:** Chunk A **SHIPPED** (gates clean). **Chunk B/C — §8 CLEAN-TO-BUILD** (round-3 Option 2 + round-4 spot-check clean; §8.6). No round 5. Build B/C on one branch off `main` once A merges.
 
 > **Provenance note:** the original ID8 planning session was accidentally closed before its decisions were captured, so this plan was reconstructed from the `/detach` stub (only §1 survived) + a later mockup. Several decisions below were **re-ratified verbally by Chris on 2026-09-06** (color scheme, lead handling, Sunday split) — those are the authority, not the mockup, where they differ.
 
@@ -195,7 +195,7 @@ Chunk A shipped (gates clean, §7). It left explicit seams for the panes. **Buil
 - New `components/CalendarJobPane.jsx`, shown in the rail when `selectedJobId` is set.
 - **Render most of Overview synchronously (round-3 premise note).** Customer/location/dates/status/notes already live on the in-component `jobs` array (`queries.js:370–414`) — no fetch needed. Only mob/cost need `_wtcs`, so **lazy-hydrate just the selected job:**
   - `loadJobWithWTCs(selectedJobId)` (`:598`) for `_wtcs` (round-2 E — genuinely resolved), **PLUS**
-  - `loadMobilizationsByJobId([job], {})` (paginated via `loadAllRows`, `:299`) → pass as `getJobMobilizations`'s **2nd arg** `mobsBySeq` (mirror `StageJobCard.jsx:605`), **PLUS**
+  - `loadMobilizationsByJobId([job], {})` returns a **job-keyed** wrapper — **index it first: `loadMobilizationsByJobId([job],{})[job.job_id]`** → pass *that* as `getJobMobilizations`'s **2nd arg** `mobsBySeq` (mirror `StageJobCard.jsx:605`). Passing the raw job-keyed object makes every `mobsBySeq[seq]` undefined → the round-3-B silent "Mob N"/blank-date degrade returns (round-4 N-2). **PLUS**
   - `loadMaterialsCatalog()` → `computeMobCosts`'s **2nd arg** `catalog` (mirror `MobsModal.jsx:65`) — **OR** cut material cost from Overview and show mobilization/allocation **counts only**.
   - **Never render a fabricated `$0` materials or blank mob date (round-3 B)** — those helpers degrade silently to $0/"Mob N" without their 2nd arg. Do NOT switch whole-grid `loadJobs()` to `withWTCs:true`.
   - **Stale-race + states (round-3 D):** guard the fetch with a `cancelled` flag (`Calendar.jsx:192`) or `loadIdRef` (`Jobs.jsx:105`) so a slow job-A response can't land under job-B's header. Render three explicit states: in-flight spinner (`Calendar.jsx:148` style) · `error||!data` → "Job not found" · loaded → pane.
@@ -213,16 +213,18 @@ Chunk A shipped (gates clean, §7). It left explicit seams for the panes. **Buil
 
 ### §8.4 Files
 - **New:** `components/CalendarDayPane.jsx`, `components/CalendarJobPane.jsx`, a shared `ComingSoon` placeholder.
-- **Edit `lib/calendarBars.js` (a Chunk-A file) — Option 2 core:** extend `buildCalendarBars`'s return with **`jobIdsByYmd`** (built from the same segments it already emits) + a **per-job `workedDaySet`**. This is the single grid-derived index the panes consume; the panes recompute nothing.
+- **Edit `lib/calendarBars.js` (a Chunk-A file) — Option 2 core:** extend `buildCalendarBars`'s return with **`jobIdsByYmd`** + a **per-job `workedDaySet`**. **Build the index from the PRE-CAP `segments` array (`calendarBars.js:158`), NOT `segmentsByRow` (`:174`) (round-4 N-1)** — `segmentsByRow` drops lanes ≥ `maxLanes` into `overflowByYmd`, so an index built from it would make a >4-job day's pane list *shorter than its own "+N more" count* — the exact parity gap Option 2 exists to close. This is the single grid-derived index the panes consume; the panes recompute nothing.
 - **Edit `Calendar.jsx`:** three-column layout wrapper + render both panes off `selectedDate`/`selectedJobId` + the lazy per-job hydration (§8.2) + **pass `members`/`getCrewCountByYmd`/`getJobColor`/`barMeta` down as props** (they're `Calendar()` closures — round-3 C).
-  - **Wrapper structure (round-3 F — required):** the **left column must enclose the day-name header (`:463`) AND the week rows (`:470`) together** — they're sibling grids sharing `gridTemplate`, so wrapping only the rows decouples the day names. Panes are **flex siblings inside the existing `styles.wrapper` root** (never hoisted to `<main>`); `WeeklyCapacityBand` above in `ScheduleLayout` stays intact.
+  - **Wrapper structure (round-3 F + round-4 N-3 — required):** add a **new inner column div wrapping {day-name header (`:463`) + week rows (`:470`) together}** — they're sibling grids sharing `gridTemplate`, so wrapping only the rows decouples the day names. Then add a **dedicated flex row `[calendar-column | dayPane | jobPane]`** — do **NOT** put `display:flex` on the `styles.wrapper` root (that would sweep the toolbar + legend into the flex row too). The toolbar and legend stay as normal blocks above/below the flex row, inside `styles.wrapper` (never hoisted to `<main>`); `WeeklyCapacityBand` above in `ScheduleLayout` stays intact.
 - **Reuse:** `loadJobWithWTCs`, `loadMobilizationsByJobId`, `loadMaterialsCatalog`, `getJobMobilizations`, `computeMobCosts`, `workdays.js`, `barMeta`, `getJobColor`, `getJobStatus`. **No** table/RLS/migration; read-only (Open/Edit navigates to `JobDetail`).
 
 ### §8.5 Estimate
 ~1 day (B ~half, C ~half). Build both on one branch off updated `main`; gate together. Model: opus 4.8, medium.
 
 ### §8.6 Round-3 audit response (2026-09-06)
-Round-3 audit (2 agents, `derivation-drifts-from-grid`) — 6 caused-by (2H/4M) + 2 adjacent, 0 regressions, no scope cut. **Ratified Option 2** (grid-derived index + props). All folded above: **A/C** (panes consume `jobIdsByYmd`/`workedDaySet` from `buildCalendarBars`, closures passed as props — §8.1/§8.2/§8.4); **B** (load `mobsBySeq` + `catalog` or cut cost — §8.2); **D** (named race guard + 3 states — §8.2); **E** ("+N more" force-open — §8.1); **F** (wrapper pins header+rows together, panes are siblings, stopPropagation moot — §8.4/§8.1/§8.3); **ADJ-1** (scrub phantom `jobsForDate` — §2.3/§2.4); **ADJ-2** (filter-reset → render-guard — §8.3). Back for a **round-4 spot-check of §8 only** (expected clean).
+Round-3 audit (2 agents, `derivation-drifts-from-grid`) — 6 caused-by (2H/4M) + 2 adjacent, 0 regressions, no scope cut. **Ratified Option 2** (grid-derived index + props). All folded above: **A/C** (panes consume `jobIdsByYmd`/`workedDaySet` from `buildCalendarBars`, closures passed as props — §8.1/§8.2/§8.4); **B** (load `mobsBySeq` + `catalog` or cut cost — §8.2); **D** (named race guard + 3 states — §8.2); **E** ("+N more" force-open — §8.1); **F** (wrapper pins header+rows together, panes are siblings, stopPropagation moot — §8.4/§8.1/§8.3); **ADJ-1** (scrub phantom `jobsForDate` — §2.3/§2.4); **ADJ-2** (filter-reset → render-guard — §8.3).
+
+**Round-4 spot-check (2026-09-06, `clean-with-build-notes`) — CLEAN.** All 6 round-3 fixes verified TOOK against `calendarBars.js`, 0 regressions, Option 2 confirmed buildable. 3 new Low build-notes folded: **N-1** (build the index from PRE-CAP `segments:158`, not `segmentsByRow:174` — §8.4); **N-2** (index `[job.job_id]` before passing `mobsBySeq` — §8.2); **N-3** (wrapper = new inner {header+rows} column + a dedicated flex row, not `display:flex` on the root — §8.4). **§8 is clean-to-build — no round 5.**
 
 ---
 

@@ -1,0 +1,168 @@
+SC Handoff v220 — Calendar Redesign Polish + Login-First App Domains
+Date: 2026-09-07
+Worktree: ~/sales-command
+Branch: main (merged + deployed) · feat branch fix/schedule-band-header-toolbar deleted
+Prod: www.scmybiz.com (Vercel auto-deploy on push to main)
+
+════════════════════════════════════════════════════════════════════════
+SESSION SUMMARY
+════════════════════════════════════════════════════════════════════════
+A UI-polish session on the Schedule Command calendar (the modernization shipped
+in v219), plus one routing change. Folded the +Job/Actions toolbar into the
+Weekly Crew Capacity band and closed the dead gap; then iterated the calendar
+grid to match the linen brand — light header/lines, softer translucent bars,
+job-number chips instead of white text, muted teal "today", content-fit rows
+that fill the viewport with empty-week collapse, a "+N more" chip on the date
+row, a Show-all scroll mode, and per-week compact packing that keeps multi-week
+jobs continuous. Separately, made the app domains login-first so current users
+and preview links stop landing on the marketing page (marketing stays on
+sccmybiz.com). All work landed on one branch, merged to main, and deployed. Prod
+smoke is deferred to Chris (preview was smoked throughout).
+
+A process rule was also adopted this session (see DECISIONS): a Branch Assessment
+before creating any branch, saved to personal memory.
+
+════════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED
+════════════════════════════════════════════════════════════════════════
+All on fix/schedule-band-header-toolbar, merged to main via 566fcb0 (--no-ff).
+Listed oldest→newest:
+
+  • 2d46d35 — +Job/Actions folded into the Weekly Crew Capacity band header via a
+    new ToolbarContext; standalone strip kept only on band-less screens (Home/
+    Billing). New file src/schedule/lib/toolbar.js.
+  • cb95e08 — Temp sample jobsite photo (Unsplash, same convention as marketing
+    pages) replaces "Photo — coming soon" in the calendar job pane.
+  • 2cffa62 — Calendar grid polish: light day-name header, lightened grid lines,
+    distinct bar palette, standout "+N more".
+  • ebfedb7 — Calendar toolbar softened to match the grid (1px light borders,
+    lighter font weights).
+  • b6bdf32 — Empty weeks collapse; taller bars; "+N more" moved to the date row.
+  • fe070f3 — App domains login-first (unauthed → /login, not marketing); marketing
+    stays on sccmybiz.com. src/App.jsx.
+  • 7d73d8e — PW=purple with black+teal PW chip (reuses crew scheduler --pw);
+    cap 3; taller bars; gap closed; bottom legend removed (empty-state kept).
+  • d3e70b3 — Week grid fills the viewport (measured height, flex rows) so no dead
+    bottom block + no stray page scroll; single job chip (dropped doubled name).
+  • e2f8b69 — Selected-day ring changed from near-black to teal.
+  • 5e3a9fc — 4-bar cap restored; palette expanded to 11 no-same-family hues (one
+    blue only) to kill same-color collisions.
+  • 4a4109c — Show-all mode: uncapped weeks, page scrolls, sticky Sun–Sat header;
+    band/toolbar scroll away. Compact stays default.
+  • 9198210 — (superseded) first continuity attempt: single lane across all rows.
+  • 012c46a — Bars softened to translucent fill (55%) + fuller-color border; "today"
+    changed from bright yellow to a subtle teal wash (matches capacity strip).
+  • 1d74d69 — Fix false "+N more": pack each week compactly again (no wasted lanes)
+    and guarantee continuity by rule (a chain shown under the cap in any row shows
+    in all its rows). Supersedes 9198210's single-lane approach.
+  • 10a0be8 — Stop clipping toolbar button tops: close the band gap by trimming
+    .app-main top padding (.app-main:has(.cal-wrapper)) instead of a negative margin
+    that sheared tops against overflow:hidden.
+
+════════════════════════════════════════════════════════════════════════
+DEPLOYED
+════════════════════════════════════════════════════════════════════════
+  • Merge 566fcb0 pushed to origin/main → Vercel auto-deploys to www.scmybiz.com.
+  • No DB migrations, no edge functions, no infra. Code + config only.
+
+════════════════════════════════════════════════════════════════════════
+DECISIONS (this session)
+════════════════════════════════════════════════════════════════════════
+  • Login-first app domains over a marketing splash: current users/preview links
+    were forced through marketing. scmybiz.com/salescommand.app/*.vercel.app now go
+    to /login (or the app if signed in); marketing lives on the existing sccmybiz.com
+    host (SCC_HOST). Logged-in root already lands on Subcon Command Home. Chose this
+    minimal change because a dedicated marketing domain already existed.
+  • PW color reuses the crew scheduler's --pw (#6d28d9) and its prevailing_wage
+    flag — no new PW functionality; purple removed from the general palette so
+    purple always means PW across the app.
+  • Bar readability: chose translucency (55% fill + fuller-color border) over
+    darkening/thinning to calm the color mass while keeping bars distinct. Safe
+    because bars now carry only a dark+teal chip, no white text.
+  • Multi-week continuity: FIRST tried one-lane-across-all-rows (9198210) — it
+    inflated busy weeks and produced a false "+1 more" (verified: Fri 9/25 had 4
+    jobs, cap 4, but a lane sat empty). Switched to compact per-week packing +
+    "shown in any row → shown in all rows" (1d74d69). Tradeoff: a spanning bar may
+    occasionally sit on a different lane across the Sat→Sun break (slight vertical
+    jump) rather than a perfectly straight line. Chris accepted this over false
+    overflow.
+  • Gap close: trim .app-main top padding for the calendar screen, NOT a negative
+    margin (which clipped button tops against overflow:hidden).
+  • Process: adopt a "Branch Assessment" before creating any branch (state base
+    freshness + missing-commit collisions + options + a recommendation, Chris
+    picks). Saved to personal memory. Born from branching off a 19-commit-stale
+    local main earlier this session, which made the preview look like it had
+    reverted the shipped calendar modernization.
+
+════════════════════════════════════════════════════════════════════════
+NEW / CLOSED BACKLOG ITEMS
+════════════════════════════════════════════════════════════════════════
+  • None filed or closed in docs/BACKLOG.md this session. Work was in-flow UI
+    polish on a shipped feature, not tracked backlog rows.
+  • Open items from v219 (B96, B97, B99, B100, B101, B102) remain untouched.
+
+════════════════════════════════════════════════════════════════════════
+VERIFICATION
+════════════════════════════════════════════════════════════════════════
+  • npm run build (vite) ✅ on every commit.
+  • Chris smoked each change on the Vercel preview throughout the session and
+    approved: band toolbar, calendar polish, palette, Show-all + sticky header,
+    multi-week continuity, softened bars, teal today, login-first routing.
+  • Fri 9/25 overflow fix was verified against PROD data (4 jobs cover the day, no
+    mobilizations) before changing the packer.
+  • NOT yet verified on PROD (deploy just pushed; smoke deferred to Chris):
+    - www.scmybiz.com logged-out → lands on /login (not marketing).
+    - Logged-in → Subcon Command Home → Schedule → Calendar renders as on preview.
+    - sccmybiz.com still serves marketing.
+
+════════════════════════════════════════════════════════════════════════
+NOT TOUCHED / DEFERRED (intentional)
+════════════════════════════════════════════════════════════════════════
+  • Selected-JOB ring (clicking a bar) is still near-black — left as-is; only the
+    selected-DAY ring was changed to teal. Offered to Chris; not requested.
+  • Strict straight-line alignment of multi-week bars — traded away for the
+    compact/no-false-overflow packing (see DECISIONS). Reversible if wanted.
+  • v219 open items (B96/B97 lead invariant, B99 board clear-focus, B100/B101
+    pane cleanups, B102 billing_log confirm) — not part of this polish pass.
+  • subconcommand.com marketing domain — optional; sccmybiz.com already serves
+    marketing, so not wired.
+
+════════════════════════════════════════════════════════════════════════
+NEXT SESSION POINTERS
+════════════════════════════════════════════════════════════════════════
+  1. Prod smoke the three login-first checks above once the deploy settles.
+  2. If any ads/links point at scmybiz.com FOR MARKETING, repoint them to
+     sccmybiz.com — the app domain is now login-first.
+  3. Optional follow-ups if Chris raises them: teal selected-job ring; nudge the
+     band gap (6px in .app-main:has(.cal-wrapper)) or bar transparency (55%).
+  4. v219 backlog (B96/B97/B99/B100/B101/B102) still open when ready.
+
+════════════════════════════════════════════════════════════════════════
+FILES TO KNOW
+════════════════════════════════════════════════════════════════════════
+  Calendar:  src/schedule/views/Calendar.jsx (toolbar, Show-all, fill/scroll,
+             per-view lane sizing, today/selected styles, palette, PW_COLOR)
+  Bar engine: src/schedule/lib/calendarBars.js (compact per-week packing +
+             chainId continuity rule)
+  Bar:       src/schedule/components/CalendarBar.jsx (translucent fill, job# chip,
+             PW chip, height/fontSize props)
+  Job pane:  src/schedule/components/CalendarJobPane.jsx (temp jobsite photo)
+  Toolbar:   src/schedule/lib/toolbar.js (ToolbarContext) +
+             src/schedule/ScheduleLayout.jsx (+Job/Actions in band vs strip) +
+             src/schedule/components/HomeCapacityStrip.jsx (renders toolbar)
+  Routing:   src/App.jsx (login-first unauthed *; SCC_HOST marketing)
+  CSS:       src/schedule/App.css (.hcs-head-actions, .app-main:has(.cal-wrapper))
+
+════════════════════════════════════════════════════════════════════════
+GIT STATE
+════════════════════════════════════════════════════════════════════════
+  Branch: main (clean working tree before this handoff commit)
+  origin/main @ 566fcb0 — "Merge: Schedule calendar redesign + login-first app domains"
+  fix/schedule-band-header-toolbar — MERGED and DELETED (local + remote)
+  No open PRs, no scratch worktrees from this session.
+
+════════════════════════════════════════════════════════════════════════
+END STATE
+════════════════════════════════════════════════════════════════════════
+Merged to main and deployed to prod; prod smoke deferred to Chris; branch deleted;
+ready for a fresh session.

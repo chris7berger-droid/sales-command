@@ -132,6 +132,20 @@ export function getJobMobilizations(job, mobsBySeq = {}) {
   // Legacy zero-WTC jobs: seq tags live on the flat jobs.field_sow instead.
   if (bySeq.size === 0) collectSeq(job?.field_sow, null, bySeq)
 
+  // A3 reconciliation (mobilization_model §4 A3 — folds R2-C1 + ADJ-3). A
+  // mobilization can exist as a job_mobilizations ROW with no tagged days (a
+  // freshly-added go-back, or — on today's data — EVERY mob, since 0 SOW
+  // day-tags exist in prod). mobsBySeq carries those rows by seq
+  // (loadMobilizationsByJobId reads job_mobilizations directly). Emit ONE entry
+  // per seq over the FULL UNION of both sides — tag-derived seqs AND row seqs —
+  // so dayless mobs stay visible instead of being dropped by the tag-only
+  // derivation. (A full union, NOT a rows-primary join.)
+  for (const key of Object.keys(mobsBySeq)) {
+    const seq = Number(key)
+    if (!Number.isFinite(seq)) continue
+    if (!bySeq.has(seq)) bySeq.set(seq, { dates: new Set(), count: 0, workTypes: new Set() })
+  }
+
   return [...bySeq.entries()]
     .map(([seq, e]) => {
       const meta = mobsBySeq[seq] || {}
@@ -516,6 +530,10 @@ export async function loadJobs({ includeDeleted = false, withWTCs = false } = {}
 
   if (!includeDeleted) {
     query = query.or('deleted.is.null,deleted.eq.No')
+    // Hide sibling rows merged into a canonical job via Combine (mobilization_model).
+    // Kept separate from the `deleted` filter: a merged row is NOT deleted and keeps
+    // its source_proposal_id, so Sales still sees the proposal as sent.
+    query = query.is('merged_into_job_id', null)
   }
 
   // B103: show EVERY active job — linked or not. We used to hide jobs with no
@@ -1237,6 +1255,60 @@ async function logJobChange(jid, field, oldV, newV, changedBy, source) {
     old_value: oldV == null ? null : String(oldV), new_value: newV == null ? null : String(newV),
     changed_by: changedBy, source,
   })
+}
+
+// ── Combine duplicate job cards (manual, mobilization_model) ────────────────
+// Fold one or more DUPLICATE job cards (sourceJobIds) into a kept job
+// (targetJobId): their crew days + pull tickets roll under the kept job as
+// mobilizations in its history, and the folded cards are hidden (not deleted).
+// The heavy lifting is the atomic combine_jobs() DB function — it refuses to
+// combine cards that don't share the kept card's original call. Every "which
+// cards / which keeper" decision is the user's; the DB only enforces sameness.
+export async function combineJobs(targetJobId, sourceJobIds, changedBy, source = 'schedule_combine') {
+  const target = parseInt(targetJobId)
+  const sources = (sourceJobIds || []).map(id => parseInt(id)).filter(n => Number.isFinite(n) && n !== target)
+  if (!Number.isFinite(target) || sources.length === 0) {
+    return { data: null, error: { message: 'Pick a job to keep and at least one to combine into it.' } }
+  }
+  const { data, error } = await supabase.rpc('combine_jobs', { p_target: target, p_sources: sources })
+  if (error) return { data: null, error }
+  for (const s of sources) {
+    await logJobChange(s, 'merged_into_job_id', null, String(target), changedBy, source)
+  }
+  return { data: { folded: data ?? sources.length }, error: null }
+}
+
+// Group the loaded (live, non-merged) jobs into duplicate sets — jobs sharing one
+// original call (call_log_id). Only groups with >1 card are returned. Used by the
+// Combine tool. assignmentsByJobId (optional) adds a crew-day count per card; its
+// value may be a Set of dates or an array.
+export function findDuplicateJobGroups(jobs = [], assignmentsByJobId = {}) {
+  const byCall = new Map()
+  for (const j of jobs) {
+    if (!j || j.call_log_id == null) continue
+    const arr = byCall.get(j.call_log_id) || []
+    arr.push(j)
+    byCall.set(j.call_log_id, arr)
+  }
+  const groups = []
+  for (const [callLogId, cards] of byCall.entries()) {
+    if (cards.length < 2) continue
+    groups.push({
+      callLogId,
+      title: cards[0]?.call_log?.job_name || cards[0]?.job_name || `Call ${callLogId}`,
+      cards: cards
+        .map(c => ({
+          job_id: c.job_id,
+          name: c.job_name || c.call_log?.job_name || `Job ${c.job_id}`,
+          start_date: c.start_date || null,
+          end_date: c.end_date || null,
+          status: c.status || null,
+          crewDays: (() => { const a = assignmentsByJobId[c.job_id]; return a ? (a.size ?? a.length ?? 0) : 0 })(),
+        }))
+        .sort((a, b) => String(a.start_date || '').localeCompare(String(b.start_date || ''))),
+    })
+  }
+  return groups.sort((a, b) => a.title.localeCompare(b.title))
 }
 
 export async function addJobAsset(jobId, assetType, assetId, changedBy, source = 'schedule_command') {

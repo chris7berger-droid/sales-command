@@ -4,10 +4,12 @@ import { supabase } from '../../lib/supabase'
 import {
   loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady, loadBillingWorklist,
   loadMobilizationsByJobId, computeHomeDashboard, wkDates, getJobMultiWeekAlert, hasFieldSow,
+  findDuplicateJobGroups,
 } from '../lib/queries'
 import HomeCapacityStrip from '../components/HomeCapacityStrip'
 import { NeedsAttention, NextUp, AtAGlance } from '../components/HomePanels'
 import JobsToPrepare from '../components/JobsToPrepare'
+import CombineDuplicatesModal from '../components/CombineDuplicatesModal'
 import { getJobStatus } from '../lib/jobStatus'
 
 // New Jobs (reskin chunk 1) — the old Home working surface, repainted. The plan:
@@ -97,6 +99,7 @@ export default function Jobs() {
   const [actionsOpen, setActionsOpen] = useState(false)
   const [showBin, setShowBin] = useState(false)
   const [deletedJobs, setDeletedJobs] = useState([])
+  const [showCombine, setShowCombine] = useState(false)
 
   const today = useMemo(() => new Date(), [])
   const monday = useMemo(() => getMonday(new Date()), [])
@@ -126,6 +129,9 @@ export default function Jobs() {
   const assignmentsByJobId = useMemo(() => assignments.reduce((m, a) => {
     (m[a.job_id] ||= new Set()).add(a.date); return m
   }, {}), [assignments])
+
+  // Duplicate job groups (jobs sharing one original call) — feeds the Combine tool.
+  const duplicateGroups = useMemo(() => findDuplicateJobGroups(jobs, assignmentsByJobId), [jobs, assignmentsByJobId])
 
   const matsByJobId = useMemo(() => materials.reduce((m, r) => {
     (m[r.job_id] ||= []).push(r); return m
@@ -351,6 +357,9 @@ export default function Jobs() {
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, position: 'relative' }}>
           <button className="jh-bin-btn" onClick={openBin} title="Recover jobs deleted in the last 24 hours">🗑 Recovery Bin (24 hrs)</button>
+          {duplicateGroups.length > 0 && (
+            <button className="jh-bin-btn" onClick={() => setShowCombine(true)} title="Fold duplicate job cards into one job with its trips in history">🔗 Combine duplicates ({duplicateGroups.length})</button>
+          )}
           <button
             onClick={() => setActionsOpen(o => !o)}
             style={{
@@ -430,6 +439,16 @@ export default function Jobs() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Combine Duplicates Modal */}
+      {showCombine && (
+        <CombineDuplicatesModal
+          jobs={jobs}
+          assignmentsByJobId={assignmentsByJobId}
+          onClose={() => setShowCombine(false)}
+          onCombined={() => loadData({ background: true })}
+        />
       )}
     </div>
   )

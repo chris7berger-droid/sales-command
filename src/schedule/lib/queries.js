@@ -509,18 +509,35 @@ export async function loadJobs({ includeDeleted = false, includeUnlinked = false
     query = query.or('deleted.is.null,deleted.eq.No')
   }
 
-  // add-job-dedup (workstream A): orphans — jobs with no Sales link
-  // (call_log_id IS NULL) — are the phantom/unallocated rows. Hide them from
-  // every live reader by default; only the Unallocated bucket opts back in.
-  if (!includeUnlinked) {
-    query = query.not('call_log_id', 'is', null)
-  }
-
   const { data, error } = await query
   if (error) return { data: null, error }
-  const jobs = (data || []).map(normalizeJob)
+  let jobs = (data || []).map(normalizeJob)
+
+  // add-job-dedup (workstream A) + B103: a job with no Sales link
+  // (call_log_id IS NULL) is only a PHANTOM if it ALSO has no crew. B86 hid
+  // every null-link job, which wrongly dropped crewed orphans off the board
+  // (crew present in `assignments` but the job invisible). So hide a null-link
+  // job only when it has zero assignments; keep crewed orphans as real work.
+  // The Unallocated bucket still opts back into everything via includeUnlinked.
+  if (!includeUnlinked) {
+    const crewed = await loadCrewedJobIds()
+    jobs = jobs.filter(j => j.call_log_id != null || crewed.has(String(j.job_id)))
+  }
+
   await attachDepositState(jobs)
   return { data: jobs, error: null }
+}
+
+// B103: the set of job_ids that have at least one crew assignment (any date).
+// "Has crew" is not a column on jobs — it's the existence of an `assignments`
+// row for the job_id. Paginated because assignments (crew-days) can exceed the
+// 1000-row PostgREST cap. Shared by loadJobs and the schedule exports so the
+// phantom-vs-real rule lives in exactly one place.
+export async function loadCrewedJobIds() {
+  const { data } = await loadAllRows('assignments', 'id, job_id', { orderBy: 'id' })
+  const set = new Set()
+  for (const a of (data || [])) if (a.job_id != null) set.add(String(a.job_id))
+  return set
 }
 
 // ── Add-Job search — existing Sales-linked jobs (add-job-dedup, workstream A) ─

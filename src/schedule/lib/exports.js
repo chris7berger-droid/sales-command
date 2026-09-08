@@ -1,6 +1,18 @@
 import { supabase } from '../../lib/supabase'
-import { loadMobilizationsByJobId, } from './queries'
+import { loadMobilizationsByJobId, loadCrewedJobIds } from './queries'
 import { jobRanges, overlapsWeek, allocForWeek, pickAllocField } from './allocations'
+
+// B103: active jobs for every export, matching the board's rule — a job with no
+// Sales link shows only if it has crew (an assignments row). Replaces the old
+// blanket `.not('call_log_id','is',null)` that dropped crewed orphans. Same
+// phantom-vs-real logic as loadJobs, via the shared loadCrewedJobIds.
+async function loadExportJobs() {
+  const [jobRes, crewed] = await Promise.all([
+    supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No'),
+    loadCrewedJobIds(),
+  ])
+  return (jobRes.data || []).filter(j => j.call_log_id != null || crewed.has(String(j.job_id)))
+}
 
 function getMonday(d) {
   const dt = new Date(d)
@@ -61,11 +73,10 @@ export async function printWeekSchedule() {
   const weStr = dates[5]
   const wsStr = dates[0]
 
-  const [jobRes, asgnRes] = await Promise.all([
-    supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No').not('call_log_id', 'is', null),
+  const [jobs, asgnRes] = await Promise.all([
+    loadExportJobs(),
     supabase.from('assignments').select('*').gte('date', wsStr).lte('date', weStr),
   ])
-  const jobs = jobRes.data || []
   const assignments = asgnRes.data || []
   // Live allocations so a go-back block puts its job on this week's printout, and
   // its own crew/vehicle/equipment/power drive that week's row (B87).
@@ -94,8 +105,7 @@ export async function printWeekSchedule() {
 }
 
 export async function printJobList() {
-  const { data: jobs } = await supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No').not('call_log_id', 'is', null)
-  if (!jobs) return
+  const jobs = await loadExportJobs()
 
   let b = '<h2>Job List</h2><div class="sub">All active jobs</div>'
   b += '<table><thead><tr><th>Job #</th><th>Name</th><th>Status</th><th>Type</th><th>PW</th><th>Start</th><th>End</th><th>Amount</th></tr></thead><tbody>'
@@ -112,11 +122,10 @@ export async function printJobList() {
 
 export async function printMaterialsList() {
   // DMS-1 Phase 3: repointed off the dead `materials` table to job_material_lines.
-  const [jobRes, matRes] = await Promise.all([
-    supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No').not('call_log_id', 'is', null),
+  const [jobs, matRes] = await Promise.all([
+    loadExportJobs(),
     supabase.from('job_material_lines').select('*'),
   ])
-  const jobs = jobRes.data || []
   const materials = matRes.data || []
 
   let b = '<h2>Materials List</h2><div class="sub">Needed vs Ordered by job</div>'
@@ -136,11 +145,11 @@ export async function printDailyStatus() {
   const wsStr = dates[0]
   const weStr = dates[5]
 
-  const [crewRes, asgnRes, csRes, jobRes] = await Promise.all([
+  const [crewRes, asgnRes, csRes, jobs] = await Promise.all([
     supabase.from('crew').select('*'),
     supabase.from('assignments').select('*').gte('date', wsStr).lte('date', weStr),
     supabase.from('crew_status').select('*').gte('date', wsStr).lte('date', weStr),
-    supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No').not('call_log_id', 'is', null),
+    loadExportJobs(),
   ])
   const crew = (crewRes.data || []).filter(c => !c.archived)
   const assignments = asgnRes.data || []
@@ -148,7 +157,6 @@ export async function printDailyStatus() {
   for (const c of (csRes.data || [])) {
     csMap[c.crew_name + '|' + c.date] = c.status
   }
-  const jobs = jobRes.data || []
 
   let b = '<h2>Daily Crew Status</h2><div class="sub">' + fmtWk(monday) + '</div>'
   b += '<table><thead><tr><th>Crew</th>'

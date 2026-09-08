@@ -32,6 +32,25 @@ Hide an unlinked job **only if it also has no crew**.
 - `call_log_id` NULL + has crew    → **show** (real-but-unlinked). NEW.
 - `call_log_id` NULL + no crew     → hide (true phantom, unchanged).
 
+## AMENDMENT 2026-09-08 — show everything, flag the broken (supersedes the rule above)
+
+Chris's call: the app must never be the one deciding what he doesn't see. Real
+people are never assigned to something he shouldn't be looking at, so crew on a
+job proves it's real — but "hide unless crewed" still hides the empty ones, and
+hidden bugs are the dangerous ones (his standing discipline). New model:
+
+- **Show EVERY active job** — linked or not, crewed or not. No hide, ever.
+- An unlinked job (no Sales link) is **flagged, not hidden**: keep its name/number
+  and mark it with a **⚠**; if it has no name at all, show **"Needs fixing — not
+  linked to Sales"** instead of a blank or a bare id.
+- The empty phantoms now show too — with the ⚠ and no crew — which is the nudge
+  to clean them up, not something to bury.
+
+This also fixes the reported symptom directly: nothing is dropped, so the board
+count matches the Weekly Crew Capacity count. The crewed-set filter is gone;
+the flag lives in `normalizeJob` so every surface (board, calendar, daily,
+exports, modals) shows it from one place.
+
 ## Plan
 
 ### Part 1 — resolve the 3 current jobs (do first, data-only, no code)

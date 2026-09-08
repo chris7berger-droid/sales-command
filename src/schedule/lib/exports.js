@@ -1,17 +1,14 @@
 import { supabase } from '../../lib/supabase'
-import { loadMobilizationsByJobId, loadCrewedJobIds } from './queries'
+import { loadMobilizationsByJobId, loadJobs } from './queries'
 import { jobRanges, overlapsWeek, allocForWeek, pickAllocField } from './allocations'
 
-// B103: active jobs for every export, matching the board's rule — a job with no
-// Sales link shows only if it has crew (an assignments row). Replaces the old
-// blanket `.not('call_log_id','is',null)` that dropped crewed orphans. Same
-// phantom-vs-real logic as loadJobs, via the shared loadCrewedJobIds.
+// B103: every export shows every active job — same as the board. Routed through
+// loadJobs so prints get the call_log-joined names and the ⚠ "Needs fixing" flag
+// on unlinked jobs (normalizeJob), instead of a blank name or a bare id. Replaces
+// the old blanket `.not('call_log_id','is',null)` that dropped real crewed work.
 async function loadExportJobs() {
-  const [jobRes, crewed] = await Promise.all([
-    supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No'),
-    loadCrewedJobIds(),
-  ])
-  return (jobRes.data || []).filter(j => j.call_log_id != null || crewed.has(String(j.job_id)))
+  const { data } = await loadJobs()
+  return data || []
 }
 
 function getMonday(d) {

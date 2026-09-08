@@ -370,11 +370,20 @@ const CALL_LOG_SELECT = `
 function normalizeJob(row) {
   const cl = row.call_log || {}
   const wtcs = Array.isArray(row.job_wtcs) ? row.job_wtcs : []
+  // B103: a jobs row with no call_log is not linked to Sales. We NEVER hide it —
+  // real crew may be on it, and real people are never assigned to something that
+  // shouldn't be looked at. Instead we FLAG it so it can't pose as a clean job:
+  // keep whatever name/number it has and mark it with a ⚠; if it has no name at
+  // all, show the fix-me text instead of a blank or a bare id.
+  const unlinked = !row.call_log_id
+  const rawNum  = cl.display_job_number || row.job_num || ''
+  const rawName = cl.job_name || row.job_name || ''
   return {
     ...row,
+    unlinked,
     // shared fields — call_log is source of truth
-    job_name:           cl.job_name            || row.job_name,
-    job_num:            cl.display_job_number  || row.job_num,
+    job_name:           rawName || (unlinked ? 'Needs fixing — not linked to Sales' : rawName),
+    job_num:            unlinked ? ('⚠ ' + rawNum).trim() : rawNum,
     customer_name:      cl.customer_name       || null,
     sales_name:         cl.sales_name          || null,
     jobsite_address:    cl.jobsite_address     || null,
@@ -496,7 +505,7 @@ async function attachDepositState(jobs) {
 //
 // withWTCs: when true, also left-joins job_wtcs and attaches j._wtcs.
 // Legacy rows have zero job_wtcs children — _wtcs comes back as [].
-export async function loadJobs({ includeDeleted = false, includeUnlinked = false, withWTCs = false } = {}) {
+export async function loadJobs({ includeDeleted = false, withWTCs = false } = {}) {
   const sel = withWTCs
     ? `*, ${CALL_LOG_SELECT}, job_wtcs(*)`
     : `*, ${CALL_LOG_SELECT}`
@@ -509,35 +518,15 @@ export async function loadJobs({ includeDeleted = false, includeUnlinked = false
     query = query.or('deleted.is.null,deleted.eq.No')
   }
 
+  // B103: show EVERY active job — linked or not. We used to hide jobs with no
+  // Sales link (call_log_id IS NULL), which dropped real, crewed work off the
+  // board. Nothing is hidden now; unlinked jobs are flagged in normalizeJob
+  // (⚠ + "Needs fixing") so they're visible AND obviously not clean.
   const { data, error } = await query
   if (error) return { data: null, error }
-  let jobs = (data || []).map(normalizeJob)
-
-  // add-job-dedup (workstream A) + B103: a job with no Sales link
-  // (call_log_id IS NULL) is only a PHANTOM if it ALSO has no crew. B86 hid
-  // every null-link job, which wrongly dropped crewed orphans off the board
-  // (crew present in `assignments` but the job invisible). So hide a null-link
-  // job only when it has zero assignments; keep crewed orphans as real work.
-  // The Unallocated bucket still opts back into everything via includeUnlinked.
-  if (!includeUnlinked) {
-    const crewed = await loadCrewedJobIds()
-    jobs = jobs.filter(j => j.call_log_id != null || crewed.has(String(j.job_id)))
-  }
-
+  const jobs = (data || []).map(normalizeJob)
   await attachDepositState(jobs)
   return { data: jobs, error: null }
-}
-
-// B103: the set of job_ids that have at least one crew assignment (any date).
-// "Has crew" is not a column on jobs — it's the existence of an `assignments`
-// row for the job_id. Paginated because assignments (crew-days) can exceed the
-// 1000-row PostgREST cap. Shared by loadJobs and the schedule exports so the
-// phantom-vs-real rule lives in exactly one place.
-export async function loadCrewedJobIds() {
-  const { data } = await loadAllRows('assignments', 'id, job_id', { orderBy: 'id' })
-  const set = new Set()
-  for (const a of (data || [])) if (a.job_id != null) set.add(String(a.job_id))
-  return set
 }
 
 // ── Add-Job search — existing Sales-linked jobs (add-job-dedup, workstream A) ─
@@ -589,12 +578,12 @@ export async function searchExistingJobs(term) {
 }
 
 // ── Unallocated bucket (add-job-dedup, workstream A) ─────────────────────────
-// The orphans the live views now hide: active jobs with no Sales link
-// (call_log_id IS NULL). Opts back into the rows loadJobs hides by default, then
-// keeps only the null-link ones. Workstream B works them from here (allocate /
-// merge into the real Sales-linked row).
+// The flagged jobs, gathered in one place to fix: active jobs with no Sales link
+// (call_log_id IS NULL). loadJobs no longer hides these (B103) — this just keeps
+// the null-link ones so Workstream B can allocate / merge them into the real
+// Sales-linked row.
 export async function loadUnallocatedJobs() {
-  const { data, error } = await loadJobs({ includeUnlinked: true })
+  const { data, error } = await loadJobs()
   if (error) return { data: null, error }
   return { data: (data || []).filter(j => j.call_log_id == null), error: null }
 }

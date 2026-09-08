@@ -1,12 +1,9 @@
 // Combine duplicates (mobilization_model, 2026-09-08). A job that got scheduled
-// several times shows as several cards that share one original call. This tool
-// folds the extras into ONE main job: the folded cards' crew days roll under the
-// main job as trips in its history, and the folded cards are hidden (not deleted).
-//
-// ONE decision per group: which card is the MAIN job. Every other card in the
-// group folds into it (they're all the same original job). Pick the main, see
-// exactly which ones fold in, then Combine. The DB (combine_jobs) only ever
-// combines cards that share the main card's original call.
+// several times shows as several cards that share one original call. For each
+// card you choose "Add to Main" or "Don't Add to Main", then Save. The cards you
+// add are merged into ONE job (the earliest is the main; the rest fold in as
+// trips in its history); the ones you don't add stay as separate cards. Nothing
+// is deleted. The DB (combine_jobs) only ever combines cards sharing one call.
 
 import { useMemo, useState } from 'react'
 import { findDuplicateJobGroups, combineJobs } from '../lib/queries'
@@ -18,71 +15,68 @@ function fmtShort(iso) {
   return m ? `${MONTHS[Number(m[2]) - 1]} ${Number(m[3])}` : null
 }
 function rangeLabel(c) {
-  const a = fmtShort(c.start_date), b = fmtShort(c.end_date)
+  const a = fmtShort(c?.start_date), b = fmtShort(c?.end_date)
   if (!a && !b) return 'Dates TBD'
   return a && b && c.start_date === c.end_date ? a : `${a || 'TBD'} – ${b || 'TBD'}`
 }
 
-// One duplicate group: pick the main card, the rest fold in, confirm.
+// One duplicate group: per-card Add / Don't Add, then Save.
 function CombineGroup({ group, changedBy, onCombined }) {
-  const [main, setMain] = useState(null)
-  const [confirming, setConfirming] = useState(false)
+  // choice[job_id] = 'add' | 'no'. Default: add everything (the common case).
+  const [choice, setChoice] = useState(() => {
+    const o = {}
+    for (const c of group.cards) o[c.job_id] = 'add'
+    return o
+  })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
 
-  // Tap Main to pick it; tap the current main again to un-pick.
-  function toggleMain(jobId) {
-    setError(null)
-    setConfirming(false)
-    setMain(m => (m === jobId ? null : jobId))
-  }
+  const added = group.cards.filter(c => choice[c.job_id] === 'add')
+  const mainCard = added[0] || null           // earliest added = the main (cards are date-sorted)
+  const foldIds = added.slice(1).map(c => c.job_id)
 
-  const foldIds = main == null ? [] : group.cards.filter(c => c.job_id !== main).map(c => c.job_id)
-  const mainCard = group.cards.find(c => c.job_id === main)
-
-  async function doCombine() {
+  async function save() {
+    if (added.length < 2) { setError('Pick "Add to Main" on at least 2 cards to combine.'); return }
     setBusy(true); setError(null)
-    const { error } = await combineJobs(main, foldIds, changedBy)
+    const { error } = await combineJobs(mainCard.job_id, foldIds, changedBy)
     setBusy(false)
-    if (error) { setError(error.message); setConfirming(false); return }
+    if (error) { setError(error.message); return }
     onCombined?.()
   }
+
+  const seg = (active) => ({
+    fontFamily: 'var(--font-heading)', fontSize: 11, fontWeight: 800, letterSpacing: '0.03em',
+    textTransform: 'uppercase', padding: '6px 11px', cursor: 'pointer',
+    border: `1.5px solid ${active ? 'var(--teal, #30cfac)' : 'rgba(28,24,20,0.35)'}`,
+    background: active ? 'var(--header-dark)' : 'transparent',
+    color: active ? 'var(--teal, #30cfac)' : 'var(--text-primary)',
+    flexShrink: 0,
+  })
 
   return (
     <div style={{ border: '1px solid rgba(28,24,20,0.18)', borderRadius: 8, padding: 12, marginBottom: 12, background: 'var(--bg-card)' }}>
       <div style={{ fontSize: 13, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{group.title}</div>
       <div style={{ fontSize: 11, color: 'var(--text-light)', marginBottom: 10, fontFamily: 'var(--font-body, inherit)' }}>
-        Shows as {group.cards.length} cards. Tap <b>Main</b> on the job that stays — the rest fold into it as trips. Then Combine.
+        Shows as {group.cards.length} cards. Mark each <b>Add to Main</b> or <b>Don't Add to Main</b>, then Save. Added cards merge into one job (each becomes a trip); the earliest is the main.
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {group.cards.map(c => {
-          const isMain = c.job_id === main
-          const willFold = main != null && !isMain
+          const isAdd = choice[c.job_id] === 'add'
+          const isMain = isAdd && mainCard && c.job_id === mainCard.job_id
           return (
-            <div key={c.job_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 9px', borderRadius: 6, background: isMain ? 'rgba(48,207,172,0.12)' : 'transparent', border: `1px solid ${isMain ? 'var(--teal, #30cfac)' : 'rgba(28,24,20,0.12)'}` }}>
-              <button
-                type="button"
-                onClick={() => toggleMain(c.job_id)}
-                style={{
-                  fontFamily: 'var(--font-heading)', fontSize: 11, fontWeight: 800, letterSpacing: '0.04em',
-                  textTransform: 'uppercase', padding: '6px 12px', borderRadius: 6, flexShrink: 0, cursor: 'pointer',
-                  border: `1.5px solid ${isMain ? 'var(--teal, #30cfac)' : 'rgba(28,24,20,0.35)'}`,
-                  background: isMain ? 'var(--header-dark)' : 'transparent',
-                  color: isMain ? 'var(--teal, #30cfac)' : 'var(--text-primary)',
-                }}
-              >
-                {isMain ? '✓ Main job' : 'Make main'}
-              </button>
+            <div key={c.job_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 9px', borderRadius: 6, background: isAdd ? 'rgba(48,207,172,0.10)' : 'transparent', border: '1px solid rgba(28,24,20,0.12)' }}>
+              <div style={{ display: 'flex', flexShrink: 0 }}>
+                <button type="button" onClick={() => setChoice(p => ({ ...p, [c.job_id]: 'add' }))} style={{ ...seg(isAdd), borderRadius: '6px 0 0 6px', borderRight: 'none' }}>Add to Main</button>
+                <button type="button" onClick={() => setChoice(p => ({ ...p, [c.job_id]: 'no' }))} style={{ ...seg(!isAdd), borderRadius: '0 6px 6px 0' }}>Don't Add</button>
+              </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {c.name}
+                  {isMain && <span style={{ marginLeft: 8, fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4, background: 'var(--header-dark)', color: 'var(--teal, #30cfac)', fontFamily: 'var(--font-heading)' }}>Main</span>}
+                </div>
                 <div style={{ fontSize: 10, color: 'var(--text-light)' }}>{rangeLabel(c)} · {c.crewDays} crew day{c.crewDays === 1 ? '' : 's'}{c.status ? ` · ${c.status}` : ''}</div>
               </div>
-              {willFold && (
-                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-light)', fontFamily: 'var(--font-heading)', flexShrink: 0 }}>
-                  ↳ folds in
-                </span>
-              )}
             </div>
           )
         })}
@@ -90,23 +84,14 @@ function CombineGroup({ group, changedBy, onCombined }) {
 
       {error && <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 8, fontFamily: 'var(--font-body, inherit)' }}>{error}</div>}
 
-      {!confirming ? (
-        <div style={{ marginTop: 10 }}>
-          <button className="app-act-btn app-act-primary" disabled={main == null || busy} onClick={() => setConfirming(true)}>
-            {main == null ? 'Pick a main job first' : `Combine ${foldIds.length} into main job`}
-          </button>
-        </div>
-      ) : (
-        <div style={{ marginTop: 10, padding: 10, borderRadius: 6, background: 'rgba(28,24,20,0.06)' }}>
-          <div style={{ fontSize: 12, fontFamily: 'var(--font-body, inherit)', marginBottom: 8 }}>
-            Fold {foldIds.length} card{foldIds.length === 1 ? '' : 's'} into <b>{mainCard?.name}</b> ({rangeLabel(mainCard || {})})? Their crew days move under it as trips, and the folded cards are hidden (not deleted).
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="app-act-btn app-act-primary" disabled={busy} onClick={doCombine}>{busy ? 'Combining…' : 'Yes, combine'}</button>
-            <button className="app-act-btn" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
-          </div>
-        </div>
-      )}
+      <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button className="app-act-btn app-act-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+        <span style={{ fontSize: 11, color: 'var(--text-light)', fontFamily: 'var(--font-body, inherit)' }}>
+          {added.length >= 2
+            ? `Merges ${added.length} cards into “${mainCard?.name}” (${added.length - 1} fold in).`
+            : 'Add at least 2 cards to combine.'}
+        </span>
+      </div>
     </div>
   )
 }
@@ -118,13 +103,13 @@ export default function CombineDuplicatesModal({ jobs = [], assignmentsByJobId =
 
   return (
     <div className="mbg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="mdl" style={{ maxWidth: 620, maxHeight: '90vh', overflow: 'auto' }}>
+      <div className="mdl" style={{ maxWidth: 640, maxHeight: '90vh', overflow: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
           <h3 style={{ margin: 0 }}>Combine duplicate jobs</h3>
           <button className="app-act-btn" onClick={onClose}>Close</button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-light)', fontFamily: 'var(--font-body, inherit)', marginBottom: 14 }}>
-          These jobs show as more than one card because they were scheduled several times. Pick the main one for each — the rest fold into it. Nothing is deleted, and you decide every combine.
+          These jobs show as more than one card because they were scheduled several times. For each card choose Add to Main or Don't Add, then Save. Nothing is deleted, and you decide every combine.
         </div>
 
         {groups.length === 0 ? (

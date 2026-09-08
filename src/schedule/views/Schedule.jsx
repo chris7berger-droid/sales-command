@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { loadJobs, updateJobField, loadMobilizationsByJobId, loadTeamMemberMap } from '../lib/queries'
+import { loadJobs, updateJobField, loadMobilizationsByJobId } from '../lib/queries'
+import { crewLeadNames } from '../lib/crewLeads'
 import { useUser } from '../lib/user'
 import { useToast } from '../lib/toast'
 import { getJobStatus } from '../lib/jobStatus'
@@ -99,7 +100,7 @@ export default function Schedule({ embedded = false } = {}) {
   const changedBy = user?.name || 'unknown'
   const [jobs, setJobs] = useState([])
   const [crew, setCrew] = useState([])
-  const [leadNames, setLeadNames] = useState([])   // team members, for the Lead picker
+  const leadNames = crewLeadNames(crew)
   const [assignments, setAssignments] = useState([])
   const [crewStatus, setCrewStatus] = useState({})
   const [loading, setLoading] = useState(true)
@@ -156,11 +157,10 @@ export default function Schedule({ embedded = false } = {}) {
   // Load static data once on mount
   useEffect(() => {
     async function loadStatic() {
-      const [jobRes, crewRes, wtRes, tmRes] = await Promise.all([
+      const [jobRes, crewRes, wtRes] = await Promise.all([
         loadJobs(),
         supabase.from('crew').select('*'),
         supabase.from('work_types').select('*'),
-        loadTeamMemberMap(),
       ])
       if (jobRes.error || crewRes.error || wtRes.error) {
         setError((jobRes.error || crewRes.error || wtRes.error).message)
@@ -169,9 +169,6 @@ export default function Schedule({ embedded = false } = {}) {
       setJobs(jobRes.data)
       setCrew(crewRes.data.filter(c => !c.archived))
       setWorkTypes(wtRes.data.map(w => w.name))
-      if (tmRes.data) {
-        setLeadNames(Object.values(tmRes.data).map(m => m.name).filter(Boolean).sort((a, b) => a.localeCompare(b)))
-      }
       // Live allocations for every job (liveOnly: a legacy proposal mobilization
       // is not a schedulable block). Non-fatal — the board still renders first
       // blocks if this fails.
@@ -752,8 +749,8 @@ export default function Schedule({ embedded = false } = {}) {
                   }}
                 >
                   <option value="">Select lead…</option>
-                  {j.lead && !leadNames.includes(j.lead) && <option value={j.lead}>{j.lead}</option>}
-                  {leadNames.map(n => <option key={n} value={n}>{n}</option>)}
+                  {j.lead && !leadNames.includes(j.lead) && <option value={j.lead}>{flipName(j.lead)} (current)</option>}
+                  {leadNames.map(n => <option key={n} value={n}>{flipName(n)}</option>)}
                 </select>
               </div>
             </div>

@@ -1,0 +1,82 @@
+SC HANDOFF v223 — Codex: Scheduling crew leads + cream form controls (2026-09-08)
+================================================================================
+
+SESSION SUMMARY
+---------------
+Chris requested a read-only diagnosis, then authorized implementing the proposed
+fix on a Codex-named branch and publishing a Vercel preview. Production merge is
+NOT authorized. Isolated worktree: ~/sales-command-codex-schedule-fix.
+
+CHANGES SHIPPED
+---------------
+Prepared for preview on codex/fix-schedule-crew-leads-and-form-theme:
+- ScheduleLayout and Schedule lead options now derive from active Scheduling
+  crew, not Sales team_members. Shared crewLeadNames helper excludes archived
+  and blank names, deduplicates, and sorts without changing stored names.
+- Display uses existing flipName; persisted lead stays the raw crew.name string.
+  Schedule editor preserves a historical current value outside the active roster.
+- Add-to-Schedule reloads the roster on opening, reports loading/error/empty
+  states, supports retry, and prevents save without an available active lead.
+- Modal input styling now includes selects/textareas, equal-width fields,
+  full-width vertically resizable scope, visible focus, and a cream/teal checkbox.
+- Helper text distinguishes required lead from optional inherited fields.
+
+DECISIONS
+---------
+Scheduling crew is the source of lead choices. Existing name-string persistence
+and database write helpers are unchanged; no IDs/schema/data conversion.
+Sales team_members lookup stays intact for report/log authors elsewhere.
+
+NEW / CLOSED BACKLOG ITEMS
+--------------------------
+B104: built and locally verified; awaiting preview review and production decision.
+
+VERIFICATION
+------------
+- npm run build passed.
+- git diff --check passed.
+- Public-column grant check could not inspect the DB (worktree has no Supabase
+  project link). Not treated as a pass. No public pages or public queries changed;
+  the existing pre-push hook makes this check inapplicable for this file scope.
+- Targeted ESLint: 9 errors + 1 warning remain; baseline has 11 errors + 1 warning.
+  Compared file, rule, and message headline: zero new findings. Existing unused
+  variables / React effect and memoization warnings were not broadened into scope.
+- Headless Chrome + Playwright mounted the real ScheduleLayout and Schedule
+  components through Vite with a fake Supabase URL. ALL remote browser requests
+  were intercepted or aborted; no real DB was accessed. Verified:
+  * active crew only, archived excluded, formatted labels/raw stored values;
+  * cream backgrounds on all trip controls, equal Crew/Lead widths, full-width
+    scope, visible keyboard focus, checkbox keyboard toggle + teal checked state;
+  * normal trip payload (lead/dates/crew/scope), go-back payload and null inheritance;
+  * blank lead blocks submission, roster error blocks save, retry recovers,
+    empty roster explains what to do, loading prevents using stale options;
+  * Add Crew and Crew List still open and render;
+  * schedule editor preserves an archived current lead and updates to active crew;
+  * neither picker requests team_members; zero browser runtime errors.
+  Temporary harness removed from worktree after testing. Local test runner and
+  screenshot: /private/tmp/codex-schedule-preview-tools/{check.mjs,add-trip.png}.
+- Live authenticated browser workflow and real DB persistence are NOT tested.
+  Preview deployment uses Vercel's configured Preview environment; a separate
+  application URL does not by itself provide an isolated database.
+
+NOT TOUCHED
+-----------
+Database, migrations, permissions, Sales lookup, shared save helpers, production
+branch and production deployment. No test records created in the business DB.
+
+NEXT SESSION POINTERS
+---------------------
+Review preview in Add to Schedule and the schedule detail Lead picker. Production
+merge requires Chris's instruction. Check preview DB target before saving records.
+
+FILES TO KNOW
+-------------
+src/schedule/ScheduleLayout.jsx
+src/schedule/views/Schedule.jsx
+src/schedule/lib/crewLeads.js
+src/schedule/App.css
+
+GIT STATE
+---------
+Base: origin/main 2f10b05. Branch: codex/fix-schedule-crew-leads-and-form-theme.
+Commit/push and Vercel Preview verification follow this handoff preparation.

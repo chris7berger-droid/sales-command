@@ -12,7 +12,8 @@ import { supabase } from '../lib/supabase'
 import { ToastProvider, useToast } from './lib/toast'
 import { UserProvider, useUser } from './lib/user'
 import { ToolbarContext } from './lib/toolbar'
-import { searchExistingJobs, getNextMobSeq, addJobMobilization, loadTeamMemberMap } from './lib/queries'
+import { searchExistingJobs, getNextMobSeq, addJobMobilization } from './lib/queries'
+import { crewLeadNames } from './lib/crewLeads'
 import { printWeekSchedule, printJobList, printMaterialsList, printDailyStatus } from './lib/exports'
 import Home from './views/Home'
 import Jobs from './views/Jobs'
@@ -57,7 +58,9 @@ function ScheduleShell() {
   const [modal, setModal] = useState(null)
   const [workTypes, setWorkTypes] = useState([])
   const [crewList, setCrewList] = useState([])
-  const [leadNames, setLeadNames] = useState([])   // team members, for the Lead picker
+  const [crewLoading, setCrewLoading] = useState(true)
+  const [crewLoadError, setCrewLoadError] = useState(false)
+  const leadNames = crewLeadNames(crewList)
   const [showArchived, setShowArchived] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   // Set by any crew mutation; on modal close we remount the routed view once so
@@ -89,15 +92,20 @@ function ScheduleShell() {
 
   // Load work types + crew for modals
   const loadModalData = useCallback(async () => {
-    const [wtRes, crewRes, tmRes] = await Promise.all([
-      supabase.from('work_types').select('*'),
-      supabase.from('crew').select('*'),
-      loadTeamMemberMap(),
-    ])
-    if (wtRes.data) setWorkTypes(wtRes.data.map(w => w.name))
-    if (crewRes.data) setCrewList(crewRes.data)
-    if (tmRes.data) {
-      setLeadNames(Object.values(tmRes.data).map(m => m.name).filter(Boolean).sort((a, b) => a.localeCompare(b)))
+    setCrewLoading(true)
+    setCrewLoadError(false)
+    try {
+      const [wtRes, crewRes] = await Promise.all([
+        supabase.from('work_types').select('*'),
+        supabase.from('crew').select('*'),
+      ])
+      if (wtRes.data) setWorkTypes(wtRes.data.map(w => w.name))
+      if (crewRes.error) setCrewLoadError(true)
+      else setCrewList(crewRes.data || [])
+    } catch {
+      setCrewLoadError(true)
+    } finally {
+      setCrewLoading(false)
     }
   }, [])
 
@@ -123,6 +131,7 @@ function ScheduleShell() {
   const [addBusy, setAddBusy] = useState(false)
 
   function openAddJob() {
+    loadModalData()
     setJobSearch('')
     setJobResults([])
     setJobSearching(false)
@@ -160,7 +169,10 @@ function ScheduleShell() {
     }
     // Lead is mandatory — every trip/go-back names who's running it (no more
     // lead-blank allocations on the board/calendar).
-    if (!d.lead || !d.lead.trim()) {
+    if (crewLoading || crewLoadError) {
+      toast('Crew list is unavailable. Reload it before adding a trip.', 'err'); return
+    }
+    if (!leadNames.includes(d.lead)) {
       toast('Pick a crew lead for this trip', 'err'); return
     }
     setAddBusy(true)
@@ -408,15 +420,17 @@ function ScheduleShell() {
                 {/* Per-allocation crew + scope (B87). Blank = inherit the job's own.
                     A go-back can run a different crew/scope than the first run. */}
                 <div className="mfr-label" style={{ color: 'var(--sand-dark)', marginTop: 4 }}>
-                  Crew &amp; scope for this {mobDraft.is_go_back ? 'go-back' : 'trip'} — leave blank to use the job’s
+                  Lead required. Other blank fields use the job’s values.
                 </div>
                 <div className="mfr">
                   <input type="number" min="1" placeholder="Crew #" value={mobDraft.crew_needed} onChange={e => setMobDraft(p => ({ ...p, crew_needed: e.target.value }))} />
-                  <select value={mobDraft.lead} onChange={e => setMobDraft(p => ({ ...p, lead: e.target.value }))}>
-                    <option value="">Lead (required)…</option>
-                    {leadNames.map(n => <option key={n} value={n}>{n}</option>)}
+                  <select aria-label="Crew lead" required disabled={crewLoading || crewLoadError || !leadNames.length} value={mobDraft.lead} onChange={e => setMobDraft(p => ({ ...p, lead: e.target.value }))}>
+                    <option value="">{crewLoading ? 'Loading crew…' : crewLoadError ? 'Crew unavailable' : !leadNames.length ? 'No active crew' : 'Lead (required)…'}</option>
+                    {leadNames.map(n => <option key={n} value={n}>{flipName(n)}</option>)}
                   </select>
                 </div>
+                {crewLoadError && <div className="mfr" role="alert"><span>Couldn’t load the crew list.</span><button className="app-act-btn" onClick={loadModalData}>Retry</button></div>}
+                {!crewLoading && !crewLoadError && !leadNames.length && <p className="mfr-label" role="status">Add or restore a crew member in Actions → Crew List first.</p>}
                 <div className="mfr">
                   <input placeholder="Vehicle" value={mobDraft.vehicle} onChange={e => setMobDraft(p => ({ ...p, vehicle: e.target.value }))} />
                   <input placeholder="Equipment" value={mobDraft.equipment} onChange={e => setMobDraft(p => ({ ...p, equipment: e.target.value }))} />
@@ -429,7 +443,7 @@ function ScheduleShell() {
                 </div>
                 <div className="macts">
                   <button className="app-act-btn" onClick={() => { setPickedJob(null); setMobDraft(null) }}>Back</button>
-                  <button className="app-act-btn app-act-primary" disabled={addBusy} onClick={doAddMobilization}>{mobDraft.is_go_back ? 'Add Go-Back' : 'Add Trip'}</button>
+                  <button className="app-act-btn app-act-primary" disabled={addBusy || crewLoading || crewLoadError || !leadNames.includes(mobDraft.lead)} onClick={doAddMobilization}>{mobDraft.is_go_back ? 'Add Go-Back' : 'Add Trip'}</button>
                 </div>
               </>
             )}

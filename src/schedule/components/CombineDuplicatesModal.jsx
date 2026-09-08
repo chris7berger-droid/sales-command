@@ -66,7 +66,7 @@ function CombineGroup({ group, changedBy, onCombined }) {
     <div style={{ border: '1px solid rgba(28,24,20,0.18)', borderRadius: 8, padding: 12, marginBottom: 12, background: 'var(--bg-card)' }}>
       <div style={{ fontSize: 13, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{group.title}</div>
       <div style={{ fontSize: 11, color: 'var(--text-light)', marginBottom: 10, fontFamily: 'var(--font-body, inherit)' }}>
-        Shows as {group.cards.length} cards. First tap <b>Keep</b> on the one to keep, then tap <b>Fold in</b> on each card to fold into it (or "Fold all others"). Tap again to undo either.
+        Shows as {group.cards.length} cards. First tap <b>Main</b> on the job that stays, then tap <b>Fold in</b> on each card to pull into it (or "Fold all others"). Tap again to undo either.
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -86,7 +86,7 @@ function CombineGroup({ group, changedBy, onCombined }) {
           return (
             <div key={c.job_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, background: isKeeper ? 'rgba(48,207,172,0.10)' : 'transparent', border: `1px solid ${isKeeper ? 'var(--teal, #30cfac)' : 'rgba(28,24,20,0.12)'}` }}>
               <button type="button" onClick={() => chooseKeeper(c.job_id)} style={pill(isKeeper, true)}>
-                {isKeeper ? '✓ Keep' : 'Keep'}
+                {isKeeper ? '✓ Main' : 'Main'}
               </button>
               <button type="button" disabled={!foldEnabled} onClick={() => toggleFold(c.job_id)} style={pill(isFold && foldEnabled, foldEnabled)}>
                 {isFold && foldEnabled ? '✓ Folding in' : 'Fold in'}
@@ -105,7 +105,7 @@ function CombineGroup({ group, changedBy, onCombined }) {
       {!confirming ? (
         <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="app-act-btn app-act-primary" disabled={keeper == null || foldIds.length === 0 || busy} onClick={() => setConfirming(true)}>
-            Combine {foldIds.length || ''} into kept job
+            Combine {foldIds.length || ''} into main job
           </button>
           {keeper != null && foldIds.length < group.cards.length - 1 && (
             <button className="app-act-btn" onClick={foldAllOthers}>Fold all others</button>
@@ -139,7 +139,7 @@ export default function CombineDuplicatesModal({ jobs = [], assignmentsByJobId =
           <button className="app-act-btn" onClick={onClose}>Close</button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-light)', fontFamily: 'var(--font-body, inherit)', marginBottom: 14 }}>
-          These jobs show as more than one card because they were scheduled several times. Fold the extras into the one you keep — nothing is deleted, and you decide every combine.
+          These jobs show as more than one card because they were scheduled several times. Fold the extras into the main one — nothing is deleted, and you decide every combine.
         </div>
 
         {groups.length === 0 ? (

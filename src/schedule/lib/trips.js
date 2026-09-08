@@ -1,9 +1,21 @@
 // A saved trip owns its entire date span, even across weeks or gaps in staffing.
 // Assignment links are authoritative. Date matching is only a read-time fallback
 // for older, unlinked crew days, and only when exactly one saved trip fits.
-export function buildJobTrips(rows = [], assignments = []) {
+import { jobOwnRange } from './allocations.js'
+
+export function buildJobTrips(rows = [], assignments = [], job = null) {
   const trips = rows.map(row => ({ ...row, key: row.id, assignments: [], legacy: false }))
   const byId = new Map(trips.map(trip => [trip.id, trip]))
+  const own = job && jobOwnRange(job)
+  // The first trip can live only on jobs. Explicit overlapping trip records take
+  // precedence; do not manufacture a second copy of a trip already represented.
+  const represented = own && rows.some(row => (row.start_date || row.end_date) &&
+    (!own.end || !row.start_date || row.start_date <= own.end) &&
+    (!own.start || !row.end_date || row.end_date >= own.start))
+  if (own && !represented) trips.push({
+    key: `job:${job.job_id}:initial`, parent: true, legacy: false,
+    label: 'Job schedule', start_date: own.start, end_date: own.end, assignments: [],
+  })
   const unmatched = []
   for (const assignment of assignments) {
     let trip = byId.get(assignment.mobilization_id)

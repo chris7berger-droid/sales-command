@@ -30,7 +30,7 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
       if (!alive) return
       const failure = trips.error || crew.error
       setError(failure?.message || null)
-      if (!failure) setData({ jobId: job.job_id, trips: buildJobTrips(trips.data, crew.data) })
+      if (!failure) setData({ jobId: job.job_id, trips: buildJobTrips(trips.data, crew.data, job) })
     }).catch(err => { if (alive) setError(err.message) })
     return () => { alive = false }
   }, [job, refresh])
@@ -70,21 +70,22 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
             return <article className="job-trip" key={trip.key} data-trip-id={trip.key}>
               <button className="job-trip-summary" aria-expanded={open} onClick={() => setExpanded(s => ({ ...s, [trip.key]: !s[trip.key] }))}>
                 <span>{open ? '▾' : '▸'}</span>
-                <span className="job-trip-title"><strong>{trip.legacy ? 'Crew records' : `Trip ${trip.seq}${trip.label ? ` · ${trip.label}` : ''}`}{trip.is_go_back ? ' · Go back' : ''}</strong><span>{tripRange(trip)}</span></span>
+                <span className="job-trip-title"><strong>{trip.legacy ? 'Crew records' : trip.parent ? 'Initial trip · Job schedule' : `Trip ${trip.seq}${trip.label ? ` · ${trip.label}` : ''}`}{trip.is_go_back ? ' · Go back' : ''}</strong><span>{tripRange(trip)}</span></span>
                 <span className="job-trip-staffing"><span>{people.length ? `${people.length} ${people.length === 1 ? 'person' : 'people'} · ${assignedDays.length} crew ${assignedDays.length === 1 ? 'date' : 'dates'}` : period === 'past' ? 'No crew assignments recorded' : 'No crew assigned yet'}</span>{field('lead') && <span>Lead: {nameLabel(field('lead'))}</span>}</span>
               </button>
               {open && <div className="job-trip-details">
                 {trip.legacy && <p>These crew days aren’t linked to a saved trip. They are preserved here without guessing which trip they belong to.</p>}
+                {trip.parent && <p>This first trip uses the dates saved on the job. Edit its dates and details in Crew Schedule.</p>}
                 {!trip.legacy && <dl className="job-trip-fields">
                   {detail('Lead', 'lead')}{detail('Crew needed', 'crew_needed')}
                   {detail('Vehicle', 'vehicle')}{detail('Equipment', 'equipment')}{detail('Power source', 'power_source')}
                   {detail('Scope of work', 'sow', 'No scope entered')}
-                  <div><dt>Trip notes</dt><dd>{trip.note || 'No trip notes entered'}</dd></div>
+                  <div><dt>{trip.parent ? 'Job notes' : 'Trip notes'}</dt><dd>{(trip.parent ? job.notes : trip.note) || 'No notes entered'}</dd></div>
                 </dl>}
                 <h5>Crew assignments</h5>
                 {people.length ? <ul>{people.map(name => <li key={name}><strong>{nameLabel(name)}</strong> — {[...new Set(trip.assignments.filter(a => a.crew_name === name).map(a => a.date))].sort().map(tripDate).join(', ')}</li>)}</ul> : <p>{period === 'past' ? 'No crew assignments are recorded for this trip.' : 'No crew assigned yet. This trip is saved and can be staffed in Crew Schedule.'}</p>}
                 <div className="job-trip-actions">
-                  {!trip.legacy && <button className="app-act-btn app-act-primary" onClick={() => setEditing(trip.id)}>Edit trip</button>}
+                  {!trip.legacy && !trip.parent && <button className="app-act-btn app-act-primary" onClick={() => setEditing(trip.id)}>Edit trip</button>}
                   <button className="app-act-btn" onClick={() => navigate(`/schedule/schedule?job=${job.job_id}&week=${trip.start_date || assignedDays[0] || date}`)}>Open Crew Schedule</button>
                 </div>
               </div>}

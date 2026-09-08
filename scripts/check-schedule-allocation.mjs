@@ -22,7 +22,9 @@ const server = await createServer({
         import {MemoryRouter,useNavigate} from 'react-router-dom';
         import ScheduleLayout from '/src/schedule/ScheduleLayout.jsx';
         import {addJobMobilization} from '/src/schedule/lib/queries.js';
+        import {printWeekSchedule} from '/src/schedule/lib/exports.js';
         window.testAdd = addJobMobilization;
+        window.testPrintWeek = printWeekSchedule;
         function Harness(){window.testNavigate=useNavigate();return React.createElement(ScheduleLayout,{teamMember:{name:'Codex regression',role:'Admin'}})}
         createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/settings']},React.createElement(Harness)));`
     },
@@ -165,6 +167,49 @@ try{
  // Calendar must also work when dates exist only on the allocation.
  main.start_date=null;main.end_date=null;await view('/settings');await verifyViews()
  console.log('PASS allocation-only dates (no parent dates) remain visible on all three views.')
+ // Review regression: blank requirements are UNKNOWN, not an explicitly zero target.
+ mobs[0].crew_needed=null
+ await view('/settings');await view('/daily')
+ let card=page.locator('.dly-card').filter({hasText:'7215'})
+ await card.waitFor()
+ assert.equal(await card.locator('.dly-card-badge').innerText(),'0/?')
+ assert.equal(await card.locator('.dly-alert').count(),2)
+ assert.equal(await card.locator('.dly-alert').first().getAttribute('title'),'Crew requirement not set')
+ assert.match(await card.getAttribute('class'),/dly-card-gap/)
+ // Explicit zero stays distinct from blank, including when parent target is set.
+ mobs[0].crew_needed=0;main.crew_needed=3
+ await view('/settings');await view('/daily');await card.waitFor()
+ assert.equal(await card.locator('.dly-card-badge').innerText(),'0/0')
+ assert.equal(await card.locator('.dly-alert').count(),0)
+ console.log('PASS unknown crew need stays 0/? with warnings; explicit zero stays 0/0 without a false gap.')
+ // Two separate trips in one week must use the correct target and lead each day.
+ main.crew_needed=null
+ mobs=[{...mobs[0],id:'early',start_date:'2026-10-12',end_date:'2026-10-13',crew_needed:1,lead:'Bash Dave',vehicle:'Truck 1',equipment:'Grinder'},
+       {...mobs[0],id:'late',seq:2,start_date:'2026-10-15',end_date:'2026-10-16',crew_needed:4,lead:'Smith, Jane',vehicle:'Truck 2',equipment:'Sprayer'}]
+ snapshotAssignments=['2026-10-12','2026-10-13','2026-10-15','2026-10-16'].map((date,i)=>({id:i+1,job_id:1150,crew_name:'Bash Dave',date,mobilization_id:i<2?'early':'late'}))
+ await view('/settings');await view('/daily');await card.waitFor()
+ assert.equal(await card.locator('.dly-card-badge').innerText(),'Needs vary by day')
+ assert.deepEqual(await card.locator('.dly-alert').allTextContents(),['1/4','1/4'])
+ assert.match(await card.locator('.dly-staffing-row .dly-cell').nth(0).innerText(),/1.*Bash Dave/s)
+ assert.match(await card.locator('.dly-staffing-row .dly-cell').nth(3).innerText(),/4.*Smith, Jane/s)
+ await page.screenshot({path:'/private/tmp/codex-review-daily-multiple.png'})
+ await view('/schedule')
+ const multiRow=page.locator('.sch-board-row-wrap').filter({hasText:'7215'})
+ await multiRow.waitFor()
+ assert.equal(await multiRow.locator('.sch-brd-cell').nth(0).getByText('need 3',{exact:true}).count(),0)
+ assert.match(await multiRow.locator('.sch-brd-cell').nth(3).innerText(),/need 3/)
+ assert.match(await multiRow.locator('.sch-brd-cell').nth(3).innerText(),/Jane Smith/)
+ assert.match(await multiRow.locator('.sch-brd-cell').nth(0).innerText(),/Bash Dave/)
+ await page.screenshot({path:'/private/tmp/codex-review-schedule-multiple.png'})
+ console.log('PASS Monday/Tuesday need 1; Thursday/Friday need 4 and flag the shortage, with the correct leads in Daily and Crew Schedule.')
+ const [printPage]=await Promise.all([page.waitForEvent('popup'),page.evaluate(()=>window.testPrintWeek())])
+ const printedJob=printPage.locator('tbody tr').filter({hasText:'7215'})
+ await printedJob.waitFor()
+ assert.equal(await printedJob.locator('td').nth(3).innerText(),'Mon: 1; Tue: 1; Thu: 4; Fri: 4')
+ assert.equal(await printedJob.locator('td').nth(5).innerText(),'Mon: Truck 1; Tue: Truck 1; Thu: Truck 2; Fri: Truck 2')
+ assert.equal(await printedJob.locator('td').nth(6).innerText(),'Mon: Grinder; Tue: Grinder; Thu: Sprayer; Fri: Sprayer')
+ await printPage.close()
+ console.log('PASS weekly printout also preserves the differing daily crew, vehicle, and equipment requirements.')
  assert.equal(runtimeErrors.length,0,JSON.stringify(runtimeErrors))
  console.log('PASS no runtime errors; all database requests intercepted, zero real DB traffic.')
  }

@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { loadJobs, loadMobilizationsByJobId } from '../lib/queries'
-import { jobRanges, overlapsWeek, inRange, allocForWeek as allocForWeekAt, pickAllocField } from '../lib/allocations'
+import { jobRanges, overlapsWeek, staffingForDay, staffingSummary } from '../lib/allocations'
 
 /* ── Daily view — faithful port of the Apps Script rDaily() (Schedule Commander v2).
    Job cards with a crew × day check grid, gap row, status sections, and legend.
@@ -219,23 +219,22 @@ export default function Daily() {
 
   function jobCard(j) {
     const unames = wkAsgnUnique(j)
-    // The allocation block overlapping the visible week (B87) — its fields win
-    // when set, so a go-back week shows ITS crew size / vehicle / lead.
-    const wa = allocForWeekAt(allocsByJobId[j.job_id], dates[0], dates[5])
-    const nd = parseInt(pickAllocField(wa, j, 'crew_needed'), 10) || 0
-    const vehicle = pickAllocField(wa, j, 'vehicle')
-    const lead = pickAllocField(wa, j, 'lead')
-    const ranges = jobRanges(j, allocsByJobId[j.job_id])
+    const dailyStaffing = dates.map(ds => staffingForDay(j, allocsByJobId[j.job_id], ds))
+    const summary = staffingSummary(dailyStaffing)
+    const vehicle = summary.vehicles.join(', ')
+    const lead = summary.leads.join(', ')
     let hasGap = false
-    const gaps = dates.map(ds => {
+    const gaps = dailyStaffing.map(day => {
+      const ds = day.date
       // Crew is needed only on the job's dated work, not every day in the week.
-      if (ranges.length && !inRange(ranges, ds)) return { gap: false, dc: 0 }
+      if (!day.active) return { ...day, gap: false, dc: 0 }
       let dc = 0
       unames.forEach(u => {
         if (crewJobDays(j, u).indexOf(ds) >= 0 && getCSt(u, ds) === 'available') dc++
       })
-      if (nd > 0 && dc < nd) { hasGap = true; return { gap: true, dc } }
-      return { gap: false, dc }
+      const gap = day.needed == null || dc < day.needed
+      if (gap) hasGap = true
+      return { ...day, gap, dc }
     })
     const pw = isPW(j)
     return (
@@ -249,11 +248,11 @@ export default function Daily() {
             {pw && <span className="dly-pw-tag">PW</span>}
           </div>
           <div className="dly-card-badge" style={{ color: hasGap ? 'var(--red)' : 'var(--grn)' }}>
-            {unames.length}/{nd}
+            {summary.label === 'varies' ? 'Needs vary by day' : `${unames.length}/${summary.label}`}
           </div>
         </div>
         {unames.map(cn => {
-          const isLead = lead && cn.toLowerCase().indexOf(String(lead).toLowerCase()) >= 0
+          const isLead = summary.leads.some(name => cn.toLowerCase() === String(name).toLowerCase())
           const dbDays = dbDaysByCrew[cn] || []
           const crewDb = dbDays.length > 0
           const cjdays = crewJobDays(j, cn)
@@ -267,12 +266,22 @@ export default function Daily() {
             </div>
           )
         })}
+        {summary.detailsVary && <div className="dly-row dly-staffing-row">
+          <div className="dly-cell-name">Crew needed / lead</div>
+          {dailyStaffing.map(day => <div className="dly-cell" key={day.date}>
+            {day.active ? <div style={{ fontSize: 10, textAlign: 'center' }}>
+              <strong>{day.needed ?? '?'}</strong>
+              <div>{day.leads.join(', ') || 'Lead not set'}</div>
+              {day.vehicles.length > 0 && <div>{day.vehicles.join(', ')}</div>}
+            </div> : '—'}
+          </div>)}
+        </div>}
         {hasGap && (
           <div className="dly-row dly-gap-row">
-            <div className="dly-cell-name dly-gap-name">⚠ Gaps</div>
+            <div className="dly-cell-name dly-gap-name">⚠ Staffing</div>
             {gaps.map((g, i) => (
               <div className="dly-cell" key={dates[i]}>
-                {g.gap ? <div className="dly-d dly-alert">{g.dc}/{nd}</div> : null}
+                {g.gap ? <div className="dly-d dly-alert" title={g.ambiguous ? 'Overlapping trips — check crew requirements' : g.needed == null ? 'Crew requirement not set' : 'More crew needed'}>{g.dc}/{g.needed ?? '?'}</div> : null}
               </div>
             ))}
           </div>

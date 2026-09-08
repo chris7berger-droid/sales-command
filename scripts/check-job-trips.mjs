@@ -35,7 +35,7 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 5191, str
     return `import React from 'react';import {createRoot} from 'react-dom/client';import {MemoryRouter,useLocation} from 'react-router-dom';
     import StageJobCard from '/src/schedule/components/StageJobCard.jsx';import {UserProvider} from '/src/schedule/lib/user.jsx';
     import '/src/schedule/App.css';import '/src/schedule/index.css';
-    function Harness(){const [job,setJob]=React.useState(${JSON.stringify(job)});window.tripPath=useLocation().pathname+useLocation().search;return React.createElement(StageJobCard,{job,stage:'active',autoOpen:true,onJobUpdate:()=>setJob(j=>({...j}))})}
+    function Harness(){const [job,setJob]=React.useState(${JSON.stringify(job)});window.tripSetJob=setJob;window.tripPath=useLocation().pathname+useLocation().search;return React.createElement(StageJobCard,{job,stage:'active',autoOpen:true,onJobUpdate:()=>setJob(j=>({...j}))})}
     createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/schedule/jobs']},React.createElement(UserProvider,{teamMember:{name:'Codex test'}},React.createElement(Harness))));`
   },
   configureServer(vite) { vite.middlewares.use('/__trips-test', async (_req, res) => {
@@ -92,7 +92,7 @@ try {
   if (process.env.TRIPS_SNAPSHOT) {
     const future = article('45ad5024-45e2-4cdf-a470-d7f50835df05')
     assert.match(await future.innerText(), /Oct 12, 2026 – Oct 13, 2026/)
-    const expected = buildJobTrips(rows, assignments)
+    const expected = buildJobTrips(rows, assignments, job)
     const expectedFuture = expected.find(t => t.id === '45ad5024-45e2-4cdf-a470-d7f50835df05')
     const people = new Set(expectedFuture.assignments.map(a => a.crew_name)).size
     assert.match(await future.innerText(), people ? new RegExp(`${people} people`) : /No crew assigned yet/)
@@ -203,6 +203,25 @@ try {
     await article('future').getByRole('button', { name: 'Open Crew Schedule' }).click()
     await page.waitForFunction(() => window.tripPath === '/schedule/schedule?job=1150&week=2026-10-12')
     console.log('PASS failed reads/retry, crew roster error/retry, responsive panel, and trip-specific Crew Schedule link.')
+    // Review gap: first trips also exist as dates on jobs, before a trip row exists.
+    rows = [];assignments = []
+    Object.assign(job, { start_date: '2026-10-12', end_date: '2026-10-30' })
+    await page.evaluate(job => window.tripSetJob(job), job)
+    const initial = article('job:1150:initial')
+    await initial.waitFor()
+    assert.equal(await page.locator('.job-trip').count(), 1)
+    assert.match(await initial.innerText(), /Oct 12, 2026 – Oct 30, 2026/)
+    assert.match(await initial.innerText(), /No crew assigned yet/)
+    assignments = ['2026-10-12', '2026-10-30'].map((date, i) => ({ id: i + 1, job_id: 1150, crew_name: 'Bash Dave', date, mobilization_id: null }))
+    await page.getByRole('button', { name: 'Refresh trips' }).click()
+    await initial.getByText('1 person · 2 crew dates', { exact: true }).waitFor()
+    assert.equal(await page.locator('.job-trip').count(), 1, 'Parent date span must not split when staffing has a long gap')
+    await initial.locator('button.job-trip-summary').click()
+    assert.match(await initial.innerText(), /first trip uses the dates saved on the job/)
+    assert.equal(await initial.getByRole('button', { name: 'Edit trip', exact: true }).count(), 0, 'Never send a parent-derived trip to the UUID editor')
+    await page.setViewportSize({ width: 1440, height: 1050 })
+    await page.screenshot({ path: '/private/tmp/codex-review-parent-trip.png', fullPage: true })
+    console.log('PASS parent-only trip before crew assignment and after assignments 18 days apart; same span and identity.')
   }
   assert.deepEqual(runtimeErrors, [])
   assert(!mutations.some(m => m.table === 'assignments'), 'Editing a trip must not change crew-day assignments')

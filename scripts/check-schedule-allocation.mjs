@@ -210,6 +210,34 @@ try{
  assert.equal(await printedJob.locator('td').nth(6).innerText(),'Mon: Grinder; Tue: Grinder; Thu: Sprayer; Fri: Sprayer')
  await printPage.close()
  console.log('PASS weekly printout also preserves the differing daily crew, vehicle, and equipment requirements.')
+ // Bounded review: prove the actual Add to Schedule writer preserves zero vs blank.
+ mobs=[];snapshotAssignments=[];main.crew_needed=3
+ await modal()
+ for (const invalid of ['-1','1.5']) {
+   await page.getByPlaceholder('Crew #',{exact:true}).fill(invalid)
+   await page.getByRole('button',{name:'Add Trip',exact:true}).click()
+   await page.getByText('Crew needed must be a whole number of zero or more.',{exact:true}).first().waitFor()
+   assert.equal(mobs.length,0,'Invalid crew counts must not create a trip')
+ }
+ await page.getByPlaceholder('Crew #',{exact:true}).fill('0')
+ await page.getByRole('button',{name:'Add Trip',exact:true}).click()
+ await page.getByRole('heading',{name:'Add to Schedule'}).waitFor({state:'hidden'})
+ assert.equal(mobs[0].crew_needed,0,'An entered zero must be stored as zero, not null')
+ await view('/daily');await card.waitFor()
+ assert.equal(await card.locator('.dly-card-badge').innerText(),'0/0')
+ assert.equal(await card.locator('.dly-alert').count(),0)
+ await page.reload();await page.getByRole('button',{name:'+ Job',exact:true}).waitFor()
+ await view('/daily');await card.waitFor()
+ assert.equal(await card.locator('.dly-card-badge').innerText(),'0/0')
+ mobs=[]
+ await modal()
+ await page.getByPlaceholder('Crew #',{exact:true}).fill('')
+ await page.getByRole('button',{name:'Add Trip',exact:true}).click()
+ await page.getByRole('heading',{name:'Add to Schedule'}).waitFor({state:'hidden'})
+ assert.equal(mobs[0].crew_needed,null,'Blank intentionally inherits the job requirement')
+ await view('/daily');await card.waitFor()
+ assert.equal(await card.locator('.dly-card-badge').innerText(),'0/3')
+ console.log('PASS actual Add to Schedule rejects invalid counts, stores zero through reload, and preserves blank-as-inherit.')
  assert.equal(runtimeErrors.length,0,JSON.stringify(runtimeErrors))
  console.log('PASS no runtime errors; all database requests intercepted, zero real DB traffic.')
  }

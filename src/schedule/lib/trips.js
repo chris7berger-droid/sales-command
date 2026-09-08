@@ -7,11 +7,10 @@ export function buildJobTrips(rows = [], assignments = [], job = null) {
   const trips = rows.map(row => ({ ...row, key: row.id, assignments: [], legacy: false }))
   const byId = new Map(trips.map(trip => [trip.id, trip]))
   const own = job && jobOwnRange(job)
-  // The first trip can live only on jobs. Explicit overlapping trip records take
-  // precedence; do not manufacture a second copy of a trip already represented.
-  const represented = own && rows.some(row => (row.start_date || row.end_date) &&
-    (!own.end || !row.start_date || row.start_date <= own.end) &&
-    (!own.start || !row.end_date || row.end_date >= own.start))
+  // Only an identical saved span represents the parent schedule. An overlapping
+  // (or containing) trip with different dates must not erase the parent's dates.
+  const represented = own && rows.some(row =>
+    (row.start_date || null) === own.start && (row.end_date || null) === own.end)
   if (own && !represented) trips.push({
     key: `job:${job.job_id}:initial`, parent: true, legacy: false,
     label: 'Job schedule', start_date: own.start, end_date: own.end, assignments: [],

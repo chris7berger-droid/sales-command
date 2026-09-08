@@ -14,6 +14,7 @@ import { UserProvider, useUser } from './lib/user'
 import { ToolbarContext } from './lib/toolbar'
 import { searchExistingJobs, getNextMobSeq, addJobMobilization } from './lib/queries'
 import { crewLeadNames } from './lib/crewLeads'
+import { crewRequirement } from './lib/allocations'
 import { printWeekSchedule, printJobList, printMaterialsList, printDailyStatus } from './lib/exports'
 import Home from './views/Home'
 import Jobs from './views/Jobs'
@@ -167,6 +168,10 @@ function ScheduleShell() {
     if (d.start_date && d.end_date && d.end_date < d.start_date) {
       toast('End date can’t be before the start date', 'err'); return
     }
+    const crewNeeded = crewRequirement(d.crew_needed)
+    if (String(d.crew_needed ?? '').trim() !== '' && crewNeeded == null) {
+      toast('Crew needed must be a whole number of zero or more.', 'err'); return
+    }
     // Lead is mandatory — every trip/go-back names who's running it (no more
     // lead-blank allocations on the board/calendar).
     if (crewLoading || crewLoadError) {
@@ -185,7 +190,7 @@ function ScheduleShell() {
       {
         seq, label: d.label, start_date: d.start_date || null, end_date: d.end_date || null, is_go_back: d.is_go_back,
         // Per-allocation detail — blank = inherit the job's own value (B87).
-        crew_needed: d.crew_needed === '' || d.crew_needed == null ? null : (parseInt(d.crew_needed) || null),
+        crew_needed: crewNeeded,
         lead: d.lead || null, vehicle: d.vehicle || null, equipment: d.equipment || null,
         power_source: d.power_source || null, sow: d.sow || null,
       },
@@ -423,7 +428,7 @@ function ScheduleShell() {
                   Lead required. Other blank fields use the job’s values.
                 </div>
                 <div className="mfr">
-                  <input type="number" min="1" placeholder="Crew #" value={mobDraft.crew_needed} onChange={e => setMobDraft(p => ({ ...p, crew_needed: e.target.value }))} />
+                  <input type="number" min="0" step="1" placeholder="Crew #" value={mobDraft.crew_needed} onChange={e => setMobDraft(p => ({ ...p, crew_needed: e.target.value }))} />
                   <select aria-label="Crew lead" required disabled={crewLoading || crewLoadError || !leadNames.length} value={mobDraft.lead} onChange={e => setMobDraft(p => ({ ...p, lead: e.target.value }))}>
                     <option value="">{crewLoading ? 'Loading crew…' : crewLoadError ? 'Crew unavailable' : !leadNames.length ? 'No active crew' : 'Lead (required)…'}</option>
                     {leadNames.map(n => <option key={n} value={n}>{flipName(n)}</option>)}

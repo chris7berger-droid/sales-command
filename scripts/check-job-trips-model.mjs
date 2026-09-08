@@ -52,3 +52,25 @@ assert.equal(buildJobTrips([explicit], [], parent).length, 1, 'Explicit trip mus
 const later = { ...explicit, id: 'later', start_date: '2026-12-01', end_date: '2026-12-03' }
 assert.equal(buildJobTrips([later], [], parent).length, 2, 'Parent first trip remains visible alongside a later allocation')
 console.log('PASS parent-only trip before/after staffing, scheduled-date precedence, and explicit-trip duplicate suppression.')
+
+const shortTrip = { id: 'short', seq: 2, start_date: '2026-10-15', end_date: '2026-10-16' }
+const spanCrew = [
+  { id: 1, date: '2026-10-12', crew_name: 'Dave', mobilization_id: null },
+  { id: 2, date: '2026-10-30', crew_name: 'Dave', mobilization_id: null },
+  { id: 3, date: '2026-10-15', crew_name: 'Jane', mobilization_id: 'short' },
+]
+result = buildJobTrips([shortTrip], [], parent)
+assert.equal(result.length, 2, 'A partial overlap must not hide the parent date span before staffing')
+result = buildJobTrips([shortTrip], spanCrew, parent)
+const preservedParent = result.find(t => t.parent)
+assert.equal(preservedParent.start_date, '2026-10-12')
+assert.equal(preservedParent.end_date, '2026-10-30')
+assert.deepEqual(preservedParent.assignments.map(a => a.id), [1, 2])
+assert.deepEqual(result.find(t => t.id === 'short').assignments.map(a => a.id), [3])
+assert.equal(result.flatMap(t => t.assignments).length, 3)
+const ambiguousCrew = { id: 4, date: '2026-10-16', crew_name: 'Unknown trip', mobilization_id: null }
+result = buildJobTrips([shortTrip], [...spanCrew, ambiguousCrew], parent)
+assert.equal(result.find(t => t.legacy).assignments[0].id, 4, 'Overlapping unlinked day remains explicit uncertainty')
+assert.equal(result.flatMap(t => t.assignments).length, 4)
+assert.equal(buildJobTrips([{ ...shortTrip, start_date: '2026-10-01', end_date: '2026-11-01' }], [], parent).length, 2, 'Different saved spans stay visible even when one contains the other')
+console.log('PASS partially overlapping parent span survives, endpoint crew stays together, and every assignment appears once.')

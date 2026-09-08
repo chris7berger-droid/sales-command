@@ -70,12 +70,12 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
             return <article className="job-trip" key={trip.key} data-trip-id={trip.key}>
               <button className="job-trip-summary" aria-expanded={open} onClick={() => setExpanded(s => ({ ...s, [trip.key]: !s[trip.key] }))}>
                 <span>{open ? '▾' : '▸'}</span>
-                <span className="job-trip-title"><strong>{trip.legacy ? 'Crew records' : trip.parent ? 'Initial trip · Job schedule' : `Trip ${trip.seq}${trip.label ? ` · ${trip.label}` : ''}`}{trip.is_go_back ? ' · Go back' : ''}</strong><span>{tripRange(trip)}</span></span>
+                <span className="job-trip-title"><strong>{trip.legacy ? 'Crew records' : trip.parent ? 'Job schedule' : `Trip ${trip.seq}${trip.label ? ` · ${trip.label}` : ''}`}{trip.is_go_back ? ' · Go back' : ''}</strong><span>{tripRange(trip)}</span></span>
                 <span className="job-trip-staffing"><span>{people.length ? `${people.length} ${people.length === 1 ? 'person' : 'people'} · ${assignedDays.length} crew ${assignedDays.length === 1 ? 'date' : 'dates'}` : period === 'past' ? 'No crew assignments recorded' : 'No crew assigned yet'}</span>{field('lead') && <span>Lead: {nameLabel(field('lead'))}</span>}</span>
               </button>
               {open && <div className="job-trip-details">
                 {trip.legacy && <p>These crew days aren’t linked to a saved trip. They are preserved here without guessing which trip they belong to.</p>}
-                {trip.parent && <p>This first trip uses the dates saved on the job. Edit its dates and details in Crew Schedule.</p>}
+                {trip.parent && <p>These dates are saved on the job. They stay visible alongside trips with different dates. Edit the job’s dates and details in Crew Schedule.</p>}
                 {!trip.legacy && <dl className="job-trip-fields">
                   {detail('Lead', 'lead')}{detail('Crew needed', 'crew_needed')}
                   {detail('Vehicle', 'vehicle')}{detail('Equipment', 'equipment')}{detail('Power source', 'power_source')}

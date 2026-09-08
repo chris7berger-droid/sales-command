@@ -1,0 +1,114 @@
+SC HANDOFF v225 — Codex: expandable Jobs Trips panel (2026-09-08)
+===============================================================================
+
+SESSION SUMMARY
+---------------
+Chris chose the full Trips panel: future and historical visits together, expanding
+to scope, crew assignments, vehicle, equipment, power source, and trip notes, with
+editing through the existing trip editor. Work stays on the original Codex branch.
+Explicit rule: a trip is its entire saved date span, not a Monday-Friday week.
+He has opened another Codex terminal for a READ-ONLY review once preview is ready.
+
+CHANGES SHIPPED (PREVIEW ONLY)
+----------------------------
+- StageJobCard replaces the History tab with TripsPanel. Reads live trip rows
+  directly and paginates all assignments for that job when the panel opens.
+- Upcoming (ascending), Current dates, Past dates (descending), Dates to set.
+  These are date categories, not claims about started/completed work.
+- Each saved UUID appears once, even without crew. Explicit assignment links win
+  over overlapping spans. Unlinked rows join a trip only if exactly one saved
+  range contains their date. Ambiguous, out-of-range, or missing-link crew rows
+  remain visible as separate Crew records, with the pre-existing gap >6 days
+  fallback. No persisted links, dates, assignments, or trip identities rewritten.
+- Expanded details label inherited job values, show each person's crew dates,
+  and open Crew Schedule on that trip's start date. Unlinked crew records cannot
+  be edited as if they were an explicit trip.
+- Existing MobsModal now accepts initialEditId and edits crew need/lead, vehicle,
+  equipment, power, scope text, and note as well as dates/label. Crew roster is
+  Scheduling crew (name is its primary key; no id column), with archived-current
+  lead preserved and loading/error/retry. Only changed operational fields are
+  patched. Sequence, UUID, go-back type, and assignments are preserved.
+- Update query now checks job_id as well as UUID, so a trip moved to another job
+  after opening the editor cannot be edited under the stale parent.
+- Editor date/range and crew-count validation; load errors visible. Original
+  Planning editor still supports add/go-back/edit/delete; deletion logic unchanged.
+- Jobs listens for trip updates alongside existing job/crew/material refreshes;
+  explicit Refresh trips also available. No reliance on Realtime for correctness.
+
+DECISIONS / REAL DATA FINDINGS
+-----------------------------
+The old History compressed 7215 into two crew-day runs. The actual DB has five
+saved trips: Aug 3-4, Aug 22-Oct 2, Aug 26, Aug 31-Sep 3, and Oct 12-13. The new
+view shows those five individually, preserving overlaps rather than guessing a
+merge. Aug 5 has two unlinked crew records outside saved spans, kept separately.
+The Aug 22-Oct 2 saved trip remains ONE trip despite multiweek staffing gaps.
+
+A fresh read-only snapshot at ~15:19 Pacific contains 72 assignments: 62 attached
+or uniquely date-matched to historical/current trips, 8 on Oct 12-13 (4 people,
+including Bash Dave), and the 2 Aug 5 records. Every row accounted for once.
+These October assignments were present in the snapshot; Codex did not create
+them. Earlier v224's 0/3 assigned observation is now outdated.
+
+NEW / CLOSED BACKLOG ITEMS
+--------------------------
+MOBZ-2 added as In Progress pending preview/user/independent review. B104/B105
+remain on the same unmerged branch. No item marked production-complete here.
+
+VERIFICATION
+------------
+- node scripts/check-job-trips-model.mjs: identity, zero crew, multiple weeks,
+  long staffing gaps, exact/ambiguous/missing links, preserved legacy grouping,
+  and date categories passed.
+- scripts/check-job-trips.mjs mounts the actual StageJobCard and shared editor,
+  with fake credentials and all remote calls intercepted. Passed: future without
+  crew; current multiweek span; details/notes; date-only edit preserving all other
+  fields; invalid dates; failed save/retry; lead roster/error/retry; add assignments
+  without duplication; notes/lead changes survive reload; stale-parent edit denied;
+  original Planning editor adds a go-back with dates TBD; mobile panel; crew link.
+- Same browser harness with TRIPS_SNAPSHOT replayed current 7215 trip/crew records
+  and real parent operational fields read from DB. No mutations/runtime errors.
+  This is local snapshot rendering, NOT authenticated hosted Vercel testing.
+- Prior scripts/check-schedule-allocation.mjs passed again across actual Add-to-
+  Schedule -> Crew Schedule/Calendar/Daily, including save failure/stale parent.
+- Build passes with fixture Supabase env. Existing large bundle warning remains.
+- New files and MobsModal lint clean. Touched StageJobCard/queries/Jobs lint has
+  two pre-existing unused-variable errors, identical to original main (confirmed).
+- Screenshots inspected at /private/tmp/codex-trips-{panel,editor,mobile}.png and
+  /private/tmp/codex-trips-live-snapshot.png. Local fixtures are not business data.
+
+Run browser checks from the worktree with:
+PLAYWRIGHT_MODULE=/private/tmp/codex-schedule-preview-tools/node_modules/playwright/index.mjs
+CHROME_PATH='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+node scripts/check-job-trips.mjs
+(Set both environment variables on the node invocation.)
+Optional TRIPS_SNAPSHOT=/private/tmp/codex-job7215-trips-snapshot.json.
+Build needs VITE_SUPABASE_URL=https://schedule-fixture.supabase.co and
+VITE_SUPABASE_ANON_KEY=codex-fixture-only; do not use empty env for build evidence.
+
+NOT TOUCHED / LIMITS
+-------------------
+No live database writes, migrations, RLS, production merge, or staff assignment
+changes in MOBZ-2. The earlier authorized B105 data repair IS already live.
+Shared modal still uses existing text sow writer; no new structured scope-version
+workflow. Existing label-only edit audit is not a full field-by-field audit.
+Concurrent same-field edits retain existing last-save behavior (no version lock).
+Old HistoryPanel/deriveJobTrips left unused; MOB-3 cleanup remains separate.
+
+NEXT SESSION POINTERS / REVIEW
+------------------------------
+Publish current branch and check Vercel deployment for its exact commit. Ask the
+second terminal to review all branch changes vs 2f10b05 (original main), read-only.
+Focus on trip identity/spans, old history, unlinked/overlapping crew days, omitted
+fields on edit, stale parent, both editor entry points, and earlier three-view
+allocation behavior. Report specific regressions with file/line and reproduction.
+Do not run docs/repairs SQL: already executed before this feature, not a test.
+Do not merge, deploy production, or change live data during review. Preview saves
+use the shared live database. A merge remains Chris's decision after review.
+
+FILES TO KNOW / GIT STATE
+------------------------
+src/schedule/components/TripsPanel.{jsx,css}, MobsModal.jsx, StageJobCard.jsx
+src/schedule/lib/trips.js, queries.js; src/schedule/views/Jobs.jsx
+scripts/check-job-trips-model.mjs, scripts/check-job-trips.mjs
+Branch codex/fix-schedule-crew-leads-and-form-theme; parent 5846bf3.
+origin/main still 2f10b05 after fetch. Commit/push/deployment check follow.

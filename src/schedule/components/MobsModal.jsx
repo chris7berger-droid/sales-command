@@ -10,8 +10,9 @@
 // dayless go-back is visible and taggable. The day-derived `mobs` prop is used only
 // to enrich each row with its tagged-day count.
 
-import { useEffect, useState, useCallback } from 'react'
-import { loadJobMobilizationRows, addJobMobilization, updateJobMobilization, deleteJobMobilization, countPullTicketsForMob, loadMaterialsCatalog, computeMobCosts } from '../lib/queries'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { loadAllRows, loadJobMobilizationRows, addJobMobilization, updateJobMobilization, deleteJobMobilization, countPullTicketsForMob, loadMaterialsCatalog, computeMobCosts } from '../lib/queries'
+import { crewLeadNames } from '../lib/crewLeads'
 import { useUser } from '../lib/user'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -47,7 +48,7 @@ function collectDaySeqs(job) {
   return out
 }
 
-export default function MobsModal({ job, mobs = [], onClose, onUpdated }) {
+export default function MobsModal({ job, mobs = [], initialEditId = null, onClose, onUpdated }) {
   const user = useUser()
   const changedBy = user?.name || 'unknown'
 
@@ -57,6 +58,21 @@ export default function MobsModal({ job, mobs = [], onClose, onUpdated }) {
   const [error, setError] = useState(null)
   // The row being edited: { id | null(new), seq, label, start_date, end_date, is_go_back }.
   const [draft, setDraft] = useState(null)
+  const openedInitial = useRef(false)
+  const [crewNames, setCrewNames] = useState([])
+  const [crewError, setCrewError] = useState(null)
+  const [crewLoaded, setCrewLoaded] = useState(false)
+  const [crewRefresh, setCrewRefresh] = useState(0)
+  useEffect(() => {
+    let alive = true
+    loadAllRows('crew', 'name, archived', { orderBy: 'name' }).then(({ data, error }) => {
+      if (!alive) return
+      setCrewError(error?.message || null)
+      setCrewNames(error ? [] : crewLeadNames(data || []))
+      setCrewLoaded(true)
+    })
+    return () => { alive = false }
+  }, [crewRefresh])
 
   // Tagged-day count per seq, from the day-derived list (read-only enrichment).
   const dayCountBySeq = new Map((mobs || []).map(m => [m.seq, m.dayCount]))
@@ -71,12 +87,20 @@ export default function MobsModal({ job, mobs = [], onClose, onUpdated }) {
   const costsBySeq = computeMobCosts(job, catalog)
 
   const reload = useCallback(async () => {
-    const { data } = await loadJobMobilizationRows(job.job_id)
-    setRows(data)
-    setLoaded(true)
+    const { data, error: loadError } = await loadJobMobilizationRows(job.job_id)
+    setError(loadError?.message || null)
+    setLoaded(!loadError)
+    if (!loadError) setRows(data)
   }, [job.job_id])
 
   useEffect(() => { reload() }, [reload])
+  useEffect(() => {
+    if (!initialEditId || !loaded || openedInitial.current) return
+    openedInitial.current = true
+    const row = rows.find(r => r.id === initialEditId)
+    if (row) setDraft({ ...row })
+    else setError('This trip is no longer on this job. Close and refresh the trips list.')
+  }, [initialEditId, loaded, rows])
 
   const nextSeq = () => Math.max(0, ...rows.map(r => r.seq || 0), ...collectDaySeqs(job)) + 1
 
@@ -87,7 +111,7 @@ export default function MobsModal({ job, mobs = [], onClose, onUpdated }) {
 
   function startEdit(row) {
     setError(null)
-    setDraft({ id: row.id, seq: row.seq, label: row.label || '', start_date: row.start_date, end_date: row.end_date, is_go_back: row.is_go_back })
+    setDraft({ ...row })
   }
 
   async function saveDraft() {
@@ -97,8 +121,21 @@ export default function MobsModal({ job, mobs = [], onClose, onUpdated }) {
       setError('End date can’t be before the start date.')
       return
     }
+    if (draft.crew_needed != null && draft.crew_needed !== '' && (!Number.isInteger(Number(draft.crew_needed)) || Number(draft.crew_needed) < 0)) {
+      setError('Crew needed must be a whole number of zero or more.')
+      return
+    }
     setBusy(true); setError(null)
     const payload = { label: draft.label, start_date: draft.start_date, end_date: draft.end_date }
+    // Send only edited operational fields; changing dates must not clear them.
+    const original = rows.find(r => r.id === draft.id) || {}
+    for (const field of ['crew_needed', 'lead', 'vehicle', 'equipment', 'power_source', 'sow', 'note']) {
+      if ((draft[field] ?? '') !== (original[field] ?? '')) {
+        payload[field] = field === 'crew_needed'
+          ? (draft[field] === '' || draft[field] == null ? null : Number(draft[field]))
+          : draft[field] || null
+      }
+    }
     const res = draft.id == null
       ? await addJobMobilization(job.job_id, { seq: draft.seq, ...payload, is_go_back: draft.is_go_back }, changedBy)
       : await updateJobMobilization(job.job_id, { id: draft.id, seq: draft.seq, label: rows.find(r => r.id === draft.id)?.label }, payload, changedBy)
@@ -106,6 +143,7 @@ export default function MobsModal({ job, mobs = [], onClose, onUpdated }) {
     setDraft(null); setBusy(false)
     await reload()
     onUpdated?.()
+    if (initialEditId) onClose()
   }
 
   async function removeRow(row) {
@@ -156,32 +194,32 @@ export default function MobsModal({ job, mobs = [], onClose, onUpdated }) {
   const anyEditing = draft != null
 
   return (
-    <div className="mbg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="mdl" style={{ maxWidth: 560, maxHeight: '90vh', overflow: 'auto' }}>
+    <div className="mbg" onClick={e => { if (e.target === e.currentTarget && !busy) onClose() }}>
+      <div className="mdl" role="dialog" aria-modal="true" aria-label={initialEditId ? "Edit trip" : "Manage trips"} style={{ maxWidth: 760, maxHeight: '90vh', overflow: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <h3 style={{ margin: 0 }}>Mobilizations — {job.job_num || ''} {job.job_name || ''}</h3>
-          <button className="app-act-btn" onClick={onClose}>Close</button>
+          <h3 style={{ margin: 0 }}>{initialEditId ? 'Edit trip' : 'Trips'} — {job.job_num || ''} {job.job_name || ''}</h3>
+          <button className="app-act-btn" disabled={busy} onClick={onClose}>Close</button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-light)', fontFamily: 'var(--font-body, inherit)', marginBottom: 12 }}>
-          Trips to site for this live job. Add a go-back (a tracked return trip — warranty or added work) or another trip to reschedule sold work. The signed proposal is never changed.
+          {initialEditId ? 'Update this trip’s dates and details. Crew assignments are managed in Crew Schedule.' : 'Manage trips to site. Add another trip or a go-back for warranty or added work.'}
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {!initialEditId && <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           <button className="app-act-btn app-act-primary" disabled={!loaded || anyEditing || busy} onClick={() => startAdd(true)}>+ Add Go Back</button>
           <button className="app-act-btn" disabled={!loaded || anyEditing || busy} onClick={() => startAdd(false)}>+ Add trip</button>
-        </div>
+        </div>}
 
-        {error && <div style={{ fontSize: 12, color: 'var(--danger)', fontFamily: 'var(--font-body, inherit)', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ fontSize: 12, color: 'var(--danger)', fontFamily: 'var(--font-body, inherit)', marginBottom: 10 }}>{error} {!loaded && <button className="app-act-btn" onClick={reload}>Retry</button>}</div>}
 
         {!loaded ? (
           <div style={{ fontSize: 13, color: 'var(--text-light)', padding: '20px 0' }}>Loading…</div>
         ) : rows.length === 0 && !anyEditing ? (
           <div style={{ fontSize: 13, color: 'var(--text-light)', padding: '16px 0' }}>
-            No mobilizations on this job yet. Add a trip or a go-back above.
+            No trips on this job yet. Add a trip or a go-back above.
           </div>
         ) : (
           <div className="mobs-list">
-            {rows.map(row => {
+            {rows.filter(row => !initialEditId || row.id === initialEditId).map(row => {
               if (draft && draft.id === row.id) return renderEditor(row.seq)
               const dayCount = dayCountBySeq.get(row.seq)
               return (
@@ -220,29 +258,33 @@ export default function MobsModal({ job, mobs = [], onClose, onUpdated }) {
     </div>
   )
 
-  // Inline editor row (shared by add + edit). Teal-ish border marks the open row.
+  // The existing editor handles both entry points; identity and crew-day links stay fixed.
   function renderEditor(seq) {
-    return (
-      <div key={`edit-${draft.id ?? 'new'}`} className="mobs-row" style={{ alignItems: 'flex-end', gap: 8, borderLeftColor: draft.is_go_back ? 'var(--warning)' : 'var(--command-green)' }}>
-        <div style={{ width: 46, flexShrink: 0 }}>
-          <div style={lbl}>Mob</div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--command-green)', fontFamily: 'var(--font-heading)' }}>{seq}</div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={lbl}>Label{draft.is_go_back ? ' (go back)' : ''}</div>
-          <input autoFocus value={draft.label || ''} placeholder={draft.is_go_back ? 'e.g. Warranty return' : 'e.g. Punch list'} onChange={e => setDraft(d => ({ ...d, label: e.target.value }))} style={{ ...inp, width: '100%' }} />
-        </div>
-        <div style={{ width: 128, flexShrink: 0 }}>
-          <div style={lbl}>Start</div>
-          <input type="date" value={draft.start_date || ''} onChange={e => setDraft(d => ({ ...d, start_date: e.target.value || null }))} style={{ ...inp, width: '100%' }} />
-        </div>
-        <div style={{ width: 128, flexShrink: 0 }}>
-          <div style={lbl}>End</div>
-          <input type="date" value={draft.end_date || ''} min={draft.start_date || ''} onChange={e => setDraft(d => ({ ...d, end_date: e.target.value || null }))} style={{ ...inp, width: '100%' }} />
-        </div>
-        <button className="app-act-btn app-act-primary" disabled={busy} onClick={saveDraft}>Save</button>
-        <button style={secondaryBtn} disabled={busy} onClick={() => { setDraft(null); setError(null) }}>Cancel</button>
+    const fields = [['label', 'Trip label', 'text'], ['start_date', 'Start date', 'date'], ['end_date', 'End date', 'date'], ['crew_needed', 'Crew needed', 'number'], ['vehicle', 'Vehicle', 'text'], ['equipment', 'Equipment', 'text'], ['power_source', 'Power source', 'text']]
+    return <div key={`edit-${draft.id ?? 'new'}`} className="mobs-row" style={{ display: 'block', borderLeftColor: 'var(--command-green)' }}>
+      <h4 style={{ margin: '0 0 12px' }}>Trip {seq}{draft.is_go_back ? ' · Go back' : ''}</h4>
+      <p style={{ fontSize: 12, color: 'var(--text-light)' }}>Leave crew, vehicle, equipment, power source, or scope blank to use the job’s value. Assign individual crew members in Crew Schedule.</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+        {fields.map(([field, label, type]) => <label key={field} style={lbl}>{label}
+          <input aria-label={label} type={type} disabled={busy} min={type === 'number' ? 0 : field === 'end_date' ? draft.start_date || '' : undefined} step={type === 'number' ? 1 : undefined} value={draft[field] ?? ''} onChange={e => setDraft(d => ({ ...d, [field]: e.target.value }))} style={{ ...inp, width: '100%', display: 'block', marginTop: 4 }} />
+        </label>)}
+        <label style={lbl}>Lead
+          <select aria-label="Lead" value={draft.lead || ''} disabled={busy || !crewLoaded || !!crewError} onChange={e => setDraft(d => ({ ...d, lead: e.target.value }))} style={{ ...inp, width: '100%', display: 'block', marginTop: 4 }}>
+            <option value="">{!crewLoaded ? 'Loading crew…' : 'Use job lead'}</option>
+            {draft.lead && !crewNames.includes(draft.lead) && <option value={draft.lead}>{draft.lead} (current)</option>}
+            {crewNames.map(name => <option key={name} value={name}>{name.includes(',') ? name.split(',').reverse().map(s => s.trim()).join(' ') : name}</option>)}
+          </select>
+        </label>
       </div>
-    )
+      {crewError && <p role="alert">Couldn’t load crew choices: {crewError} <button className="app-act-btn" onClick={() => setCrewRefresh(n => n + 1)}>Retry crew</button></p>}
+      {crewLoaded && !crewError && !crewNames.length && <p>No active crew members available. The existing lead is preserved.</p>}
+      {[['sow', 'Scope of work'], ['note', 'Trip notes']].map(([field, label]) => <label key={field} style={{ ...lbl, display: 'block', marginTop: 12 }}>{label}
+        <textarea aria-label={label} disabled={busy} value={draft[field] || ''} rows={3} onChange={e => setDraft(d => ({ ...d, [field]: e.target.value }))} style={{ ...inp, display: 'block', width: '100%', marginTop: 4, resize: 'vertical' }} />
+      </label>)}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button className="app-act-btn app-act-primary" disabled={busy} onClick={saveDraft}>{busy ? 'Saving…' : 'Save'}</button>
+        <button style={secondaryBtn} disabled={busy} onClick={() => { if (initialEditId) onClose(); else { setDraft(null); setError(null) } }}>Cancel</button>
+      </div>
+    </div>
   }
 }

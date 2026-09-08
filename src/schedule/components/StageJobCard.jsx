@@ -13,7 +13,7 @@ import MobsModal from './MobsModal'
 import LoadOutModal from './LoadOutModal'
 import PRTModal from './PRTModal'
 import LogsModal from './LogsModal'
-import HistoryPanel from './HistoryPanel'
+import TripsPanel from './TripsPanel'
 
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
@@ -588,7 +588,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   // scrolls it into view — this is the target Open Job / Edit Schedule / View Job
   // now land on (JobDetail retired).
   const [expanded, setExpanded] = useState(!!autoOpen)
-  const [panels, setPanels] = useState({ planning: false, management: false, details: false, budget: false, history: false })
+  const [panels, setPanels] = useState({ planning: false, management: false, details: false, budget: false, trips: false })
   const cardRef = useRef(null)
   useEffect(() => {
     if (autoOpen && cardRef.current) cardRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -774,7 +774,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
         <button className={`sjc-toggle${panels.management ? ' open' : ''}`} onClick={() => togglePanel('management')}>MANAGEMENT</button>
         <button className={`sjc-toggle${panels.details ? ' open' : ''}`} onClick={() => togglePanel('details')}>DETAILS</button>
         <button className={`sjc-toggle${panels.budget ? ' open' : ''}`} onClick={() => togglePanel('budget')}>BUDGET</button>
-        <button className={`sjc-toggle${panels.history ? ' open' : ''}`} onClick={() => togglePanel('history')}>HISTORY</button>
+        <button className={`sjc-toggle${panels.trips ? ' open' : ''}`} onClick={() => togglePanel('trips')}>TRIPS</button>
       </div>
 
       {panels.planning && (
@@ -813,7 +813,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
       )}
       {panels.details && <DetailsPanel job={job} crewRows={crewRows} />}
       {panels.budget && <BudgetPanel job={job} />}
-      {panels.history && <HistoryPanel job={job} assignmentDates={assignmentDates} mobs={mobs} />}
+      {panels.trips && <TripsPanel job={job} mobs={mobs} today={ymd(today)} onUpdated={onJobUpdate} />}
 
       <div className="sjc-action">
         {stage === 'staged' && (

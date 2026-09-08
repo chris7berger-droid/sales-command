@@ -5,7 +5,7 @@
 // trips in its history); the ones you don't add stay as separate cards. Nothing
 // is deleted. The DB (combine_jobs) only ever combines cards sharing one call.
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { findDuplicateJobGroups, combineJobs } from '../lib/queries'
 import { useUser } from '../lib/user'
 
@@ -30,6 +30,7 @@ function CombineGroup({ group, changedBy, onCombined }) {
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [done, setDone] = useState(null)   // { mainNum, mainName, folded } after a successful save
 
   const added = group.cards.filter(c => choice[c.job_id] === 'add')
   const mainCard = added[0] || null           // earliest added = the main (cards are date-sorted)
@@ -41,7 +42,22 @@ function CombineGroup({ group, changedBy, onCombined }) {
     const { error } = await combineJobs(mainCard.job_id, foldIds, changedBy)
     setBusy(false)
     if (error) { setError(error.message); return }
-    onCombined?.()
+    setDone({ mainNum: mainCard.num, mainName: mainCard.name, folded: foldIds.length })
+    onCombined?.()   // refresh the board underneath; this group stays on screen (frozen list)
+  }
+
+  // After saving, keep the group's identity on screen with a result — don't blank out.
+  if (done) {
+    return (
+      <div style={{ border: '1px solid var(--teal, #30cfac)', borderRadius: 8, padding: 12, marginBottom: 12, background: 'rgba(48,207,172,0.10)' }}>
+        <div style={{ fontSize: 13, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          {group.num ? `${group.num} · ` : ''}{group.title}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-primary)', fontFamily: 'var(--font-body, inherit)', marginTop: 4 }}>
+          ✓ Combined into <b>{done.mainNum ? `${done.mainNum} — ` : ''}{done.mainName}</b>. {done.folded} card{done.folded === 1 ? '' : 's'} folded in as trips in its history.
+        </div>
+      </div>
+    )
   }
 
   const seg = (active) => ({
@@ -55,7 +71,7 @@ function CombineGroup({ group, changedBy, onCombined }) {
 
   return (
     <div style={{ border: '1px solid rgba(28,24,20,0.18)', borderRadius: 8, padding: 12, marginBottom: 12, background: 'var(--bg-card)' }}>
-      <div style={{ fontSize: 13, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{group.title}</div>
+      <div style={{ fontSize: 13, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{group.num ? `${group.num} · ` : ''}{group.title}</div>
       <div style={{ fontSize: 11, color: 'var(--text-light)', marginBottom: 10, fontFamily: 'var(--font-body, inherit)' }}>
         Shows as {group.cards.length} cards. Mark each <b>Add to Main</b> or <b>Don't Add to Main</b>, then Save. Added cards merge into one job (each becomes a trip); the earliest is the main.
       </div>
@@ -72,7 +88,7 @@ function CombineGroup({ group, changedBy, onCombined }) {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {c.name}
+                  {c.num ? `${c.num} — ` : ''}{c.name}
                   {isMain && <span style={{ marginLeft: 8, fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4, background: 'var(--header-dark)', color: 'var(--teal, #30cfac)', fontFamily: 'var(--font-heading)' }}>Main</span>}
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--text-light)' }}>{rangeLabel(c)} · {c.crewDays} crew day{c.crewDays === 1 ? '' : 's'}{c.status ? ` · ${c.status}` : ''}</div>
@@ -99,7 +115,10 @@ function CombineGroup({ group, changedBy, onCombined }) {
 export default function CombineDuplicatesModal({ jobs = [], assignmentsByJobId = {}, onClose, onCombined }) {
   const user = useUser()
   const changedBy = user?.name || 'unknown'
-  const groups = useMemo(() => findDuplicateJobGroups(jobs, assignmentsByJobId), [jobs, assignmentsByJobId])
+  // Freeze the group list on open. If it recomputed off `jobs`, a just-combined
+  // group would vanish the instant you Save — the bug Chris hit. Kept stable so
+  // each group stays on screen and shows its result after saving.
+  const [groups] = useState(() => findDuplicateJobGroups(jobs, assignmentsByJobId))
 
   return (
     <div className="mbg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>

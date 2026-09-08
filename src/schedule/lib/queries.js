@@ -1330,10 +1330,12 @@ export function findDuplicateJobGroups(jobs = [], assignmentsByJobId = {}) {
     if (cards.length < 2) continue
     groups.push({
       callLogId,
+      num: cards[0]?.job_num || cards[0]?.call_log?.display_job_number || null,
       title: cards[0]?.call_log?.job_name || cards[0]?.job_name || `Call ${callLogId}`,
       cards: cards
         .map(c => ({
           job_id: c.job_id,
+          num: c.job_num || c.call_log?.display_job_number || null,
           name: c.job_name || c.call_log?.job_name || `Job ${c.job_id}`,
           start_date: c.start_date || null,
           end_date: c.end_date || null,

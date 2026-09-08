@@ -813,7 +813,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
       )}
       {panels.details && <DetailsPanel job={job} crewRows={crewRows} />}
       {panels.budget && <BudgetPanel job={job} />}
-      {panels.history && <HistoryPanel job={job} />}
+      {panels.history && <HistoryPanel job={job} assignmentDates={assignmentDates} mobs={mobs} />}
 
       <div className="sjc-action">
         {stage === 'staged' && (

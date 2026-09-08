@@ -169,6 +169,41 @@ export function getJobMobilizations(job, mobsBySeq = {}) {
     .sort((a, b) => a.seq - b.seq)
 }
 
+// Derive a job's TRIPS (mobilizations) from the crew days it already has, for the
+// History panel. A continuous run of scheduled days is one trip; a gap of more
+// than a week starts the next — the same "allocation" definition the DB uses
+// (a continuous span = one block, a gap starts the next). This makes History show
+// the real schedule for EVERY job with no combining required. Where a
+// job_mobilizations row's date range overlaps a run (e.g. after Combine, or an
+// editor-authored go-back), its label + go-back flag enrich that trip.
+//   assignmentDates: a Set or array of ISO date strings (the job's crew days).
+//   mobs: the getJobMobilizations() array (optional; for labels/go-back badges).
+export function deriveJobTrips(assignmentDates, mobs = []) {
+  const dates = [...(assignmentDates || [])]
+    .filter(d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d))
+    .map(d => d.slice(0, 10))
+    .sort()
+  if (!dates.length) return []
+  const GAP_DAYS = 6 // > a week apart = a new trip; weekends/short gaps stay together
+  const runs = [[dates[0]]]
+  for (let i = 1; i < dates.length; i++) {
+    const gap = Math.round((new Date(dates[i]) - new Date(dates[i - 1])) / 86400000)
+    if (gap > GAP_DAYS) runs.push([dates[i]])
+    else runs[runs.length - 1].push(dates[i])
+  }
+  const mobList = (mobs || [])
+    .filter(m => m && m.start_date && m.end_date)
+    .slice()
+    .sort((a, b) => String(a.start_date).localeCompare(String(b.start_date)))
+  return runs.map((run, idx) => {
+    const start = run[0], end = run[run.length - 1]
+    // A mob whose range overlaps this run lends its human label + go-back flag.
+    const hit = mobList.find(m => !(m.end_date < start || m.start_date > end)) || null
+    const label = hit && hit.label && !/^Mob \d+$/.test(hit.label) ? hit.label : null
+    return { seq: idx + 1, start_date: start, end_date: end, dayCount: run.length, label, is_go_back: !!(hit && hit.is_go_back) }
+  })
+}
+
 // Phase F (F3) — per-mobilization cost rollup, derived on read (D6). For each
 // mobilization seq, sum the cost of every field-SOW day tagged to it, across all
 // the job's WTCs (whole tagged day counts toward its mob — audit O6). Returns

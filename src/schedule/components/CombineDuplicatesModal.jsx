@@ -1,10 +1,12 @@
 // Combine duplicates (mobilization_model, 2026-09-08). A job that got scheduled
 // several times shows as several cards that share one original call. This tool
-// lets Chris fold the extras into the ONE card he keeps: the folded cards' crew
-// days roll under the kept job as mobilizations in its history, and the folded
-// cards are hidden (not deleted — merged_into_job_id). Every which-cards /
-// which-keeper decision is his; the DB (combine_jobs) only enforces that folded
-// cards share the kept card's original call.
+// folds the extras into ONE main job: the folded cards' crew days roll under the
+// main job as trips in its history, and the folded cards are hidden (not deleted).
+//
+// ONE decision per group: which card is the MAIN job. Every other card in the
+// group folds into it (they're all the same original job). Pick the main, see
+// exactly which ones fold in, then Combine. The DB (combine_jobs) only ever
+// combines cards that share the main card's original call.
 
 import { useMemo, useState } from 'react'
 import { findDuplicateJobGroups, combineJobs } from '../lib/queries'
@@ -21,42 +23,26 @@ function rangeLabel(c) {
   return a && b && c.start_date === c.end_date ? a : `${a || 'TBD'} – ${b || 'TBD'}`
 }
 
-// One duplicate group: pick a keeper, check what to fold, confirm.
+// One duplicate group: pick the main card, the rest fold in, confirm.
 function CombineGroup({ group, changedBy, onCombined }) {
-  const [keeper, setKeeper] = useState(null)
-  const [folds, setFolds] = useState(() => new Set())
+  const [main, setMain] = useState(null)
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
 
-  // Keep is a single-select toggle: click to pick, click again to un-pick. It does
-  // NOT auto-fold anything — folds are chosen explicitly (or via "Fold all others").
-  function chooseKeeper(jobId) {
+  // Tap Main to pick it; tap the current main again to un-pick.
+  function toggleMain(jobId) {
     setError(null)
-    if (jobId === keeper) { setKeeper(null); setFolds(new Set()); return } // un-pick
-    setKeeper(jobId)
-    setFolds(prev => { const next = new Set(prev); next.delete(jobId); return next }) // keeper can't be folded
-  }
-  // Fold is per-card, independent, freely toggleable (never the keeper).
-  function toggleFold(jobId) {
-    if (jobId === keeper) return
-    setFolds(prev => {
-      const next = new Set(prev)
-      next.has(jobId) ? next.delete(jobId) : next.add(jobId)
-      return next
-    })
-  }
-  function foldAllOthers() {
-    if (keeper == null) return
-    setFolds(new Set(group.cards.map(c => c.job_id).filter(id => id !== keeper)))
+    setConfirming(false)
+    setMain(m => (m === jobId ? null : jobId))
   }
 
-  const foldIds = [...folds]
-  const keeperCard = group.cards.find(c => c.job_id === keeper)
+  const foldIds = main == null ? [] : group.cards.filter(c => c.job_id !== main).map(c => c.job_id)
+  const mainCard = group.cards.find(c => c.job_id === main)
 
   async function doCombine() {
     setBusy(true); setError(null)
-    const { error } = await combineJobs(keeper, foldIds, changedBy)
+    const { error } = await combineJobs(main, foldIds, changedBy)
     setBusy(false)
     if (error) { setError(error.message); setConfirming(false); return }
     onCombined?.()
@@ -66,35 +52,37 @@ function CombineGroup({ group, changedBy, onCombined }) {
     <div style={{ border: '1px solid rgba(28,24,20,0.18)', borderRadius: 8, padding: 12, marginBottom: 12, background: 'var(--bg-card)' }}>
       <div style={{ fontSize: 13, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{group.title}</div>
       <div style={{ fontSize: 11, color: 'var(--text-light)', marginBottom: 10, fontFamily: 'var(--font-body, inherit)' }}>
-        Shows as {group.cards.length} cards. First tap <b>Main</b> on the job that stays, then tap <b>Fold in</b> on each card to pull into it (or "Fold all others"). Tap again to undo either.
+        Shows as {group.cards.length} cards. Tap <b>Main</b> on the job that stays — the rest fold into it as trips. Then Combine.
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {group.cards.map(c => {
-          const isKeeper = c.job_id === keeper
-          const isFold = folds.has(c.job_id)
-          const pill = (active, enabled) => ({
-            fontFamily: 'var(--font-heading)', fontSize: 11, fontWeight: 800, letterSpacing: '0.04em',
-            textTransform: 'uppercase', padding: '5px 11px', borderRadius: 6, flexShrink: 0,
-            cursor: enabled ? 'pointer' : 'default',
-            border: `1.5px solid ${active ? 'var(--teal, #30cfac)' : 'rgba(28,24,20,0.3)'}`,
-            background: active ? 'var(--header-dark)' : 'transparent',
-            color: active ? 'var(--teal, #30cfac)' : 'var(--text-primary)',
-            opacity: enabled ? 1 : 0.35,
-          })
-          const foldEnabled = keeper != null && !isKeeper
+          const isMain = c.job_id === main
+          const willFold = main != null && !isMain
           return (
-            <div key={c.job_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, background: isKeeper ? 'rgba(48,207,172,0.10)' : 'transparent', border: `1px solid ${isKeeper ? 'var(--teal, #30cfac)' : 'rgba(28,24,20,0.12)'}` }}>
-              <button type="button" onClick={() => chooseKeeper(c.job_id)} style={pill(isKeeper, true)}>
-                {isKeeper ? '✓ Main' : 'Main'}
-              </button>
-              <button type="button" disabled={!foldEnabled} onClick={() => toggleFold(c.job_id)} style={pill(isFold && foldEnabled, foldEnabled)}>
-                {isFold && foldEnabled ? '✓ Folding in' : 'Fold in'}
+            <div key={c.job_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 9px', borderRadius: 6, background: isMain ? 'rgba(48,207,172,0.12)' : 'transparent', border: `1px solid ${isMain ? 'var(--teal, #30cfac)' : 'rgba(28,24,20,0.12)'}` }}>
+              <button
+                type="button"
+                onClick={() => toggleMain(c.job_id)}
+                style={{
+                  fontFamily: 'var(--font-heading)', fontSize: 11, fontWeight: 800, letterSpacing: '0.04em',
+                  textTransform: 'uppercase', padding: '6px 12px', borderRadius: 6, flexShrink: 0, cursor: 'pointer',
+                  border: `1.5px solid ${isMain ? 'var(--teal, #30cfac)' : 'rgba(28,24,20,0.35)'}`,
+                  background: isMain ? 'var(--header-dark)' : 'transparent',
+                  color: isMain ? 'var(--teal, #30cfac)' : 'var(--text-primary)',
+                }}
+              >
+                {isMain ? '✓ Main job' : 'Make main'}
               </button>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
                 <div style={{ fontSize: 10, color: 'var(--text-light)' }}>{rangeLabel(c)} · {c.crewDays} crew day{c.crewDays === 1 ? '' : 's'}{c.status ? ` · ${c.status}` : ''}</div>
               </div>
+              {willFold && (
+                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-light)', fontFamily: 'var(--font-heading)', flexShrink: 0 }}>
+                  ↳ folds in
+                </span>
+              )}
             </div>
           )
         })}
@@ -103,21 +91,18 @@ function CombineGroup({ group, changedBy, onCombined }) {
       {error && <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 8, fontFamily: 'var(--font-body, inherit)' }}>{error}</div>}
 
       {!confirming ? (
-        <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button className="app-act-btn app-act-primary" disabled={keeper == null || foldIds.length === 0 || busy} onClick={() => setConfirming(true)}>
-            Combine {foldIds.length || ''} into main job
+        <div style={{ marginTop: 10 }}>
+          <button className="app-act-btn app-act-primary" disabled={main == null || busy} onClick={() => setConfirming(true)}>
+            {main == null ? 'Pick a main job first' : `Combine ${foldIds.length} into main job`}
           </button>
-          {keeper != null && foldIds.length < group.cards.length - 1 && (
-            <button className="app-act-btn" onClick={foldAllOthers}>Fold all others</button>
-          )}
         </div>
       ) : (
         <div style={{ marginTop: 10, padding: 10, borderRadius: 6, background: 'rgba(28,24,20,0.06)' }}>
           <div style={{ fontSize: 12, fontFamily: 'var(--font-body, inherit)', marginBottom: 8 }}>
-            Fold {foldIds.length} card{foldIds.length === 1 ? '' : 's'} into <b>{keeperCard?.name}</b>? Their crew days move under it as trips, and the folded cards are hidden (not deleted).
+            Fold {foldIds.length} card{foldIds.length === 1 ? '' : 's'} into <b>{mainCard?.name}</b> ({rangeLabel(mainCard || {})})? Their crew days move under it as trips, and the folded cards are hidden (not deleted).
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="app-act-btn app-act-primary" disabled={busy} onClick={doCombine}>{busy ? 'Combining…' : 'Confirm combine'}</button>
+            <button className="app-act-btn app-act-primary" disabled={busy} onClick={doCombine}>{busy ? 'Combining…' : 'Yes, combine'}</button>
             <button className="app-act-btn" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
           </div>
         </div>
@@ -139,7 +124,7 @@ export default function CombineDuplicatesModal({ jobs = [], assignmentsByJobId =
           <button className="app-act-btn" onClick={onClose}>Close</button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-light)', fontFamily: 'var(--font-body, inherit)', marginBottom: 14 }}>
-          These jobs show as more than one card because they were scheduled several times. Fold the extras into the main one — nothing is deleted, and you decide every combine.
+          These jobs show as more than one card because they were scheduled several times. Pick the main one for each — the rest fold into it. Nothing is deleted, and you decide every combine.
         </div>
 
         {groups.length === 0 ? (

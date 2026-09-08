@@ -1,0 +1,119 @@
+SC Handoff v221 — B103: show every job, flag unlinked ones (never hide)
+Date: 2026-09-08
+Worktree: ~/sales-command
+Branch: main (merged + deployed) · feat branch fix/b103-surface-crewed-orphans deleted
+Prod: www.scmybiz.com (Vercel auto-deploy on push to main)
+
+════════════════════════════════════════════════════════════════════════
+SESSION SUMMARY
+════════════════════════════════════════════════════════════════════════
+Fixed B103 (T1): the schedule was hiding real, crewed jobs. B86 had hidden every
+job with no Sales link (null call_log_id) on the premise "null link = phantom" —
+wrong for jobs that have real crew assigned. Symptom: Weekly Crew Capacity counted
+crew the board/calendar/exports didn't show; crew tooltips showed a raw id
+("Job 1054"); Daily Crew Status printed "—" for crew who WERE assigned.
+
+Started with a narrower fix (hide only if unlinked AND no crew) but Chris changed
+the model mid-session: the app must NEVER be the one deciding what he doesn't see,
+because real people are never assigned to a job that shouldn't be looked at, and
+hidden bugs are the dangerous ones. Final model: SHOW EVERY active job; FLAG the
+unlinked ones instead of hiding. Merged to main and deployed; Chris confirmed the
+live board looks good.
+
+════════════════════════════════════════════════════════════════════════
+CHANGES SHIPPED
+════════════════════════════════════════════════════════════════════════
+Branch fix/b103-surface-crewed-orphans → main via merge 548b7cc (--no-ff).
+
+  • Plan doc docs/plans/b103_surface_crewed_orphans.md (+ AMENDMENT 2026-09-08
+    capturing the show-everything/flag-broken model change).
+  • src/schedule/lib/queries.js
+      - loadJobs(): removed the .not('call_log_id','is',null) hide entirely —
+        returns ALL active jobs (linked or not). Dropped the includeUnlinked
+        param and the interim loadCrewedJobIds() helper.
+      - normalizeJob(): flags unlinked jobs in ONE place → a ⚠ prefix on job_num
+        and a "Needs fixing — not linked to Sales" job_name fallback when there's
+        no name. Every surface (board/calendar/daily/exports/modals) inherits it.
+      - loadUnallocatedJobs(): same behavior, no longer passes includeUnlinked.
+  • src/schedule/lib/exports.js: the 4 raw jobs reads now route through loadJobs()
+    (via a small loadExportJobs()), so prints match the board and get the flag.
+
+════════════════════════════════════════════════════════════════════════
+DEPLOYED
+════════════════════════════════════════════════════════════════════════
+  • Merge 548b7cc pushed to origin/main → Vercel auto-deploys to www.scmybiz.com.
+  • No DB migration, no edge function, no infra. Read-path code only.
+
+════════════════════════════════════════════════════════════════════════
+DECISIONS (this session)
+════════════════════════════════════════════════════════════════════════
+  • Model: SHOW EVERYTHING, FLAG THE BROKEN — never hide. Supersedes the initial
+    "hide unless crewed" fix. Rationale (Chris): the app shouldn't decide what he
+    can't see; real crew proves a job is real; hidden bugs are the dangerous ones
+    (his standing invisible=dangerous discipline). An empty phantom now shows too,
+    flagged with ⚠ and no crew — a nudge to clean it up, not something buried.
+  • Flag style (Chris picked): keep the job's real name/number and add a ⚠; only
+    fall back to the "Needs fixing" text when the job has no name at all.
+  • Flag centralized in normalizeJob so all schedule surfaces show it identically
+    from one place (no per-view edits, no drift).
+  • No T6 security review: read-path display change only — no access rules, grants,
+    auth, money, or public/anon page touched.
+  • Pushed straight to prod on Chris's "push" without a separate browser smoke
+    first (build clean + prod-data verified); Chris confirmed the live board after.
+
+════════════════════════════════════════════════════════════════════════
+NEW / CLOSED BACKLOG ITEMS
+════════════════════════════════════════════════════════════════════════
+  • B103 — CLOSED 2026-09-08 (merge 548b7cc, live; Chris confirmed). Row added to
+    docs/BACKLOG.md this session (it had been tracked only in the /resume pointer).
+
+════════════════════════════════════════════════════════════════════════
+VERIFICATION
+════════════════════════════════════════════════════════════════════════
+  • npm run build (vite) ✅ clean.
+  • Prod-data check (Supabase): ~60 unlinked-but-crewed jobs + 7 empty phantoms —
+    all now visible; phantoms show flagged with no crew. The 3 known current jobs
+    confirmed crewed: Dave Lee (job_id 1278 / Bash Dave), K7 (1054 / Ary + Little),
+    Kalb (990 + siblings). Board count now matches Weekly Crew Capacity.
+  • Chris confirmed the live board looks good post-deploy.
+
+════════════════════════════════════════════════════════════════════════
+NOT TOUCHED / DEFERRED (intentional)
+════════════════════════════════════════════════════════════════════════
+  • Part 3 — historical orphan cleanup (~50 past-dated unlinked jobs). They now
+    surface (flagged) in history views but have no upcoming schedule impact. No
+    cleanup task filed; do a sweep only if Chris wants one.
+  • Unallocated bucket (workstream B) — still the place to allocate/merge flagged
+    jobs into their real Sales-linked row; unchanged this session.
+  • v219/prior open items (B96/B97/B99/B100/B101, S-series) — untouched.
+
+════════════════════════════════════════════════════════════════════════
+NEXT SESSION POINTERS
+════════════════════════════════════════════════════════════════════════
+  1. B103 is done. /resume pointer moved off it (see active-work.txt).
+  2. If flagged jobs pile up on the board, that's the cue to work the Unallocated
+     bucket (workstream B): link each to its Sales record or merge/retire it.
+  3. Open backlog when ready: B87 (allocation-aware board follow-ups), B96/B97
+     (scheduled-job lead invariant), B99/B100/B101 (calendar/pane cleanups).
+
+════════════════════════════════════════════════════════════════════════
+FILES TO KNOW
+════════════════════════════════════════════════════════════════════════
+  Job load + flag:  src/schedule/lib/queries.js (loadJobs = show-all;
+                    normalizeJob = ⚠/"Needs fixing" flag; loadUnallocatedJobs)
+  Exports:          src/schedule/lib/exports.js (loadExportJobs → loadJobs)
+  Plan:             docs/plans/b103_surface_crewed_orphans.md (+ amendment)
+
+════════════════════════════════════════════════════════════════════════
+GIT STATE
+════════════════════════════════════════════════════════════════════════
+  Branch: main (clean before this handoff commit)
+  origin/main @ 548b7cc — "Merge B103: show every job, flag unlinked ones"
+  fix/b103-surface-crewed-orphans — MERGED and DELETED (local; never pushed to origin)
+  No open PRs, no scratch worktrees.
+
+════════════════════════════════════════════════════════════════════════
+END STATE
+════════════════════════════════════════════════════════════════════════
+B103 fixed, merged to main, deployed to prod, and confirmed live by Chris.
+Backlog row closed. Ready for a fresh session.

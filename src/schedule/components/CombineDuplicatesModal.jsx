@@ -29,11 +29,15 @@ function CombineGroup({ group, changedBy, onCombined }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
 
+  // Keep is a single-select toggle: click to pick, click again to un-pick. It does
+  // NOT auto-fold anything — folds are chosen explicitly (or via "Fold all others").
   function chooseKeeper(jobId) {
-    setKeeper(jobId)
-    setFolds(new Set(group.cards.map(c => c.job_id).filter(id => id !== jobId)))
     setError(null)
+    if (jobId === keeper) { setKeeper(null); setFolds(new Set()); return } // un-pick
+    setKeeper(jobId)
+    setFolds(prev => { const next = new Set(prev); next.delete(jobId); return next }) // keeper can't be folded
   }
+  // Fold is per-card, independent, freely toggleable (never the keeper).
   function toggleFold(jobId) {
     if (jobId === keeper) return
     setFolds(prev => {
@@ -41,6 +45,10 @@ function CombineGroup({ group, changedBy, onCombined }) {
       next.has(jobId) ? next.delete(jobId) : next.add(jobId)
       return next
     })
+  }
+  function foldAllOthers() {
+    if (keeper == null) return
+    setFolds(new Set(group.cards.map(c => c.job_id).filter(id => id !== keeper)))
   }
 
   const foldIds = [...folds]
@@ -58,7 +66,7 @@ function CombineGroup({ group, changedBy, onCombined }) {
     <div style={{ border: '1px solid rgba(28,24,20,0.18)', borderRadius: 8, padding: 12, marginBottom: 12, background: 'var(--bg-card)' }}>
       <div style={{ fontSize: 13, fontWeight: 800, fontFamily: 'var(--font-heading)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{group.title}</div>
       <div style={{ fontSize: 11, color: 'var(--text-light)', marginBottom: 10, fontFamily: 'var(--font-body, inherit)' }}>
-        Shows as {group.cards.length} cards. Pick the one to keep — the checked cards fold into it as trips in its history.
+        Shows as {group.cards.length} cards. First tap <b>Keep</b> on the one to keep, then tap <b>Fold in</b> on each card to fold into it (or "Fold all others"). Tap again to undo either.
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -95,10 +103,13 @@ function CombineGroup({ group, changedBy, onCombined }) {
       {error && <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 8, fontFamily: 'var(--font-body, inherit)' }}>{error}</div>}
 
       {!confirming ? (
-        <div style={{ marginTop: 10 }}>
+        <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="app-act-btn app-act-primary" disabled={keeper == null || foldIds.length === 0 || busy} onClick={() => setConfirming(true)}>
             Combine {foldIds.length || ''} into kept job
           </button>
+          {keeper != null && foldIds.length < group.cards.length - 1 && (
+            <button className="app-act-btn" onClick={foldAllOthers}>Fold all others</button>
+          )}
         </div>
       ) : (
         <div style={{ marginTop: 10, padding: 10, borderRadius: 6, background: 'rgba(28,24,20,0.06)' }}>

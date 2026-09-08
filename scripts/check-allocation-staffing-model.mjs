@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { crewRequirement, staffingForDay, staffingSummary } from '../src/schedule/lib/allocations.js'
+import { crewRequirement, staffingForDay, staffingSummary, allocationsInWindow } from '../src/schedule/lib/allocations.js'
 
 for (const value of [null, undefined, '', ' ', 'unknown', -1, 1.5]) assert.equal(crewRequirement(value), null)
 assert.equal(crewRequirement(0), 0)
@@ -25,3 +25,9 @@ const overlap = staffingForDay(job, [trips[0], { ...trips[0], crew_needed: 4 }],
 assert.equal(overlap.ambiguous, true);assert.equal(overlap.needed, null)
 assert.equal(staffingSummary([overlap]).label, '?', 'Overlaps must not silently use the first target')
 console.log('PASS unknown vs zero, inheritance, day-specific requirements/leads, gaps, and explicit overlapping-trip uncertainty.')
+const spanning={id:'full-span',seq:3,start_date:'2026-10-01',end_date:'2026-10-30'}
+const matching=allocationsInWindow({2:trips[1],1:trips[0],3:spanning,4:{start_date:'2026-11-02',end_date:'2026-11-03'},5:{start_date:null,end_date:null}},'2026-10-12','2026-10-17')
+assert.deepEqual(matching,[spanning,trips[0],trips[1]])
+assert.equal(matching[0],spanning,'Keep the original trip identity and entire date span')
+assert.deepEqual(allocationsInWindow(null,'2026-10-12','2026-10-17'),[])
+console.log('PASS visible-week titles include all matching trips, retain full multiweek spans, and exclude undated/other-week trips.')

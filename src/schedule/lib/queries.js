@@ -347,7 +347,7 @@ export async function loadMobilizationsByJobId(jobs, { liveOnly = false } = {}) 
   // drop allocation blocks past 1000 and they'd vanish from the board.
   const { data, error } = await loadAllRows(
     'job_mobilizations',
-    'id, job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow',
+    'id, job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow, note',
     { orderBy: 'id', filterFn: q => q.in('job_id', jobIds) },
   )
   if (error) {
@@ -357,6 +357,8 @@ export async function loadMobilizationsByJobId(jobs, { liveOnly = false } = {}) 
       if (row.job_id == null || row.seq == null) continue
       const map = out[row.job_id] || (out[row.job_id] = {})
       map[row.seq] = {
+        id: row.id,
+        seq: row.seq,
         label: row.label || null,
         start_date: row.start_date || null,
         end_date: row.end_date || null,
@@ -368,6 +370,7 @@ export async function loadMobilizationsByJobId(jobs, { liveOnly = false } = {}) 
         equipment: row.equipment || null,
         power_source: row.power_source || null,
         sow: row.sow || null,
+        note: row.note || null,
       }
     }
   }

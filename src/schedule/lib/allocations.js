@@ -131,3 +131,11 @@ export function staffingSummary(days) {
   const detailsVary = new Set(active.map(day => JSON.stringify([day.needed, day.leads, day.vehicles]))).size > 1
   return { label, leads, vehicles, detailsVary }
 }
+
+// Every saved trip touching the visible week, retaining identity and full span.
+export function allocationsInWindow(allocsForJob, start, end) {
+  const list = Array.isArray(allocsForJob) ? allocsForJob : Object.values(allocsForJob || {})
+  return list.filter(a => a && (a.start_date || a.end_date) &&
+    overlapsWeek([{ start: dstr(a.start_date), end: dstr(a.end_date) }], start, end))
+    .sort((a, b) => String(a.start_date || '').localeCompare(String(b.start_date || '')) || (a.seq || 0) - (b.seq || 0))
+}

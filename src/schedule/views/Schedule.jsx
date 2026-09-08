@@ -1,12 +1,14 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { loadJobs, updateJobField, loadMobilizationsByJobId } from '../lib/queries'
+import { loadJobs, updateJobField, loadMobilizationsByJobId, loadJobMobilizationRows } from '../lib/queries'
 import { crewLeadNames } from '../lib/crewLeads'
 import { useUser } from '../lib/user'
 import { useToast } from '../lib/toast'
 import { getJobStatus } from '../lib/jobStatus'
-import { jobRanges, overlapsWeek, inRange, staffingForDay, staffingSummary } from '../lib/allocations'
+import { jobRanges, overlapsWeek, inRange, staffingForDay, staffingSummary, allocationsInWindow } from '../lib/allocations'
+import { tripRange } from '../lib/trips'
+import ScheduleTripDetails from '../components/ScheduleTripDetails'
 
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const DAYS_LONG = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -624,6 +626,15 @@ export default function Schedule({ embedded = false } = {}) {
   // Drag state
   const [dragName, setDragName] = useState(null)
 
+  async function refreshJobTrips(jobId) {
+    const { data, error: refreshError } = await loadJobMobilizationRows(jobId)
+    if (refreshError) {
+      toast('Trip saved, but its refreshed details could not be loaded. Refresh the schedule.', 'err')
+      return
+    }
+    setAllocsByJobId(prev => ({ ...prev, [jobId]: Object.fromEntries(data.map(row => [row.seq, row])) }))
+  }
+
   if (loading) return <div className="loading">Loading schedule...</div>
   if (error) return <div className="error-msg">Error: {error}</div>
 
@@ -631,6 +642,7 @@ export default function Schedule({ embedded = false } = {}) {
     const dailyStaffing = dates.map(ds => staffingForDay(j, allocsByJobId[j.job_id], ds))
     const summary = staffingSummary(dailyStaffing)
     const weekLead = summary.leads.map(flipName).join(', ')
+    const weekTrips = allocationsInWindow(allocsByJobId[j.job_id], wsStr, weStr)
     const pw = isPW(j)
     const unames = wkAsgnUnique(j.job_id)
     const ct = unames.length
@@ -653,6 +665,9 @@ export default function Schedule({ embedded = false } = {}) {
             onClick={() => toggleJob(j.job_id)}
           >
             <div className="sch-brd-job-name">{j.job_num} - {j.job_name}</div>
+            {weekTrips.map(trip => <div className="sch-trip-label" key={trip.id}>
+              <strong>{trip.label || `Trip ${trip.seq}`}</strong><small>{tripRange(trip)}</small>
+            </div>)}
             <div className="sch-brd-job-meta">
               {j.work_type && String(j.work_type).split(',').map(t => t.trim()).filter(Boolean).map(t => (
                 <span key={t} className={`sch-tg ${gTagClass(t)}`}>{t}</span>
@@ -723,6 +738,9 @@ export default function Schedule({ embedded = false } = {}) {
         {/* Expanded detail panel */}
         {expanded && (
           <div className="sch-brd-detail">
+            {weekTrips.length > 0 && <ScheduleTripDetails job={j} trips={weekTrips} onUpdated={() => refreshJobTrips(j.job_id)} />}
+            <details className="sch-job-defaults" key={`${wsStr}:${weekTrips.length === 0}`} open={weekTrips.length === 0 ? true : undefined}>
+              <summary>Job dates, defaults and job notes</summary>
             <div className="sch-det-grid">
               <div>
                 <label>Vehicle</label>
@@ -787,6 +805,7 @@ export default function Schedule({ embedded = false } = {}) {
               <label>Job Notes</label>
               <textarea className="sch-job-notes" defaultValue={j.notes || ''} placeholder="Internal notes for this job..." onBlur={e => handleUpdateJob(j.job_id, 'notes', e.target.value)} />
             </div>
+            </details>
 
             {/* Deferred start */}
             <div className="sch-det-defer-wrap">

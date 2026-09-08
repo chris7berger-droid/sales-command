@@ -19,13 +19,17 @@ const server = await createServer({
       if (id !== '\0allocation-test') return
       return `import React from 'react';
         import {createRoot} from 'react-dom/client';
-        import {MemoryRouter,useNavigate} from 'react-router-dom';
+        import {MemoryRouter,useNavigate,useLocation} from 'react-router-dom';
         import ScheduleLayout from '/src/schedule/ScheduleLayout.jsx';
+        import StageJobCard from '/src/schedule/components/StageJobCard.jsx';
+        import {UserProvider} from '/src/schedule/lib/user.jsx';
         import {addJobMobilization} from '/src/schedule/lib/queries.js';
         import {printWeekSchedule} from '/src/schedule/lib/exports.js';
         window.testAdd = addJobMobilization;
         window.testPrintWeek = printWeekSchedule;
-        function Harness(){window.testNavigate=useNavigate();return React.createElement(ScheduleLayout,{teamMember:{name:'Codex regression',role:'Admin'}})}
+        function Harness(){window.testNavigate=useNavigate();const location=useLocation();
+          if(location.pathname==='/test-job')return React.createElement('div',{className:'schedule-root'},React.createElement(UserProvider,{teamMember:{name:'Codex regression'}},React.createElement(StageJobCard,{job:${JSON.stringify(main)},stage:'active',autoOpen:true})));
+          return React.createElement(ScheduleLayout,{teamMember:{name:'Codex regression',role:'Admin'}})}
         createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/settings']},React.createElement(Harness)));`
     },
     configureServer(vite) {
@@ -71,11 +75,16 @@ await page.route('**/*', async route=>{
     const payload=req.postDataJSON();mutations.push({table,payload,method:req.method()})
     if(table==='job_mobilizations'){
       if(failInsert)return send({message:'Fixture insert failure'},400)
+      if(req.method()==='PATCH'){
+        const row=mobs.find(m=>`eq.${m.id}`===url.searchParams.get('id')&&`eq.${m.job_id}`===url.searchParams.get('job_id'))
+        if(!row)return send({message:'Trip no longer belongs to this job'},406)
+        Object.assign(row,payload);return send(row)
+      }
       const row={id:'test-trip-'+(mobs.length+1),...payload};mobs.push(row);return send(row)
     }
     return send([])
   }
-  if(table==='crew')return send([{name:'Bash Dave',team:'1',archived:false},{name:'Sales-looking inactive',archived:true}])
+  if(table==='crew')return send([{name:'Bash Dave',team:'1',archived:false},{name:'Smith, Jane',team:'1',archived:false},{name:'Sales-looking inactive',archived:true}])
   if(table==='work_types')return send([{name:'Concrete Sealing'}])
   if(table==='assignments')return send(snapshotAssignments)
   if(table==='call_log')return send([{...callLog,jobs:jobs.map(({job_id,deleted,merged_into_job_id})=>({job_id,deleted,merged_into_job_id}))}])
@@ -200,6 +209,9 @@ try{
  assert.match(await multiRow.locator('.sch-brd-cell').nth(3).innerText(),/need 3/)
  assert.match(await multiRow.locator('.sch-brd-cell').nth(3).innerText(),/Jane Smith/)
  assert.match(await multiRow.locator('.sch-brd-cell').nth(0).innerText(),/Bash Dave/)
+ assert.equal(await multiRow.locator('.sch-trip-label').count(),2,'Show both trips in the viewed week')
+ assert.match(await multiRow.locator('.sch-trip-label').nth(0).innerText(),/Oct 12, 2026.*Oct 13, 2026/s)
+ assert.match(await multiRow.locator('.sch-trip-label').nth(1).innerText(),/Oct 15, 2026.*Oct 16, 2026/s)
  await page.screenshot({path:'/private/tmp/codex-review-schedule-multiple.png'})
  console.log('PASS Monday/Tuesday need 1; Thursday/Friday need 4 and flag the shortage, with the correct leads in Daily and Crew Schedule.')
  const [printPage]=await Promise.all([page.waitForEvent('popup'),page.evaluate(()=>window.testPrintWeek())])
@@ -238,6 +250,52 @@ try{
  await view('/daily');await card.waitFor()
  assert.equal(await card.locator('.dly-card-badge').innerText(),'0/3')
  console.log('PASS actual Add to Schedule rejects invalid counts, stores zero through reload, and preserves blank-as-inherit.')
+ // Real Jobs card -> shared editor -> real Crew Schedule -> same editor -> Jobs.
+ mobs=[{...mobs[0],id:'cross-trip',label:'WTC1 - Concrete Sealing',note:'Initial trip note',vehicle:'Truck 2',equipment:'Grinder',power_source:'Generator',sow:'Seal the concrete.'},
+       {...mobs[0],id:'november-trip',seq:2,label:'November return',start_date:'2026-11-02',end_date:'2026-11-03'}]
+ const beforeCross=mutations.length
+ await view('/test-job')
+ await page.getByRole('button',{name:'TRIPS',exact:true}).click()
+ const trip=page.locator('[data-trip-id="cross-trip"]')
+ await trip.locator('.job-trip-summary').click()
+ await trip.getByRole('button',{name:'Edit trip',exact:true}).click()
+ let editor=page.getByRole('dialog',{name:'Edit trip',exact:true})
+ await editor.getByLabel('Trip notes',{exact:true}).fill('TEST from Jobs')
+ await editor.getByRole('button',{name:'Save',exact:true}).click()
+ await editor.waitFor({state:'hidden'})
+ assert.equal(mobs[0].note,'TEST from Jobs')
+ await view('/schedule')
+ const crossRow=page.locator('.sch-board-row-wrap').filter({hasText:'7215'})
+ await crossRow.waitFor()
+ assert.equal(await crossRow.locator('.sch-trip-label').count(),1,'November trip must not label October')
+ assert.match(await crossRow.locator('.sch-trip-label').innerText(),/WTC1 - Concrete Sealing/)
+ await crossRow.locator('.sch-brd-job-label').click()
+ const details=crossRow.locator('[data-schedule-trip-id="cross-trip"]')
+ await details.waitFor()
+ assert.match(await details.innerText(),/Bash Dave.*Truck 2.*Grinder.*Generator.*Seal the concrete.*TEST from Jobs/s)
+ assert.equal(await crossRow.locator('.sch-job-defaults').getAttribute('open'),null)
+ await page.screenshot({path:'/private/tmp/codex-schedule-trip-details.png'})
+ await details.getByRole('button',{name:'Edit trip',exact:true}).click()
+ editor=page.getByRole('dialog',{name:'Edit trip',exact:true})
+ await editor.getByLabel('Trip label',{exact:true}).fill('WTC1 - Concrete Sealing revised')
+ await editor.getByLabel('Trip notes',{exact:true}).fill('Updated from Crew Schedule')
+ await editor.getByLabel('Lead',{exact:true}).selectOption('Smith, Jane')
+ await editor.getByRole('button',{name:'Save',exact:true}).click()
+ await editor.waitFor({state:'hidden'})
+ await details.getByText('Updated from Crew Schedule',{exact:true}).waitFor()
+ assert.match(await details.innerText(),/Jane Smith/)
+ assert.match(await crossRow.locator('.sch-trip-label').innerText(),/revised/)
+ await view('/test-job')
+ await page.getByRole('button',{name:'TRIPS',exact:true}).click()
+ await trip.locator('.job-trip-summary').click()
+ assert.match(await trip.innerText(),/revised.*Jane Smith.*Updated from Crew Schedule/s)
+ assert.equal(mobs.length,2,'Editing must preserve the same trip, without inserts')
+ assert.equal(mobs[0].id,'cross-trip')
+ assert.equal(mobs[0].vehicle,'Truck 2')
+ assert.equal(main.lead,null,'Trip lead must not overwrite the job default')
+ assert.equal(snapshotAssignments.length,0,'Choosing a trip lead must not fabricate day assignments')
+ assert.deepEqual(mutations.slice(beforeCross).filter(m=>m.table!=='job_changes').map(m=>[m.table,m.method]),[['job_mobilizations','PATCH'],['job_mobilizations','PATCH']])
+ console.log('PASS Jobs and Crew Schedule read/edit the same trip title, lead and notes; immediate refresh; other weeks excluded; no duplicate trips, job-default writes or crew assignments.')
  assert.equal(runtimeErrors.length,0,JSON.stringify(runtimeErrors))
  console.log('PASS no runtime errors; all database requests intercepted, zero real DB traffic.')
  }

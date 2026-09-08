@@ -1,0 +1,106 @@
+SC HANDOFF v222 — Manual Combine duplicates + mobilization History (2026-09-08)
+================================================================================
+
+SESSION SUMMARY
+---------------
+Built Phase A + B of the "One Job, Many Mobilizations" plan
+(sch-command docs/plans/mobilization_model.md), which pivoted MID-SESSION at
+Chris's direction from an AUTOMATIC duplicate-merge (old B1) to a MANUAL
+"Combine duplicates" tool. Also fixed the Schedule History panel to show a job's
+trips (built from its crew days) instead of the empty job_changes field-log.
+
+The DB foundation was authored + rehearsed + pushed from command-suite-db and is
+LIVE in shared prod. The UI was first built against the now-ARCHIVED sch-command
+repo, then re-built in the live unified app (sales-command/src/schedule) where
+Schedule actually renders (scmybiz.com). It lives on a branch + preview; NOT
+merged to production.
+
+CHANGES SHIPPED
+---------------
+command-suite-db (LIVE in prod, committed + pushed to main, rehearsed):
+  - 20260908120000  job_mobilizations: mob_type (4-value CHECK incl 'unconfirmed')
+                    + note + UNIQUE(job_id,seq) + is_go_back↔mob_type lockstep
+                    trigger + append-only job_mobilization_sow_versions table
+                    (SELECT/INSERT grants only, RESTRICT FK, tenant-chain RLS)
+                    + current_version_id pointer (nullable).
+  - 20260908130000  assignments.mobilization_id + same-job trigger + idempotent
+                    backfill. (Purely additive — the plan's C1 fail-open policy
+                    drop was PULLED OUT → command-suite-db BACKLOG MOB-1.)
+  - 20260908140000  jobs.merged_into_job_id (Combine hides a folded card without
+                    deleting it or freeing source_proposal_id).
+  - 20260908150000  combine_jobs(target, sources[]) — atomic manual-fold RPC;
+                    refuses cards not sharing the target's call_log_id.
+
+sales-command, branch feat/mobilization-combine (PREVIEW ONLY, not merged):
+  - src/schedule/components/CombineDuplicatesModal.jsx (new) — per group: each
+    card has "Add to Main" / "Don't Add" (both clickable, default Add); earliest
+    added = Main (badged); Save folds the rest in as trips. Groups frozen on open
+    so a saved group stays visible with a "✓ Combined into #N — <main>" banner;
+    job numbers shown on headers + rows.
+  - src/schedule/components/HistoryPanel.jsx — rewritten to render trips from
+    deriveJobTrips (crew-day runs; a >1wk gap starts a new trip). Was job_changes.
+  - src/schedule/lib/queries.js — combineJobs(), findDuplicateJobGroups(),
+    deriveJobTrips(); A3 seq-union in getJobMobilizations (dayless mobs visible);
+    merged_into_job_id filter in loadJobs.
+  - src/schedule/views/Jobs.jsx — "🔗 Combine duplicates (N)" toolbar button
+    (next to Recovery Bin) + modal wiring.
+  - src/schedule/components/StageJobCard.jsx — passes crew days + mobs to History.
+
+DECISIONS
+---------
+  - AUTO-MERGE DROPPED (Chris): no computer-guessed folding of which cards are the
+    same job. Manual Combine replaces it. sch-command plan amended (not overwritten).
+  - History = trips derived from EXISTING crew days, for every job, no combining
+    required (Chris: "we have the data, it should have been loaded").
+  - A2 same-job enforced by TRIGGER, not composite FK (assignments.job_id int vs
+    job_mobilizations.job_id bigint). B1's SOW-tag rewrite OMITTED (0 job_wtcs rows /
+    0 mobilization_seq tags in live prod — verified no-op).
+  - Fail-open policy drop DEFERRED (MOB-1): sales-command embeds a Schedule module
+    that read/writes assignments, so it needs its own cross-app security gate.
+
+VERIFICATION
+------------
+  - Migrations rehearsed on a prod-shaped throwaway (scripts/rehearse.sh) incl. a
+    combine_jobs fixture test (3-card fold, existing-trip fold, cross-call safety
+    rail, no row loss). Caught + fixed a real min(uuid) bug pre-push.
+  - buildvsplan on the SQL: GO (folded a T2 job-1058 double-rep fix + type/wording).
+  - /code-review on the branch: 0 ship-blockers, verdict SHIP → MOB-3 (4 Low).
+  - TWO real combines executed in prod via preview and DB-verified: job 1224
+    "Contract flooring" (1 trip, 6 crew days), job 1234 "Agru" (8 trips, 65 crew days).
+
+NEW / CLOSED BACKLOG ITEMS
+--------------------------
+  - MOBZ-1 (T2, sales-command) — the feature; on branch, DB live, merge = go-live.
+  - MOB-3  (T3, sales-command) — 4 Low code cleanups from the review.
+  - MOB-1  (T? , command-suite-db) — deferred assignments fail-open drop.
+  - MOB-2  (T2, command-suite-db) — scope-versions grants vs restrictive_combos=1
+    invariant (prod now 7, SAFE/no leak) + baseline+EXPECT catch-up (BLOCKED on it).
+
+NOT TOUCHED
+-----------
+  - mobilization_model Phase C (screens beyond History) / Phase D (Field) — not built.
+  - The MobsModal editor + MOBS badge (real job_mobilizations records) — unchanged;
+    they read job_mobilizations rows, distinct from the crew-day-derived History.
+  - StatsBar in the schedule module (dead/unused) — left alone.
+
+NEXT SESSION POINTERS
+---------------------
+  - GO-LIVE is a decision: merge feat/mobilization-combine → main to put Combine +
+    History on scmybiz.com. Build session did not merge.
+  - command-suite-db has a pending baseline+EXPECT catch-up BLOCKED on the MOB-2
+    grants decision — --against-prod currently reports drift (expected; understood:
+    +1 table, +3 fns, +2 triggers, +6 indexes, +2 policies, grants, restrictive_combos
+    1→7 all from the append-only versions table). Do the catch-up once MOB-2 is decided.
+
+FILES TO KNOW
+-------------
+  - sch-command/docs/plans/mobilization_model.md (plan + amendment)
+  - command-suite-db/supabase/migrations/20260908*.sql
+  - sales-command/src/schedule/{components/CombineDuplicatesModal.jsx,
+    components/HistoryPanel.jsx, lib/queries.js, views/Jobs.jsx}
+
+GIT STATE
+---------
+  - command-suite-db: main @ f3049fc (pushed).
+  - sales-command: branch feat/mobilization-combine (pushed; preview live). NOT
+    merged to main. Latest commit on branch = the backlog+handoff for this session.

@@ -65,19 +65,27 @@ function CombineGroup({ group, changedBy, onCombined }) {
         {group.cards.map(c => {
           const isKeeper = c.job_id === keeper
           const isFold = folds.has(c.job_id)
+          const pill = (active, enabled) => ({
+            fontFamily: 'var(--font-heading)', fontSize: 11, fontWeight: 800, letterSpacing: '0.04em',
+            textTransform: 'uppercase', padding: '5px 11px', borderRadius: 6, flexShrink: 0,
+            cursor: enabled ? 'pointer' : 'default',
+            border: `1.5px solid ${active ? 'var(--teal, #30cfac)' : 'rgba(28,24,20,0.3)'}`,
+            background: active ? 'var(--header-dark)' : 'transparent',
+            color: active ? 'var(--teal, #30cfac)' : 'var(--text-primary)',
+            opacity: enabled ? 1 : 0.35,
+          })
+          const foldEnabled = keeper != null && !isKeeper
           return (
-            <div key={c.job_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 6, background: isKeeper ? 'var(--header-dark)' : 'transparent', color: isKeeper ? 'var(--teal, #30cfac)' : 'var(--text-primary)', border: '1px solid rgba(28,24,20,0.12)' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--font-heading)' }}>
-                <input type="radio" name={`keep-${group.callLogId}`} checked={isKeeper} onChange={() => chooseKeeper(c.job_id)} />
-                Keep
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, cursor: keeper == null || isKeeper ? 'default' : 'pointer', opacity: keeper == null || isKeeper ? 0.4 : 1, fontFamily: 'var(--font-heading)' }}>
-                <input type="checkbox" disabled={keeper == null || isKeeper} checked={isFold} onChange={() => toggleFold(c.job_id)} />
-                Fold in
-              </label>
+            <div key={c.job_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, background: isKeeper ? 'rgba(48,207,172,0.10)' : 'transparent', border: `1px solid ${isKeeper ? 'var(--teal, #30cfac)' : 'rgba(28,24,20,0.12)'}` }}>
+              <button type="button" onClick={() => chooseKeeper(c.job_id)} style={pill(isKeeper, true)}>
+                {isKeeper ? '✓ Keep' : 'Keep'}
+              </button>
+              <button type="button" disabled={!foldEnabled} onClick={() => toggleFold(c.job_id)} style={pill(isFold && foldEnabled, foldEnabled)}>
+                {isFold && foldEnabled ? '✓ Folding in' : 'Fold in'}
+              </button>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
-                <div style={{ fontSize: 10, opacity: 0.8 }}>{rangeLabel(c)} · {c.crewDays} crew day{c.crewDays === 1 ? '' : 's'}{c.status ? ` · ${c.status}` : ''}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-light)' }}>{rangeLabel(c)} · {c.crewDays} crew day{c.crewDays === 1 ? '' : 's'}{c.status ? ` · ${c.status}` : ''}</div>
               </div>
             </div>
           )

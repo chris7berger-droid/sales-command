@@ -1,14 +1,6 @@
 .schedule-root .sch-trip-label { margin-top: 5px; font-size: 13px; overflow-wrap: anywhere; }
 .schedule-root .sch-trip-label small { display: block; font-size: 11px; font-weight: 400; }
-.schedule-root .sch-trip-details { margin-bottom: 16px; }
-.schedule-root .sch-trip-details h4 { margin: 0 0 10px; font-family: var(--font-heading); font-size: 16px; }
-.schedule-root .sch-week-trip { padding: 12px; margin-bottom: 10px; background: var(--bg-card); border: 1px solid var(--brd); border-left: 4px solid var(--teal); border-radius: 6px; }
-.schedule-root .sch-week-trip-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 13px; }
-.schedule-root .sch-week-trip-heading > div > div { color: var(--text-light); margin-top: 3px; font-size: 12px; }
-.schedule-root .sch-week-trip dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-top: 12px; font-size: 13px; }
-.schedule-root .sch-week-trip dt { color: var(--text-light); font-weight: 700; }
-.schedule-root .sch-week-trip dd { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.schedule-root .sch-week-trip small { font-weight: 400; }
-.schedule-root .sch-trip-note { margin-top: 12px; font-size: 13px; }
-.schedule-root .sch-trip-note p { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.schedule-root .sch-job-defaults > summary { cursor: pointer; padding: 8px 0; margin-bottom: 8px; font-weight: 700; }
+.schedule-root .sch-trip-select { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12px; font-weight: 700; }
+.schedule-root .sch-trip-select select { flex: 1; min-width: 0; }
+.schedule-root .sch-trip-save { display: flex; gap: 8px; margin-top: 8px; }
+.schedule-root .sch-trip-editor [role="alert"] { color: var(--danger); margin: 8px 0; }

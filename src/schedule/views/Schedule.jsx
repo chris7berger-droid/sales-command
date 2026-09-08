@@ -738,9 +738,7 @@ export default function Schedule({ embedded = false } = {}) {
         {/* Expanded detail panel */}
         {expanded && (
           <div className="sch-brd-detail">
-            {weekTrips.length > 0 && <ScheduleTripDetails job={j} trips={weekTrips} onUpdated={() => refreshJobTrips(j.job_id)} />}
-            <details className="sch-job-defaults" key={`${wsStr}:${weekTrips.length === 0}`} open={weekTrips.length === 0 ? true : undefined}>
-              <summary>Job dates, defaults and job notes</summary>
+            <ScheduleTripDetails key={wsStr} job={j} trips={weekTrips} leadNames={leadNames} onUpdated={() => refreshJobTrips(j.job_id)}>
             <div className="sch-det-grid">
               <div>
                 <label>Vehicle</label>
@@ -805,7 +803,7 @@ export default function Schedule({ embedded = false } = {}) {
               <label>Job Notes</label>
               <textarea className="sch-job-notes" defaultValue={j.notes || ''} placeholder="Internal notes for this job..." onBlur={e => handleUpdateJob(j.job_id, 'notes', e.target.value)} />
             </div>
-            </details>
+            </ScheduleTripDetails>
 
             {/* Deferred start */}
             <div className="sch-det-defer-wrap">

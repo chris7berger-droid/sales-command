@@ -640,6 +640,7 @@ export default function Schedule({ embedded = false } = {}) {
     // otherwise the job's own (B87).
     const wkAlloc = allocForWeek(j)
     const nd = parseInt(pickAllocField(wkAlloc, j, 'crew_needed')) || 0
+    const weekLead = pickAllocField(wkAlloc, j, 'lead')
     const pw = isPW(j)
     const unames = wkAsgnUnique(j.job_id)
     const ct = unames.length
@@ -673,6 +674,7 @@ export default function Schedule({ embedded = false } = {}) {
             </div>
             <div className="sch-brd-crew-info">
               {ct}/{nd} crew
+              {weekLead && <span> · Lead: {flipName(weekLead)}</span>}
               {j.deferred_time && j.deferred_days && (
                 <span className="sch-defer-badge">{'\u23F0'} {fmt12(j.deferred_time)}</span>
               )}
@@ -1121,7 +1123,7 @@ export default function Schedule({ embedded = false } = {}) {
             {unscheduled.length > 0 && (
               <div className="sch-brd-divider">
                 <div className="sch-brd-divider-line" />
-                <span>Unscheduled this week</span>
+                <span>Crew not assigned this week</span>
                 <div className="sch-brd-divider-line" />
               </div>
             )}

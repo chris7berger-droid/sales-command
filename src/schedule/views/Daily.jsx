@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { loadJobs, loadMobilizationsByJobId } from '../lib/queries'
-import { jobRanges, overlapsWeek, allocForWeek as allocForWeekAt, pickAllocField } from '../lib/allocations'
+import { jobRanges, overlapsWeek, inRange, allocForWeek as allocForWeekAt, pickAllocField } from '../lib/allocations'
 
 /* ── Daily view — faithful port of the Apps Script rDaily() (Schedule Commander v2).
    Job cards with a crew × day check grid, gap row, status sections, and legend.
@@ -225,8 +225,11 @@ export default function Daily() {
     const nd = parseInt(pickAllocField(wa, j, 'crew_needed'), 10) || 0
     const vehicle = pickAllocField(wa, j, 'vehicle')
     const lead = pickAllocField(wa, j, 'lead')
+    const ranges = jobRanges(j, allocsByJobId[j.job_id])
     let hasGap = false
     const gaps = dates.map(ds => {
+      // Crew is needed only on the job's dated work, not every day in the week.
+      if (ranges.length && !inRange(ranges, ds)) return { gap: false, dc: 0 }
       let dc = 0
       unames.forEach(u => {
         if (crewJobDays(j, u).indexOf(ds) >= 0 && getCSt(u, ds) === 'available') dc++
@@ -241,6 +244,7 @@ export default function Daily() {
           <div className="dly-card-info">
             <span className="dly-card-name">{jobTitle(j)}</span>
             <WorkTags wt={j.work_type} />
+            {lead && <span className="dly-tg">Lead: {lead}</span>}
             {vehicle && <span className="dly-tg vh">{vehicle}</span>}
             {pw && <span className="dly-pw-tag">PW</span>}
           </div>
@@ -330,18 +334,7 @@ export default function Daily() {
       {noCrewJobs.length > 0 && (
         <>
           <div className="dly-section">Unassigned Jobs</div>
-          {noCrewJobs.map(j => (
-            <div className="dly-card dly-card-gap" key={j.job_id}>
-              <div className="dly-card-hdr">
-                <div className="dly-card-info">
-                  <span className="dly-card-name">{jobTitle(j)}</span>
-                  <WorkTags wt={j.work_type} />
-                  {isPW(j) && <span className="dly-pw-tag">PW</span>}
-                </div>
-                <div className="dly-card-badge" style={{ color: 'var(--red)' }}>0/{parseInt(j.crew_needed, 10) || '?'}</div>
-              </div>
-            </div>
-          ))}
+          {noCrewJobs.map(jobCard)}
         </>
       )}
 

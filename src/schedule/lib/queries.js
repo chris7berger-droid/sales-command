@@ -605,7 +605,7 @@ export async function searchExistingJobs(term) {
   if (!q) return { data: [], error: null }
   const { data, error } = await loadAllRows(
     'call_log',
-    'id, job_number, display_job_number, customer_name, job_name, jobs!inner(job_id, deleted)',
+    'id, job_number, display_job_number, customer_name, job_name, jobs!inner(job_id, deleted, merged_into_job_id)',
     { orderBy: 'id', orderAsc: false },
   )
   if (error) return { data: [], error }
@@ -613,7 +613,9 @@ export async function searchExistingJobs(term) {
   for (const cl of data || []) {
     const jobsArr = Array.isArray(cl.jobs) ? cl.jobs : (cl.jobs ? [cl.jobs] : [])
     for (const j of jobsArr) {
-      if (j.deleted === 'Yes') continue
+      // Combine keeps the old row (and its Sales link) but the board hides it.
+      // Never offer that hidden row as the parent of a new allocation.
+      if (j.deleted === 'Yes' || j.merged_into_job_id != null) continue
       const num = cl.job_number == null ? '' : String(cl.job_number)
       const hay = `${num} ${cl.customer_name || ''} ${cl.job_name || ''}`.toLowerCase()
       if (!hay.includes(q)) continue
@@ -1443,10 +1445,19 @@ export async function addJobMobilization(jobId, { seq, label, start_date, end_da
   // this function — not the "+ Job" caller — because MobsModal.jsx also calls here,
   // so the invariant ("no trip on an orphan") holds for BOTH writers.
   const { data: parent, error: pErr } = await supabase
-    .from('jobs').select('call_log_id').eq('job_id', jid).single()
+    .from('jobs').select('call_log_id, deleted, merged_into_job_id').eq('job_id', jid).single()
   if (pErr) return { data: null, error: pErr }
   if (!parent || parent.call_log_id == null) {
     return { data: null, error: new Error('This job has no Sales link — create it in Sales first before adding a mobilization.') }
+  }
+  // Re-check at save time: the picker (or MobsModal) may have been opened before
+  // another user combined/deleted the job. Do not silently redirect: seq was
+  // calculated for the selected job, not the surviving job.
+  if (parent.merged_into_job_id != null) {
+    return { data: null, error: new Error('This job was combined into another record. Reopen the job search and select its current record before adding a trip.') }
+  }
+  if (parent.deleted === 'Yes') {
+    return { data: null, error: new Error('This job was deleted. Select an active job before adding a trip.') }
   }
   const { data, error } = await supabase
     .from('job_mobilizations')

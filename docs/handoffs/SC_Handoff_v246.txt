@@ -1,0 +1,33 @@
+SC Handoff v246 — Weekly crew text polish released — 2026-09-09
+
+SESSION SUMMARY
+Chris approved the preview and requested merging/cleanup so the branch was not
+left hanging. PR #43 merged at the approved head 76c0044.
+
+CHANGES SHIPPED
+Back to Crew Schedule preserves the selected week. Weekly text controls and
+preview use a two-panel desktop layout, stacked on phones. Sidebar highlights
+only the actual route. Details and validation in v245.
+
+DECISIONS / BACKLOG
+F61 follow-up released; backlog pending-review note corrected. This supersedes
+v245's pending-review/merge instructions.
+
+VERIFICATION
+PR #43 MERGED as 2416c9159f29ceb2161a8378eb9d456940170f01.
+Vercel production deployment SUCCESS (5p1pRynzmtz6ckCQmbw61eyUFNkN).
+Approved build and intercepted browser regression checks passed before merge.
+No new authenticated production UI test or data mutation.
+
+NOT TOUCHED
+Separate SOW pipeline investigation remains READ ONLY. Findings and suggested
+sequence are in the conversation; no SOW implementation or data repairs made.
+Unrelated branches and worktrees preserved.
+
+NEXT SESSION POINTERS / FILES
+Weekly text polish is complete. Await Chris's next instruction on SOW work.
+See v245 for changed application files and tests.
+
+GIT STATE
+Main fast-forwarded to merge. codex/weekly-text-polish deleted locally and on
+GitHub (remote absence verified). This documentation closeout follows on main.

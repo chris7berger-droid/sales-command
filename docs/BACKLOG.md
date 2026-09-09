@@ -1,6 +1,6 @@
 # Sales Command — Backlog
 
-**F61 touch-up — 2026-09-09, built pending review:** Weekly crew texts adds a week-preserving Back to Crew Schedule button, two-panel desktop layout and stacked phone layout. Sidebar route matching now distinguishes Crew Schedule from Schedules. Build, focused lint, and intercepted browser regression suite pass. Branch `codex/weekly-text-polish`; handoff v245.
+**F61 touch-up — PR #43 merged 2026-09-09 (`2416c91`), production deployment successful:** Weekly crew texts adds a week-preserving Back to Crew Schedule button, two-panel desktop layout and stacked phone layout. Sidebar route matching now distinguishes Crew Schedule from Schedules. Build, focused lint, and intercepted browser regression suite pass. Feature branch removed locally and remotely; release handoff v246 supersedes v245’s pending-review status.
 
 **Trip/job handoff fixes — PR42 MERGED 2026-09-08, `a127944`, production verified:** Corrected Sales date authority, scrollable SOW, safe trip deletion, consecutive display numbering, trip-aware Planning DAYS/CREW, restored calendar, exact-trip Crew navigation and stable Back to Job. Consolidated handoff: `docs/handoffs/SC_Handoff_v244.txt`. This incorporates released weekly crew texts (F61); no superseded handoff overwrites.
 

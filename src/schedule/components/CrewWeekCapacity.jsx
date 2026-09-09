@@ -1,20 +1,19 @@
 import { useMemo, useState } from 'react'
 import HomeCapacityStrip from './HomeCapacityStrip'
-import { computeHomeDashboard } from '../lib/queries'
+import { crewWeekCapacity } from '../lib/crewScheduleRows'
 import { crewWeekSummary } from '../lib/crewWeekSummary'
 import { tripDate, tripRange } from '../lib/trips'
 
 const LABELS = { starting: 'Jobs Starting', ending: 'Jobs Ending', needing: 'Jobs Needing Crew', unknown: 'Unclear Crew Requirements' }
 const COLORS = { starting: 'var(--teal)', ending: 'var(--sig-orange)', needing: 'var(--sig-purple)' }
 
-export default function CrewWeekCapacity({ jobs, weekJobs, crew, assignments, crewStatus, allocations, dates, todayStr, weekLabel, loading, error, pulse, onOpenTrip }) {
+export default function CrewWeekCapacity({ rows, crew, crewStatus, dates, todayStr, weekLabel, loading, error, pulse, onOpenTrip }) {
   const [selected, setSelected] = useState(null)
   const historical = dates.at(-1) < todayStr
   const selectedTitle = selected === 'unknown' && historical ? 'Historical Crew Details' : LABELS[selected]
-  const data = useMemo(() => computeHomeDashboard({ jobs, crew, weekAssignments: assignments,
-    allAssignments: assignments, crewStatusMap: crewStatus, dates, todayStr,
-  }), [jobs, crew, assignments, crewStatus, dates, todayStr])
-  const summary = useMemo(() => crewWeekSummary(weekJobs, allocations, assignments, dates), [weekJobs, allocations, assignments, dates])
+  const data = useMemo(() => crewWeekCapacity(rows, crew, crewStatus, dates, todayStr),
+    [rows, crew, crewStatus, dates, todayStr])
+  const summary = useMemo(() => crewWeekSummary([], {}, [], dates, rows), [rows, dates])
   const badges = ['starting', 'ending', 'needing'].map(key => ({
     label: LABELS[key], value: summary[key].length, color: COLORS[key], onClick: () => setSelected(key),
   }))

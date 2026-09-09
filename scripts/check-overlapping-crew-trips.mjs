@@ -140,6 +140,34 @@ try {
   assert.match(await short.locator('.sch-brd-crew-info').innerText(), /0\/2/)
   await page.screenshot({ path: '/private/tmp/overlapping-crew-trips-fixed.png', fullPage: true })
   assert.deepEqual(errors, [])
+  // Crew dates keep the job visible after its trip dates move to another week.
+  job.start_date = '2026-09-21'; job.end_date = '2026-09-22'
+  for (const trip of trips) { trip.start_date = job.start_date; trip.end_date = job.end_date }
+  assignments = [
+    { id: id++, job_id: 1150, mobilization_id: 'wide', crew_name: 'Bash Dave', date: '2026-09-28' },
+    { id: id++, job_id: 1150, mobilization_id: null, crew_name: 'Smith, Jane', date: '2026-09-28' },
+    { id: id++, job_id: 9999, mobilization_id: null, crew_name: 'Bash Dave', date: '2026-09-28' },
+  ]
+  const before = JSON.stringify(assignments), writeCount = writes.length
+  await page.reload()
+  await page.getByText('This allocation has no available job.', { exact: false }).waitFor()
+  assert.equal(await page.locator('.sch-board-row-wrap').count(), 3)
+  assert.match(await wide.innerText(), /Assigned crew dates fall outside/)
+  const chip = page.locator('.sch-chip').filter({ hasText: 'Bash Dave' })
+  assert.equal(await chip.locator('.sch-crew-days').count(), 2)
+  assert.match(await chip.getAttribute('class'), /sch-chip-db/)
+  const monday = page.locator('.hcs-day').first()
+  assert.equal(await monday.locator('.hcs-day-count').innerText(), '2 / 2')
+  assert.equal(await monday.locator('.hcs-day-pct').innerText(), '100%')
+  await monday.click()
+  await page.getByText('Assigned (2)', {exact:true}).waitFor()
+  await page.getByText(/Unavailable job 9999 · Allocation needs review/, {exact:false}).waitFor()
+  await page.getByRole('button', {name:'CLOSE',exact:true}).click()
+  assert.equal(JSON.stringify(assignments), before)
+  assert.equal(writes.length, writeCount)
+  assert.deepEqual(errors, [])
+  await page.screenshot({path:'/private/tmp/crew-allocation-consistency.png',fullPage:true})
+  console.log('PASS off-date and unavailable allocations agree across board, cards, conflicts, capacity and day detail without data writes.')
   await page.getByRole('button', { name: '← Back to job', exact: true }).click()
   await page.waitForFunction(() => window.scheduleTestPath === '/schedule/jobs?job=1150')
   console.log('PASS Back to job keeps job identity even when history contains a generic Jobs list.')

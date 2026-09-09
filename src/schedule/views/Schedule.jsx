@@ -5,10 +5,9 @@ import { loadJobs, updateJobField, loadMobilizationsByJobId, loadJobMobilization
 import { crewLeadNames } from '../lib/crewLeads'
 import { useUser } from '../lib/user'
 import { useToast } from '../lib/toast'
-import { getJobStatus } from '../lib/jobStatus'
-import { jobRanges, overlapsWeek, inRange, staffingSummary } from '../lib/allocations'
+import { jobRanges, inRange, staffingSummary } from '../lib/allocations'
 import { tripRange } from '../lib/trips'
-import { crewScheduleRows, crewRowInRange, crewRowStaffing, crewRowNames } from '../lib/crewScheduleRows'
+import { crewWeekRows, crewCardRows, crewRowInRange, crewRowStaffing, crewRowNames } from '../lib/crewScheduleRows'
 import ScheduleTripDetails from '../components/ScheduleTripDetails'
 import CrewWeekCapacity from '../components/CrewWeekCapacity'
 
@@ -289,13 +288,6 @@ export default function Schedule({ embedded = false } = {}) {
     return getDoubleBookedDays(name).length > 0
   }
 
-  // Crew assigned anywhere this week
-  const wkAssignedNames = useMemo(() => {
-    const s = {}
-    for (const a of assignments) s[a.crew_name] = true
-    return s
-  }, [assignments])
-
   // Unique crew names assigned to a job this week
   function wkAsgnUnique(jobId) {
     const names = {}
@@ -322,24 +314,15 @@ export default function Schedule({ embedded = false } = {}) {
   const rangesFor = useCallback(
     (j) => rangesByJobId[String(j.job_id)] || jobRanges(j, allocsByJobId[j.job_id]),
     [rangesByJobId, allocsByJobId])
-  const jobOverlapsWeek = useCallback((j, wsS, weS) => overlapsWeek(rangesFor(j), wsS, weS), [rangesFor])
   const jobInRange = useCallback((j, ds) => inRange(rangesFor(j), ds), [rangesFor])
 
-  // Week jobs: active jobs overlapping current week.
-  // Uses getJobStatus() so legacy 'Parked'-status rows (normalized to
-  // 'Scheduled') appear here too. Without this, the JobDetail deep-link
-  // can land on /schedule for a legacy Parked job and the row won't render.
-  const weekJobs = useMemo(() => {
-    return jobs.filter(j => {
-      const s = getJobStatus(j)
-      const active = s === 'Scheduled' || s === 'In Progress' || s === 'On Hold' || s === 'Ongoing'
-      return active && jobOverlapsWeek(j, wsStr, weStr)
-    })
-  }, [jobs, wsStr, weStr, jobOverlapsWeek])
+  const boardRows = useMemo(() => crewWeekRows(jobs, allocsByJobId, assignments, wsStr, weStr),
+    [jobs, allocsByJobId, assignments, wsStr, weStr])
+  const weekJobs = useMemo(() => [...new Map(boardRows.filter(row => !row.unavailable)
+    .map(row => [row.job.job_id, row.job])).values()], [boardRows])
 
-  const boardRows = useMemo(() => weekJobs.flatMap(job =>
-    crewScheduleRows(job, allocsByJobId[job.job_id], assignments, wsStr, weStr)
-  ), [weekJobs, allocsByJobId, assignments, wsStr, weStr])
+  const wkAssignedNames = useMemo(() => Object.fromEntries(boardRows.flatMap(row =>
+    row.assignments.map(a => [a.crew_name, true]))), [boardRows])
 
   // Build crew -> { date -> [trip row keys] } for double-booking detection,
   // counting only assignments for jobs on the board this week.
@@ -441,7 +424,7 @@ export default function Schedule({ embedded = false } = {}) {
   const [assignModal, setAssignModal] = useState(null) // { name, jobId, selectedDays }
 
   function handleAssignCrew(name, row) {
-    if (row.trip.legacy || !row.ranges.length) return
+    if (row.unavailable || row.trip.legacy || !row.ranges.length) return
     setAssignModal({ name, jobId: row.job.job_id, selectedDays: crewJobDays(row, name), job: row.job, row })
   }
 
@@ -479,7 +462,7 @@ export default function Schedule({ embedded = false } = {}) {
   // Delete only the actual crew-day records attributed to this row. A job/date
   // predicate alone would also remove crew from its overlapping sibling trips.
   async function changeRowAssignments(row, name, selectedDays) {
-    if (assignmentBusy.current) return false
+    if (row.unavailable || assignmentBusy.current) return false
     assignmentBusy.current = true
     setAssignBusy(true)
     try {
@@ -667,7 +650,7 @@ export default function Schedule({ embedded = false } = {}) {
   }
 
 
-  function renderBoardRow(row, idx, dimmed) {
+  function renderBoardRow(row, dimmed) {
     const { job: j, trip } = row
     const isSummaryTarget = summaryTarget?.week === wsStr && summaryTarget.rowKey === row.key
     const dailyStaffing = dates.map(ds => crewRowStaffing(row, ds))
@@ -677,7 +660,7 @@ export default function Schedule({ embedded = false } = {}) {
     const pw = isPW(j)
     const unames = crewRowNames(row)
     const ct = unames.length
-    const co = pw ? 'var(--pw)' : (j.color || jCol(idx))
+    const co = pw ? 'var(--pw)' : (j.color || jCol(row.colorIndex))
     const expanded = expandedJobs[row.key]
     const ddays = j.deferred_days ? String(j.deferred_days).split(',').filter(Boolean) : []
 
@@ -699,12 +682,13 @@ export default function Schedule({ embedded = false } = {}) {
         <div className="sch-board-row" style={dimmed ? { opacity: 0.45 } : undefined}>
           <div
             className={`sch-brd-job-label${isFocused ? ' sch-label-focused' : ''}`}
-            onClick={() => toggleJob(row.key)}
+            onClick={() => { if (!row.unavailable) toggleJob(row.key) }}
           >
             <div className="sch-brd-job-name">{j.job_num} - {j.job_name}</div>
             <div className="sch-trip-label">
               <strong>{trip.legacy ? 'Crew assignments — trip not identified' : trip.label || `Trip ${trip.displayNumber}`}</strong><small>{tripRange(trip)}</small>
             </div>
+            {row.issue && <div role="note" style={{ fontSize: 12, marginTop: 4 }}>⚠ {row.issue}</div>}
             <div className="sch-brd-job-meta">
               {j.work_type && String(j.work_type).split(',').map(t => t.trim()).filter(Boolean).map(t => (
                 <span key={t} className={`sch-tg ${gTagClass(t)}`}>{t}</span>
@@ -1057,23 +1041,14 @@ export default function Schedule({ embedded = false } = {}) {
     // Crew day dots for assigned crew
     let detail = null
     if (asg) {
-      const jobMap = {}
-      for (const a of assignments) {
-        if (a.crew_name === c.name && dates.includes(a.date)) {
-          if (!jobMap[a.job_id]) {
-            const job = jobs.find(j => String(j.job_id) === String(a.job_id))
-            jobMap[a.job_id] = { job, dates: [] }
-          }
-          if (!jobMap[a.job_id].dates.includes(a.date)) jobMap[a.job_id].dates.push(a.date)
-        }
-      }
+      const cardRows = crewCardRows(boardRows, c.name)
       detail = (
         <div className="sch-crew-days-wrap">
-          {Object.entries(jobMap).map(([jid, jm]) => {
-            const jco = jm.job ? (isPW(jm.job) ? '#6d28d9' : (jm.job.color || jCol(parseInt(jid) % 16))) : '#888'
+          {cardRows.map(jm => {
+            const jco = jm.job ? (isPW(jm.job) ? '#6d28d9' : (jm.job.color || jCol(jm.colorIndex))) : '#888'
             return (
-              <div key={jid} className="sch-crew-days">
-                <div className="sch-crew-days-lbl">{jm.job ? jm.job.job_num : '?'}</div>
+              <div key={jm.key} className="sch-crew-days" title={`${jm.job.job_num} · ${jm.trip.label || 'Trip'} · ${tripRange(jm.trip)}${jm.issue ? ' — ' + jm.issue : ''}`}>
+                <div className="sch-crew-days-lbl">{jm.issue ? '⚠ ' : ''}{jm.job.job_num}</div>
                 <div className="sch-crew-dots">
                   {dates.map(ds => {
                     const daySt = getCSt(c.name, ds)
@@ -1119,8 +1094,8 @@ export default function Schedule({ embedded = false } = {}) {
 
   return (
     <>
-      {!embedded && <div inert={changingWeek ? true : undefined}><CrewWeekCapacity key={wsStr} jobs={jobs} weekJobs={weekJobs} crew={crew}
-        assignments={assignments} crewStatus={crewStatus} allocations={allocsByJobId}
+      {!embedded && <div inert={changingWeek ? true : undefined}><CrewWeekCapacity key={wsStr} rows={boardRows} crew={crew}
+        crewStatus={crewStatus}
         dates={dates} todayStr={todayStr} weekLabel={fmtWk(monday)} loading={loading}
         error={staticError || (loading ? error : null)} pulse={weekChanged && !changingWeek} onOpenTrip={openSummaryTrip} /></div>}
     <div className="sch-layout">
@@ -1189,7 +1164,7 @@ export default function Schedule({ embedded = false } = {}) {
             ))}
 
             {/* Scheduled jobs */}
-            {scheduled.map((j, idx) => renderBoardRow(j, idx, false))}
+            {scheduled.map(j => renderBoardRow(j, false))}
 
             {/* Divider */}
             {unscheduled.length > 0 && (
@@ -1201,7 +1176,7 @@ export default function Schedule({ embedded = false } = {}) {
             )}
 
             {/* Unscheduled jobs */}
-            {unscheduled.map((j, idx) => renderBoardRow(j, scheduled.length + idx, true))}
+            {unscheduled.map(j => renderBoardRow(j, true))}
 
             {weekJobs.length === 0 && (
               <div className="sch-brd-empty-msg">No jobs this week</div>

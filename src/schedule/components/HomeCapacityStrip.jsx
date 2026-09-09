@@ -110,7 +110,7 @@ export default function HomeCapacityStrip({ data, weekLabel, badges, summaryNote
               <div className="sch-dd-section-hdr" style={{ color: '#3498db' }}>Assigned ({det.assigned.length})</div>
               {det.assigned.map((c, idx) => (
                 <div key={c.name + idx} className="sch-dd-row">
-                  {'•'} {flipName(c.name)} <span className="sch-dd-arrow">{'→'}</span> {c.job ? c.job.job_num + ' - ' + c.job.job_name : '?'}
+                  {'•'} {flipName(c.name)} <span className="sch-dd-arrow">{'→'}</span> {c.allocationLabel || (c.job ? c.job.job_num + ' - ' + c.job.job_name : '?')}
                 </div>
               ))}
               <div className="sch-dd-section-hdr" style={{ color: 'var(--danger)' }}>Out ({det.out.length})</div>

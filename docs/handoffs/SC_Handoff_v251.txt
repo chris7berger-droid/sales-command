@@ -1,0 +1,63 @@
+SC Handoff v251 — Shared crew allocation views built — 2026-09-09
+
+SESSION SUMMARY
+Chris reported conflicting trip dates, sidebar allocations, and board visibility.
+Read-only production investigation: job 7215 September 28–29 crew links to the
+September 21–22 trip. Jacob has September 14 assignments to both 10233 and 10232;
+his September 14–19 records have NULL trip links. Deletion release B111 prevents
+deleting allocated work but does not require every assignment to have a trip.
+Chris authorized a fix making scheduling govern crew cards, then explicitly
+included the black capacity header. Built a shared weekly read model for all three.
+
+CHANGES BUILT (NOT DEPLOYED)
+crewWeekRows in crewScheduleRows.js keeps every weekly crew day visible. Active
+planned rows still require a date overlap; inactive jobs appear only with actual
+allocations. Missing/hidden job references appear as read-only issue rows and count
+as booked. Date-mismatched links and unmatched legacy days carry visible warnings.
+No automatic relinking, repair, removal, or historic data cleanup.
+Schedule board, sidebar trip rows/colors, weekly booked presence and double-booking
+use this same model. CrewWeekCapacity takes the exact board rows for percentages,
+people lists, and crewWeekSummary badges. Capacity counts each active person once,
+even with multiple allocations; existing sick/off precedence remains. Day detail
+shows all allocations for that person in one entry. Other Home consumers unchanged.
+
+DECISIONS / BACKLOG
+B112 In Progress: built/tested, awaiting review/release. B111 remains closed.
+This is deliberately read consistency, not a claim to seal every allocation writer.
+Mandatory trip links, date-edit validation, historical correction and provenance
+of the old mismatches remain separate work. No allocation is silently freed.
+
+VERIFICATION
+node scripts/check-crew-allocation-consistency.mjs PASS: off-date/inactive/missing
+jobs, double booking, distinct-person percentages, time off, bad trip dates,
+no invented starts and no automatic relinking.
+Expanded scripts/check-overlapping-crew-trips.mjs PASS in actual React browser:
+existing trip editing, assignment and sibling removal regressions plus mismatched
+and missing-job allocations agree across board/cards/header. No writes during
+read-model checks. Screenshot /private/tmp/crew-allocation-consistency.png viewed.
+scripts/check-crew-week-summary.mjs PASS: shared weeks, controls, deep links,
+trip counts, daily people, loading/races, errors, Logistics header, historical copy.
+npm run build PASS (existing bundle size warning). Focused helper/component/test
+lint PASS. Schedule.jsx retains its pre-existing unused declarations; no new lint
+findings introduced. git diff --check PASS.
+
+NOT TOUCHED
+No migration/RLS, live data edits, staff messages, automatic repairs, global Home
+metrics rewrite, mandatory-trip constraint, or production deployment.
+
+NEXT SESSION POINTERS
+Review only this branch against d19381f for concrete blockers in shared board,
+sidebar, conflict, capacity and summary behavior. Test mismatch fixtures and
+ordinary trip assignment/removal. Do not expand into allocation writer redesign,
+old data cleanup, unrelated lint/polish or accepted B111 limits. Report blockers
+with repro; otherwise stop. No edits/deploys/live mutations during review.
+
+FILES TO KNOW
+src/schedule/lib/crewScheduleRows.js; crewWeekSummary.js;
+src/schedule/views/Schedule.jsx; components/CrewWeekCapacity.jsx;
+components/HomeCapacityStrip.jsx (optional allocation label only).
+scripts/check-crew-allocation-consistency.mjs; check-overlapping-crew-trips.mjs.
+
+GIT STATE
+Branch codex/crew-allocation-consistency, base d19381f. Built change committed
+and pushed for review; main remains on the deletion release. DB untouched.

@@ -35,7 +35,7 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 5191, str
     return `import React from 'react';import {createRoot} from 'react-dom/client';import {MemoryRouter,useLocation} from 'react-router-dom';
     import StageJobCard from '/src/schedule/components/StageJobCard.jsx';import {UserProvider} from '/src/schedule/lib/user.jsx';
     import '/src/schedule/App.css';import '/src/schedule/index.css';
-    function Harness(){const [job,setJob]=React.useState(${JSON.stringify(job)});window.tripSetJob=setJob;window.tripPath=useLocation().pathname+useLocation().search;return React.createElement(StageJobCard,{job,stage:'active',autoOpen:true,onJobUpdate:()=>setJob(j=>({...j}))})}
+    function Harness(){const [job,setJob]=React.useState(${JSON.stringify(job)});window.tripSetJob=setJob;const [cardInputs,setCardInputs]=React.useState({});window.setCardInputs=setCardInputs;window.tripPath=useLocation().pathname+useLocation().search;return React.createElement(StageJobCard,{...cardInputs,job,stage:'active',autoOpen:true,onJobUpdate:()=>setJob(j=>({...j}))})}
     createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/schedule/jobs']},React.createElement(UserProvider,{teamMember:{name:'Codex test'}},React.createElement(Harness))));`
   },
   configureServer(vite) { vite.middlewares.use('/__trips-test', async (_req, res) => {
@@ -92,7 +92,21 @@ await page.route('**/*', async route => {
 const article = id => page.locator(`[data-trip-id="${id}"]`)
 async function openTrips() { await page.getByRole('button', { name: 'TRIPS', exact: true }).click();await page.locator('.job-trip').first().waitFor() }
 try {
-  await page.goto('http://127.0.0.1:5191/__trips-test');await openTrips()
+  await page.goto('http://127.0.0.1:5191/__trips-test')
+  if (!process.env.TRIPS_SNAPSHOT) {
+    await page.getByRole('button', { name: 'PLANNING', exact: true }).click()
+    await page.evaluate(() => {
+      window.tripSetJob(j => ({ ...j, start_date: null, end_date: null, call_log_id: 3791 }))
+      window.setCardInputs({ mobsByJobId: { 1150: { 2: { id: 'card-trip', seq: 2, start_date: '2026-09-28', end_date: '2026-10-30', crew_needed: 3 } } }, crewByCallLog: { 3791: [{name:'A'}, {name:'B'}, {name:'C'}] }, assignmentsByJobId: { 1150: new Set(['2026-10-03','2026-10-10','2026-10-17']) } })
+    })
+    await page.locator('.sjc-score').filter({ hasText: 'DAYS' }).getByText('28d', { exact: true }).waitFor()
+    await page.locator('.sjc-score').filter({ hasText: 'CREW' }).getByText('3 / 3', { exact: true }).waitFor()
+    await page.locator('.sjc-score').filter({ hasText: 'DAYS' }).click()
+    await page.locator('.job-trip').first().waitFor()
+    console.log('PASS trip-only Planning card shows 28d and 3 / 3; DAYS opens Trips.')
+    await page.reload()
+  }
+  await openTrips()
   if (process.env.TRIPS_SNAPSHOT) {
     const future = article('45ad5024-45e2-4cdf-a470-d7f50835df05')
     assert.match(await future.innerText(), /Oct 12, 2026 – Oct 13, 2026/)

@@ -53,3 +53,19 @@ unchanged Sales inputs, no phantom parent and later Schedule edits: PASS.
 Build and diff check PASS. PR42 extends to include this handoff correction.
 Earlier proposed original-date separation/direct trip row controls have not
 been implemented; discussion shifted to correcting the source of the dates.
+
+10227 DATA CLEANUP / CARD FOLLOW-UP
+User explicitly requested clearing the extra job schedule. Guarded live UPDATE
+cleared only jobs1280/call_log3803 start/end/scheduled_start/scheduled_end after
+verifying Sep28-Oct2. Readback confirmed N-DOT Polish trip UUID
+e55a4fce-9d33-4074-9f66-58795189852e retained Sep28-Oct30.
+Later read-only crew check: 84 assignments, 3 people, 28 dates; job and trip
+crew_needed both null. User directed to Trips > Edit trip > Crew needed.
+Planning DAYS and compact/Planning CREW now use jobCardSchedule helper with
+saved trips, not proposal fallback. Union worked days avoids bridging trips
+or double counting overlap. Weekend assignment exception retained. Null crew
+shows ?, zero stays zero, mixed targets show varies. Trip DAYS opens Trips.
+Model cases and real React test of trip-only 28d + 3/3 PASS; full existing
+trip UI suite, build and diff check PASS. No crew requirements were written.
+Readiness/baseChecklistPasses and StageBanner still use job-level dates: known
+follow-up, not represented as fixed by the scoped DAYS-card change.

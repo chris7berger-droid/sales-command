@@ -4,7 +4,7 @@
 // Everything renders inside `.schedule-root` so App.css/index.css stay fenced
 // (Phase 2, Beat 5). Auth/access gate + duplicate sidebar from the old App.jsx
 // are dropped — the host handles login, entitlement, and navigation.
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import './App.css'
 import './index.css'
@@ -53,6 +53,7 @@ export default function ScheduleLayout({ teamMember }) {
 }
 
 function ScheduleShell() {
+  const navigate = useNavigate()
   const toast = useToast()
   const user = useUser()
   const changedBy = user?.name || 'unknown'
@@ -331,7 +332,7 @@ function ScheduleShell() {
             <button onClick={() => { setActionsOpen(false); openAddCrew() }}>+ Crew</button>
             <button onClick={() => { setActionsOpen(false); setModal('workTypes') }}>Work Types</button>
             <button onClick={() => { setActionsOpen(false); setModal('crewList') }}>Crew List</button>
-            <button onClick={() => { setActionsOpen(false); setModal('sendSchedules') }}>Send Schedules</button>
+            <button onClick={() => { setActionsOpen(false); navigate('/schedule/schedules') }}>Send Schedules</button>
             <button onClick={() => { setActionsOpen(false); setModal('export') }}>Export</button>
           </div>
         )}
@@ -555,19 +556,6 @@ function ScheduleShell() {
               </div>
             ))}
             {showArchived && archivedCrew.length === 0 && <div className="mcl-empty">No archived crew members</div>}
-            <div className="macts">
-              <button className="app-act-btn" onClick={closeModal}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Send Schedules - placeholder */}
-      {modal === 'sendSchedules' && (
-        <div className="mbg" onClick={e => { if (e.target === e.currentTarget) closeModal() }}>
-          <div className="mdl">
-            <h3>Send Schedules</h3>
-            <p style={{ fontSize: 12, color: 'var(--sand-dark)' }}>Crew card flipper not yet built. This will open the Schedules view card sender.</p>
             <div className="macts">
               <button className="app-act-btn" onClick={closeModal}>Close</button>
             </div>

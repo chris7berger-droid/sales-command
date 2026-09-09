@@ -1,0 +1,74 @@
+SC Handoff v250 — Crew-first deletion released — 2026-09-09
+
+SESSION SUMMARY
+Chris supplied the independent NO BLOCKERS FOUND review for d8efc42..677efa0,
+then authorized release with “Go”. Released the reviewed DB safeguards first,
+then the app. No additional feature scope or live crew/job cleanup.
+
+CHANGES SHIPPED
+- DB migration 20260909160000_crew_first_deletion applied through npm run db:push.
+  Reviewed build/correction commits d8efc42 / 677efa0; release record 1746417.
+- Sales PR #44 merged by fast-forward to main at dfded07 (app build b5e5aee).
+  Production deployment 6360879187 succeeded; www.scmybiz.com serves the new
+  bundle index-Cyaq5omT.js with preflight, typed confirmation, and trip deletion.
+- Delete trip is inside expanded Crew Schedule trips and the job Trips editor.
+  Job/trip deletion blocks assigned crew until manually removed/reassigned.
+  Actual work and scope/ticket dependencies independently block deletion.
+  Two confirmations; permanent trip deletion requires typing DELETE.
+  Existing whole-job deletion keeps the 24-hour Recovery Bin.
+- Refreshed DB baseline from production: 52 functions, 59 triggers; other counts
+  unchanged (56 tables,178 indexes,233 policies,1169 table/9494 column grants,
+  PowerSync 10, realtime 2). Preserved invoices/versions replay annotations and
+  the six new routines’ API-role revokes. Only preflight is callable by auth.
+  Concurrency runner skips candidate application when baseline already has it.
+
+DECISIONS / CLOSED BACKLOG
+B111 and DB DEL-1 closed. DMS-8 baseline refresh recorded. Crew allocations are
+never silently cleared; no historical ghost records were automatically repaired.
+Accepted limitations remain: Field protection is job-wide (no trip FK), unsynced
+phone writes cannot be certified remotely, original parent schedule dates remain,
+and preserved scope history/tagged scope days block deletion. No scope redesign.
+
+VERIFICATION
+- Live pre-release fingerprint matched the expected production schema.
+- Standard db:push passed branch/ledger/collision, anon exposure controls and
+  post-candidate checks, plus PowerSync create-from-nothing/idempotence canaries.
+- Live ledger contains 20260909160000; assignment FK delete action is RESTRICT.
+  All six new functions are SECURITY DEFINER with fixed search_path. No anon or
+  service-role EXECUTE; authenticated EXECUTE only on check_schedule_deletion.
+- Read-only predicate on an existing active assigned production job returned crew.
+  No real production deletion was attempted for testing.
+- Refreshed baseline --verify and deletion regression rehearsal passed against
+  freshly verified LIVE prod. All six concurrency scenarios passed again.
+- Existing focused deletion, trips, overlapping crew browser regressions and
+  app build passed during the build; no app source changed during release.
+- Vercel preview and production builds succeeded. Preview URL requires Vercel
+  sign-in, so no interactive preview smoke. Production page and bundle fetched
+  successfully; bundle contains the reviewed flow. No authenticated production
+  deletion, actual phone sync, or full 24-hour recovery lifecycle was exercised.
+- git diff --check passed in both repositories.
+
+NOT TOUCHED
+No live assignments/hours/job deletions, staff messages, phone release, financial
+logic, SOW-1 implementation, printing, historical cleanup, or date-authority work.
+
+NEXT SESSION POINTERS
+Wait for Chris’s task. Do not reopen accepted limitations or restart broad review.
+Post-release DB regression command (baseline now includes migration):
+  bash scripts/rehearse.sh scripts/rehearse/crew_first_deletion.sql
+  python3 scripts/check-crew-first-concurrency.py
+For rollback, revert app first; DB rollback script removes the RPC, causing the
+new app to fail closed. Do not run the migration again on the refreshed baseline.
+
+FILES TO KNOW
+App: src/schedule/components/DeleteScheduleItem.jsx; ScheduleTripDetails.jsx;
+MobsModal.jsx; StageJobCard.jsx; src/schedule/lib/queries.js.
+DB: migration/rollback 20260909160000; scripts/rehearse/crew_first_deletion.sql;
+scripts/check-crew-first-concurrency.py; scripts/rehearse.sh; production baseline.
+v248 has full build details; v249 documents the corrected nullable-parent bypass.
+
+GIT STATE
+App main includes dfded07; this handoff/backlog closure is a final docs-only commit.
+Canonical DB main: 1746417, including reviewed 677efa0. Both pushed to origin/main.
+Feature branches and /private/tmp/command-suite-db-crew-first retained; that clone
+is pre-release context, not the current production baseline. PR #44 is merged.

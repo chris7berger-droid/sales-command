@@ -51,3 +51,13 @@ RELEASE VERIFICATION
 Vercel production status SUCCESS for merge 0a98826. Live /schedule/schedules
 returned HTTP 200; its deployed JS bundle contains Weekly crew texts,
 Previous person, and Meet at the shop at 6:30 AM. No authenticated data mutations.
+
+CLEANUP AUDIT
+F61 moved out of the active backlog into Completed Log. The local
+codex/weekly-crew-text branch and its isolated worktree were removed after
+verifying all commits were on main. GitHub's feature branch is also deleted;
+its stale local tracking ref was pruned. Both sales-command and retired
+sch-command main checkouts were clean at verification. The separate
+sales-command-bug-squash worktree / codex/bug-squash branch belongs to another
+terminal and was left untouched. The named stale-B103 stash is an intentional
+backup of pre-existing work, not an uncommitted feature change; retained.

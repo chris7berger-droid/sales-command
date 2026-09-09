@@ -1,0 +1,65 @@
+SC Handoff v249 — Nullable-parent deletion blocker fixed — 2026-09-09
+
+SESSION SUMMARY
+Independent review found one High blocker in v248: an assignment with job_id NULL
+and a valid mobilization_id escaped whole-job deletion checks, leaving allocated
+crew on a hidden job. Chris supplied the finding. Fixed only that blocker and its
+direct regression cases; no unrelated review/cleanup work.
+
+CHANGES BUILT (NOT SHIPPED)
+In command-suite-db's still-unapplied 20260909160000_crew_first_deletion.sql:
+- Deletion predicate follows both assignments.job_id and the relationship through
+  assignments.mobilization_id -> job_mobilizations.job_id. Existing NULL/wrong
+  parent crew now blocks the owning job and trip; unrelated explicit siblings stay
+  eligible. This protects existing data without automatically repairing/removing it.
+- Assignment INSERT/UPDATE rejects a non-null trip link with a NULL job_id.
+  With a job_id, verify the trip belongs to that job after locking the active job.
+- An assignment with BOTH links NULL keeps its prior behavior: it is not allocated
+  to any job/trip. Attaching a trip requires supplying its matching job_id.
+- Explicit repair of an existing NULL parent to the matching job is allowed;
+  manual removal remains allowed. No UI/application code changes.
+
+DECISIONS / BACKLOG
+B111 and DEL-1 remain In Progress: correction built/tested, awaiting targeted
+independent re-review and release. Other v248 limits remain unchanged and were
+explicitly accepted as nonblockers by the reviewer: conservative job-wide Field
+protection, unsynced-phone limits, retained original parent dates.
+
+VERIFICATION
+- Standard DB rehearsal with candidate + scripts/rehearse/crew_first_deletion.sql
+  PASS, including baseline fingerprints, broken-migration canaries and baseline/
+  post-candidate anonymous-exposure checks. Clone used documented age fallback;
+  no new live production fingerprint query was performed for this correction.
+- Added authenticated-role cases: existing NULL-parent linked crew blocks whole-
+  job/trip preflight; flag+timestamp soft delete, timestamp-only delete, hard job
+  delete, and trip delete all block; assignment/job remain unchanged. Explicit
+  sibling is not blocked. Manual repair/removal restores eligibility. New inserts,
+  nulling the parent, wrong-parent updates, and attaching a trip without a parent
+  are rejected. Existing unrelated regressions still pass.
+- scripts/check-crew-first-concurrency.py PASS, now six scenarios. Added actual
+  authenticated-role races: repair NULL-parent crew while deleting job (delete
+  waits then blocks); job deletion against NULL-parent trip-linked insertion
+  (insertion rejected, no ghost). Original four scenarios also pass.
+- git diff --check PASS. Browser tests/build were not repeated: no app code changed.
+  Their v248 results remain the latest app verification.
+
+NOT TOUCHED
+No live data, migration deployment, UI change, scope redesign, printing, date
+cleanup, or new permissions/policies. Canonical DB working tree stays on main.
+
+TARGETED RE-REVIEW
+Review only the delta after DB d8efc42 in the same feature branch. Reproduce the
+reviewer's NULL-parent assignment bypass and verify existing malformed links,
+INSERT/UPDATE rejection, explicit repair/removal, sibling safety and concurrency.
+Do not reopen accepted v248 limitations or hunt unrelated polish. One pass;
+report only concrete release blockers, then stop. No edits/deploys/live mutations.
+
+FILES / GIT STATE
+DB working clone: /private/tmp/command-suite-db-crew-first
+  branch codex/crew-first-deletion; previous review head d8efc42.
+  scripts/rehearse/crew_first_deletion.sql; scripts/check-crew-first-concurrency.py;
+  migration 20260909160000_crew_first_deletion.sql; docs/BACKLOG.md.
+  Branch also preserved in /Users/chrisberger/command-suite-db.
+App: /Users/chrisberger/sales-command, same branch; only backlog + this handoff
+  changed since b5e5aee. See git log -1 in each checkout for final local commits.
+No push, merge or deployment. v248 retains full build context and repro commands.

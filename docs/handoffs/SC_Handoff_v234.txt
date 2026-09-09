@@ -1,0 +1,21 @@
+SC HANDOFF v234 — Trip picker terminology (2026-09-08)
+====================================================
+
+SESSION SUMMARY / CHANGES SHIPPED
+Chris requested Trip 1, Trip 2, etc. instead of Mob in the Edit a trip picker.
+Changed the visible sequence label in shared MobsModal from Mob to Trip.
+
+DECISIONS / BACKLOG
+Display text only; existing sequence numbers and saved records unchanged.
+MOBZ-2 updated. No other terminology/workflow expansion.
+
+VERIFICATION
+Scoped component lint and git diff --check pass. No new tests for this text-only
+change; preceding v233 browser workflow checks remain applicable.
+
+NOT TOUCHED
+Database, trip identity, save behavior, production/main.
+
+NEXT / FILES / GIT
+MobsModal.jsx; BACKLOG.md. Same Codex branch; parent fa4dc8d.
+Commit/push and exact preview confirmation follow. No production merge.

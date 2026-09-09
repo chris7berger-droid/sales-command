@@ -228,7 +228,7 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, initia
               const dayCount = dayCountBySeq.get(row.seq)
               return (
                 <div key={row.id} className="mobs-row" style={{ borderLeftColor: row.is_go_back ? 'var(--warning)' : 'var(--command-green)' }}>
-                  <div className="mobs-seq">Mob {row.seq}</div>
+                  <div className="mobs-seq">Trip {row.seq}</div>
                   <div className="mobs-body">
                     <div className="mobs-label">
                       {row.label || <span style={{ color: 'var(--text-light)', fontWeight: 400 }}>(no label)</span>}

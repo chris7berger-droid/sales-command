@@ -1,0 +1,49 @@
+SC Handoff v241 — CODEX — 2026-09-08
+
+SESSION SUMMARY
+Chris accepted the final preview: “Perfect, we're done. Let's wrap this up and
+merge it. Do any branch maintenance. Make sure everything's clean. Write the
+handoff.” PR #39 is merged; B109 is complete.
+
+CHANGES SHIPPED
+Crew Schedule owns a shared board/header week. Jobs Starting, Jobs Ending and
+Jobs Needing Crew use the released per-trip staffing model and deduplicate jobs.
+Popup links open exact trip editors; separate drafts remain protected. Historical
+missing targets show recorded assignments without a header cleanup warning.
+Week navigation keeps the last complete screen visible until the new dates and
+data can appear together, with a small loading notice and gentle date feedback.
+The released B110 overlapping-trip behavior is integrated and preserved.
+
+DECISIONS / NEW OR CLOSED BACKLOG
+B109 moved to Completed Log. B107/B108 printing remains deferred.
+This handoff supersedes pending-preview/merge instructions in v236/v239/v240.
+
+VERIFICATION
+Approved app head: 1acc13cfcd0cc675046d1f7d659b0e22677d9c45.
+PR #39 merged as 31069cad617ea25394301d29595866ce735cc2a1.
+Vercel production status SUCCESS for that merge. Production route checked.
+Previous build/model and three intercepted React browser suites passed; final
+loading suite verifies fixed layout during delays, matching date/data snapshots,
+rapid navigation, retries, deep links, draft guards and reduced motion.
+Existing large-bundle warning and five pre-existing Schedule unused-symbol lint
+errors remain; no new lint findings. No live mutation tests or data repair.
+
+NOT TOUCHED
+Other screens and global Actions > Refresh retain their existing behavior.
+No DB/schema/RLS/public-page changes. No historical cleanup, no old job7215
+repair rerun. Other worktrees and unrelated branches preserved.
+
+NEXT SESSION POINTERS / FILES TO KNOW
+Read CLAUDE.md, docs/BACKLOG.md and this handoff, then wait for Chris's next task.
+Do not resume old B109 preview work; it is released and accepted.
+Core files: src/schedule/views/Schedule.jsx,
+src/schedule/components/CrewWeekCapacity.jsx,
+src/schedule/lib/crewWeekSummary.js, scripts/check-crew-week-summary.mjs.
+v239 contains integration details; v240 documents the loading change.
+
+GIT STATE
+PR https://github.com/chris7berger-droid/sales-command/pull/39 — MERGED.
+Workspace returned to main. Merged codex/crew-schedule-week-summary removed
+locally; GitHub automatically removed the remote branch. Remote refs pruned.
+This documentation closeout is committed/pushed on main after the release.
+Production: https://www.scmybiz.com/schedule/schedule

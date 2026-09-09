@@ -69,3 +69,12 @@ Model cases and real React test of trip-only 28d + 3/3 PASS; full existing
 trip UI suite, build and diff check PASS. No crew requirements were written.
 Readiness/baseChecklistPasses and StageBanner still use job-level dates: known
 follow-up, not represented as fixed by the scoped DAYS-card change.
+
+CREW NAVIGATION FOLLOW-UP
+CREW now opens the earliest dated saved trip's start week and passes its UUID
+in the trip query parameter. Board highlighting/scroll target matches job AND
+trip when supplied; old job-only links keep their behavior. Explicit per-trip
+Open Crew Schedule links also pass the UUID. With multiple dated trips, the
+job-card CREW button chooses earliest start, then sequence; no date => existing
+job-date/current-week fallback. No data writes. Model, full card UI, and full
+overlapping-board UI tests PASS, including future-week exact-trip highlighting.

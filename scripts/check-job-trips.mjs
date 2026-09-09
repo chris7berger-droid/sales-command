@@ -101,6 +101,8 @@ try {
     })
     await page.locator('.sjc-score').filter({ hasText: 'DAYS' }).getByText('28d', { exact: true }).waitFor()
     await page.locator('.sjc-score').filter({ hasText: 'CREW' }).getByText('3 / 3', { exact: true }).waitFor()
+    await page.locator('.sjc-score').filter({ hasText: 'CREW' }).click()
+    await page.waitForFunction(() => window.tripPath === '/schedule/schedule?job=1150&week=2026-09-28&trip=card-trip')
     await page.locator('.sjc-score').filter({ hasText: 'DAYS' }).click()
     await page.locator('.job-trip').first().waitFor()
     console.log('PASS trip-only Planning card shows 28d and 3 / 3; DAYS opens Trips.')
@@ -220,7 +222,7 @@ try {
     await page.screenshot({ path: '/private/tmp/codex-trips-mobile.png', fullPage: true })
     assert(await page.locator('.job-trips').evaluate(e => e.scrollWidth <= e.clientWidth), 'Trips panel must fit mobile width')
     await article('future').getByRole('button', { name: 'Open Crew Schedule' }).click()
-    await page.waitForFunction(() => window.tripPath === '/schedule/schedule?job=1150&week=2026-10-12')
+    await page.waitForFunction(() => window.tripPath === '/schedule/schedule?job=1150&week=2026-10-12&trip=future')
     console.log('PASS failed reads/retry, crew roster error/retry, responsive panel, and trip-specific Crew Schedule link.')
     // Review gap: first trips also exist as dates on jobs, before a trip row exists.
     rows = [];assignments = []

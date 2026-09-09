@@ -159,6 +159,7 @@ export default function Schedule({ embedded = false } = {}) {
   const location = useLocation()
   const focusJobId = searchParams.get('job')
   const focusWeek = searchParams.get('week')
+  const focusTripId = searchParams.get('trip')
 
   // Back button: when we arrived from a job card's CREW button (fromCard state),
   // browser-back returns to that exact list spot. If deep-linked with ?job= but
@@ -388,7 +389,7 @@ export default function Schedule({ embedded = false } = {}) {
     if (!el) return
     const t = setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60)
     return () => clearTimeout(t)
-  }, [focusJobId, weekJobs])
+  }, [focusJobId, focusTripId, boardRows])
 
   // Stats: available and out counts per day
   const stats = useMemo(() => {
@@ -683,7 +684,8 @@ export default function Schedule({ embedded = false } = {}) {
     const expanded = expandedJobs[row.key]
     const ddays = j.deferred_days ? String(j.deferred_days).split(',').filter(Boolean) : []
 
-    const isFocused = focusJobId && String(j.job_id) === String(focusJobId)
+    const isFocused = focusJobId && String(j.job_id) === String(focusJobId) &&
+      (!focusTripId || String(trip.id) === focusTripId)
 
     return (
       <div

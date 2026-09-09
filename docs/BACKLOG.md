@@ -1,5 +1,7 @@
 # Sales Command — Backlog
 
+**CREW navigation — 2026-09-08, preview branch:** Job-card CREW opens earliest saved trip start week and passes trip UUID; Crew Schedule highlights only that trip. Per-trip board links preserve identity too. Model + real card and overlapping-board UI regression tests pass.
+
 **Trip-aware Planning cards — 2026-09-08, preview branch:** DAYS now counts the union of live trip/job date ranges, preserving staffed-weekend exceptions and excluding gaps/overlap duplicates; trip DAYS opens Trips. CREW uses trip requirements with job fallback, including zero; mixed targets show varies and missing targets remain ?. Model and actual React card tests pass. Existing readiness gates remain unchanged and need a separate trip-aware review.
 
 **Date authority correction — 2026-09-08, `codex/bug-squash` (preview pending):** User clarified that only mobilizations or Schedule edits establish scheduling dates. Send no longer copies tentative WTC start/end into jobs or job_wtcs; copied Sales field-SOW days are undated, with scope/order/mobilization tags retained. Mobilization dates still copy unchanged. Existing job records are untouched. Actual send-handler regression test passes for dated/undated trips and later Schedule edits.

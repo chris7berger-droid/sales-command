@@ -15,7 +15,7 @@ const server = await createServer({ root, cacheDir: '/private/tmp/sales-command-
       import {MemoryRouter} from 'react-router-dom';import Schedule from '/src/schedule/views/Schedule.jsx';
       import {ToastProvider} from '/src/schedule/lib/toast.jsx';import {UserProvider} from '/src/schedule/lib/user.jsx';
       import '/src/schedule/App.css';import '/src/schedule/index.css';import {GLOBAL_CSS} from '/src/lib/tokens.js';document.head.appendChild(Object.assign(document.createElement('style'),{textContent:GLOBAL_CSS}));
-      createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/schedule/schedule?week=2026-09-28']},React.createElement(UserProvider,{teamMember:{name:'Fixture',role:'Admin'}},React.createElement(ToastProvider,null,React.createElement('div',{className:'schedule-root'},React.createElement(Schedule))))));`
+      createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/schedule/schedule?job=1150&week=2026-09-28&trip=short']},React.createElement(UserProvider,{teamMember:{name:'Fixture',role:'Admin'}},React.createElement(ToastProvider,null,React.createElement('div',{className:'schedule-root'},React.createElement(Schedule))))));`
   },
   configureServer(vite) { vite.middlewares.use('/__overlap', async (_req, res) => {
     res.setHeader('Content-Type', 'text/html')
@@ -35,7 +35,7 @@ try {
   browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}) })
   const page = await browser.newPage({ viewport: { width: 1500, height: 1100 } })
   page.on('pageerror', e => errors.push(e.message))
-  await page.clock.setFixedTime(new Date('2026-09-28T12:00:00-07:00'))
+  await page.clock.setFixedTime(new Date('2026-09-08T12:00:00-07:00'))
   await page.route('**/*', async route => {
     const req = route.request(), url = new URL(req.url())
     if (url.hostname === '127.0.0.1') return route.continue()
@@ -70,6 +70,9 @@ try {
   await page.goto('http://127.0.0.1:5197/__overlap')
   const wide = page.locator('[data-trip-row="wide"]'), short = page.locator('[data-trip-row="short"]')
   await short.waitFor()
+  assert.equal(await short.locator('.sch-label-focused').count(), 1)
+  assert.equal(await wide.locator('.sch-label-focused').count(), 0)
+  console.log('PASS future-week trip deep link highlights only its exact trip among overlapping rows.')
   assert.equal(await page.locator('.sch-board-row-wrap').count(), 2)
   assert.equal(await wide.locator('.sch-brd-needs-crew').count(), 5)
   assert.equal(await short.locator('.sch-brd-needs-crew').count(), 2)

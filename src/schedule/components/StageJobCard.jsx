@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { updateJobField, updateJobStatus, deleteJob } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
 import { baseChecklistPasses, hasFieldSow, materialsDecided, getJobMobilizations } from '../lib/queries'
-import { jobCardSchedule } from '../lib/jobCardSchedule'
+import { jobCardSchedule, crewScheduleLink } from '../lib/jobCardSchedule'
 import { useUser } from '../lib/user'
 import FieldSowModal from './FieldSowModal'
 import CardSowModal from './CardSowModal'
@@ -662,22 +662,11 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   }, [job.job_id, job.job_num, changedBy, onJobUpdate])
 
 
-  // CREW → existing Crew Schedule, deep-linked to this job's week (Schedule.jsx
-  // reads ?job=&week= and highlights). The crew-build tool lives there.
+  // Start at the first saved trip and identify its row, including jobs whose
+  // parent dates are intentionally unset. Back returns to this card.
   const goCrewSchedule = useCallback(() => {
-    // fromCard lets the Schedule back button return to this exact list spot
-    // (browser back) instead of the generic /jobs landing.
-    const opts = { state: { fromCard: true } }
-    const s = effectiveStart(job)
-    if (s) {
-      const d = new Date(s + 'T00:00:00')
-      const day = d.getDay()
-      d.setDate(d.getDate() - (day === 0 ? 6 : day - 1)) // Monday of that week
-      navigate(`/schedule/schedule?job=${job.job_id}&week=${ymd(d)}`, opts)
-    } else {
-      navigate(`/schedule/schedule?job=${job.job_id}`, opts)
-    }
-  }, [navigate, job])
+    navigate(crewScheduleLink(job, mobsByJobId[job.job_id]), { state: { fromCard: true } })
+  }, [navigate, job, mobsByJobId])
 
   // The real per-stage action (Promote/Kickoff/Resume/Send-to-Billing) — surfaced
   // on the compact row AND in the expanded card so office staff keep one-click

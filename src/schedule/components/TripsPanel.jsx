@@ -86,7 +86,7 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
                 {people.length ? <ul>{people.map(name => <li key={name}><strong>{nameLabel(name)}</strong> — {[...new Set(trip.assignments.filter(a => a.crew_name === name).map(a => a.date))].sort().map(tripDate).join(', ')}</li>)}</ul> : <p>{period === 'past' ? 'No crew assignments are recorded for this trip.' : 'No crew assigned yet. This trip is saved and can be staffed in Crew Schedule.'}</p>}
                 <div className="job-trip-actions">
                   {!trip.legacy && !trip.parent && <button className="app-act-btn app-act-primary" onClick={() => setEditing(trip.id)}>Edit trip</button>}
-                  <button className="app-act-btn" onClick={() => navigate(`/schedule/schedule?job=${job.job_id}&week=${trip.start_date || assignedDays[0] || date}`)}>Open Crew Schedule</button>
+                  <button className="app-act-btn" onClick={() => navigate(`/schedule/schedule?job=${job.job_id}&week=${trip.start_date || assignedDays[0] || date}${trip.id ? `&trip=${encodeURIComponent(trip.id)}` : ''}`)}>Open Crew Schedule</button>
                 </div>
               </div>}
             </article>

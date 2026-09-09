@@ -11,7 +11,8 @@ buttons and clipboard copy/manual fallback. Each Mon–Sun day lists assigned jo
 trip title, address, lead, same-day/same-trip coworkers, vehicle/equipment/power,
 and trip notes. Internal jobs.notes and billing fields are excluded.
 Optional usual start/meeting instructions persist across people in the mounted
-screen; saved job deferred_days/deferred_time take priority. No invented 6:30 AM.
+screen; saved job deferred_days/deferred_time take priority. Chris subsequently
+requested the default "Meet at the shop at 6:30 AM"; it is prefilled and editable.
 Uses buildJobTrips and pickAllocField, preserving UUID assignment identity and
 conservative legacy attribution. Parent dates never hide assigned return trips.
 Missing jobs and ambiguous legacy staffing remain visible with confirmation text.

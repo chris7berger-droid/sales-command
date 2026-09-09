@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { C, F } from '../../lib/tokens'
 import { loadJobs, loadAllRows, loadMobilizationsByJobId } from '../lib/queries'
 import { fmtD, getMonday } from '../lib/weeks'
-import { buildCrewWeekText, crewDateLabel, crewDisplayName, crewWeekDates } from '../lib/crewWeekText'
+import { DEFAULT_CREW_START, buildCrewWeekText, crewDateLabel, crewDisplayName, crewWeekDates } from '../lib/crewWeekText'
 
 export default function Schedules() {
   const [params, setParams] = useSearchParams()
@@ -16,7 +16,7 @@ export default function Schedules() {
   const [error, setError] = useState(null)
   const [retry, setRetry] = useState(0)
   const [selectedName, setSelectedName] = useState('')
-  const [defaultStart, setDefaultStart] = useState('')
+  const [defaultStart, setDefaultStart] = useState(DEFAULT_CREW_START)
   const [copyMsg, setCopyMsg] = useState('')
 
   useEffect(() => {
@@ -95,7 +95,7 @@ export default function Schedules() {
             <button onClick={() => { setRetry(n => n + 1); setCopyMsg('') }}>Refresh</button>
           </div>
           <label>Usual start / meeting instructions (optional)
-            <input value={defaultStart} placeholder="e.g. Meet at shop at 6:30 AM"
+            <input value={defaultStart} placeholder={DEFAULT_CREW_START}
               onChange={e => { setDefaultStart(e.target.value); setCopyMsg('') }} />
           </label>
           <p className="crew-text-hint">Applies to this preview and the next person. Saved delayed starts take priority.</p>

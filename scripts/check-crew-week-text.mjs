@@ -30,7 +30,7 @@ try {
   const page = await context.newPage()
   const errors=[]
   page.on('pageerror', e => errors.push(e.message))
-  const jobs=[{job_id:1,call_log_id:10,job_num:'6618',job_name:'Lakes Crossing',status:'Scheduled',start_date:'2026-08-01',end_date:'2026-08-02',lead:'Old Lead',vehicle:'Box 3',deleted:'No',
+  const jobs=[{job_id:1,call_log_id:10,job_num:'6618',job_name:'Lakes Crossing',status:'Scheduled',start_date:'2026-08-01',end_date:'2026-08-02',lead:'Old Lead',vehicle:'Box 3',deleted:'No',deferred_days:'2026-09-13',deferred_time:'09:00',
     call_log:{id:10,job_name:'Lakes Crossing',display_job_number:'6618',jobsite_address:'123 Example Way',jobsite_city:'Las Vegas'},notes:'PRIVATE OFFICE NOTE'}]
   const crew=[{name:'JoseJR'},{name:'Kurtis Zomparelli'},{name:'No Assignments'}]
   const trips=[{id:'burnish',job_id:1,seq:1,label:'Final Burnish',start_date:'2026-09-11',end_date:'2026-09-13',lead:'Kurtis Zomparelli'},
@@ -67,7 +67,9 @@ try {
   assert.match(text,/With: Kurtis Zomparelli/)
   assert.match(text,/Address: 123 Example Way, Las Vegas/)
   assert.match(text,/SUNDAY, SEP 13[\s\S]*Final Burnish/)
-  assert.doesNotMatch(text,/Wrong Lead|Wrong Coworker|PRIVATE OFFICE NOTE|Shop 6:30/)
+  assert.doesNotMatch(text,/Wrong Lead|Wrong Coworker|PRIVATE OFFICE NOTE/)
+  assert.match(text,/Start: Meet at the shop at 6:30 AM/)
+  assert.match(text,/SUNDAY, SEP 13[\s\S]*Start: Delayed start 9:00 AM/)
   await page.getByLabel('Usual start / meeting instructions (optional)',{exact:true}).fill('Meet at shop at 6:30 AM')
   await page.getByRole('button',{name:'Copy JoseJR’s week',exact:true}).click()
   assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),await preview.inputValue())

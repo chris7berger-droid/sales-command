@@ -2,6 +2,8 @@ import { buildJobTrips } from './trips.js'
 import { pickAllocField } from './allocations.js'
 import { fmtD, getMonday } from './weeks.js'
 
+export const DEFAULT_CREW_START = 'Meet at the shop at 6:30 AM'
+
 export function crewDisplayName(name = '') {
   const parts = name.split(',')
   return parts.length === 2 ? `${parts[1].trim()} ${parts[0].trim()}` : name
@@ -34,7 +36,7 @@ function startLabel(job, date, defaultStart) {
 
 // Assignments determine attendance, including trips outside the parent dates.
 // Match the board's UUID-first attribution; never guess an overlapping trip.
-export function buildCrewWeekText({ name, dates, jobs, allocations, assignments, defaultStart = '', updatedAt }) {
+export function buildCrewWeekText({ name, dates, jobs, allocations, assignments, defaultStart = DEFAULT_CREW_START, updatedAt }) {
   const days = new Map(dates.map(date => [date, []]))
   const warnings = new Set()
   const jobMap = new Map(jobs.map(job => [String(job.job_id), job]))

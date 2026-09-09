@@ -4,6 +4,7 @@ import { updateJobMobilization } from '../lib/queries'
 import { tripRange } from '../lib/trips'
 import { useUser } from '../lib/user'
 import './ScheduleTripDetails.css'
+import DeleteScheduleItem from './DeleteScheduleItem'
 
 const nameLabel = name => name?.includes(',') ? name.split(',').reverse().map(s => s.trim()).join(' ') : name
 
@@ -87,6 +88,7 @@ function TripFields({ job, trip, leadNames, onUpdated, onDirty, onBusy }) {
     <div className="sch-det-grid">{input('label', 'Trip title')}</div>
     <div className="sch-det-notes-wrap"><label>Trip notes</label><textarea className="sch-job-notes" aria-label="Trip notes" disabled={busy} value={draft.note || ''} onChange={e => change('note', e.target.value)} /></div>
     {error && <p role="alert">{error}</p>}
+    {trip.id && <div className="sch-trip-save"><DeleteScheduleItem job={job} trip={trip} disabled={busy || dirty} onBusy={value => { setBusy(value); onBusy(value) }} onDeleted={onUpdated} /></div>}
     {dirty && <div className="sch-trip-save"><button className="app-act-btn app-act-primary" disabled={busy} type="submit">{busy ? 'Saving…' : 'Save trip'} </button><button className="app-act-btn" type="button" disabled={busy} onClick={() => { setDraft({ ...trip }); setDirty(false); onDirty(false); setError('') }}>Cancel</button></div>}
   </form>
 }

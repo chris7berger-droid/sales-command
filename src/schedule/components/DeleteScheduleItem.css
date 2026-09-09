@@ -1,0 +1,7 @@
+.schedule-root.schedule-delete-overlay { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 16px; background: rgba(28, 24, 20, .65); }
+.schedule-root .schedule-delete-dialog { width: min(100%, 540px); max-height: 90vh; overflow: auto; padding: 24px; border-radius: 12px; background: var(--bg-card, #f3eddf); color: var(--text-primary, #1c1814); box-shadow: 0 12px 48px #0005; }
+.schedule-root .schedule-delete-dialog h3 { margin-top: 0; }
+.schedule-root .schedule-delete-dialog p { line-height: 1.5; overflow-wrap: anywhere; }
+.schedule-root .schedule-delete-dialog input { display: block; width: 100%; box-sizing: border-box; padding: 10px; margin-top: 8px; background: var(--bg-input, #e7dfce); color: inherit; border: 1px solid var(--border, #b7ac98); border-radius: 6px; }
+.schedule-root .schedule-delete-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.schedule-root .schedule-delete-confirm { border: 1px solid var(--danger, #a4362c); color: var(--danger, #a4362c); }

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { updateJobField, updateJobStatus, deleteJob } from '../lib/queries'
+import { updateJobField, updateJobStatus } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
 import { baseChecklistPasses, hasFieldSow, materialsDecided, getJobMobilizations } from '../lib/queries'
 import { jobCardSchedule, crewScheduleLink } from '../lib/jobCardSchedule'
@@ -15,6 +15,7 @@ import LoadOutModal from './LoadOutModal'
 import PRTModal from './PRTModal'
 import LogsModal from './LogsModal'
 import TripsPanel from './TripsPanel'
+import DeleteScheduleItem from './DeleteScheduleItem'
 
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
@@ -653,16 +654,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   // delete (recoverable 24h) that also frees the upstream Sales proposal to be
   // pulled back or re-sent (see deleteJob in queries.js).
   const canDelete = stage === 'staged' || stage === 'ready'
-  const handleDelete = useCallback(async () => {
-    if (!window.confirm(
-      `Delete job ${job.job_num || ''}? It will be removed from the schedule and its proposal in Sales Command will be freed to pull back or re-send. Recoverable for 24 hours from the Recovery Bin.`
-    )) return
-    setActing(true)
-    const { error } = await deleteJob(job.job_id, changedBy)
-    if (error) { console.error(error); alert('Delete failed: ' + error.message); setActing(false); return }
-    if (onJobUpdate) onJobUpdate()
-    setActing(false)
-  }, [job.job_id, job.job_num, changedBy, onJobUpdate])
+
 
 
   // Start at the first saved trip and identify its row, including jobs whose
@@ -818,9 +810,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
           </button>
         )}
         {canDelete && (
-          <button className="sjc-action-btn sjc-delete" disabled={acting} onClick={handleDelete}>
-            Delete job
-          </button>
+          <DeleteScheduleItem job={job} className="sjc-action-btn sjc-delete" disabled={acting} onBusy={setActing} onDeleted={onJobUpdate} />
         )}
       </div>
 

@@ -1388,14 +1388,15 @@ export async function removeJobAsset(jobId, id, changedBy, source = 'schedule_co
 // source_proposal_id AND deleted='No', so a soft-deleted job lets that proposal be
 // pulled back or re-sent instead of being stuck as "✓ Sent to Schedule" forever.
 // Recoverable for 24h from the bin; logged for the audit trail.
-export async function deleteJob(jobId, changedBy, source = 'schedule_command') {
+export async function deleteJob(jobId) {
   const jid = parseInt(jobId)
-  const { error } = await supabase
-    .from('jobs')
+  const check = await checkScheduleDeletion(jid)
+  if (check.error || check.blocker) return { error: check.error || new Error(check.blocker.message) }
+  const { data, error } = await supabase.from('jobs')
     .update({ deleted: 'Yes', deleted_at: new Date().toISOString() })
-    .eq('job_id', jid)
+    .eq('job_id', jid).select('job_id')
   if (error) return { error }
-  await logJobChange(jid, 'deleted', 'No', 'Yes', changedBy, source)
+  if (!data?.length) return { error: new Error('The job could not be deleted. Refresh and try again.') }
   return { error: null }
 }
 
@@ -1503,42 +1504,31 @@ export async function updateJobMobilization(jobId, mobRow, { label, start_date, 
   return { data, error: null }
 }
 
-// Delete a mobilization. Two-part in-use scan (audit C1), split by reversibility:
-//  (1) pull_tickets by job_mobilization_id = HARD BLOCK, no override — the FK is
-//      ON DELETE CASCADE, so deleting would silently destroy pull tickets + their
-//      lines + per-mob ticket numbering (irreversible). Returns {blocked:true}.
-//  (2) field_sow day-tags across the job's WTCs (by mobilization_seq) = recoverable
-//      (days can be re-tagged), so the CALLER warns + confirms BEFORE calling this.
-// Never collapse the two into one confirm→proceed (that would allow click-through
-// pull-ticket loss). The scan works because the editor reads rows directly, so
-// mobRow carries the job_mobilizations `id` the FK points at.
-// Count pull tickets on a mobilization — the hard-block signal. Separable from
-// deleteJobMobilization so the UI can check the block BEFORE asking the user to
-// confirm the (recoverable) field_sow tag loss, instead of confirm-then-block.
-export async function countPullTicketsForMob(mobId) {
-  const { data, error } = await supabase.from('pull_tickets').select('id').eq('job_mobilization_id', mobId)
-  if (error) return { count: 0, error }
-  return { count: data?.length || 0, error: null }
+// Fail closed if the database guard has not been deployed or cannot be reached.
+// The RPC is a preflight only; triggers repeat its predicate during deletion.
+export async function checkScheduleDeletion(jobId, tripId = null) {
+  const { data, error } = await supabase.rpc('check_schedule_deletion', {
+    p_job_id: Number(jobId), p_trip_id: tripId || null,
+  })
+  if (error) return { error }
+  if (data !== null && (!data || typeof data !== 'object' || !data.code || !data.message)) {
+    return { error: new Error('The deletion safety check returned an unexpected result. Refresh and try again.') }
+  }
+  return { blocker: data, error: null }
 }
 
-export async function deleteJobMobilization(jobId, mobRow, changedBy, source = 'schedule_mobs') {
+export async function deleteJobMobilization(jobId, mobRow) {
   const jid = parseInt(jobId)
-  // (1) HARD BLOCK: any pull ticket on this mob makes delete a data-loss operation.
-  // Authoritative re-check even when the caller pre-checked (belt-and-suspenders).
-  const { count: ptCount, error: ptErr } = await countPullTicketsForMob(mobRow.id)
-  if (ptErr) return { error: ptErr }
-  if (ptCount > 0) return { blocked: true, pullTicketCount: ptCount }
-
-  // Keep staffed trips intact; removing their link would obscure crew history.
-  const { data: crewDays, error: crewError } = await supabase.from('assignments')
-    .select('id').eq('job_id', jid).eq('mobilization_id', mobRow.id).limit(1)
-  if (crewError) return { error: crewError }
-  if (crewDays?.length) return { error: new Error('This trip has crew assignments. Remove or reassign them in Crew Schedule before deleting the trip.') }
-  const { data: removed, error } = await supabase.from('job_mobilizations').delete()
-    .eq('id', mobRow.id).eq('job_id', jid).select('id')
+  const check = await checkScheduleDeletion(jid, mobRow.id)
+  if (check.error || check.blocker) return { error: check.error || new Error(check.blocker.message) }
+  let query = supabase.from('job_mobilizations').delete().eq('id', mobRow.id).eq('job_id', jid)
+  // A stale dialog must not delete a trip another scheduler has just changed.
+  for (const field of ['seq', 'label', 'start_date', 'end_date', 'crew_needed', 'lead', 'vehicle', 'equipment', 'power_source', 'sow', 'note']) {
+    if (mobRow[field] !== undefined) query = mobRow[field] === null ? query.is(field, null) : query.eq(field, mobRow[field])
+  }
+  const { data: removed, error } = await query.select('id')
   if (error) return { error }
-  if (!removed?.length) return { error: new Error('The trip could not be deleted. Refresh and try again.') }
-  await logJobChange(jid, `mobilization[${mobRow.seq}].deleted`, mobRow.label || `Mob ${mobRow.seq}`, null, changedBy, source)
+  if (!removed?.length) return { error: new Error('The trip changed or could not be deleted. Refresh and review it before trying again.') }
   return { error: null }
 }
 

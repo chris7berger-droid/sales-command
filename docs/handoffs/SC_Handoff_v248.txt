@@ -1,0 +1,116 @@
+SC Handoff v248 — Crew-first deletion built for independent review — 2026-09-09
+
+SESSION SUMMARY
+Chris requested Delete trip inside the expanded Crew Schedule trip, with a hard
+stop until crew is manually removed/reassigned. Automatic crew deletion was
+explicitly rejected. Apply the same guard to whole-job deletion. Preserve actual
+work; use two confirmations for eligible deletions. Chris requested a prompt for
+the independent review terminal. Build is local, not merged/deployed.
+
+CHANGES BUILT (NOT SHIPPED)
+- Shared DeleteScheduleItem component in expanded ScheduleTripDetails, MobsModal
+  (both entry points), and StageJobCard whole-job deletion.
+- Server preflight before warnings, clear blocker message and Crew Schedule link.
+  Eligible trip: irreversible warning -> second warning + exact typed DELETE.
+  Whole job: same deliberate flow, truthful existing 24-hour Recovery Bin copy.
+- Save/cancel dirty trip edits before deleting; Cancel/Escape/focus handling,
+  mobile layout, failed checks fail closed, zero-row deletes fail visibly.
+- Final trip DELETE includes the saved identity/details as predicates so a stale
+  dialog cannot silently delete a trip edited by another scheduler.
+- Separate command-suite-db migration 20260909160000_crew_first_deletion.sql:
+  tenant-checked preflight RPC; internal predicate uncallable by API roles;
+  guards on soft/hard job deletion + trip deletion; active-parent guard on crew
+  writes; assignments trip FK changes SET NULL -> RESTRICT; transactional audit.
+  No assignment is deleted/reassigned by any of these paths.
+- Deletion dependency locks run BEFORE tuple locks, briefly serializing deletion
+  with actual-work/pull-ticket/scope writes. No locks during confirmation dialogs.
+- Baseline replay-only correction preserves production's existing scope-version
+  ACL under bootstrap defaults (see DMS-8 note in DB backlog). No prod ACL change.
+
+DECISIONS / LIMITS FOR REVIEW
+- Crew linked to another explicit trip does not block deletion of an empty sibling.
+  Any unlinked crew days on the job block trip deletion: edited dates and overlaps
+  make attribution unsafe. Do not infer their ownership from the current dates.
+- Actual work is checked BEFORE suggesting crew removal, so a worked trip does
+  not instruct the scheduler to erase historical assignments to enable deletion.
+- time_punches, daily_production_reports, daily_log_entries and checked material
+  records reference call_log.id, not jobs.job_id; Field has no trip FK. ANY such
+  records on the linked Sales job block deletion, even for a future unworked trip.
+  This is deliberately conservative and must be assessed as a product limitation.
+- An unsynced phone write cannot be known by the web/DB before it arrives. No
+  offline-device certification or new Field sync logic was built. Hours are never
+  deleted, even if recorded after the schedule deletion transaction committed.
+- Existing immutable scope versions hard-block; tagged SOW days also hard-block
+  until manually reassigned. We do not delete/untag SOW or rewrite Sales scope.
+- Visible HistoryPanel still derives from crew days; manually clearing those days
+  removes the canceled visit, and the deletion leaves no detached assignments.
+  Original parent job dates remain a separate schedule source and can still render
+  a parent-only “Job schedule” row. This build does not clear Sales/bidding dates.
+- No historical ghost-job cleanup. No changes to crew-removal UI or actual hours.
+- Whole-job UI eligibility stays staged/ready. Existing Recovery Bin is unchanged.
+- Missing preflight RPC blocks app deletion; apply reviewed DB change before app
+  release. No production migration, app deployment, or live mutation has occurred.
+
+BACKLOG
+B111 In Progress (app); DEL-1 In Progress (DB). DMS-8 replay correction documented.
+SOW-1 remains a separate investigation, not resumed. B107/B108 untouched.
+
+VERIFICATION
+- npm run build PASS (existing bundle-size warning).
+- Focused ESLint on modified components + browser scripts PASS. queries.js still
+  has pre-existing unused `today` at line 954; that unrelated lint issue not edited.
+- scripts/check-crew-first-deletion.mjs PASS: real expanded trip and job card,
+  crew/work blocks, no write on failed/malformed preflight, dirty edit guard,
+  cancellation at both stages, exact DELETE, stale preflight/final DB rejection,
+  zero-row delete, refresh, mobile layout, correct job-recovery copy.
+- scripts/check-job-trips.mjs PASS: existing job/Trips/editor/Planning integration,
+  new confirmation, crew blocking, UUID scope and parent/sibling preservation.
+- scripts/check-overlapping-crew-trips.mjs PASS: actual board, manual assignment
+  and removal on overlapping trips, sibling safety, failure/reload and navigation.
+- DB standard rehearsal with candidate + scripts/rehearse/crew_first_deletion.sql
+  PASS. Linked/unlinked crew, soft/hard job deletion, work after date/crew edits,
+  open clock-in, PRT/log/material activity, pull tickets, scope history/tags,
+  tenant rejection, sibling preservation, atomic audit/failure rollback, Recovery.
+- DB rollback applied clean in disposable rehearsal after regression tests.
+- scripts/check-crew-first-concurrency.py PASS: assignment-first blocks trip delete;
+  trip-delete-first rejects stale linked crew; clock-in-first blocks job deletion
+  without deadlock; job-delete-first rejects late unlinked crew insertion.
+- Baseline/after-candidate anon-exposure checks + broken-migration canaries PASS.
+- Production read-only fingerprint matched 56 tables / 178 indexes / 233 policies /
+  46 functions / 52 triggers / 1169 table grants / 9494 column grants / 10 PowerSync
+  + 2 realtime tables. Clone rehearsal itself uses its documented 1-day age fallback
+  because it is unlinked; live metadata comparison was separately run from the
+  canonical DB repo. No full production dump/data validation performed this session.
+- Screenshots viewed: /private/tmp/crew-first-stop.png and
+  /private/tmp/crew-first-confirm-mobile.png (intercepted fixtures only).
+
+REPRO COMMANDS
+App (from /Users/chrisberger/sales-command):
+  npm run build
+  PLAYWRIGHT_MODULE=/private/tmp/codex-schedule-preview-tools/node_modules/playwright/index.mjs CHROME_PATH='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' node scripts/check-crew-first-deletion.mjs
+  Same environment + node scripts/check-job-trips.mjs
+  Same environment + node scripts/check-overlapping-crew-trips.mjs
+DB (from /private/tmp/command-suite-db-crew-first):
+  bash scripts/rehearse.sh supabase/migrations/20260909160000_crew_first_deletion.sql scripts/rehearse/crew_first_deletion.sql
+  python3 scripts/check-crew-first-concurrency.py
+  Optional disposable rollback test: append supabase/rollbacks/20260909160000_revert_crew_first_deletion.sql to rehearsal command.
+These scripts use fixtures. Browser needs localhost/Chrome; DB tests need Docker.
+
+REVIEW FOCUS
+Review behavior/security/concurrency, not merely the presence of a button. Check
+all entry points and direct writes, whole-job soft-delete bypasses, nullable crew
+links, partial historical work, scope blockers, lock footprint/order, audit atomicity,
+RPC tenant isolation and grants, and whether conservative Field attribution is
+acceptable before release. Check the baseline annotation against existing dump ACLs.
+Report actionable findings with file/line, reproduction and impact; distinguish
+introduced bugs from known constraints and pre-existing adjacent issues.
+Do not deploy, merge, change live data or expand into SOW-1/printing during review.
+
+FILES / GIT STATE
+App: /Users/chrisberger/sales-command, branch codex/crew-first-deletion
+  base main 81722c5 (v247); source + tests + backlog + this handoff.
+DB: /private/tmp/command-suite-db-crew-first, branch codex/crew-first-deletion
+  base main 935e894; independent local clone of /Users/chrisberger/command-suite-db.
+  Canonical DB working tree was not switched or edited.
+Both branches committed locally for review; no merge, push, deployment or prod DDL.
+See git log -1 in each checkout for the final commits.

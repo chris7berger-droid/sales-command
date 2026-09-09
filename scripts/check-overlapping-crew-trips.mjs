@@ -97,10 +97,26 @@ try {
   assert.equal(assignments.filter(a => a.mobilization_id === 'short').length, 2)
   assert.equal(await short.locator('.sch-brd-cnt').first().innerText(), '1')
   assert.equal(await wide.locator('.sch-brd-cnt').first().innerText(), '1')
+  // B109 integration: unique people in daily capacity, trip-specific shortages
+  // in the popup, and one job count even when both overlapping trips need crew.
+  const needs = page.getByRole('button', { name: /Jobs Needing Crew/ })
+  assert.equal(await needs.locator('.hcs-badge-circle').innerText(), '1')
+  assert.equal(await page.locator('.hcs-day-count').first().innerText(), '1 / 2')
+  await needs.click()
+  let summary = page.getByRole('dialog', { name: 'Jobs Needing Crew' })
+  assert.match(await summary.innerText(), /1 \/ 4 assigned · needs 3 more/)
+  assert.match(await summary.innerText(), /1 \/ 2 assigned · needs 1 more/)
+  await summary.getByRole('button', { name: 'Close', exact: true }).click()
   await short.locator('.sch-tg-x').click()
   await page.waitForFunction(() => document.querySelector('[data-trip-row="short"] .sch-brd-crew-info')?.textContent.includes('0/2'))
   assert.equal(assignments.length, 5)
   assert(assignments.every(a => a.mobilization_id === 'wide'))
+  await needs.click()
+  summary = page.getByRole('dialog', { name: 'Jobs Needing Crew' })
+  assert.match(await summary.innerText(), /0 \/ 2 assigned · needs 2 more/)
+  assert.match(await summary.innerText(), /1 \/ 4 assigned · needs 3 more/)
+  await summary.getByRole('button', { name: 'Close', exact: true }).click()
+
   const removal = writes.find(w => w.method === 'DELETE')
   assert.match(removal.query, /id=in/)
   // Failed writes stay visible and do not change the other trip.

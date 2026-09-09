@@ -19,7 +19,7 @@ const server = await createServer({
       if (id !== '\0allocation-test') return
       return `import React from 'react';
         import {createRoot} from 'react-dom/client';
-        import {MemoryRouter,useNavigate,useLocation} from 'react-router-dom';
+        import {MemoryRouter,useNavigate,useLocation,Routes,Route} from 'react-router-dom';
         import ScheduleLayout from '/src/schedule/ScheduleLayout.jsx';
         import StageJobCard from '/src/schedule/components/StageJobCard.jsx';
         import Jobs from '/src/schedule/views/Jobs.jsx';
@@ -32,8 +32,8 @@ const server = await createServer({
         function Harness(){window.testNavigate=useNavigate();const location=useLocation();
           if(location.pathname==='/schedule/jobs')return React.createElement('div',{className:'schedule-root'},React.createElement(UserProvider,{teamMember:{name:'Codex regression'}},React.createElement(ToastProvider,null,React.createElement(Jobs))));
           if(location.pathname==='/test-job')return React.createElement('div',{className:'schedule-root'},React.createElement(UserProvider,{teamMember:{name:'Codex regression'}},React.createElement(StageJobCard,{job:${JSON.stringify(main)},stage:'active',autoOpen:true})));
-          return React.createElement(ScheduleLayout,{teamMember:{name:'Codex regression',role:'Admin'}})}
-        createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/settings']},React.createElement(Harness)));`
+          return React.createElement(Routes,null,React.createElement(Route,{path:'/schedule/*',element:React.createElement(ScheduleLayout,{teamMember:{name:'Codex regression',role:'Admin'}})}))}
+        createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/schedule/settings']},React.createElement(Harness)));`
     },
     configureServer(vite) {
       vite.middlewares.use('/__allocation-test', async (_req, res) => {
@@ -107,7 +107,11 @@ await page.route('**/*', async route=>{
   }
   return send([])
 })
-async function view(path){await page.evaluate(path=>window.testNavigate(path),path)}
+async function view(path){
+  // Match the host app's nested /schedule/* routes, including its shared toolbar.
+  if (['/settings','/schedule','/calendar','/daily'].includes(path)) path='/schedule'+path
+  await page.evaluate(path=>window.testNavigate(path),path)
+}
 async function modal(){
   await view('/settings');await page.getByRole('button',{name:'+ Job',exact:true}).click()
   await page.getByPlaceholder('🔎 Search existing job by #, customer…').fill('7215')

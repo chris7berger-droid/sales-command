@@ -14,6 +14,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { loadAllRows, loadJobMobilizationRows, addJobMobilization, updateJobMobilization, deleteJobMobilization, countPullTicketsForMob, loadMaterialsCatalog, computeMobCosts } from '../lib/queries'
 import { crewLeadNames } from '../lib/crewLeads'
 import { useUser } from '../lib/user'
+import { tripDisplayNumbers } from '../lib/trips'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -153,37 +154,44 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, initia
   async function removeRow(row) {
     if (busy) return
     setBusy(true); setError(null)
-    // Part 1 (irreversible pull_tickets CASCADE) is the HARD BLOCK — check it FIRST,
-    // before asking the user to confirm anything, so a blocked mob never shows a
-    // pointless "delete anyway?" prompt (T5 #1). deleteJobMobilization re-checks it
-    // as the authority regardless.
-    const { count: ptCount, error: ptErr } = await countPullTicketsForMob(row.id)
-    if (ptErr) { setError(ptErr.message); setBusy(false); return }
-    if (ptCount > 0) {
+    try {
+      // Part 1 (irreversible pull_tickets CASCADE) is the HARD BLOCK — check it FIRST,
+      // before asking the user to confirm anything, so a blocked mob never shows a
+      // pointless "delete anyway?" prompt (T5 #1). deleteJobMobilization re-checks it
+      // as the authority regardless.
+      const { count: ptCount, error: ptErr } = await countPullTicketsForMob(row.id)
+      if (ptErr) { setError(ptErr.message); setBusy(false); return }
+      if (ptCount > 0) {
+        setBusy(false)
+        window.alert(
+          `Can't delete Trip ${displayNumbers.get(row.id)} — it has ${ptCount} pull ticket${ptCount === 1 ? '' : 's'}. ` +
+          `Deleting it would destroy those pull tickets and their numbering. Remove the pull tickets first.`
+        )
+        return
+      }
+      // Part 2 (recoverable): warn + confirm on field-SOW day tags.
+      const taggedDays = collectDaySeqs(job).filter(s => s === row.seq).length
+      if (!window.confirm(
+        `Delete Trip ${displayNumbers.get(row.id)}${row.label ? ` — ${row.label}` : ''}? The job and other trips will remain. This cannot be undone.` +
+        (taggedDays > 0 ? ` This trip is tagged on ${taggedDays} field-SOW days; those days will need to be re-tagged.` : '')
+      )) { setBusy(false); return }
+      const res = await deleteJobMobilization(job.job_id, row, changedBy)
+      if (res.blocked) {
+        // Race: a pull ticket appeared between the pre-check and here. Still honored.
+        setBusy(false)
+        window.alert(`Can't delete Trip ${displayNumbers.get(row.id)} — it now has ${res.pullTicketCount} pull ticket(s). Remove them first.`)
+        return
+      }
+      if (res.error) { setError(res.error.message); setBusy(false); return }
       setBusy(false)
-      window.alert(
-        `Can't delete Mob ${row.seq} — it has ${ptCount} pull ticket${ptCount === 1 ? '' : 's'}. ` +
-        `Deleting it would destroy those pull tickets and their numbering. Remove the pull tickets first.`
-      )
-      return
-    }
-    // Part 2 (recoverable): warn + confirm on field-SOW day tags.
-    const taggedDays = collectDaySeqs(job).filter(s => s === row.seq).length
-    if (taggedDays > 0 && !window.confirm(
-      `Mob ${row.seq} — ${row.label || '(no label)'} is tagged on ${taggedDays} field-SOW day${taggedDays === 1 ? '' : 's'}. ` +
-      `Deleting it leaves those days without a mobilization (you can re-tag them). Delete anyway?`
-    )) { setBusy(false); return }
-    const res = await deleteJobMobilization(job.job_id, row, changedBy)
-    if (res.blocked) {
-      // Race: a pull ticket appeared between the pre-check and here. Still honored.
+      await reload()
+      onUpdated?.()
+      if (initialEditId) onClose()
+    } catch (err) {
+      setError(err.message || 'Could not delete this trip. Try again.')
+    } finally {
       setBusy(false)
-      window.alert(`Can't delete Mob ${row.seq} — it now has ${res.pullTicketCount} pull ticket(s). Remove them first.`)
-      return
     }
-    if (res.error) { setError(res.error.message); setBusy(false); return }
-    setBusy(false)
-    await reload()
-    onUpdated?.()
   }
 
   const inp = {
@@ -195,6 +203,7 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, initia
   const secondaryBtn = { background: 'none', border: '1px solid rgba(28,24,20,0.28)', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--font-heading)', color: 'var(--text-primary)', flexShrink: 0 }
   const deleteBtn = { ...secondaryBtn, border: '1px solid var(--danger)', color: 'var(--danger)' }
 
+  const displayNumbers = tripDisplayNumbers(rows)
   const anyEditing = draft != null
 
   return (
@@ -224,11 +233,11 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, initia
         ) : (
           <div className="mobs-list">
             {rows.filter(row => !initialCreate && (!initialEditId || row.id === initialEditId)).map(row => {
-              if (draft && draft.id === row.id) return renderEditor(row.seq)
+              if (draft && draft.id === row.id) return renderEditor()
               const dayCount = dayCountBySeq.get(row.seq)
               return (
                 <div key={row.id} className="mobs-row" style={{ borderLeftColor: row.is_go_back ? 'var(--warning)' : 'var(--command-green)' }}>
-                  <div className="mobs-seq">Trip {row.seq}</div>
+                  <div className="mobs-seq">Trip {displayNumbers.get(row.id)}</div>
                   <div className="mobs-body">
                     <div className="mobs-label">
                       {row.label || <span style={{ color: 'var(--text-light)', fontWeight: 400 }}>(no label)</span>}
@@ -251,11 +260,11 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, initia
                     })()}
                   </div>
                   <button style={secondaryBtn} disabled={anyEditing || busy} onClick={() => startEdit(row)}>Edit</button>
-                  {!editOnly && <button style={deleteBtn} disabled={anyEditing || busy} onClick={() => removeRow(row)}>Delete</button>}
+                  {!editOnly && <button style={deleteBtn} disabled={anyEditing || busy} onClick={() => removeRow(row)}>Delete trip</button>}
                 </div>
               )
             })}
-            {draft && draft.id == null && renderEditor(draft.seq)}
+            {draft && draft.id == null && renderEditor()}
           </div>
         )}
       </div>
@@ -263,10 +272,10 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, initia
   )
 
   // The existing editor handles both entry points; identity and crew-day links stay fixed.
-  function renderEditor(seq) {
+  function renderEditor() {
     const fields = [['label', 'Trip label', 'text'], ['start_date', 'Start date', 'date'], ['end_date', 'End date', 'date'], ['crew_needed', 'Crew needed', 'number'], ['vehicle', 'Vehicle', 'text'], ['equipment', 'Equipment', 'text'], ['power_source', 'Power source', 'text']]
     return <div key={`edit-${draft.id ?? 'new'}`} className="mobs-row" style={{ display: 'block', borderLeftColor: 'var(--command-green)' }}>
-      <h4 style={{ margin: '0 0 12px' }}>Trip {seq}{draft.is_go_back ? ' · Go back' : ''}</h4>
+      <h4 style={{ margin: '0 0 12px' }}>Trip {draft.id ? displayNumbers.get(draft.id) : rows.length + 1}{draft.is_go_back ? ' · Go back' : ''}</h4>
       <p style={{ fontSize: 12, color: 'var(--text-light)' }}>Leave crew, vehicle, equipment, power source, or scope blank to use the job’s value. Assign individual crew members in Crew Schedule.</p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
         {fields.map(([field, label, type]) => <label key={field} style={lbl}>{label}
@@ -283,11 +292,12 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, initia
       {crewError && <p role="alert">Couldn’t load crew choices: {crewError} <button className="app-act-btn" onClick={() => setCrewRefresh(n => n + 1)}>Retry crew</button></p>}
       {crewLoaded && !crewError && !crewNames.length && <p>No active crew members available. The existing lead is preserved.</p>}
       {[['sow', 'Scope of work'], ['note', 'Trip notes']].map(([field, label]) => <label key={field} style={{ ...lbl, display: 'block', marginTop: 12 }}>{label}
-        <textarea aria-label={label} disabled={busy} value={draft[field] || ''} rows={3} onChange={e => setDraft(d => ({ ...d, [field]: e.target.value }))} style={{ ...inp, display: 'block', width: '100%', marginTop: 4, resize: 'vertical' }} />
+        <textarea aria-label={label} disabled={busy} value={draft[field] || ''} rows={3} onChange={e => setDraft(d => ({ ...d, [field]: e.target.value }))} style={{ ...inp, display: 'block', width: '100%', marginTop: 4, maxHeight: 180, overflowY: 'auto', resize: 'vertical' }} />
       </label>)}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button className="app-act-btn app-act-primary" disabled={busy} onClick={saveDraft}>{busy ? 'Saving…' : 'Save'}</button>
         <button style={secondaryBtn} disabled={busy} onClick={() => { if (initialEditId || initialCreate) onClose(); else { setDraft(null); setError(null) } }}>Cancel</button>
+        {draft.id && <button style={{ ...deleteBtn, marginLeft: 'auto' }} disabled={busy} onClick={() => removeRow(rows.find(row => row.id === draft.id))}>Delete trip</button>}
       </div>
     </div>
   }

@@ -690,10 +690,11 @@ async function deletePropAttachment(fullName) {
       }
 
       // Strip the Sales-only uuid; stamp the wire seq (§5.3 C1/C3). One shared transform
-      // applied to every day of both copies so they never diverge on this key.
+      // applied to both copies. Sales day dates are not scheduling authority;
+      // Schedule dates the days within the copied mobilizations.
       const stampDay = d => {
         const { mobilization_id, ...rest } = d;
-        return { ...rest, mobilization_seq: mobilization_id != null ? (mobById.get(mobilization_id) ?? null) : null };
+        return { ...rest, date: null, mobilization_seq: mobilization_id != null ? (mobById.get(mobilization_id) ?? null) : null };
       };
 
       // Build work type string (e.g. "Epoxy,Caulking")
@@ -710,10 +711,8 @@ async function deletePropAttachment(fullName) {
         return label + (w.sales_sow || "");
       }).filter(s => s.trim()).join("\n\n");
 
-      // Use dates from first WTC that has them
-      const wtcWithDates = wtcList.find(w => w.start_date);
-      const startDate = wtcWithDates?.start_date || null;
-      const endDate = wtcWithDates?.end_date || null;
+      // Bidding dates are estimates, not a schedule. Trip dates are copied only
+      // into job_mobilizations below; Schedule owns job/day dates after send.
 
       // Prevailing wage — yes if any WTC is PW
       const hasPW = wtcList.some(w => w.prevailing_wage);
@@ -731,10 +730,10 @@ async function deletePropAttachment(fullName) {
         work_type: workType,
         field_sow: fieldSow.length > 0 ? fieldSow : null,
         sow: salesSow || null,
-        scheduled_start: startDate,
-        scheduled_end: endDate,
-        start_date: startDate,
-        end_date: endDate,
+        scheduled_start: null,
+        scheduled_end: null,
+        start_date: null,
+        end_date: null,
         status: "Parked",
         size: totalSize || null,
         size_unit: sizeUnit,
@@ -760,26 +759,18 @@ async function deletePropAttachment(fullName) {
       // Create canonical job_wtcs rows for the new job
       const newJobId = inserted?.[0]?.job_id;
       if (newJobId) {
-        // Canonical job_wtcs rows (SOW vertical §S3): one per WTC — the dated SOW
-        // Schedule + Field read. jobs.field_sow above stays the legacy mirror
-        // (§6.3). dates_tbd is read PER-WTC: a TBD WTC sends null start/end AND
-        // null per-day field_sow dates for Schedule to assign. field_sow is
-        // always an array ([] never undefined — the column is NOT NULL).
+        // Preserve scope and mobilization membership, but let Schedule date the
+        // work. Neither tentative WTC dates nor Sales day dates establish a trip.
         const jobWtcRows = wtcList.map((wtc, index) => ({
           job_id: newJobId,
           proposal_wtc_id: wtc.id,
           work_type_id: wtc.work_type_id,
           work_type_name: wtc.work_types?.name || null,
           position: index,
-          // Per-WTC canonical copy — apply the SAME stampDay (C1): only the field_sow
-          // value changes; every other field on this row is untouched (D1).
-          field_sow: (wtc.dates_tbd
-            ? (wtc.field_sow || []).map(d => ({ ...d, date: null }))
-            : (wtc.field_sow || [])
-          ).map(stampDay),
+          field_sow: (wtc.field_sow || []).map(stampDay),
           material_status: "not_ordered",
-          start_date: wtc.dates_tbd ? null : (wtc.start_date || null),
-          end_date:   wtc.dates_tbd ? null : (wtc.end_date || null),
+          start_date: null,
+          end_date: null,
           // Freeze the bid cost breakdown for Schedule's Budget tab. usesExactPricing(p)
           // picks the proposal's rounding era; calc.js stays the sole home for the math.
           bid_breakdown: calcBidStamp(wtc, usesExactPricing(p)),

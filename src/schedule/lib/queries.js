@@ -1529,8 +1529,15 @@ export async function deleteJobMobilization(jobId, mobRow, changedBy, source = '
   if (ptErr) return { error: ptErr }
   if (ptCount > 0) return { blocked: true, pullTicketCount: ptCount }
 
-  const { error } = await supabase.from('job_mobilizations').delete().eq('id', mobRow.id)
+  // Keep staffed trips intact; removing their link would obscure crew history.
+  const { data: crewDays, error: crewError } = await supabase.from('assignments')
+    .select('id').eq('job_id', jid).eq('mobilization_id', mobRow.id).limit(1)
+  if (crewError) return { error: crewError }
+  if (crewDays?.length) return { error: new Error('This trip has crew assignments. Remove or reassign them in Crew Schedule before deleting the trip.') }
+  const { data: removed, error } = await supabase.from('job_mobilizations').delete()
+    .eq('id', mobRow.id).eq('job_id', jid).select('id')
   if (error) return { error }
+  if (!removed?.length) return { error: new Error('The trip could not be deleted. Refresh and try again.') }
   await logJobChange(jid, `mobilization[${mobRow.seq}].deleted`, mobRow.label || `Mob ${mobRow.seq}`, null, changedBy, source)
   return { error: null }
 }

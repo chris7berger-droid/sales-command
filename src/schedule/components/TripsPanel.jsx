@@ -65,12 +65,12 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
             const detail = (label, key, empty = 'Not set') => {
               const value = field(key)
               const inherited = value != null && value !== '' && (trip[key] == null || trip[key] === '')
-              return <div><dt>{label}{inherited && <small> · from job</small>}</dt><dd>{value == null || value === '' ? empty : key === 'lead' ? nameLabel(value) : String(value)}</dd></div>
+              return <div><dt>{label}{inherited && <small> · from job</small>}</dt><dd className={key === 'sow' ? 'job-trip-sow' : undefined} tabIndex={key === 'sow' ? 0 : undefined} role={key === 'sow' ? 'region' : undefined} aria-label={key === 'sow' ? 'Scope of work' : undefined}>{value == null || value === '' ? empty : key === 'lead' ? nameLabel(value) : String(value)}</dd></div>
             }
             return <article className="job-trip" key={trip.key} data-trip-id={trip.key}>
               <button className="job-trip-summary" aria-expanded={open} onClick={() => setExpanded(s => ({ ...s, [trip.key]: !s[trip.key] }))}>
                 <span>{open ? '▾' : '▸'}</span>
-                <span className="job-trip-title"><strong>{trip.legacy ? 'Crew records' : trip.parent ? 'Job schedule' : `Trip ${trip.seq}${trip.label ? ` · ${trip.label}` : ''}`}{trip.is_go_back ? ' · Go back' : ''}</strong><span>{tripRange(trip)}</span></span>
+                <span className="job-trip-title"><strong>{trip.legacy ? 'Crew records' : trip.parent ? 'Job schedule' : `Trip ${trip.displayNumber}${trip.label ? ` · ${trip.label}` : ''}`}{trip.is_go_back ? ' · Go back' : ''}</strong><span>{tripRange(trip)}</span></span>
                 <span className="job-trip-staffing"><span>{people.length ? `${people.length} ${people.length === 1 ? 'person' : 'people'} · ${assignedDays.length} crew ${assignedDays.length === 1 ? 'date' : 'dates'}` : period === 'past' ? 'No crew assignments recorded' : 'No crew assigned yet'}</span>{field('lead') && <span>Lead: {nameLabel(field('lead'))}</span>}</span>
               </button>
               {open && <div className="job-trip-details">
@@ -86,7 +86,7 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
                 {people.length ? <ul>{people.map(name => <li key={name}><strong>{nameLabel(name)}</strong> — {[...new Set(trip.assignments.filter(a => a.crew_name === name).map(a => a.date))].sort().map(tripDate).join(', ')}</li>)}</ul> : <p>{period === 'past' ? 'No crew assignments are recorded for this trip.' : 'No crew assigned yet. This trip is saved and can be staffed in Crew Schedule.'}</p>}
                 <div className="job-trip-actions">
                   {!trip.legacy && !trip.parent && <button className="app-act-btn app-act-primary" onClick={() => setEditing(trip.id)}>Edit trip</button>}
-                  <button className="app-act-btn" onClick={() => navigate(`/schedule/schedule?job=${job.job_id}&week=${trip.start_date || assignedDays[0] || date}`)}>Open Crew Schedule</button>
+                  <button className="app-act-btn" onClick={() => navigate(`/schedule/schedule?job=${job.job_id}&week=${trip.start_date || assignedDays[0] || date}${trip.id ? `&trip=${encodeURIComponent(trip.id)}` : ''}`)}>Open Crew Schedule</button>
                 </div>
               </div>}
             </article>

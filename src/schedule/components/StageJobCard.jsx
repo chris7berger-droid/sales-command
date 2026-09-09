@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { updateJobField, updateJobStatus, deleteJob } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
 import { baseChecklistPasses, hasFieldSow, materialsDecided, getJobMobilizations } from '../lib/queries'
-import { workedDaySet } from '../lib/workdays'
+import { jobCardSchedule, crewScheduleLink } from '../lib/jobCardSchedule'
 import { useUser } from '../lib/user'
 import FieldSowModal from './FieldSowModal'
 import CardSowModal from './CardSowModal'
@@ -49,17 +49,6 @@ function fmtMD(dateStr) {
   if (!dateStr) return null
   const [, m, d] = String(dateStr).split('-')
   return `${parseInt(m, 10)}/${parseInt(d, 10)}`
-}
-
-// Plan §4.1: calendar days start→end, excluding BOTH weekend days unless an
-// assignment exists on that weekend day. assignmentDates = Set of 'YYYY-MM-DD'
-// for this job (null → no weekend exception applied). The worked-day rule is the
-// canonical one in lib/workdays.js (shared with DaysModal + the calendar bars).
-function totalWorkDays(job, assignmentDates = null) {
-  const start = effectiveStart(job)
-  const end = effectiveEnd(job)
-  if (!start || !end) return null
-  return workedDaySet(start, end, assignmentDates).size
 }
 
 function sowRowsForCard(job) {
@@ -223,17 +212,14 @@ function IdentityRow({ job }) {
   )
 }
 
-function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, onCrewClick, onMtrlClick, onDateClick, mobs = [], onMobsClick }) {
+function PlanningPanel({ job, crewRows, matRows, onSowClick, onCrewClick, onMtrlClick, onDateClick, mobs = [], onMobsClick, scheduleSummary }) {
   const hasSOW = hasFieldSow(job)
   const hasCrew = crewRows.length >= 1
   // Mirror the fail-closed gate (baseChecklistPasses): SOW + 0 tracker rows = not OK.
   const matsOk = materialsDecided(job, matRows)
   // Count for the score chip: rows that are NULL/Not-Ordered/Delayed (undecided).
   const undecidedMats = matRows.filter(m => m.status == null || ['Not Ordered', 'Delayed'].includes(m.status)).length
-  const start = job.scheduled_start || job.start_date || null
-  const end = job.scheduled_end || job.end_date || null
-  const hasDate = start != null
-  const workDays = totalWorkDays(job, assignmentDates)
+  const { hasDate, workDays, required } = scheduleSummary
 
   return (
     <div className="sjc-panel sjc-panel-planning">
@@ -251,12 +237,12 @@ function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, on
         <div className={`sjc-score sjc-score-click ${hasCrew ? 'sjc-score-ok' : 'sjc-score-bad'}`} onClick={onCrewClick}>
           <span className="sjc-score-icon">{'👷'}</span>
           <span className="sjc-score-label">CREW</span>
-          <span className="sjc-score-val">{crewRows.length} / {job.crew_needed || '?'}</span>
+          <span className="sjc-score-val">{crewRows.length} / {required}</span>
         </div>
         <div className={`sjc-score sjc-score-click ${hasDate ? 'sjc-score-neutral' : 'sjc-score-bad'}`} onClick={onDateClick} title="View schedule calendar">
           <span className="sjc-score-icon">{'📅'}</span>
           <span className="sjc-score-label">DAYS</span>
-          <span className="sjc-score-val">{hasDate ? <>{workDays || '?'}d</> : '✗'}</span>
+          <span className="sjc-score-val">{hasDate ? <>{workDays ?? '?'}d</> : '✗'}</span>
         </div>
         {/* Phase F: MOBS is now an editor entry — always clickable, even at 0 mobs,
             so a go-back can be added. Go-back count = mobs flagged is_go_back with
@@ -592,8 +578,11 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   const [panels, setPanels] = useState({ planning: false, management: false, details: false, budget: false, trips: initialPanel === 'trips' })
   const cardRef = useRef(null)
   useEffect(() => {
-    if (autoOpen && cardRef.current) cardRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (autoOpen) setExpanded(true)
   }, [autoOpen])
+  useLayoutEffect(() => {
+    if (autoOpen && expanded && cardRef.current) cardRef.current.scrollIntoView({ behavior: 'instant', block: 'start' })
+  }, [autoOpen, expanded, job.job_id])
   const [acting, setActing] = useState(false)
   const [showSowModal, setShowSowModal] = useState(false)
   const [sowFocus, setSowFocus] = useState(null)        // { wtcId, dayIndex } from DaysModal handoff (Option 3)
@@ -613,6 +602,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   const logsCount = logsByCallLog[job.call_log_id] || 0
   const assignmentDates = assignmentsByJobId[job.job_id] || null
   const mobs = getJobMobilizations(job, mobsByJobId[job.job_id])
+  const scheduleSummary = jobCardSchedule(job, mobsByJobId[job.job_id], assignmentDates)
 
   const togglePanel = useCallback((key) => {
     setPanels(prev => ({ ...prev, [key]: !prev[key] }))
@@ -675,22 +665,11 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   }, [job.job_id, job.job_num, changedBy, onJobUpdate])
 
 
-  // CREW → existing Crew Schedule, deep-linked to this job's week (Schedule.jsx
-  // reads ?job=&week= and highlights). The crew-build tool lives there.
+  // Start at the first saved trip and identify its row, including jobs whose
+  // parent dates are intentionally unset. Back returns to this card.
   const goCrewSchedule = useCallback(() => {
-    // fromCard lets the Schedule back button return to this exact list spot
-    // (browser back) instead of the generic /jobs landing.
-    const opts = { state: { fromCard: true } }
-    const s = effectiveStart(job)
-    if (s) {
-      const d = new Date(s + 'T00:00:00')
-      const day = d.getDay()
-      d.setDate(d.getDate() - (day === 0 ? 6 : day - 1)) // Monday of that week
-      navigate(`/schedule/schedule?job=${job.job_id}&week=${ymd(d)}`, opts)
-    } else {
-      navigate(`/schedule/schedule?job=${job.job_id}`, opts)
-    }
-  }, [navigate, job])
+    navigate(crewScheduleLink(job, mobsByJobId[job.job_id]), { state: { fromCard: true } })
+  }, [navigate, job, mobsByJobId])
 
   // The real per-stage action (Promote/Kickoff/Resume/Send-to-Billing) — surfaced
   // on the compact row AND in the expanded card so office staff keep one-click
@@ -744,7 +723,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
         <span className="jtp-pill">{workTypeLabel}</span>
         <span className="jtp-cell jtp-loc">{loc}</span>
         <span className="jtp-cell jtp-date">{startStr ? fmtMD(startStr) : '—'}{timeSignal && <span className="jtp-time"> · {timeSignal}</span>}</span>
-        <span className="jtp-cell jtp-crew">{crewRows.length}/{job.crew_needed || '?'}</span>
+        <span className="jtp-cell jtp-crew">{crewRows.length}/{scheduleSummary.required}</span>
         <span className="jtp-cell jtp-budget">{amount > 0 ? fmtMoney(amount) : '—'}</span>
         <span className="jtp-actions" onClick={e => e.stopPropagation()}>
           <button className="jtp-btn jtp-btn-outline" onClick={stop(() => setShowBuildSchedule(true))}>BUILD SCHEDULE →</button>
@@ -784,11 +763,11 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
           job={job}
           crewRows={crewRows}
           matRows={matRows}
-          assignmentDates={assignmentDates}
           onSowClick={() => { setSowFocus(null); setShowSowModal(true) }}
           onMtrlClick={() => setShowMtrlModal(true)}
           onCrewClick={goCrewSchedule}
           onDateClick={() => setShowDaysModal(true)}
+          scheduleSummary={scheduleSummary}
           mobs={mobs}
           onMobsClick={() => setShowMobsModal(true)}
         />
@@ -840,7 +819,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
         )}
         {canDelete && (
           <button className="sjc-action-btn sjc-delete" disabled={acting} onClick={handleDelete}>
-            Delete
+            Delete job
           </button>
         )}
       </div>
@@ -882,6 +861,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
         <DaysModal
           job={job}
           assignmentDates={assignmentDates}
+          mobilizations={mobsByJobId[job.job_id]}
           onClose={() => setShowDaysModal(false)}
         />
       )}

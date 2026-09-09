@@ -12,7 +12,7 @@ const base = { job_id: 1150, is_go_back: false, lead: null, crew_needed: null, v
 let rows = [
   { ...base, id: 'past', seq: 1, label: 'First visit', start_date: '2026-08-03', end_date: '2026-08-05' },
   { ...base, id: 'multiweek', seq: 2, label: 'Google', start_date: '2026-08-22', end_date: '2026-10-02' },
-  { ...base, id: 'future', seq: 5, label: 'WTC1 - Concrete Sealing', start_date: '2026-10-12', end_date: '2026-10-13', lead: 'Bash Dave', crew_needed: 3, vehicle: 'Truck 2', equipment: 'Grinder', power_source: 'Generator', sow: 'Seal the concrete.', note: 'North entrance', mob_type: 'unconfirmed' },
+  { ...base, id: 'future', seq: 5, label: 'WTC1 - Concrete Sealing', start_date: '2026-10-12', end_date: '2026-10-13', lead: 'Bash Dave', crew_needed: 3, vehicle: 'Truck 2', equipment: 'Grinder', power_source: 'Generator', sow: 'Seal the concrete.\n'.repeat(100), note: 'North entrance', mob_type: 'unconfirmed' },
   { ...base, id: 'undated', seq: 6, label: 'Return visit', start_date: null, end_date: null, is_go_back: true },
 ]
 let assignments = [
@@ -33,10 +33,11 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 5191, str
   load(id) {
     if (id !== '\0trips-test') return
     return `import React from 'react';import {createRoot} from 'react-dom/client';import {MemoryRouter,useLocation} from 'react-router-dom';
-    import StageJobCard from '/src/schedule/components/StageJobCard.jsx';import {UserProvider} from '/src/schedule/lib/user.jsx';
+    import JobsToPrepare from '/src/schedule/components/JobsToPrepare.jsx';import StageJobCard from '/src/schedule/components/StageJobCard.jsx';import {UserProvider} from '/src/schedule/lib/user.jsx';
     import '/src/schedule/App.css';import '/src/schedule/index.css';
-    function Harness(){const [job,setJob]=React.useState(${JSON.stringify(job)});window.tripSetJob=setJob;window.tripPath=useLocation().pathname+useLocation().search;return React.createElement(StageJobCard,{job,stage:'active',autoOpen:true,onJobUpdate:()=>setJob(j=>({...j}))})}
-    createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/schedule/jobs']},React.createElement(UserProvider,{teamMember:{name:'Codex test'}},React.createElement(Harness))));`
+    function Harness(){const [job,setJob]=React.useState(${JSON.stringify(job)});window.tripSetJob=setJob;const [cardInputs,setCardInputs]=React.useState({});window.setCardInputs=setCardInputs;window.tripPath=useLocation().pathname+useLocation().search;return React.createElement(StageJobCard,{...cardInputs,job,stage:'active',autoOpen:true,onJobUpdate:()=>setJob(j=>({...j}))})}
+    function FocusHarness(){const [jobs,setJobs]=React.useState([...Array.from({length:40},(_,i)=>({job_id:i+1,job_num:String(i+1),job_name:'Older job',status:'Complete',start_date:'2026-02-01',end_date:'2026-02-02'})),{job_id:1280,job_num:'10227',job_name:'Target job',status:'Parked',start_date:'2026-09-28',end_date:'2026-10-30'}]);window.refreshFocusJobs=()=>setJobs(js=>js.map(j=>({...j})));return React.createElement(React.Fragment,null,React.createElement('div',{style:{height:650}},'Dashboard'),React.createElement(JobsToPrepare,{jobs,focusJobId:1280}))}
+    createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/schedule/jobs']},React.createElement(UserProvider,{teamMember:{name:'Codex test'}},React.createElement(window.location.search.includes('focus-test') ? FocusHarness : Harness))));`
   },
   configureServer(vite) { vite.middlewares.use('/__trips-test', async (_req, res) => {
     res.setHeader('Content-Type', 'text/html');res.end(await vite.transformIndexHtml('/__trips-test', '<html><body><div class="schedule-root" style="padding:20px;min-height:100vh"><div id="root"></div></div><script type="module">import "virtual:trips-test"</script></body></html>'))
@@ -69,6 +70,10 @@ await page.route('**/*', async route => {
       if (!row) return send({ message: 'Trip no longer belongs to this job' }, 406)
       Object.assign(row, payload);return send(row)
     }
+    if (table === 'job_mobilizations' && req.method() === 'DELETE') {
+      const removed = rows.filter(r => `eq.${r.id}` === url.searchParams.get('id') && `eq.${r.job_id}` === url.searchParams.get('job_id'))
+      rows = rows.filter(r => !removed.includes(r)); return send(removed.map(r => ({ id: r.id })))
+    }
     return send([])
   }
   if (table === 'jobs') return send({ ...job, call_log_id: 3791, merged_into_job_id: null, deleted: 'No' })
@@ -81,14 +86,51 @@ await page.route('**/*', async route => {
   if (table === 'job_mobilizations' || table === 'assignments') {
     assert.equal(url.searchParams.get('job_id'), 'eq.1150', 'Every trip/assignment read must be scoped to this job')
     if (failRead && table === 'assignments') return send({ message: 'Fixture read failed' }, 400)
-    return send(table === 'job_mobilizations' ? rows : assignments)
+    return send(table === 'job_mobilizations' ? rows : assignments.filter(a => !url.searchParams.has('mobilization_id') || `eq.${a.mobilization_id}` === url.searchParams.get('mobilization_id')))
   }
   return send([])
 })
 const article = id => page.locator(`[data-trip-id="${id}"]`)
 async function openTrips() { await page.getByRole('button', { name: 'TRIPS', exact: true }).click();await page.locator('.job-trip').first().waitFor() }
 try {
-  await page.goto('http://127.0.0.1:5191/__trips-test');await openTrips()
+  if (!process.env.TRIPS_SNAPSHOT) {
+    await page.goto('http://127.0.0.1:5191/__trips-test?focus-test')
+    const target = page.locator('.jtp-list > .sjc-card').first()
+    await target.waitFor()
+    assert.match(await target.innerText(), /10227/)
+    assert.equal(await page.locator('.jtp-list > *').first().getAttribute('class'), await target.getAttribute('class'))
+    // Allow any old smooth-scroll animation/filter effect to finish before checking.
+    await page.waitForTimeout(700)
+    const before = await target.boundingBox()
+    assert(before.y >= -2 && before.y < 100, `Target must stay at viewport top, got ${before.y}`)
+    await page.evaluate(() => window.refreshFocusJobs())
+    await page.waitForTimeout(200)
+    assert(Math.abs((await target.boundingBox()).y - before.y) < 2, 'Background hydration must not displace focused job')
+    console.log('PASS focused Jobs list pins and scrolls to 10227, remains stable after filtering and background hydration.')
+  }
+  await page.goto('http://127.0.0.1:5191/__trips-test')
+  if (!process.env.TRIPS_SNAPSHOT) {
+    await page.getByRole('button', { name: 'PLANNING', exact: true }).click()
+    await page.evaluate(() => {
+      window.tripSetJob(j => ({ ...j, start_date: null, end_date: null, call_log_id: 3791 }))
+      window.setCardInputs({ mobsByJobId: { 1150: { 2: { id: 'card-trip', seq: 2, start_date: '2026-09-28', end_date: '2026-10-30', crew_needed: 3 } } }, crewByCallLog: { 3791: [{name:'A'}, {name:'B'}, {name:'C'}] }, assignmentsByJobId: { 1150: new Set(['2026-10-03','2026-10-10','2026-10-17']) } })
+    })
+    await page.locator('.sjc-score').filter({ hasText: 'DAYS' }).getByText('28d', { exact: true }).waitFor()
+    await page.locator('.sjc-score').filter({ hasText: 'CREW' }).getByText('3 / 3', { exact: true }).waitFor()
+    await page.locator('.sjc-score').filter({ hasText: 'CREW' }).click()
+    await page.waitForFunction(() => window.tripPath === '/schedule/schedule?job=1150&week=2026-09-28&trip=card-trip')
+    await page.locator('.sjc-score').filter({ hasText: 'DAYS' }).click()
+    const calendar = page.getByRole('dialog', { name: 'Job schedule calendar' })
+    await calendar.waitFor()
+    assert.equal(await calendar.locator('.days-cal-on').count(), 28)
+    await calendar.getByText('September 2026', { exact: true }).waitFor()
+    await calendar.getByText('October 2026', { exact: true }).waitFor()
+    await calendar.getByRole('button', { name: 'Close', exact: true }).click()
+    await calendar.waitFor({ state: 'hidden' })
+    console.log('PASS Planning DAYS opens original calendar with 28 highlighted trip/assigned-weekend dates across September and October.')
+    await page.reload()
+  }
+  await openTrips()
   if (process.env.TRIPS_SNAPSHOT) {
     const future = article('45ad5024-45e2-4cdf-a470-d7f50835df05')
     assert.match(await future.innerText(), /Oct 12, 2026 – Oct 13, 2026/)
@@ -115,13 +157,14 @@ try {
     await article('future').locator('button.job-trip-summary').click()
     assert.match(await article('future').innerText(), /Seal the concrete\./)
     assert.match(await article('future').innerText(), /North entrance/)
+    assert(await article('future').locator('.job-trip-sow').evaluate(e => e.clientHeight <= 180 && e.scrollHeight > e.clientHeight), 'Long SOW must scroll within its panel')
     await article('future').getByRole('button', { name: 'Edit trip', exact: true }).click()
     await page.getByRole('textbox', { name: 'Trip label', exact: true }).waitFor()
     assert.equal(await page.getByLabel('Vehicle', { exact: true }).inputValue(), 'Truck 2')
     assert.equal(await page.getByLabel('Trip notes', { exact: true }).inputValue(), 'North entrance')
     await page.getByRole('combobox', { name: 'Lead', exact: true }).selectOption('Bash Dave')
     assert.equal(await page.locator('option').filter({ hasText: 'Archived crew' }).count(), 0)
-    assert.equal(await page.getByLabel('Scope of work', { exact: true }).evaluate(e => getComputedStyle(e).backgroundColor), 'rgb(243, 237, 224)')
+    assert.equal(await page.getByRole('textbox', { name: 'Scope of work', exact: true }).evaluate(e => getComputedStyle(e).backgroundColor), 'rgb(243, 237, 224)')
     await page.screenshot({ path: '/private/tmp/codex-trips-editor.png', fullPage: true })
     await page.getByLabel('End date', { exact: true }).fill('2026-10-11')
     await page.getByRole('button', { name: 'Save', exact: true }).click()
@@ -201,7 +244,7 @@ try {
     await page.screenshot({ path: '/private/tmp/codex-trips-mobile.png', fullPage: true })
     assert(await page.locator('.job-trips').evaluate(e => e.scrollWidth <= e.clientWidth), 'Trips panel must fit mobile width')
     await article('future').getByRole('button', { name: 'Open Crew Schedule' }).click()
-    await page.waitForFunction(() => window.tripPath === '/schedule/schedule?job=1150&week=2026-10-12')
+    await page.waitForFunction(() => window.tripPath === '/schedule/schedule?job=1150&week=2026-10-12&trip=future')
     console.log('PASS failed reads/retry, crew roster error/retry, responsive panel, and trip-specific Crew Schedule link.')
     // Review gap: first trips also exist as dates on jobs, before a trip row exists.
     rows = [];assignments = []
@@ -226,12 +269,36 @@ try {
     assignments.push({ id: 3, job_id: 1150, date: '2026-10-15', crew_name: 'Smith, Jane', mobilization_id: 'short' })
     await page.getByRole('button', { name: 'Refresh trips' }).click()
     await article('short').waitFor()
+    assert.match(await article('short').innerText(), /Trip 1 · Short visit/)
+    assert.equal(rows[0].seq, 2)
     assert.equal(await page.locator('.job-trip').count(), 2)
     assert.match(await initial.innerText(), /Oct 12, 2026 – Oct 30, 2026/)
     assert.match(await initial.innerText(), /1 person · 2 crew dates/)
     assert.match(await article('short').innerText(), /Oct 15, 2026 – Oct 16, 2026/)
     await page.screenshot({ path: '/private/tmp/codex-review-parent-overlap.png', fullPage: true })
     console.log('PASS shorter overlapping trip does not hide or fragment the parent span; linked crew stays on the explicit trip.')
+  }
+  if (!process.env.TRIPS_SNAPSHOT) {
+    await article('short').locator('button.job-trip-summary').click()
+    await article('short').getByRole('button', { name: 'Edit trip', exact: true }).click()
+    await page.getByRole('dialog').getByRole('heading', { name: 'Trip 1', exact: true }).waitFor()
+    page.once('dialog', async d => { assert.match(d.message(), /Delete Trip 1/); await d.accept() })
+    await page.getByRole('button', { name: 'Delete trip', exact: true }).click()
+    await page.getByText('This trip has crew assignments.', { exact: false }).waitFor()
+    assert(rows.some(r => r.id === 'short'))
+    assignments = assignments.filter(a => a.mobilization_id !== 'short')
+    const cancelled = new Promise(resolve => page.once('dialog', async d => { await d.dismiss(); resolve() }))
+    await page.getByRole('button', { name: 'Delete trip', exact: true }).click()
+    await cancelled
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent === 'Delete trip' && !b.disabled))
+    assert(rows.some(r => r.id === 'short'), 'Cancel preserves trip')
+    page.once('dialog', async d => { assert.match(d.message(), /The job and other trips will remain/); await d.accept() })
+    await page.getByRole('button', { name: 'Delete trip', exact: true }).click()
+    await page.getByRole('dialog').waitFor({ state: 'hidden' })
+    await article('short').waitFor({ state: 'hidden' })
+    assert.equal(await page.locator('[data-trip-id="job:1150:initial"]').count(), 1, 'Job schedule remains')
+    assert(!mutations.some(m => m.table === 'jobs'), 'Trip deletion must never delete or change the job')
+    console.log('PASS scrollable SOW; trip deletion cancel, staffed-trip block, scoped deletion and retained parent schedule.')
   }
   assert.deepEqual(runtimeErrors, [])
   assert(!mutations.some(m => m.table === 'assignments'), 'Editing a trip must not change crew-day assignments')

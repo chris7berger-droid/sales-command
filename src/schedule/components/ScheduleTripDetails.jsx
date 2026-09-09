@@ -25,7 +25,7 @@ export default function ScheduleTripDetails({ job, trips, leadNames, onUpdated, 
         if (dirty) { setSelectionError('Save or cancel your changes before switching trips.'); return }
         setSelectionError(''); setSelected(e.target.value)
       }}>
-        {trips.map(t => <option key={t.id} value={t.id}>{t.label || `Trip ${t.seq}`} · {tripRange(t)}</option>)}
+        {trips.map(t => <option key={t.id} value={t.id}>{t.label || `Trip ${t.displayNumber}`} · {tripRange(t)}</option>)}
         <option value="job">Job defaults / original job dates</option>
       </select>
     </label>}

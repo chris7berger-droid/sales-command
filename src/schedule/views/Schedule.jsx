@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { loadJobs, updateJobField, loadMobilizationsByJobId, loadJobMobilizationRows } from '../lib/queries'
 import { crewLeadNames } from '../lib/crewLeads'
@@ -156,18 +156,16 @@ export default function Schedule({ embedded = false } = {}) {
 
   // URL-param deep-link from JobDetail: /schedule?job=<id>&week=<YYYY-MM-DD>
   const [searchParams] = useSearchParams()
-  const location = useLocation()
   const focusJobId = searchParams.get('job')
   const focusWeek = searchParams.get('week')
+  const focusTripId = searchParams.get('trip')
 
-  // Back button: when we arrived from a job card's CREW button (fromCard state),
-  // browser-back returns to that exact list spot. If deep-linked with ?job= but
-  // no history, fall back to that job. Otherwise the generic stages landing.
+  // The Jobs deep link expands this card and includes it despite list filters.
+  // Browser history may point at a generic list, so use the job identity.
   const goBack = useCallback(() => {
-    if (focusJobId && location.state?.fromCard) navigate(-1)
-    else if (focusJobId) navigate(`/schedule/jobs?job=${focusJobId}`)
+    if (focusJobId) navigate(`/schedule/jobs?job=${encodeURIComponent(focusJobId)}`)
     else navigate('/schedule/jobs')
-  }, [navigate, focusJobId, location.state])
+  }, [navigate, focusJobId])
   const focusedJobRowRef = useRef(null)
   const didHandleFocusRef = useRef(false)
 
@@ -388,7 +386,7 @@ export default function Schedule({ embedded = false } = {}) {
     if (!el) return
     const t = setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60)
     return () => clearTimeout(t)
-  }, [focusJobId, weekJobs])
+  }, [focusJobId, focusTripId, boardRows])
 
   // Stats: available and out counts per day
   const stats = useMemo(() => {
@@ -683,7 +681,8 @@ export default function Schedule({ embedded = false } = {}) {
     const expanded = expandedJobs[row.key]
     const ddays = j.deferred_days ? String(j.deferred_days).split(',').filter(Boolean) : []
 
-    const isFocused = focusJobId && String(j.job_id) === String(focusJobId)
+    const isFocused = focusJobId && String(j.job_id) === String(focusJobId) &&
+      (!focusTripId || String(trip.id) === focusTripId)
 
     return (
       <div
@@ -704,7 +703,7 @@ export default function Schedule({ embedded = false } = {}) {
           >
             <div className="sch-brd-job-name">{j.job_num} - {j.job_name}</div>
             <div className="sch-trip-label">
-              <strong>{trip.legacy ? 'Crew assignments — trip not identified' : trip.label || `Trip ${trip.seq}`}</strong><small>{tripRange(trip)}</small>
+              <strong>{trip.legacy ? 'Crew assignments — trip not identified' : trip.label || `Trip ${trip.displayNumber}`}</strong><small>{tripRange(trip)}</small>
             </div>
             <div className="sch-brd-job-meta">
               {j.work_type && String(j.work_type).split(',').map(t => t.trim()).filter(Boolean).map(t => (
@@ -1244,7 +1243,7 @@ export default function Schedule({ embedded = false } = {}) {
           <div className="sch-modal" onClick={e => e.stopPropagation()}>
             <div className="sch-modal-title">Assign {flipName(assignModal.name)}</div>
             <div className="sch-modal-label">
-              to <strong>{assignModal.job.job_num} — {assignModal.row.trip.label || `Trip ${assignModal.row.trip.seq}`}</strong>
+              to <strong>{assignModal.job.job_num} — {assignModal.row.trip.label || `Trip ${assignModal.row.trip.displayNumber}`}</strong>
             </div>
             {(() => {
               const all = assignableDays(assignModal)

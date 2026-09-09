@@ -1,5 +1,14 @@
 # Sales Command — Backlog
 
+**Trip/job handoff fixes — PR42, release authorized 2026-09-08:** Corrected Sales date authority, scrollable SOW, safe trip deletion, consecutive display numbering, trip-aware Planning DAYS/CREW, restored calendar, exact-trip Crew navigation and stable Back to Job. Consolidated handoff: `docs/handoffs/SC_Handoff_v244.txt`. This incorporates released weekly crew texts (F61); no superseded handoff overwrites.
+
+**Follow-ups discovered, not closed by PR42:**
+- Automatic refresh: Crew Schedule static jobs/trips lack return-to-tab/reconnect catch-up; Home/Jobs also lack catch-up after missed realtime events. Preserve drafts when implementing.
+- Readiness/banner/list date readers still use job dates in places; audit them against mobilization-only scheduling. The DAYS/CREW display fixes do not change promotion gates.
+- Historical bidding-date cleanup remains scoped: only 10227 was explicitly authorized and repaired. Do not bulk-clear job dates without provenance.
+- Deletion assignment/pull-ticket prechecks are not atomic database constraints.
+- Direct Edit/Delete controls on collapsed trip rows and original-date separation were discussed but not implemented after the user redirected work to date authority; current deletion is inside Edit trip.
+
 **CODEX RELEASE COMPLETE — 2026-09-08:** Scheduling/trips merged via [Codex PR #38](https://github.com/chris7berger-droid/sales-command/pull/38), merge `555019c`, production verified. B104/B105/B106/MOBZ-2 moved to Completed Log. The merged Codex branch/worktree are retired; main is the next-session starting point. Authoritative handoff: `docs/handoffs/SC_Handoff_v235.txt`. B107/B108 remain explicitly deferred.
 
 **Single source of truth for all outstanding work.** Update on every session

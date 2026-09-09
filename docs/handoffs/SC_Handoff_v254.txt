@@ -1,0 +1,96 @@
+SC Handoff v254 — Shared crew allocation release / cleanup — 2026-09-09
+
+SESSION SUMMARY
+Chris approved PR #45 and explicitly requested push, merge, branch cleanup and a
+handoff emphasizing allocation logic. Released e943998 to main. Vercel production
+deployment 6361522708 succeeded; www.scmybiz.com serves index-Dmi34yjq.js, matching
+the verified build. No DB migration or live crew-data repair in this release.
+
+CHANGES SHIPPED
+- One weekly allocation row model for Crew Schedule board, crew cards, conflict
+  detection and the black capacity header, including its badges and day detail.
+- Existing off-date/inactive/unavailable-job allocations stay visible with issues.
+- Job numbers/day bubbles sit beside wrapping crew names; larger job labels;
+  M T W T F S over bubbles; first-name alphabetical ordering within each team and
+  Floaters (normalizes Last, First for display/sort). Group membership unchanged.
+
+GOVERNING LOGIC — IMPORTANT FOR FUTURE WORK
+Source records remain assignments (crew_name, date, job_id, mobilization_id), with
+jobs and job_mobilizations providing their identity and planned dates. Schedule
+owns these via PostgREST. This change is a shared READ model, not a new writer.
+
+1. crewWeekRows in lib/crewScheduleRows.js builds the selected week's rows ONCE
+   in Schedule.jsx. It uses the existing buildJobTrips attribution: explicit trip
+   UUID wins; NULL links can match exactly one date span at read time; ambiguous
+   days become a separate legacy row. This fallback does NOT persist a trip link.
+2. Planned active rows appear when dates overlap the week. A saved assignment
+   keeps its row visible even if job dates/status would otherwise hide it.
+   Assignments with unavailable job references become read-only issue rows.
+   They remain booked, never silently freed. No guessed reassignment.
+3. Board renders these rows. Sidebar crewCardRows projects the SAME rows for each
+   person. The same row keys drive double-booking; colors come from the same row
+   model. Multiple trips on one job can be separate sidebar entries, with trip
+   information in their title. Crew availability still considers saved allocations.
+4. CrewWeekCapacity receives the exact boardRows. crewWeekCapacity computes daily
+   capacity from them, counting DISTINCT active roster people, not assignment
+   records. Sick/off status keeps prior precedence: out of the available
+   denominator. A double-booked person counts once in the percentage, with all
+   their allocations listed together in day detail. Archived roster excluded.
+5. crewWeekSummary receives those same rows for starting/ending/needing badges.
+   It deduplicates by Sales call_log_id, checks trip-level planned dates/needs,
+   and does not invent starts/requirements for unresolved legacy allocation rows.
+6. Do NOT restore a separate job-date filter for sidebar/header or hide orphaned
+   allocations to make counts look clean. Fix the allocation or surface the issue.
+   The black header is not allowed to compute a contradictory booking model.
+
+SCOPE / REMAINING LIMITS — DO NOT CLAIM THESE ARE SOLVED
+This release unifies these three Crew Schedule views. Other Home dashboard KPI
+calculations are unchanged; HomeCapacityStrip only gained an optional allocation
+label for this screen. B111 deletion protections remain separate and live.
+The DB still permits job-only assignments with NULL trip links. Dates can disagree
+with linked trip dates. We have NOT traced/sealed all assignment-writing paths,
+made trip links mandatory, or repaired historical data. This release surfaces
+those problems consistently; it does not prevent every cause of them.
+
+Reproduced production examples (read-only, at investigation time):
+- Jacob (Medina, Jacob), Sep 14–19: 10233 Monday, 10232 Monday–Wednesday,
+  10262 Thursday–Saturday; all seven records lacked trip links. Monday really had
+  two assignments, and job-date filtering could hide one from the board.
+- Job 7215: Sep 28–29 crew records pointed to the Sep 21–22 Concrete Sealing trip.
+  Separate Sep 28–29 trip existed. We did not auto-move the six records.
+- Google trip on 7215 had 40 crew days Aug 22–Sep 10, plus the parent had six old
+  unlinked days. Empty displayed week did not prove the whole trip unallocated.
+Any further repair/writer work must preserve Chris's manual allocation/removal
+intent. Do not silently unlink, delete or move people to make views agree.
+
+BACKLOG
+B112 Closed at e943998 / PR #45. B111 remains closed; no new claimed DB invariant.
+
+VERIFICATION
+Focused shared-model regression passed. Real React board regression passed trip
+editing/assignment/sibling-safe removal plus off-date/unavailable allocations,
+conflict indicator, header distinct-person percentage and drilldown, zero writes
+for read-model checks. Capacity summary browser regression passed week navigation,
+badges, daily people, loading/races, error/retry and unchanged Logistics header.
+Final build passed; card layout screenshot inspected. Existing bundle warning and
+Schedule.jsx unused declarations remain. No unrelated cleanup or test expansion.
+Production preview/build success verified via GitHub; live HTML asset matched the
+final build. No destructive production smoke or authenticated data edits performed.
+
+BRANCH CLEANUP
+PR #45 merged; GitHub automatically removed both allocation and prior deletion
+remote branches (explicit delete reported already absent; fetch --prune confirmed).
+Removed local app codex/crew-allocation-consistency and codex/crew-first-deletion.
+Removed canonical DB's merged codex/crew-first-deletion branch. Removed the clean
+/private/tmp/command-suite-db-crew-first clone after confirming reviewed commits
+are preserved in canonical DB main. Pruned stale remote-tracking refs.
+Unrelated worktrees/branches preserved; do not delete another task's working files.
+
+FILES / NEXT SESSION / GIT
+Start with backlog, then this handoff. Wait for Chris's next task.
+Key files: lib/crewScheduleRows.js, lib/crewWeekSummary.js, views/Schedule.jsx,
+components/CrewWeekCapacity.jsx, components/HomeCapacityStrip.jsx, App.css.
+Tests: scripts/check-crew-allocation-consistency.mjs,
+check-overlapping-crew-trips.mjs, check-crew-week-summary.mjs.
+App main at e943998 plus this docs-only closure commit, pushed. Canonical DB main
+1746417, clean and unchanged. Main pushes auto-deploy the app; no DB push needed.

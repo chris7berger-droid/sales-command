@@ -7,16 +7,17 @@ import './ScheduleTripDetails.css'
 
 const nameLabel = name => name?.includes(',') ? name.split(',').reverse().map(s => s.trim()).join(' ') : name
 
-export default function ScheduleTripDetails({ job, trips, leadNames, onUpdated, onEditStateChange, initialSelected = null, children }) {
+export default function ScheduleTripDetails({ job, trips, leadNames, onUpdated, onEditStateChange, editKey, initialSelected = null, children }) {
   const navigate = useNavigate()
   const [selected, setSelected] = useState(initialSelected)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [selectionError, setSelectionError] = useState('')
+  const editorKey = editKey ?? job.job_id
   useEffect(() => {
-    onEditStateChange?.(job.job_id, dirty || busy)
-    return () => onEditStateChange?.(job.job_id, false)
-  }, [job.job_id, dirty, busy, onEditStateChange])
+    onEditStateChange?.(editorKey, dirty || busy)
+    return () => onEditStateChange?.(editorKey, false)
+  }, [editorKey, dirty, busy, onEditStateChange])
   const trip = selected === 'job' ? null : trips.find(t => t.id === selected) || trips[0]
   return <div className="sch-trip-editor">
     <div className="sch-trip-heading">{trips.length > 0 && <label className="sch-trip-select">Trip title

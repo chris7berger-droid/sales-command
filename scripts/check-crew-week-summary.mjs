@@ -26,8 +26,8 @@ try {
   const errors=[]
   page.on('pageerror',e=>errors.push(e.message))
   const crew=['Alex','Blair','Casey','Drew'].map(name=>({name,archived:false,team:'1'}))
-  const jobs=[{job_id:1,call_log_id:10,job_num:'7215',job_name:'Warehouse',status:'Scheduled',deleted:'No',merged_into_job_id:null,start_date:'2026-09-07',end_date:'2026-09-12',crew_needed:0,job_wtcs:[],call_log:{id:10,job_number:7215,job_name:'Warehouse',customer_name:'Fixture'}}]
-  const mobs=[{id:'return',job_id:1,seq:1,label:'October sealing',start_date:'2026-10-12',end_date:'2026-10-13',crew_needed:4},
+  const jobs=[{job_id:1,call_log_id:10,job_num:'7215',job_name:'Warehouse',status:'Scheduled',deleted:'No',merged_into_job_id:null,start_date:'2026-09-07',end_date:'2026-09-12',crew_needed:null,job_wtcs:[],call_log:{id:10,job_number:7215,job_name:'Warehouse',customer_name:'Fixture'}}]
+  const mobs=[{id:'baseline',job_id:1,seq:3,label:'Original work',start_date:'2026-09-07',end_date:'2026-09-12',crew_needed:0},{id:'return',job_id:1,seq:1,label:'October sealing',start_date:'2026-10-12',end_date:'2026-10-13',crew_needed:4},
     {id:'unknown',job_id:1,seq:2,label:'Check overlap',start_date:'2026-10-13',end_date:'2026-10-13',crew_needed:null}]
   const assignments=[{job_id:1,crew_name:'Alex',date:'2026-09-08'},
     {job_id:1,crew_name:'Blair',date:'2026-10-12'},{job_id:1,crew_name:'Casey',date:'2026-10-12'}]
@@ -108,7 +108,7 @@ try {
   await badge('Jobs Needing Crew').click()
   assert.match(await page.getByRole('dialog').innerText(),/2 \/ 4 assigned · needs 2 more/)
   await page.getByRole('dialog').getByRole('button',{name:/Also check/}).click()
-  assert.match(await page.getByRole('dialog').innerText(),/Overlapping trips/)
+  assert.match(await page.getByRole('dialog').innerText(),/0 assigned · Crew requirement not set/)
   await page.getByRole('dialog').getByRole('button',{name:'Close',exact:true}).click()
   await page.locator('.hcs-day').first().click()
   assert.match(await page.locator('.sch-modal').innerText(),/Blair/)
@@ -120,19 +120,24 @@ try {
     await page.getByRole('dialog').getByRole('button',{name:'October sealing →',exact:true}).first().click()
     await page.locator('[data-schedule-trip-id="return"]').waitFor()
     assert.equal(await page.getByRole('dialog').count(),0)
-    assert.equal(await page.getByRole('combobox',{name:'Select trip title'}).inputValue(),'return')
+    assert.equal(await page.locator('[data-trip-row="return"]').getByRole('combobox',{name:'Select trip title'}).inputValue(),'return')
   }
   await page.getByRole('button',{name:'1 job: crew requirements unclear',exact:true}).click()
   await page.getByRole('dialog').getByRole('button',{name:'Check overlap →',exact:true}).click()
   await page.locator('[data-schedule-trip-id="unknown"]').waitFor()
-  assert.equal(await page.getByRole('combobox',{name:'Select trip title'}).inputValue(),'unknown')
-  await page.getByRole('combobox',{name:'Select trip title'}).selectOption('return')
+  assert.equal(await page.locator('[data-trip-row="unknown"]').getByRole('combobox',{name:'Select trip title'}).inputValue(),'unknown')
+  const returnRow=page.locator('[data-trip-row="return"]')
+  const unknownRow=page.locator('[data-trip-row="unknown"]')
   await page.screenshot({path:'/private/tmp/crew-week-summary.png',fullPage:true})
-  await page.getByRole('textbox',{name:'Trip notes',exact:true}).fill('Keep this draft')
+  await returnRow.getByRole('textbox',{name:'Trip notes',exact:true}).fill('Keep this draft')
   await next()
   assert.equal(await page.locator('.hcs-week').textContent(),'Oct 12 – Oct 17, 2026')
-  assert.equal(await page.getByRole('textbox',{name:'Trip notes',exact:true}).inputValue(),'Keep this draft')
-  await page.getByRole('button',{name:'Cancel',exact:true}).click()
+  assert.equal(await returnRow.getByRole('textbox',{name:'Trip notes',exact:true}).inputValue(),'Keep this draft')
+  await unknownRow.getByRole('textbox',{name:'Trip notes',exact:true}).fill('Sibling draft')
+  await returnRow.getByRole('button',{name:'Cancel',exact:true}).click()
+  await next()
+  assert.equal(await page.locator('.hcs-week').textContent(),'Oct 12 – Oct 17, 2026','Cancelling one trip must not clear another trip’s draft guard')
+  await unknownRow.getByRole('button',{name:'Cancel',exact:true}).click()
 
   await page.emulateMedia({reducedMotion:'reduce'})
   failWeek='2026-10-19'
@@ -161,7 +166,7 @@ try {
   await badge('Jobs Needing Crew').click()
   await page.getByRole('dialog').getByRole('button',{name:'View historical crew details for 1 job',exact:true}).click()
   const historical=page.getByRole('dialog',{name:'Historical Crew Details'})
-  assert.match(await historical.innerText(),/0 assigned · Trips overlap on these dates/)
+  assert.match(await historical.innerText(),/0 assigned · Crew requirement not recorded/)
   assert.doesNotMatch(await historical.innerText(),/requirements need checking/)
   await historical.getByRole('button',{name:'Check overlap →',exact:true}).click()
   await page.locator('[data-schedule-trip-id="unknown"]').waitFor()

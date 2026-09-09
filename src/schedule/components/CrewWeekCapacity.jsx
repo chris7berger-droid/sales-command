@@ -33,8 +33,8 @@ export default function CrewWeekCapacity({ jobs, weekJobs, crew, assignments, cr
         <p className="sch-summary-help">{selected === 'starting' || selected === 'ending'
           ? 'Trip dates, including return trips. Each job counts once; a trip ending does not mean the whole job is complete.'
           : selected === 'unknown' ? historical
-            ? 'This past week has missing crew requirements or overlapping trip dates. These are details of the saved history.'
-            : 'Crew may already be assigned. The planned number needed is missing, or trips overlap. These jobs are not counted as known shortages.'
+            ? 'The planned crew requirement was not recorded for these trips. Their recorded crew assignments are shown below.'
+            : 'Crew may already be assigned. The planned number needed is missing. These jobs are not counted as known shortages.'
             : `${historical ? 'Historical staffing for this week. ' : ''}Each job counts once. Shortages below are for individual days.`}</p>
         {summary[selected].length === 0 && <p>No matching jobs this week.</p>}
         {summary[selected].map(entry => <div className="sch-summary-job" key={entry.key}>
@@ -45,7 +45,7 @@ export default function CrewWeekCapacity({ jobs, weekJobs, crew, assignments, cr
               {trip?.label || (trip?.seq ? `Trip ${trip.seq}` : 'Job schedule')} →
             </button>)}
             {detail.date ? <span>{tripDate(detail.date)} · {detail.reason
-              ? `${detail.assigned} assigned · ${historical ? detail.editTrips?.length > 1 ? 'Trips overlap on these dates' : 'Crew requirement not recorded' : detail.reason}`
+              ? `${detail.assigned} assigned · ${historical ? 'Crew requirement not recorded' : detail.reason}`
               : `${detail.assigned} / ${detail.needed} assigned · ${historical ? 'short by' : 'needs'} ${detail.short}${historical ? '' : ' more'}`}</span>
               : <span>{tripRange(detail.trip)}</span>}
           </div>)}

@@ -1,0 +1,62 @@
+SC HANDOFF v238 — CODEX CLOSEOUT: overlapping Crew Schedule trips
+================================================================
+2026-09-08 · supersedes v237 preview/pending-release status.
+
+SESSION SUMMARY / CHANGES SHIPPED
+--------------------------------
+Chris accepted the preview (“Works perfectly. Merge it.”) and authorized merge
+and branch maintenance. B110 is complete and moved to the Completed Log.
+Overlapping saved trips render independently with trip-scoped crew requirements,
+dates, editors and assignment writes/removals. Ambiguous legacy crew days appear
+once. Full implementation and test details: v237-overlapping-crew-trips.
+
+RELEASE / VERIFICATION
+----------------------
+PR #40: https://github.com/chris7berger-droid/sales-command/pull/40
+Accepted application commit: ac881c5c4f1a5c15483142b21f1b2c8ddce93e82.
+PR head: 6e7ede09eaf09cd6d27fb3b76a8037b285c6e526 (acceptance docs only).
+Merge: 29af790dc229d563cf775d53cf69ee7f7616aa08.
+Merged 2026-09-08 18:36 Pacific (2026-09-09 01:36:41 UTC).
+Main had not advanced from bf4aebb: no conflict or source change during merge.
+Application/scripts compare identically to the accepted ac881c5.
+Vercel Production deployment 6340676408: success for exact merge SHA.
+https://sales-command-32843ua0q-chris7berger-droids-projects.vercel.app
+Read-only production /schedule/schedule: HTTP 200; deployed JS
+/assets/index-BIPuo66-.js and CSS HTTP 200. JS contains data-trip-row and the
+unidentified-trip crew-row marker. No live database mutations made for testing.
+Build/model/browser verification recorded in v237 remains applicable: no code
+changed afterward. PR Vercel check successful; Supabase Preview skipped.
+
+CLEANUP / GIT STATE
+-------------------
+GitHub deleted the merged remote fix branch; git fetch --prune removed its ref.
+Local codex/fix-overlapping-crew-trips deleted with git branch -d after verifying
+merge ancestry. Its localhost:5198 preview stopped (only the verified listener).
+Local main fast-forwarded in /private/tmp/sales-command-overlapping-trips;
+this documentation-only closeout is committed/pushed before normal removal of
+that clean worktree. No forced deletion, reset, stash cleanup or dependency removal.
+
+PARALLEL WORK / NOT TOUCHED
+---------------------------
+/Users/chrisberger/sales-command remains the other terminal’s checkout on
+codex/crew-schedule-week-summary. Its index, uncommitted files, branch and preview
+were not changed. All unrelated feature worktrees were left intact.
+B107/B108 print bugs remain deferred. No schema/RLS/live-data repair.
+
+NEXT SESSION POINTERS
+----------------------
+The other terminal must incorporate updated main before merging B109. Both
+branches touch Schedule.jsx; preserve its week/header/loading/error/draft guards
+and this release’s per-trip rows and assignment identity. Its capacity-summary
+model currently treats overlaps as uncertain at job/day level; reconcile that
+with trip-level staffing when integrating. Do not reset its checkout to main.
+The retired overlap preview URL is no longer running; use production.
+
+FILES TO KNOW
+--------------
+src/schedule/views/Schedule.jsx
+src/schedule/lib/crewScheduleRows.js
+scripts/check-overlapping-crew-trips-model.mjs
+scripts/check-overlapping-crew-trips.mjs
+scripts/check-schedule-allocation.mjs
+docs/BACKLOG.md

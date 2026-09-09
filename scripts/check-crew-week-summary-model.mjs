@@ -20,8 +20,9 @@ assert.equal(result.needing.length,0)
 assert.equal(result.unknown.length,1,'Unknown is not a known shortage or a fully staffed claim')
 result = crewWeekSummary([job],{1:[trip,{...trip,id:'b',seq:2,label:'Second trip'}]},[],dates)
 assert.equal(result.starting.length,1,'Multiple trips still count as one job')
-assert.equal(result.needing.length,0)
-assert.match(result.unknown[0].details[0].tripLabel,/Return trip \/ Second trip/)
+assert.equal(result.needing.length,1,'Overlapping trips retain known requirements and count as one job')
+assert.equal(result.unknown.length,0,'Overlap alone is not an unknown requirement after B110')
+assert.deepEqual(result.needing[0].details.map(d=>d.trip.id),['a','a','b','b'])
 result = crewWeekSummary([job,{...job,job_id:2}],{1:[trip],2:[{...trip,id:'b'}]},[],dates)
 assert.equal(result.starting.length,1,'Rows sharing a Sales job count once')
 assert.equal(result.needing.length,1)
@@ -46,3 +47,16 @@ result=crewWeekSummary([{job_id:1081,call_log_id:3521,crew_needed:null}],{1081:[
 assert.equal(result.needing.length,0,'Missing historical target must not claim a shortage')
 assert.deepEqual(result.unknown[0].details.map(d=>d.assigned),[2,2,2,3],'Keep the recorded staffing visible')
 console.log('PASS historical missing targets preserve recorded crew counts and do not become known shortages.')
+
+// Per-trip assignment identity: filling one trip must not fill its sibling.
+const overlapTrips=[{...trip,crew_needed:1},{...trip,id:'b',seq:2,crew_needed:1}]
+const linked=[{job_id:1,date:dates[0],crew_name:'Same person',mobilization_id:'a'},
+  {job_id:1,date:dates[0],crew_name:'Unidentified person',mobilization_id:null}]
+result=crewWeekSummary([job],{1:overlapTrips},linked,dates)
+assert.equal(result.needing[0].details.find(d=>d.trip.id==='b'&&d.date===dates[0]).assigned,0)
+assert.equal(result.needing[0].details.some(d=>d.trip.id==='a'&&d.date===dates[0]),false)
+assert.equal(result.unknown.length,0,'Unidentified crew history does not invent a missing requirement')
+linked.push({job_id:1,date:dates[0],crew_name:'Same person',mobilization_id:'b'})
+result=crewWeekSummary([job],{1:overlapTrips},linked,dates)
+assert(result.needing[0].details.every(d=>d.date===dates[1]),'Each trip uses its own linked assignment')
+console.log('PASS overlapping trip requirements, UUID assignment isolation, and conservative legacy attribution match the board.')

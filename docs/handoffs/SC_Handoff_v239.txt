@@ -1,0 +1,78 @@
+SC HANDOFF v239 — CODEX: B109 week summary integrated with released B110
+====================================================================
+2026-09-08
+
+SESSION SUMMARY / RELEASE STATE
+--------------------------------
+Chris asked to continue after testing the B109 preview and reporting confusing
+historical requirements warnings plus non-clickable list entries. Those fixes
+were built/pushed as 335998d (v236 has their history). Before release, main had
+advanced to cfc7ceb: the other terminal's B110 separate overlapping-trip rows
+were accepted, merged and deployed (PR #40, v238).
+
+Integrated origin/main into codex/crew-schedule-week-summary with a normal merge,
+resolving Schedule.jsx conflicts deliberately. Draft PR #39 remains unmerged;
+user acceptance of the integrated preview is pending. Production is still the
+released B110 implementation. Do not mistake the B110 acceptance in v238 for
+acceptance of B109.
+
+FINAL BEHAVIOR / MERGE DECISIONS
+--------------------------------
+- Preserve B110's distinct trip rows, editors, UUID assignment attribution,
+  sibling-safe removals and conservative unidentified legacy row.
+- Preserve B109's board-owned header week/data, teal date feedback, loading and
+  error/retry handling, and clickable Jobs Starting/Ending/Needing Crew bubbles.
+- Reconcile summary model with crewScheduleRows / crewRowStaffing / crewRowNames.
+  An overlap alone no longer creates an unknown staffing target. Each trip has
+  its own requirement, inheritance and assigned names, just like its board row.
+  Count each Sales job once per bubble, retaining all qualifying trip details.
+  Unidentified history never creates a planned trip or fills both siblings.
+- Popup links locate and expand the exact row key, not a job_id shared by several
+  trip rows. The right editor opens, including parent defaults where applicable.
+- Draft guards track editor/row keys, not job_id. Cancelling one trip's draft
+  cannot clear another trip's guard. Guarded week changes and summary links
+  preserve unsaved work.
+- Unknown-target details explicitly show recorded assigned counts. Past-week
+  headers do not display a requirement-cleanup warning. Historical details remain
+  accessible from the Needing Crew popup, with neutral copy.
+- Daily header figures count unique active people per day; the same person on
+  two trips does not inflate capacity usage. Trip-specific shortages remain
+  independent and update alongside the board after staffing changes.
+
+VERIFICATION / PRACTICAL LIMITS
+-------------------------------
+- Build with fake valid Supabase env passes; existing bundle-size warning.
+- Summary model + released overlapping-trip model pass. Added UUID isolation
+  assertions: staffing one overlapping trip cannot fill another; unknown history
+  is not silently copied into either. Historical 2/2/2/3 counts remain visible
+  even when the planned target is absent.
+- Three real React suites with intercepted Supabase requests pass:
+  check-crew-week-summary.mjs (navigation, linked lists, loading/races/retry,
+    historical copy, exact row/editor links, multiple simultaneous dirty editors)
+  check-schedule-allocation.mjs (creation/editing/defaults/errors/cross-view)
+  check-overlapping-crew-trips.mjs (nested rows, editor identity, linked crew,
+    sibling-safe removal, failure/reload/history; also asserts immediate header
+    popup updates and unique-person capacity after trip staffing/removal).
+- New/modified summary/editor modules lint clean. Schedule retains the five
+  existing unused-symbol errors from main; no new lint findings.
+- Scoped local integration review, not an independent-agent audit.
+- All write tests use fixtures. No live records were changed. Read-only queries
+  earlier identified the four historical Aug31–Sep5 entries (v236).
+
+NOT TOUCHED
+-----------
+Other screens retain existing header behavior. No database/schema/RLS/public
+page/edge-function changes. B107/B108 printing remains explicitly deferred.
+No historical cleanup or guessed crew requirements; old job7215 repair not rerun.
+
+FILES / NEXT STEP
+------------------
+src/schedule/lib/crewWeekSummary.js — summary from the same per-trip model
+src/schedule/lib/crewScheduleRows.js — already-released B110 model, unchanged
+src/schedule/views/Schedule.jsx — integrated header/week/row identity
+src/schedule/components/{CrewWeekCapacity,ScheduleTripDetails}.jsx
+Draft PR: https://github.com/chris7berger-droid/sales-command/pull/39
+Preview branch URL:
+https://sales-command-git-codex-cre-0f8ef7-chris7berger-droids-projects.vercel.app/schedule/schedule
+Next: verify updated preview deployment, Chris tests/accepts combined behavior,
+then merge and record production release. Keep branch provenance as CODEX.

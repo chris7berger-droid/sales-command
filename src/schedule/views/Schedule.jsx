@@ -6,8 +6,9 @@ import { crewLeadNames } from '../lib/crewLeads'
 import { useUser } from '../lib/user'
 import { useToast } from '../lib/toast'
 import { getJobStatus } from '../lib/jobStatus'
-import { jobRanges, overlapsWeek, inRange, staffingForDay, staffingSummary, allocationsInWindow } from '../lib/allocations'
+import { jobRanges, overlapsWeek, inRange, staffingSummary } from '../lib/allocations'
 import { tripRange } from '../lib/trips'
+import { crewScheduleRows, crewRowInRange, crewRowStaffing, crewRowNames } from '../lib/crewScheduleRows'
 import ScheduleTripDetails from '../components/ScheduleTripDetails'
 import CrewWeekCapacity from '../components/CrewWeekCapacity'
 
@@ -114,9 +115,9 @@ export default function Schedule({ embedded = false } = {}) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [weekChanged, setWeekChanged] = useState(false)
   const editingTrips = useRef(new Set())
-  const onTripEditStateChange = useCallback((jobId, editing) => {
-    if (editing) editingTrips.current.add(jobId)
-    else editingTrips.current.delete(jobId)
+  const onTripEditStateChange = useCallback((editorKey, editing) => {
+    if (editing) editingTrips.current.add(editorKey)
+    else editingTrips.current.delete(editorKey)
   }, [])
   const changeWeek = value => {
     const offset = typeof value === 'function' ? value(weekOffset) : value
@@ -136,12 +137,15 @@ export default function Schedule({ embedded = false } = {}) {
       toast('Save or cancel your trip changes before opening another trip.', 'err')
       return false
     }
-    setExpandedJobs(prev => ({ ...prev, [String(jobId)]: true }))
-    setSummaryTarget(prev => ({ jobId: String(jobId), tripId, week: wsStr, visit: (prev?.visit || 0) + 1 }))
+    const row = boardRows.find(row => String(row.job.job_id) === String(jobId) &&
+      (tripId === 'job' ? row.trip.parent : row.trip.id === tripId))
+    if (!row) { toast('This trip is no longer in the selected week. Refresh the schedule.', 'err'); return false }
+    setExpandedJobs(prev => ({ ...prev, [row.key]: true }))
+    setSummaryTarget(prev => ({ rowKey: row.key, tripId, week: wsStr, visit: (prev?.visit || 0) + 1 }))
     return true
   }
   useEffect(() => {
-    if (summaryTarget) summaryRowRefs.current.get(summaryTarget.jobId)?.scrollIntoView({ block: 'center', behavior: 'instant' })
+    if (summaryTarget) summaryRowRefs.current.get(summaryTarget.rowKey)?.scrollIntoView({ block: 'center', behavior: 'instant' })
   }, [summaryTarget])
   const [expandedDefer, setExpandedDefer] = useState({})
   const [workTypes, setWorkTypes] = useState([])
@@ -267,17 +271,6 @@ export default function Schedule({ embedded = false } = {}) {
     return crewStatus[name + '|' + dateStr] || 'available'
   }, [crewStatus])
 
-  // Build assignment lookup: job_id|date -> [crew_names]
-  const asgnByJobDate = useMemo(() => {
-    const map = {}
-    for (const a of assignments) {
-      const key = a.job_id + '|' + a.date
-      if (!map[key]) map[key] = []
-      if (!map[key].includes(a.crew_name)) map[key].push(a.crew_name)
-    }
-    return map
-  }, [assignments])
-
   function getDoubleBookedDays(name) {
     const dayMap = crewDayJobs[name] || {}
     const r = []
@@ -307,15 +300,8 @@ export default function Schedule({ embedded = false } = {}) {
     return Object.keys(names)
   }
 
-  // Crew job days
-  function crewJobDays(jobId, name) {
-    const r = []
-    for (const a of assignments) {
-      if (String(a.job_id) === String(jobId) && a.crew_name === name && dates.includes(a.date)) {
-        r.push(a.date)
-      }
-    }
-    return r
+  function crewJobDays(row, name) {
+    return [...new Set(row.assignments.filter(a => a.crew_name === name).map(a => a.date))]
   }
 
   // Per-job dated blocks = job's own first block + every live allocation (B87).
@@ -346,41 +332,26 @@ export default function Schedule({ embedded = false } = {}) {
     })
   }, [jobs, wsStr, weStr, jobOverlapsWeek])
 
-  // job_ids actually on the board this week. Double-booking detection must be
-  // scoped to these — otherwise a stray assignment for an off-board job (e.g.
-  // an old imported crew-day dated outside that job's own range) falsely flags
-  // a crew as double-booked against a job that isn't even shown.
-  const weekJobIds = useMemo(() => {
-    const s = new Set()
-    for (const j of weekJobs) s.add(String(j.job_id))
-    return s
-  }, [weekJobs])
+  const boardRows = useMemo(() => weekJobs.flatMap(job =>
+    crewScheduleRows(job, allocsByJobId[job.job_id], assignments, wsStr, weStr)
+  ), [weekJobs, allocsByJobId, assignments, wsStr, weStr])
 
-  // Build crew -> { date -> [jobIds] } for double-booking detection,
+  // Build crew -> { date -> [trip row keys] } for double-booking detection,
   // counting only assignments for jobs on the board this week.
   const crewDayJobs = useMemo(() => {
     const map = {}
-    for (const a of assignments) {
-      if (!weekJobIds.has(String(a.job_id))) continue
-      if (!map[a.crew_name]) map[a.crew_name] = {}
-      if (!map[a.crew_name][a.date]) map[a.crew_name][a.date] = []
-      if (!map[a.crew_name][a.date].includes(a.job_id)) {
-        map[a.crew_name][a.date].push(a.job_id)
+    for (const row of boardRows) {
+      for (const a of row.assignments) {
+        if (!map[a.crew_name]) map[a.crew_name] = {}
+        if (!map[a.crew_name][a.date]) map[a.crew_name][a.date] = []
+        if (!map[a.crew_name][a.date].includes(row.key)) map[a.crew_name][a.date].push(row.key)
       }
     }
     return map
-  }, [assignments, weekJobIds])
+  }, [boardRows])
 
-  const { scheduled, unscheduled } = useMemo(() => {
-    const sched = []
-    const unsched = []
-    for (const j of weekJobs) {
-      const unames = wkAsgnUnique(j.job_id)
-      if (unames.length > 0) sched.push(j)
-      else unsched.push(j)
-    }
-    return { scheduled: sched, unscheduled: unsched }
-  }, [weekJobs, assignments])
+  const scheduled = boardRows.filter(row => row.assignments.length > 0)
+  const unscheduled = boardRows.filter(row => row.assignments.length === 0)
 
   // Multi-week alert per plan §6.4: pulse Prev/Next when any visible job has
   // zero crew assigned for any of its days in the adjacent week.
@@ -395,12 +366,12 @@ export default function Schedule({ embedded = false } = {}) {
 
   const prevWeekAlert = useMemo(() => {
     const prev = new Date(monday); prev.setDate(prev.getDate() - 7)
-    return scheduled.some(j => weekHasUnassignedDaysFor(j, prev, assignments))
+    return scheduled.some(row => weekHasUnassignedDaysFor(row.job, prev, assignments))
   }, [scheduled, monday, assignments])
 
   const nextWeekAlert = useMemo(() => {
     const next = new Date(monday); next.setDate(next.getDate() + 7)
-    return scheduled.some(j => weekHasUnassignedDaysFor(j, next, assignments))
+    return scheduled.some(row => weekHasUnassignedDaysFor(row.job, next, assignments))
   }, [scheduled, monday, assignments])
 
   // Scroll the focused job row into view once the board is rendered.
@@ -464,14 +435,9 @@ export default function Schedule({ embedded = false } = {}) {
   // Assignment day picker modal
   const [assignModal, setAssignModal] = useState(null) // { name, jobId, selectedDays }
 
-  function handleAssignCrew(name, jobId) {
-    const job = jobs.find(j => String(j.job_id) === String(jobId))
-    if (!job) return
-    const hasRange = !!(effStart(job) || effEnd(job))
-    if (!hasRange) return
-    const existing = crewJobDays(jobId, name)
-    // Pre-select only existing assignments — user opts in to new days
-    setAssignModal({ name, jobId, selectedDays: [...existing], job })
+  function handleAssignCrew(name, row) {
+    if (row.trip.legacy || !row.ranges.length) return
+    setAssignModal({ name, jobId: row.job.job_id, selectedDays: crewJobDays(row, name), job: row.job, row })
   }
 
   function toggleAssignDay(ds) {
@@ -488,7 +454,7 @@ export default function Schedule({ embedded = false } = {}) {
   // visible week, minus any the crew is OUT (sick/off) — never auto-book time off.
   function assignableDays(m) {
     if (!m?.job) return []
-    return dates.filter(ds => jobInRange(m.job, ds) && getCSt(m.name, ds) === 'available')
+    return dates.filter(ds => crewRowInRange(m.row, ds) && getCSt(m.name, ds) === 'available')
   }
 
   // One-click fill/clear: if every assignable day is already selected, clear them
@@ -502,53 +468,67 @@ export default function Schedule({ embedded = false } = {}) {
     })
   }
 
+  const [assignBusy, setAssignBusy] = useState(false)
+  const assignmentBusy = useRef(false)
+
+  // Delete only the actual crew-day records attributed to this row. A job/date
+  // predicate alone would also remove crew from its overlapping sibling trips.
+  async function changeRowAssignments(row, name, selectedDays) {
+    if (assignmentBusy.current) return false
+    assignmentBusy.current = true
+    setAssignBusy(true)
+    try {
+      const existing = crewJobDays(row, name)
+      const toAdd = selectedDays.filter(d => !existing.includes(d))
+      const removed = row.assignments.filter(a => a.crew_name === name && !selectedDays.includes(a.date))
+      if (toAdd.some(d => !crewRowInRange(row, d)) || (row.trip.legacy && toAdd.length)) throw new Error('Choose a saved trip to add crew.')
+      // A NULL link cannot identify parent-default crew on an overlapping saved
+      // trip date. Require an explicit trip instead of creating ambiguous data.
+      if (!row.trip.id && toAdd.some(d => Object.values(allocsByJobId[row.job.job_id] || {}).some(t =>
+        (t.start_date || t.end_date) && (!t.start_date || t.start_date <= d) && (!t.end_date || t.end_date >= d)))) {
+        throw new Error('Add crew to the saved trip for these dates.')
+      }
+      if (toAdd.length) {
+        const { error } = await supabase.from('assignments').insert(toAdd.map(date => ({
+          job_id: row.job.job_id, mobilization_id: row.trip.id || null, crew_name: name, date,
+        })))
+        if (error) throw error
+      }
+      if (removed.length) {
+        const { data, error } = await supabase.from('assignments').delete()
+          .eq('job_id', row.job.job_id).in('id', removed.map(a => a.id)).select('id')
+        if (error) throw error
+        if (data.length !== removed.length) throw new Error('Some crew days could not be removed. The schedule has been refreshed; try again.')
+      }
+      await loadWeekData()
+      return true
+    } catch (err) {
+      toast(err.message || 'Could not save crew assignments.', 'err')
+      await loadWeekData()
+      return false
+    } finally {
+      assignmentBusy.current = false
+      setAssignBusy(false)
+    }
+  }
+
   async function applyAssignModal() {
     if (!assignModal) return
-    const { name, jobId, selectedDays } = assignModal
-    const existing = crewJobDays(jobId, name)
-    const toAdd = selectedDays.filter(d => !existing.includes(d))
-    const toRemove = existing.filter(d => !selectedDays.includes(d))
-
-    if (toAdd.length > 0) {
-      const rows = toAdd.map(d => ({ job_id: jobId, crew_name: name, date: d }))
-      await supabase.from('assignments').insert(rows)
-    }
-    for (const ds of toRemove) {
-      await supabase.from('assignments').delete().eq('job_id', jobId).eq('crew_name', name).eq('date', ds)
-    }
-    setAssignModal(null)
-    loadWeekData()
+    const row = boardRows.find(r => r.key === assignModal.row.key)
+    if (!row) { toast('This trip has changed. Close the picker and try again.', 'err'); return }
+    if (await changeRowAssignments(row, assignModal.name, assignModal.selectedDays)) setAssignModal(null)
   }
 
   // Crew week popup
   const [crewWeekName, setCrewWeekName] = useState(null)
 
-  async function handleRemoveCrew(jobId, name) {
-    const { error: err } = await supabase
-      .from('assignments')
-      .delete()
-      .eq('job_id', jobId)
-      .eq('crew_name', name)
-      .gte('date', wsStr)
-      .lte('date', weStr)
-    if (err) { console.error(err); return }
-    loadWeekData()
+  async function handleRemoveCrew(row, name) {
+    await changeRowAssignments(row, name, [])
   }
 
-  async function handleToggleCrewDay(jobId, name, dateStr, turnOn) {
-    if (turnOn) {
-      const { error: err } = await supabase.from('assignments').insert([{ job_id: jobId, crew_name: name, date: dateStr }])
-      if (err) { console.error(err); return }
-    } else {
-      const { error: err } = await supabase
-        .from('assignments')
-        .delete()
-        .eq('job_id', jobId)
-        .eq('crew_name', name)
-        .eq('date', dateStr)
-      if (err) { console.error(err); return }
-    }
-    loadWeekData()
+  async function handleToggleCrewDay(row, name, dateStr, turnOn) {
+    const existing = crewJobDays(row, name)
+    await changeRowAssignments(row, name, turnOn ? [...existing, dateStr] : existing.filter(d => d !== dateStr))
   }
 
   async function handleUpdateJob(jobId, field, value) {
@@ -682,41 +662,43 @@ export default function Schedule({ embedded = false } = {}) {
   }
 
 
-  function renderBoardRow(j, idx, dimmed) {
-    const isSummaryTarget = summaryTarget?.week === wsStr && summaryTarget.jobId === String(j.job_id)
-    const dailyStaffing = dates.map(ds => staffingForDay(j, allocsByJobId[j.job_id], ds))
+  function renderBoardRow(row, idx, dimmed) {
+    const { job: j, trip } = row
+    const isSummaryTarget = summaryTarget?.week === wsStr && summaryTarget.rowKey === row.key
+    const dailyStaffing = dates.map(ds => crewRowStaffing(row, ds))
     const summary = staffingSummary(dailyStaffing)
     const weekLead = summary.leads.map(flipName).join(', ')
-    const weekTrips = allocationsInWindow(allocsByJobId[j.job_id], wsStr, weStr)
+    const weekTrips = trip.id ? [trip] : []
     const pw = isPW(j)
-    const unames = wkAsgnUnique(j.job_id)
+    const unames = crewRowNames(row)
     const ct = unames.length
     const co = pw ? 'var(--pw)' : (j.color || jCol(idx))
-    const expanded = expandedJobs[String(j.job_id)]
+    const expanded = expandedJobs[row.key]
     const ddays = j.deferred_days ? String(j.deferred_days).split(',').filter(Boolean) : []
 
     const isFocused = focusJobId && String(j.job_id) === String(focusJobId)
 
     return (
       <div
-        key={j.job_id}
+        key={row.key}
+        data-trip-row={trip.id || (trip.legacy ? "unidentified" : "job")}
         className="sch-board-row-wrap"
         ref={node => {
           if (isFocused) focusedJobRowRef.current = node
-          if (node) summaryRowRefs.current.set(String(j.job_id), node)
-          else summaryRowRefs.current.delete(String(j.job_id))
+          if (node) summaryRowRefs.current.set(row.key, node)
+          else summaryRowRefs.current.delete(row.key)
         }}
       >
         {/* Job label + 6 day cells */}
         <div className="sch-board-row" style={dimmed ? { opacity: 0.45 } : undefined}>
           <div
             className={`sch-brd-job-label${isFocused ? ' sch-label-focused' : ''}`}
-            onClick={() => toggleJob(j.job_id)}
+            onClick={() => toggleJob(row.key)}
           >
             <div className="sch-brd-job-name">{j.job_num} - {j.job_name}</div>
-            {weekTrips.map(trip => <div className="sch-trip-label" key={trip.id}>
-              <strong>{trip.label || `Trip ${trip.seq}`}</strong><small>{tripRange(trip)}</small>
-            </div>)}
+            <div className="sch-trip-label">
+              <strong>{trip.legacy ? 'Crew assignments — trip not identified' : trip.label || `Trip ${trip.seq}`}</strong><small>{tripRange(trip)}</small>
+            </div>
             <div className="sch-brd-job-meta">
               {j.work_type && String(j.work_type).split(',').map(t => t.trim()).filter(Boolean).map(t => (
                 <span key={t} className={`sch-tg ${gTagClass(t)}`}>{t}</span>
@@ -737,8 +719,8 @@ export default function Schedule({ embedded = false } = {}) {
           {dates.map((ds, dayIndex) => {
             const staffing = dailyStaffing[dayIndex]
             const nd = staffing.needed
-            const dayCrew = asgnByJobDate[j.job_id + '|' + ds] || []
-            const inRange = jobInRange(j, ds)
+            const dayCrew = crewRowNames(row, ds)
+            const inRange = crewRowInRange(row, ds)
             const isDefer = ddays.includes(ds)
             const hasDb = dayCrew.some(name => getDoubleBookedDays(name).includes(ds))
 
@@ -752,7 +734,7 @@ export default function Schedule({ embedded = false } = {}) {
                 onDrop={e => {
                   e.preventDefault()
                   e.currentTarget.classList.remove('sch-brd-drop')
-                  if (dragName) handleAssignCrew(dragName, j.job_id)
+                  if (dragName) handleAssignCrew(dragName, row)
                 }}
               >
                 {dayCrew.length > 0 ? (
@@ -787,9 +769,10 @@ export default function Schedule({ embedded = false } = {}) {
         {/* Expanded detail panel */}
         {expanded && (
           <div className="sch-brd-detail">
-            <ScheduleTripDetails key={`${wsStr}:${isSummaryTarget ? summaryTarget.visit : ''}`}
+            {!trip.legacy && <ScheduleTripDetails key={`${wsStr}:${isSummaryTarget ? summaryTarget.visit : ''}`}
               initialSelected={isSummaryTarget ? summaryTarget.tripId : null}
-              job={j} trips={weekTrips} leadNames={leadNames} onEditStateChange={onTripEditStateChange} onUpdated={() => refreshJobTrips(j.job_id)}>
+              job={j} trips={weekTrips} leadNames={leadNames} editKey={row.key}
+              onEditStateChange={onTripEditStateChange} onUpdated={() => refreshJobTrips(j.job_id)}>
             <div className="sch-det-grid">
               <div>
                 <label>Vehicle</label>
@@ -854,7 +837,7 @@ export default function Schedule({ embedded = false } = {}) {
               <label>Job Notes</label>
               <textarea className="sch-job-notes" defaultValue={j.notes || ''} placeholder="Internal notes for this job..." onBlur={e => handleUpdateJob(j.job_id, 'notes', e.target.value)} />
             </div>
-            </ScheduleTripDetails>
+            </ScheduleTripDetails>}
 
             {/* Deferred start */}
             <div className="sch-det-defer-wrap">
@@ -974,9 +957,9 @@ export default function Schedule({ embedded = false } = {}) {
 
             {/* Crew drop zone with day toggles */}
             <div className="sch-det-section-label">
-              {(effStart(j) || effEnd(j))
+              {row.ranges.length && !trip.legacy
                 ? 'Scheduled Days Available'
-                : <span style={{ color: 'var(--danger)' }}>{'\u26A0'} Set Start/End dates to enable crew assignment</span>
+                : <span>{trip.legacy ? 'These crew days have no single matching trip. Add new crew on the intended trip’s row.' : 'Set Start/End dates to enable crew assignment'}</span>
               }
             </div>
             <div
@@ -986,7 +969,7 @@ export default function Schedule({ embedded = false } = {}) {
               onDrop={e => {
                 e.preventDefault()
                 e.currentTarget.classList.remove('sch-dzone-over')
-                if (dragName && (effStart(j) || effEnd(j))) handleAssignCrew(dragName, j.job_id)
+                if (dragName && row.ranges.length && !trip.legacy) handleAssignCrew(dragName, row)
               }}
             >
               {unames.length > 0 ? (
@@ -1001,27 +984,27 @@ export default function Schedule({ embedded = false } = {}) {
                   </div>
                   {/* Crew rows */}
                   {unames.map(name => {
-                    const cdays = crewJobDays(j.job_id, name)
+                    const cdays = crewJobDays(row, name)
                     return (
                       <div key={name} className="sch-tg-row">
                         <div className="sch-tg-name" title={name}>{flipName(name)}</div>
                         <div className="sch-tg-days">
                           {dates.map((ds, di) => {
                             const onDay = cdays.includes(ds)
-                            const inRng = jobInRange(j, ds)
+                            const inRng = crewRowInRange(row, ds) || onDay
                             if (!inRng) return <div key={ds} style={{ width: 32, flexShrink: 0 }} />
                             return (
                               <div
                                 key={ds}
                                 className={`sch-tg-day${onDay ? ' sch-tg-day-on' : ''}`}
-                                onClick={() => handleToggleCrewDay(j.job_id, name, ds, !onDay)}
+                                onClick={() => handleToggleCrewDay(row, name, ds, !onDay)}
                               >
                                 {DAYS[di]}
                               </div>
                             )
                           })}
                         </div>
-                        <button className="sch-tg-x" onClick={() => handleRemoveCrew(j.job_id, name)} title="Remove">{'\u2715'}</button>
+                        <button className="sch-tg-x" onClick={() => handleRemoveCrew(row, name)} title="Remove">{'\u2715'}</button>
                       </div>
                     )
                   })}
@@ -1179,7 +1162,7 @@ export default function Schedule({ embedded = false } = {}) {
             Could not load this week: {staticError || error}{' '}
             <button className="sch-btn" onClick={() => { if (staticError) setStaticRetry(n => n + 1); loadWeekData() }}>Retry</button>
           </div> : loading ? <div className="loading" role="status">Loading schedule…</div> : <>
-          <div className="sch-job-count">Jobs This Week ({weekJobs.length})</div>
+          <div className="sch-job-count">Jobs This Week ({weekJobs.length}) · Trips ({boardRows.filter(row => !row.trip.legacy).length})</div>
 
           <div className="sch-brd">
             {/* Header row */}
@@ -1242,11 +1225,11 @@ export default function Schedule({ embedded = false } = {}) {
 
       {/* Assignment day picker modal */}
       {assignModal && (
-        <div className="sch-modal-overlay" onClick={() => setAssignModal(null)}>
+        <div className="sch-modal-overlay" onClick={() => { if (!assignBusy) setAssignModal(null) }}>
           <div className="sch-modal" onClick={e => e.stopPropagation()}>
             <div className="sch-modal-title">Assign {flipName(assignModal.name)}</div>
             <div className="sch-modal-label">
-              to <strong style={{ color: '#1565c0' }}>{assignModal.job ? assignModal.job.job_num + ' - ' + assignModal.job.job_name : 'Job'}</strong>
+              to <strong>{assignModal.job.job_num} — {assignModal.row.trip.label || `Trip ${assignModal.row.trip.seq}`}</strong>
             </div>
             {(() => {
               const all = assignableDays(assignModal)
@@ -1268,13 +1251,13 @@ export default function Schedule({ embedded = false } = {}) {
             })()}
             <div className="sch-modal-days">
               {dates.map((ds, i) => {
-                const inRange = assignModal.job ? jobInRange(assignModal.job, ds) : false
+                const inRange = crewRowInRange(assignModal.row, ds)
                 if (!inRange) return <div key={ds} className="sch-modal-day" style={{ opacity: 0.3 }}>{DAYS_LONG[i]}</div>
                 const conflictJobs = assignments
-                  .filter(a => a.crew_name === assignModal.name && a.date === ds && String(a.job_id) !== String(assignModal.jobId))
+                  .filter(a => a.crew_name === assignModal.name && a.date === ds && !assignModal.row.assignments.some(own => own.id === a.id))
                   .map(a => {
                     const j = jobs.find(jj => String(jj.job_id) === String(a.job_id))
-                    return j ? j.job_num : `Job ${a.job_id}`
+                    return j ? `${j.job_num}${String(a.job_id) === String(assignModal.jobId) ? ' (another trip)' : ''}` : `Job ${a.job_id}`
                   })
                 const dayStatus = getCSt(assignModal.name, ds)
                 const isOut = dayStatus !== 'available'
@@ -1297,8 +1280,8 @@ export default function Schedule({ embedded = false } = {}) {
               })}
             </div>
             <div className="sch-modal-actions">
-              <button className="sch-btn" onClick={() => setAssignModal(null)}>Cancel</button>
-              <button className="sch-btn" style={{ background: 'var(--command-green)', color: '#fff', borderColor: 'var(--command-green)' }} onClick={applyAssignModal}>Assign</button>
+              <button className="sch-btn" onClick={() => { if (!assignBusy) setAssignModal(null) }}>Cancel</button>
+              <button className="sch-btn" style={{ background: 'var(--command-green)', color: 'var(--ink)', borderColor: 'var(--command-green)' }} disabled={assignBusy} onClick={applyAssignModal}>{assignBusy ? 'Saving…' : 'Assign'}</button>
             </div>
           </div>
         </div>

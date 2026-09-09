@@ -131,6 +131,7 @@ async function verifyViews(){
   const bar=page.locator('.cal-bar[title*="Bash Dave"]').filter({hasText:'7215'})
   await bar.waitFor();assert.equal(await bar.count(),1)
   assert.match(await bar.getAttribute('title'),/3 crew.*Bash Dave/)
+  assert.equal(await bar.locator('.cal-trip-title').innerText(),'WTC1 - Concrete Sealing')
   assert.equal(await bar.evaluate(el=>el.style.gridColumn),'2 / 4','October month row: Monday + Tuesday only')
   await page.locator('select').filter({has:page.locator('option', {hasText:'All Crews'})}).selectOption('Bash Dave')
   assert.equal(await bar.count(),1,'Filtering by allocation lead must retain the bar')
@@ -196,8 +197,8 @@ try{
  console.log('PASS unknown crew need stays 0/? with warnings; explicit zero stays 0/0 without a false gap.')
  // Two separate trips in one week must use the correct target and lead each day.
  main.crew_needed=null
- mobs=[{...mobs[0],id:'early',start_date:'2026-10-12',end_date:'2026-10-13',crew_needed:1,lead:'Bash Dave',vehicle:'Truck 1',equipment:'Grinder'},
-       {...mobs[0],id:'late',seq:2,start_date:'2026-10-15',end_date:'2026-10-16',crew_needed:4,lead:'Smith, Jane',vehicle:'Truck 2',equipment:'Sprayer'}]
+ mobs=[{...mobs[0],id:'early',label:'Preparation',start_date:'2026-10-12',end_date:'2026-10-13',crew_needed:1,lead:'Bash Dave',vehicle:'Truck 1',equipment:'Grinder'},
+       {...mobs[0],id:'late',label:'Sealing',seq:2,start_date:'2026-10-15',end_date:'2026-10-16',crew_needed:4,lead:'Smith, Jane',vehicle:'Truck 2',equipment:'Sprayer'}]
  snapshotAssignments=['2026-10-12','2026-10-13','2026-10-15','2026-10-16'].map((date,i)=>({id:i+1,job_id:1150,crew_name:'Bash Dave',date,mobilization_id:i<2?'early':'late'}))
  await view('/settings');await view('/daily');await card.waitFor()
  assert.equal(await card.locator('.dly-card-badge').innerText(),'Needs vary by day')
@@ -217,6 +218,13 @@ try{
  assert.match(await multiRow.locator('.sch-trip-label').nth(1).innerText(),/Oct 15, 2026.*Oct 16, 2026/s)
  await page.screenshot({path:'/private/tmp/codex-review-schedule-multiple.png'})
  console.log('PASS Monday/Tuesday need 1; Thursday/Friday need 4 and flag the shortage, with the correct leads in Daily and Crew Schedule.')
+ await view('/calendar')
+ await page.locator('.cal-trip-title').first().waitFor()
+ assert.deepEqual((await page.locator('.cal-trip-title').allTextContents()).sort(),['Preparation','Sealing'])
+ assert.match(await page.locator('.cal-bar').filter({hasText:'Preparation'}).getAttribute('title'),/Preparation.*Bash Dave/)
+ assert.match(await page.locator('.cal-bar').filter({hasText:'Sealing'}).getAttribute('title'),/Sealing.*Smith, Jane/)
+ await page.screenshot({path:'/private/tmp/codex-calendar-trip-titles.png'})
+ await view('/schedule');await multiRow.waitFor()
  const [printPage]=await Promise.all([page.waitForEvent('popup'),page.evaluate(()=>window.testPrintWeek())])
  const printedJob=printPage.locator('tbody tr').filter({hasText:'7215'})
  await printedJob.waitFor()

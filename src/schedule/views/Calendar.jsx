@@ -605,6 +605,7 @@ export default function Calendar() {
                       color={getJobColor(seg.job)}
                       jobNum={seg.job.job_num}
                       jobName={seg.job.job_name}
+                      tripTitle={seg.alloc?.label}
                       crewCount={crewCount}
                       lead={lead}
                       isPW={isPW(seg.job)}

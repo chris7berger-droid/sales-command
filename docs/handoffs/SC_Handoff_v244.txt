@@ -68,4 +68,6 @@ Fetch main on desktop before starting. Preserve existing named stale-B103 stash;
 it belongs to earlier maintenance, not this branch. Do not reapply it blindly.
 
 RELEASE RECORD
-Pending final integrated checks and authorized merge; updated below after release.
+Integrated main e60b167: configured build, send/card/trip/weekly-text models,
+and full Jobs/trips, overlapping-board and weekly-crew-text UI suites all PASS.
+Existing large bundle warning only. Merge/deployment record follows after release.

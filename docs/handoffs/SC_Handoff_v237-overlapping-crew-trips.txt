@@ -1,0 +1,77 @@
+SC HANDOFF v237 — CODEX: overlapping Crew Schedule trips (2026-09-08)
+==================================================================
+
+SESSION SUMMARY
+---------------
+Chris reported a new trip within an existing trip's dates appearing merged on
+Crew Schedule (7215: Google Aug22–Oct2; sealing Sep28–29). Confirmed board grouped
+by job_id, rendered all trip titles in one row, and used overlap-unknown staffing.
+
+CHANGES ACCEPTED (MERGE AUTHORIZED)
+------------------------------
+Separate saved-trip rows keyed by UUID; dates, requirements, leads, assigned crew
+and editor are scoped to that trip. Same-date trips retain distinct identities.
+Reuse buildJobTrips attribution: UUID links win; unlinked days resolve only with
+one matching trip. Ambiguous/unmatched days appear once in an identified legacy
+row. Parent-only dates stay visible unless an identical saved span represents them.
+Crew writes include mobilization_id; removal uses exact assignment IDs, preserving
+sibling trips even for the same crew/day/job. Errors remain visible; concurrent
+clicks are guarded. Same-person overlapping trip assignments flag double booking.
+The job-default selector remains explicitly available in each trip editor.
+
+DECISIONS / LIMITS
+-----------------
+No DB/schema/RLS changes or live data repair. Existing ambiguous crew links are
+not guessed or backfilled. Adding NULL-linked parent crew on a saved-trip date is
+blocked with a choose-the-trip message, because NULL cannot express that identity.
+Assignments remain separate insert/delete requests, not a database transaction;
+partial failure reloads current data and surfaces the error.
+Daily/Calendar/print aggregation is unchanged; B107/B108 remain deferred.
+
+BACKLOG
+-------
+B110 closed after Chris accepted ac881c5 and authorized merge/branch maintenance.
+Production verification will be recorded in the closeout handoff.
+B109 belongs to the other terminal and is NOT included in this worktree.
+
+VERIFICATION
+------------
+- npm run build with fake valid Supabase env: pass; existing bundle-size warning.
+- check-overlapping-crew-trips-model.mjs: pass nested/identical spans, requirements,
+  zero/inheritance, parent-only/undated jobs, UUID and ambiguous legacy attribution.
+- check-overlapping-crew-trips.mjs: actual React browser pass: separate rows,
+  exact edit UUID, per-trip day picking, same crew on both trips, sibling-safe
+  removal, save failure, reload, legacy visibility. All DB traffic intercepted.
+- check-allocation-staffing-model.mjs + check-job-trips-model.mjs: pass.
+- Existing check-schedule-allocation.mjs: full pass; assertions updated to separate
+  rows while retaining old create/edit/default/error/cross-view coverage.
+- Changed application files: no new lint findings; Schedule retains five existing
+  unused-symbol errors. git diff --check clean.
+- No independent-agent review; no authenticated production mutation test.
+
+NOT TOUCHED / PARALLEL TERMINAL
+-------------------------------
+Other terminal owns /Users/chrisberger/sales-command on
+codex/crew-schedule-week-summary. Its files/index/branch left untouched.
+Both branches edit src/schedule/views/Schedule.jsx. Integrate deliberately after
+acceptance; preserve B109 week controls, header data, dirty-draft guards and
+loading/error handling. Its summary model still uses job/day overlap ambiguity;
+reconcile with the per-trip staffing here when combining the two changes.
+
+FILES TO KNOW
+-------------
+src/schedule/lib/crewScheduleRows.js
+src/schedule/views/Schedule.jsx
+scripts/check-overlapping-crew-trips-model.mjs
+scripts/check-overlapping-crew-trips.mjs
+scripts/check-schedule-allocation.mjs
+
+GIT STATE
+---------
+Worktree: /private/tmp/sales-command-overlapping-trips
+Branch: codex/fix-overlapping-crew-trips
+Baseline: bf4aebb (main when worktree created).
+Chris accepted the preview and authorized merge/cleanup. Deployment pending.
+Numbered handoff uses v237 + task suffix to
+avoid the other terminal's v236 handoff. Next action: merge this fix and verify production; keep the other terminal's
+checkout intact. B109 must incorporate this fix before its own merge.

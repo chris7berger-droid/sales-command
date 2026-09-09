@@ -11,7 +11,7 @@ const root = resolve(process.env.SCHEDULE_TEST_ROOT || '.')
 process.env.VITE_SUPABASE_URL = 'https://schedule-fixture.supabase.co'
 process.env.VITE_SUPABASE_ANON_KEY = 'codex-fixture-only'
 const server = await createServer({
-  root, server: { host: '127.0.0.1', port: 5190, strictPort: true },
+  root, cacheDir: '/private/tmp/sales-command-overlap-allocation-cache', server: { host: '127.0.0.1', port: 5190, strictPort: true },
   plugins: [{
     name: 'allocation-test-harness',
     resolveId(id) { if (id === 'virtual:allocation-test') return '\0allocation-test' },
@@ -207,15 +207,16 @@ try{
  assert.match(await card.locator('.dly-staffing-row .dly-cell').nth(3).innerText(),/4.*Smith, Jane/s)
  await page.screenshot({path:'/private/tmp/codex-review-daily-multiple.png'})
  await view('/schedule')
- const multiRow=page.locator('.sch-board-row-wrap').filter({hasText:'7215'})
+ const multiRow=page.locator('[data-trip-row=late]')
+ const earlyRow=page.locator('[data-trip-row=early]')
  await multiRow.waitFor()
- assert.equal(await multiRow.locator('.sch-brd-cell').nth(0).getByText('need 3',{exact:true}).count(),0)
+ assert.equal(await earlyRow.locator('.sch-brd-cell').nth(0).getByText('need 3',{exact:true}).count(),0)
  assert.match(await multiRow.locator('.sch-brd-cell').nth(3).innerText(),/need 3/)
- assert.match(await multiRow.locator('.sch-brd-cell').nth(3).innerText(),/Jane Smith/)
- assert.match(await multiRow.locator('.sch-brd-cell').nth(0).innerText(),/Bash Dave/)
- assert.equal(await multiRow.locator('.sch-trip-label').count(),2,'Show both trips in the viewed week')
- assert.match(await multiRow.locator('.sch-trip-label').nth(0).innerText(),/Oct 12, 2026.*Oct 13, 2026/s)
- assert.match(await multiRow.locator('.sch-trip-label').nth(1).innerText(),/Oct 15, 2026.*Oct 16, 2026/s)
+ assert.match(await multiRow.locator('.sch-brd-crew-info').innerText(),/Jane Smith/)
+ assert.match(await earlyRow.locator('.sch-brd-crew-info').innerText(),/Bash Dave/)
+ assert.equal(await page.locator('.sch-trip-label').count(),2,'Show both trips as separate rows in the viewed week')
+ assert.match(await earlyRow.locator('.sch-trip-label').innerText(),/Oct 12, 2026.*Oct 13, 2026/s)
+ assert.match(await multiRow.locator('.sch-trip-label').innerText(),/Oct 15, 2026.*Oct 16, 2026/s)
  await page.screenshot({path:'/private/tmp/codex-review-schedule-multiple.png'})
  console.log('PASS Monday/Tuesday need 1; Thursday/Friday need 4 and flag the shortage, with the correct leads in Daily and Crew Schedule.')
  await view('/calendar')
@@ -241,7 +242,7 @@ try{
  assert.equal(await lateForm.getByLabel('Crew needed',{exact:true}).inputValue(),'4')
  assert.equal(await lateForm.getByLabel('Start',{exact:true}).inputValue(),'2026-10-15')
  await lateForm.getByLabel('Trip notes',{exact:true}).fill('Thursday trip only')
- await selector.selectOption('early')
+ await selector.selectOption('job')
  assert.equal(await selector.inputValue(),'late','Unsaved edits cannot silently move to another trip')
  await multiRow.getByText('Save or cancel your changes before switching trips.').waitFor()
  for(const invalid of ['-1','1.5']) {
@@ -264,9 +265,9 @@ try{
  await lateForm.locator('.sch-trip-save').waitFor({state:'hidden'})
  assert.equal(mobs[1].crew_needed,0);assert.equal(mobs[1].note,'Thursday trip only')
  assert.deepEqual(mobs[0],earlyBefore,'Saving Thursday must leave the earlier trip completely unchanged')
- await selector.selectOption('early')
- assert.equal(await multiRow.locator('[data-schedule-trip-id="early"]').getByLabel('Lead',{exact:true}).inputValue(),'Bash Dave')
- const earlyForm=multiRow.locator('[data-schedule-trip-id="early"]')
+ await earlyRow.locator('.sch-brd-job-label').click()
+ assert.equal(await earlyRow.locator('[data-schedule-trip-id="early"]').getByLabel('Lead',{exact:true}).inputValue(),'Bash Dave')
+ const earlyForm=earlyRow.locator('[data-schedule-trip-id="early"]')
  await earlyForm.getByLabel('Trip notes',{exact:true}).fill('Discard this')
  await earlyForm.getByRole('button',{name:'Cancel',exact:true}).click()
  assert.equal(await earlyForm.getByLabel('Trip notes',{exact:true}).inputValue(),earlyBefore.note || '')

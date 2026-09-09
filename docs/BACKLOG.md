@@ -1,5 +1,7 @@
 # Sales Command — Backlog
 
+**Trip controls — 2026-09-08, `codex/bug-squash` (local, not deployed):** Bounded scrollable SOW on expanded trips, explicit Delete job label, Delete trip available inside the trip editor with confirmation. Trip deletion retains pull-ticket blocking, blocks linked crew assignments, scopes deletion to job + trip and checks returned rows. UI and model regression checks + build pass. Production 10227/10262 were read only; both sends succeeded. Refresh investigation remains open: Crew Schedule does not reload static jobs/trips on tab return or live updates; Home/Jobs have live subscriptions but no focus/reconnect catch-up. No refresh implementation in this branch. See `docs/handoffs/SC_Handoff_v242.txt`.
+
 **CODEX RELEASE COMPLETE — 2026-09-08:** Scheduling/trips merged via [Codex PR #38](https://github.com/chris7berger-droid/sales-command/pull/38), merge `555019c`, production verified. B104/B105/B106/MOBZ-2 moved to Completed Log. The merged Codex branch/worktree are retired; main is the next-session starting point. Authoritative handoff: `docs/handoffs/SC_Handoff_v235.txt`. B107/B108 remain explicitly deferred.
 
 **Single source of truth for all outstanding work.** Update on every session

@@ -1,0 +1,42 @@
+SC Handoff v242 — CODEX — Trip controls, 2026-09-08
+
+SESSION SUMMARY
+Work isolated at /Users/chrisberger/sales-command-bug-squash on codex/bug-squash.
+The weekly crew text build is in a different worktree and was not edited.
+
+CHANGES BUILT (NOT SHIPPED)
+Expanded trip SOW is capped at 180px with keyboard-accessible scrolling.
+Trip editor textareas are capped too. Job-level Delete now says Delete job.
+The trip editor exposes Delete trip; confirmation states job/other trips remain.
+Existing pull-ticket hard block retained. Linked crew assignments block deletion.
+Delete uses job_id + trip id and verifies returned rows; failures stay visible.
+
+DECISIONS
+10227 screenshot has original Job schedule dates plus two saved trip entries.
+Parent date display is derived, not a third saved trip; no deletion action for it.
+No production writes, data repairs, or deletion of 10227 trips were performed.
+
+INVESTIGATION / OPEN WORK
+Read-only live queries verified 10262 -> job 1279, start Sep14, and 10227 ->
+job 1280, start Sep28. Both active/unmerged Parked (displayed as Staged).
+199 visible jobs rules out the 1000-row cap. September positions 14/22 rule out
+25-row display cap for default September/All Stages; precise UI cause unproven.
+Crew Schedule static jobs/trips load on mount/retry, not live updates/tab return.
+Home/Jobs have realtime but no visibility/focus/reconnect catch-up. Refresh fix
+is still unimplemented; protect unsaved editor state when addressing it.
+
+VERIFICATION
+npm run build, check-job-trips-model.mjs, git diff --check: PASS.
+check-job-trips.mjs with installed Chrome and intercepted fake data: PASS.
+Covers SOW overflow, deletion cancel, staffed-trip blocking, successful scoped
+trip deletion, parent retained, no job writes, existing trip editing/regressions.
+No authenticated production browser smoke. Pull-ticket block retained but not
+newly simulated; assignment precheck is not an atomic database constraint.
+
+NEXT SESSION / FILES
+User preview/acceptance and production deployment pending.
+TripsPanel.jsx/.css, MobsModal.jsx, StageJobCard.jsx, queries.js,
+scripts/check-job-trips.mjs. No refresh or unrelated scheduling implementation.
+
+GIT STATE
+Local codex/bug-squash from main 7503a7c. Not merged or deployed.

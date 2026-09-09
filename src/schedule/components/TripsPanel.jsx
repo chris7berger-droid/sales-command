@@ -65,7 +65,7 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
             const detail = (label, key, empty = 'Not set') => {
               const value = field(key)
               const inherited = value != null && value !== '' && (trip[key] == null || trip[key] === '')
-              return <div><dt>{label}{inherited && <small> · from job</small>}</dt><dd>{value == null || value === '' ? empty : key === 'lead' ? nameLabel(value) : String(value)}</dd></div>
+              return <div><dt>{label}{inherited && <small> · from job</small>}</dt><dd className={key === 'sow' ? 'job-trip-sow' : undefined} tabIndex={key === 'sow' ? 0 : undefined} role={key === 'sow' ? 'region' : undefined} aria-label={key === 'sow' ? 'Scope of work' : undefined}>{value == null || value === '' ? empty : key === 'lead' ? nameLabel(value) : String(value)}</dd></div>
             }
             return <article className="job-trip" key={trip.key} data-trip-id={trip.key}>
               <button className="job-trip-summary" aria-expanded={open} onClick={() => setExpanded(s => ({ ...s, [trip.key]: !s[trip.key] }))}>

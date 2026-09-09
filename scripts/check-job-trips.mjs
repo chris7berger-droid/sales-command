@@ -12,7 +12,7 @@ const base = { job_id: 1150, is_go_back: false, lead: null, crew_needed: null, v
 let rows = [
   { ...base, id: 'past', seq: 1, label: 'First visit', start_date: '2026-08-03', end_date: '2026-08-05' },
   { ...base, id: 'multiweek', seq: 2, label: 'Google', start_date: '2026-08-22', end_date: '2026-10-02' },
-  { ...base, id: 'future', seq: 5, label: 'WTC1 - Concrete Sealing', start_date: '2026-10-12', end_date: '2026-10-13', lead: 'Bash Dave', crew_needed: 3, vehicle: 'Truck 2', equipment: 'Grinder', power_source: 'Generator', sow: 'Seal the concrete.', note: 'North entrance', mob_type: 'unconfirmed' },
+  { ...base, id: 'future', seq: 5, label: 'WTC1 - Concrete Sealing', start_date: '2026-10-12', end_date: '2026-10-13', lead: 'Bash Dave', crew_needed: 3, vehicle: 'Truck 2', equipment: 'Grinder', power_source: 'Generator', sow: 'Seal the concrete.\n'.repeat(100), note: 'North entrance', mob_type: 'unconfirmed' },
   { ...base, id: 'undated', seq: 6, label: 'Return visit', start_date: null, end_date: null, is_go_back: true },
 ]
 let assignments = [
@@ -69,6 +69,10 @@ await page.route('**/*', async route => {
       if (!row) return send({ message: 'Trip no longer belongs to this job' }, 406)
       Object.assign(row, payload);return send(row)
     }
+    if (table === 'job_mobilizations' && req.method() === 'DELETE') {
+      const removed = rows.filter(r => `eq.${r.id}` === url.searchParams.get('id') && `eq.${r.job_id}` === url.searchParams.get('job_id'))
+      rows = rows.filter(r => !removed.includes(r)); return send(removed.map(r => ({ id: r.id })))
+    }
     return send([])
   }
   if (table === 'jobs') return send({ ...job, call_log_id: 3791, merged_into_job_id: null, deleted: 'No' })
@@ -81,7 +85,7 @@ await page.route('**/*', async route => {
   if (table === 'job_mobilizations' || table === 'assignments') {
     assert.equal(url.searchParams.get('job_id'), 'eq.1150', 'Every trip/assignment read must be scoped to this job')
     if (failRead && table === 'assignments') return send({ message: 'Fixture read failed' }, 400)
-    return send(table === 'job_mobilizations' ? rows : assignments)
+    return send(table === 'job_mobilizations' ? rows : assignments.filter(a => !url.searchParams.has('mobilization_id') || `eq.${a.mobilization_id}` === url.searchParams.get('mobilization_id')))
   }
   return send([])
 })
@@ -115,13 +119,14 @@ try {
     await article('future').locator('button.job-trip-summary').click()
     assert.match(await article('future').innerText(), /Seal the concrete\./)
     assert.match(await article('future').innerText(), /North entrance/)
+    assert(await article('future').locator('.job-trip-sow').evaluate(e => e.clientHeight <= 180 && e.scrollHeight > e.clientHeight), 'Long SOW must scroll within its panel')
     await article('future').getByRole('button', { name: 'Edit trip', exact: true }).click()
     await page.getByRole('textbox', { name: 'Trip label', exact: true }).waitFor()
     assert.equal(await page.getByLabel('Vehicle', { exact: true }).inputValue(), 'Truck 2')
     assert.equal(await page.getByLabel('Trip notes', { exact: true }).inputValue(), 'North entrance')
     await page.getByRole('combobox', { name: 'Lead', exact: true }).selectOption('Bash Dave')
     assert.equal(await page.locator('option').filter({ hasText: 'Archived crew' }).count(), 0)
-    assert.equal(await page.getByLabel('Scope of work', { exact: true }).evaluate(e => getComputedStyle(e).backgroundColor), 'rgb(243, 237, 224)')
+    assert.equal(await page.getByRole('textbox', { name: 'Scope of work', exact: true }).evaluate(e => getComputedStyle(e).backgroundColor), 'rgb(243, 237, 224)')
     await page.screenshot({ path: '/private/tmp/codex-trips-editor.png', fullPage: true })
     await page.getByLabel('End date', { exact: true }).fill('2026-10-11')
     await page.getByRole('button', { name: 'Save', exact: true }).click()
@@ -232,6 +237,27 @@ try {
     assert.match(await article('short').innerText(), /Oct 15, 2026 – Oct 16, 2026/)
     await page.screenshot({ path: '/private/tmp/codex-review-parent-overlap.png', fullPage: true })
     console.log('PASS shorter overlapping trip does not hide or fragment the parent span; linked crew stays on the explicit trip.')
+  }
+  if (!process.env.TRIPS_SNAPSHOT) {
+    await article('short').locator('button.job-trip-summary').click()
+    await article('short').getByRole('button', { name: 'Edit trip', exact: true }).click()
+    page.once('dialog', d => d.accept())
+    await page.getByRole('button', { name: 'Delete trip', exact: true }).click()
+    await page.getByText('This trip has crew assignments.', { exact: false }).waitFor()
+    assert(rows.some(r => r.id === 'short'))
+    assignments = assignments.filter(a => a.mobilization_id !== 'short')
+    const cancelled = new Promise(resolve => page.once('dialog', async d => { await d.dismiss(); resolve() }))
+    await page.getByRole('button', { name: 'Delete trip', exact: true }).click()
+    await cancelled
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent === 'Delete trip' && !b.disabled))
+    assert(rows.some(r => r.id === 'short'), 'Cancel preserves trip')
+    page.once('dialog', async d => { assert.match(d.message(), /The job and other trips will remain/); await d.accept() })
+    await page.getByRole('button', { name: 'Delete trip', exact: true }).click()
+    await page.getByRole('dialog').waitFor({ state: 'hidden' })
+    await article('short').waitFor({ state: 'hidden' })
+    assert.equal(await page.locator('[data-trip-id="job:1150:initial"]').count(), 1, 'Job schedule remains')
+    assert(!mutations.some(m => m.table === 'jobs'), 'Trip deletion must never delete or change the job')
+    console.log('PASS scrollable SOW; trip deletion cancel, staffed-trip block, scoped deletion and retained parent schedule.')
   }
   assert.deepEqual(runtimeErrors, [])
   assert(!mutations.some(m => m.table === 'assignments'), 'Editing a trip must not change crew-day assignments')

@@ -840,7 +840,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
         )}
         {canDelete && (
           <button className="sjc-action-btn sjc-delete" disabled={acting} onClick={handleDelete}>
-            Delete
+            Delete job
           </button>
         )}
       </div>

@@ -23,3 +23,7 @@
   .schedule-root .job-trip-staffing { width: 100%; padding-left: 24px; }
   .schedule-root .job-trip-fields { grid-template-columns: 1fr; }
 }
+
+.schedule-root .job-trip-fields > div { min-width: 0; }
+.schedule-root .job-trip-fields .job-trip-sow { max-height: 180px; overflow-y: auto; padding-right: 8px; }
+.schedule-root .job-trip-sow:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }

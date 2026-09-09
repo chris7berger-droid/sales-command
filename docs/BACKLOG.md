@@ -1,6 +1,6 @@
 # Sales Command — Backlog
 
-**Trip/job handoff fixes — PR42, release authorized 2026-09-08:** Corrected Sales date authority, scrollable SOW, safe trip deletion, consecutive display numbering, trip-aware Planning DAYS/CREW, restored calendar, exact-trip Crew navigation and stable Back to Job. Consolidated handoff: `docs/handoffs/SC_Handoff_v244.txt`. This incorporates released weekly crew texts (F61); no superseded handoff overwrites.
+**Trip/job handoff fixes — PR42 MERGED 2026-09-08, `a127944`, production verified:** Corrected Sales date authority, scrollable SOW, safe trip deletion, consecutive display numbering, trip-aware Planning DAYS/CREW, restored calendar, exact-trip Crew navigation and stable Back to Job. Consolidated handoff: `docs/handoffs/SC_Handoff_v244.txt`. This incorporates released weekly crew texts (F61); no superseded handoff overwrites.
 
 **Follow-ups discovered, not closed by PR42:**
 - Automatic refresh: Crew Schedule static jobs/trips lack return-to-tab/reconnect catch-up; Home/Jobs also lack catch-up after missed realtime events. Preserve drafts when implementing.

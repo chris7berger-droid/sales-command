@@ -70,4 +70,14 @@ it belongs to earlier maintenance, not this branch. Do not reapply it blindly.
 RELEASE RECORD
 Integrated main e60b167: configured build, send/card/trip/weekly-text models,
 and full Jobs/trips, overlapping-board and weekly-crew-text UI suites all PASS.
-Existing large bundle warning only. Merge/deployment record follows after release.
+Existing large bundle warning only. PR42 MERGED 2026-09-09 06:01:34 UTC (Sep8 11:01 PM Pacific).
+Merge SHA a127944c044927af27d16f97e574b3f535e463f1.
+Approved/reconciled head 487647422fba8a6e1cf7d4e8d4015223385124c1.
+Vercel production SUCCESS, deployment 4s8U67reXiB4bR3TZg1t4Qt4bu2d.
+https://www.scmybiz.com/schedule/jobs?job=1280 returned HTTP200.
+This is deployment/HTTP verification, not a fresh authenticated live UI test.
+Main fast-forwarded to release. Completed fix worktree removed, local branch
+deleted; GitHub already auto-deleted remote branch, tracking refs pruned.
+Only main remains locally, with one worktree. Existing stale-B103 stash preserved.
+Final documentation-only commit records this release and is pushed to main.
+Desktop start: git pull --ff-only, then read this handoff and current BACKLOG.

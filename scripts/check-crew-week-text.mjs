@@ -78,6 +78,13 @@ try {
   await page.getByRole('button',{name:'Next person →',exact:true}).click()
   assert.match(await preview.inputValue(),/^Kurtis Zomparelli\n/)
   assert.match(await preview.inputValue(),/With: JoseJR/)
+  await page.getByRole('button',{name:'← Previous person',exact:true}).click()
+  assert.match(await preview.inputValue(),/^JoseJR\n/)
+  assert.match(await preview.inputValue(),/Meet at shop at 6:30 AM/)
+  await page.getByRole('button',{name:'← Previous person',exact:true}).click()
+  assert.match(await preview.inputValue(),/^Wrong Coworker\n/,'Previous wraps from first person to last')
+  await page.getByRole('button',{name:'Next person →',exact:true}).click()
+  assert.match(await preview.inputValue(),/^JoseJR\n/,'Next wraps from last person to first')
   await page.getByRole('combobox',{name:'Crew member',exact:true}).selectOption('No Assignments')
   assert.equal(((await preview.inputValue()).match(/No work assigned/g)||[]).length,7)
   // Rapid week navigation cannot expose a stale preview or copy control.

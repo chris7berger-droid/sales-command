@@ -90,6 +90,7 @@ export default function Schedules() {
             <label className="crew-text-person">Crew member<select aria-label="Crew member" value={name} onChange={e => chooseName(e.target.value)}>
               {names.map(n => <option key={n} value={n}>{crewDisplayName(n)}</option>)}
             </select></label>
+            <button disabled={!names.length} onClick={() => chooseName(names[(names.indexOf(name) - 1 + names.length) % names.length])}>← Previous person</button>
             <button disabled={!names.length} onClick={() => chooseName(names[(names.indexOf(name) + 1) % names.length])}>Next person →</button>
             <button onClick={() => { setRetry(n => n + 1); setCopyMsg('') }}>Refresh</button>
           </div>

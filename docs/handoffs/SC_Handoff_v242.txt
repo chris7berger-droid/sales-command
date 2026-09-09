@@ -6,8 +6,8 @@ proposed single-job image export. Built in an isolated sales-command worktree
 on codex/weekly-crew-text. Ready for review; not merged to production.
 
 CHANGES BUILT (NOT YET SHIPPED)
-Schedules now shows an exact text preview, week picker, person picker, next-person
-button and clipboard copy/manual fallback. Each Mon–Sun day lists assigned jobs,
+Schedules now shows an exact text preview, week picker, person picker, previous/next-person
+buttons and clipboard copy/manual fallback. Each Mon–Sun day lists assigned jobs,
 trip title, address, lead, same-day/same-trip coworkers, vehicle/equipment/power,
 and trip notes. Internal jobs.notes and billing fields are excluded.
 Optional usual start/meeting instructions persist across people in the mounted

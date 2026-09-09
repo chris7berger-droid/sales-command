@@ -39,3 +39,10 @@ result = crewWeekSummary([job],{},rows,dates)
 assert.equal(result.starting.length,0,'Crew history must not invent planned trips')
 assert.equal(result.needing.length,0)
 console.log('Crew week summary: return trips, parent plans, deduplication, daily shortages, zero/inherit/unknown and overlap checks passed.')
+// A missing target is not missing crew (10062 preview feedback).
+const historicalDates=['2026-08-31','2026-09-01','2026-09-02','2026-09-03']
+const historicalCrew=historicalDates.flatMap((date,index)=>Array.from({length:index===3?3:2},(_,n)=>({job_id:1081,date,crew_name:`Crew ${n}`})))
+result=crewWeekSummary([{job_id:1081,call_log_id:3521,crew_needed:null}],{1081:[{id:'schommers',seq:4,start_date:historicalDates[0],end_date:historicalDates[3],crew_needed:null}]},historicalCrew,historicalDates)
+assert.equal(result.needing.length,0,'Missing historical target must not claim a shortage')
+assert.deepEqual(result.unknown[0].details.map(d=>d.assigned),[2,2,2,3],'Keep the recorded staffing visible')
+console.log('PASS historical missing targets preserve recorded crew counts and do not become known shortages.')

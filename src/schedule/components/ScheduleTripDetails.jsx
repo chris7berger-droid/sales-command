@@ -7,9 +7,9 @@ import './ScheduleTripDetails.css'
 
 const nameLabel = name => name?.includes(',') ? name.split(',').reverse().map(s => s.trim()).join(' ') : name
 
-export default function ScheduleTripDetails({ job, trips, leadNames, onUpdated, onEditStateChange, children }) {
+export default function ScheduleTripDetails({ job, trips, leadNames, onUpdated, onEditStateChange, initialSelected = null, children }) {
   const navigate = useNavigate()
-  const [selected, setSelected] = useState(null)
+  const [selected, setSelected] = useState(initialSelected)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [selectionError, setSelectionError] = useState('')

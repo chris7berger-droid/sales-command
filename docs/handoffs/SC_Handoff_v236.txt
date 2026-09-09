@@ -79,3 +79,36 @@ src/schedule/views/Schedule.jsx — authoritative week/data/loading/draft guard
 src/schedule/components/ScheduleTripDetails.jsx — reports active edit to board
 src/schedule/ScheduleLayout.jsx — other routes retain standalone band
 scripts/check-crew-week-summary{,-model}.mjs — acceptance checks
+
+PREVIEW / GIT RECORD
+--------------------
+Application commit: c42ec45. Draft PR #39:
+https://github.com/chris7berger-droid/sales-command/pull/39
+Vercel reported SUCCESS for c42ec45 (deployment H7HgU1jg928LcUQzwC9j4KvyWWe5).
+Preview: https://sales-command-git-codex-cre-0f8ef7-chris7berger-droids-projects.vercel.app/schedule/schedule
+Read-only HTTP check reached Vercel's authentication redirect (302); an
+unauthenticated app-render check was not possible. User may need Vercel sign-in.
+Branch pushed and clean before this documentation-only preview record. No merge.
+
+PREVIEW FEEDBACK — CLICKABLE LISTS / HISTORICAL STAFFING
+------------------------------------------------------
+Chris questioned the extra requirements link and showed Aug 31–Sep 5, including
+10062 with 2/2/2/3 assigned people. Clarification: unknown TARGET is not missing
+ASSIGNMENTS. The first wording blurred that distinction.
+- Every listed trip now opens that exact job/trip inline on the current board,
+  expands it and scrolls to it. Overlapping trips each get their own link; parent
+  schedules open job defaults. Dirty/busy edits block switching. Week selection
+  retains its existing behavior; no route to a generic search list.
+- Past-week headers omit the requirements warning entirely. Historical details
+  remain available from Jobs Needing Crew's popup with neutral historical copy.
+- Current/future warning is explicitly about unclear crew REQUIREMENTS; detail
+  rows show actual assigned counts even when required headcount is unknown.
+- Read-only live queries through command-suite-db reproduced all four warnings:
+  10062 Schommers Aug31–Sep3 has null trip AND parent target; 6507 Google job1128
+  has a null target and null Sales link; 7215 has Google Aug22–Oct2 overlapping
+  Contract Flooring Aug31–Sep3; 10236 Action Concrete Aug31 has a null target.
+  These saved dates explain the selected past week. No evidence here warrants
+  deleting rows or guessing missing targets. No live records were changed.
+- Additional model case preserves 10062-like 2/2/2/3 staffing without classifying
+  it as a known shortage. Browser checks cover every bubble's exact-trip link,
+  overlap selection, and historical popup/header behavior. Build PASS.

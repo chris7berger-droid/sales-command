@@ -129,6 +129,20 @@ export default function Schedule({ embedded = false } = {}) {
     setWeekOffset(offset)
   }
   const [expandedJobs, setExpandedJobs] = useState({})
+  const [summaryTarget, setSummaryTarget] = useState(null)
+  const summaryRowRefs = useRef(new Map())
+  function openSummaryTrip(jobId, tripId) {
+    if (editingTrips.current.size) {
+      toast('Save or cancel your trip changes before opening another trip.', 'err')
+      return false
+    }
+    setExpandedJobs(prev => ({ ...prev, [String(jobId)]: true }))
+    setSummaryTarget(prev => ({ jobId: String(jobId), tripId, week: wsStr, visit: (prev?.visit || 0) + 1 }))
+    return true
+  }
+  useEffect(() => {
+    if (summaryTarget) summaryRowRefs.current.get(summaryTarget.jobId)?.scrollIntoView({ block: 'center', behavior: 'instant' })
+  }, [summaryTarget])
   const [expandedDefer, setExpandedDefer] = useState({})
   const [workTypes, setWorkTypes] = useState([])
   const [wtOpen, setWtOpen] = useState({})
@@ -669,6 +683,7 @@ export default function Schedule({ embedded = false } = {}) {
 
 
   function renderBoardRow(j, idx, dimmed) {
+    const isSummaryTarget = summaryTarget?.week === wsStr && summaryTarget.jobId === String(j.job_id)
     const dailyStaffing = dates.map(ds => staffingForDay(j, allocsByJobId[j.job_id], ds))
     const summary = staffingSummary(dailyStaffing)
     const weekLead = summary.leads.map(flipName).join(', ')
@@ -686,7 +701,11 @@ export default function Schedule({ embedded = false } = {}) {
       <div
         key={j.job_id}
         className="sch-board-row-wrap"
-        ref={isFocused ? focusedJobRowRef : null}
+        ref={node => {
+          if (isFocused) focusedJobRowRef.current = node
+          if (node) summaryRowRefs.current.set(String(j.job_id), node)
+          else summaryRowRefs.current.delete(String(j.job_id))
+        }}
       >
         {/* Job label + 6 day cells */}
         <div className="sch-board-row" style={dimmed ? { opacity: 0.45 } : undefined}>
@@ -768,7 +787,9 @@ export default function Schedule({ embedded = false } = {}) {
         {/* Expanded detail panel */}
         {expanded && (
           <div className="sch-brd-detail">
-            <ScheduleTripDetails key={wsStr} job={j} trips={weekTrips} leadNames={leadNames} onEditStateChange={onTripEditStateChange} onUpdated={() => refreshJobTrips(j.job_id)}>
+            <ScheduleTripDetails key={`${wsStr}:${isSummaryTarget ? summaryTarget.visit : ''}`}
+              initialSelected={isSummaryTarget ? summaryTarget.tripId : null}
+              job={j} trips={weekTrips} leadNames={leadNames} onEditStateChange={onTripEditStateChange} onUpdated={() => refreshJobTrips(j.job_id)}>
             <div className="sch-det-grid">
               <div>
                 <label>Vehicle</label>
@@ -1112,7 +1133,7 @@ export default function Schedule({ embedded = false } = {}) {
       {!embedded && <CrewWeekCapacity key={wsStr} jobs={jobs} weekJobs={weekJobs} crew={crew}
         assignments={assignments} crewStatus={crewStatus} allocations={allocsByJobId}
         dates={dates} todayStr={todayStr} weekLabel={fmtWk(monday)} loading={loading}
-        error={staticError || error} pulse={weekChanged} />}
+        error={staticError || error} pulse={weekChanged} onOpenTrip={openSummaryTrip} />}
     <div className="sch-layout">
       {!embedded && (
         <div className="jh-back-bar">

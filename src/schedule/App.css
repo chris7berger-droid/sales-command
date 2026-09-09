@@ -6565,6 +6565,8 @@
 .schedule-root .sch-summary-help { font-size: 13px; line-height: 1.5; }
 .schedule-root .sch-summary-job { padding: 14px 0; border-top: 1px solid var(--border); }
 .schedule-root .sch-summary-detail { display: flex; flex-direction: column; gap: 3px; margin-top: 9px; font-size: 13px; }
+.schedule-root .sch-summary-trip-link { align-self: flex-start; background: transparent; border: 0; padding: 3px 0; color: var(--text-primary); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.schedule-root .sch-summary-trip-link:hover { color: var(--teal-dark, #087c68); }
 .schedule-root .sch-week-changed { border-radius: 6px; animation: sch-week-feedback 1.1s ease-out; }
 @keyframes sch-week-feedback {
   from { background: rgba(48,207,172,0.22); box-shadow: 0 0 0 5px rgba(48,207,172,0.14), 0 0 14px rgba(48,207,172,0.18); }

@@ -32,7 +32,10 @@ export function crewWeekSummary(jobs, allocations, assignments, dates) {
       const staffing = staffingForDay(job, rows, date)
       const count = assigned.get(`${job.job_id}|${date}`)?.size || 0
       const trip = staffing.allocation || trips.find(t => t.parent) || trips[0]
-      const detail = { date, trip, assigned: count, needed: staffing.needed }
+      const detail = { date, trip, assigned: count, needed: staffing.needed,
+        editTrips: staffing.ambiguous ? trips.filter(t => !t.parent &&
+          (t.start_date || t.end_date) && (!t.start_date || t.start_date <= date) && (!t.end_date || t.end_date >= date)) : [trip],
+      }
       if (staffing.needed == null) {
         add('unknown', job, { ...detail,
           tripLabel: staffing.ambiguous ? rows.filter(row =>

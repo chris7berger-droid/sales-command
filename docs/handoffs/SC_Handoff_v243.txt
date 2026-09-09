@@ -1,0 +1,53 @@
+SC Handoff v243 — CODEX — 2026-09-08
+
+SESSION SUMMARY
+Chris approved the weekly crew text preview, including Previous person and the
+6:30 AM shop default, and explicitly authorized merge. PR #41 merged as 0a98826.
+This supersedes v242's pending-review/release instructions.
+
+CHANGES SHIPPED
+One Mon–Sun text per person, selected week, per-day/trip coworkers and lead,
+address/trip details, exact clipboard preview, previous/next person, and refresh.
+Default: Meet at the shop at 6:30 AM. Saved scheduler deferred-start times override
+that default on the selected days. No auto-texting or database changes.
+Entry: Crew Schedule > Weekly crew texts (carries displayed week), or
+Actions > Send Schedules (opens current-week screen with week picker).
+Route: https://www.scmybiz.com/schedule/schedules
+
+DECISIONS
+Chris: "Okay, this is good to go for now. You can merge it."
+Approved app head d1141b8d5191569b5fc9eeb79764377b50512abb.
+Merged with exact-head guard. No new application code after approval.
+
+NEW/CLOSED BACKLOG
+F61 closed. B107/B108 and F60 remain deferred/unchanged.
+
+VERIFICATION
+Preview deployment SUCCESS for approved head. Focused model/browser tests PASS,
+including default time override and previous/next wraparound. New screen/helper
+lint clean; six existing shell/board unused-symbol errors unchanged.
+Full build with configured fixture environment PASS; existing large-bundle warning.
+Existing crew-week-summary browser/model and overlapping-trip model checks PASS.
+Production verification is recorded in the release follow-up below.
+
+NOT TOUCHED
+No live DB writes, staff texts, schema/RLS, public-page or legacy print changes.
+Retired sch-command application untouched. Original stale B103 backlog draft
+remains preserved in its named local stash; do not reapply it over current docs.
+
+NEXT SESSION POINTERS
+Weekly texts are released. Refresh an already-open text screen after editing
+scheduler times elsewhere. Existing text messages remain snapshots, not live links.
+
+FILES TO KNOW
+src/schedule/views/Schedules.jsx; src/schedule/lib/crewWeekText.js;
+scripts/check-crew-week-text-model.mjs; scripts/check-crew-week-text.mjs.
+
+GIT STATE
+PR https://github.com/chris7berger-droid/sales-command/pull/41 — MERGED.
+Main fast-forwarded to release 0a98826; this documentation-only closeout follows.
+
+RELEASE VERIFICATION
+Vercel production status SUCCESS for merge 0a98826. Live /schedule/schedules
+returned HTTP 200; its deployed JS bundle contains Weekly crew texts,
+Previous person, and Meet at the shop at 6:30 AM. No authenticated data mutations.

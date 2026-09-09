@@ -80,11 +80,12 @@ export default function AppSidebar({
               </button>
 
               {open && isOpen && routableItems.map(item => {
-                const active = !item.action && location.pathname.startsWith(item.path);
+                const active = !item.action && (location.pathname === item.path || location.pathname.startsWith(item.path + "/"));
                 return (
                   <button
                     key={item.id}
                     onClick={() => item.action === "directory" ? onOpenDirectory() : navigate(item.path)}
+                    aria-current={active ? "page" : undefined}
                     title={item.label}
                     style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "7px 11px 7px 22px", borderRadius: 7, border: "none", background: active ? C.tealGlow : "transparent", color: active ? C.teal : "rgba(255,255,255,0.42)", cursor: "pointer", textAlign: "left", marginBottom: 2, transition: "all 0.12s", fontFamily: F.display, borderLeft: active ? `2px solid ${C.teal}` : "2px solid transparent" }}
                     onMouseEnter={e => { if (!active) { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "rgba(255,255,255,0.72)"; } }}

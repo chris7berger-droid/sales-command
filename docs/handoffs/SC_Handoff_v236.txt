@@ -1,0 +1,81 @@
+SC HANDOFF v236 — CODEX: Crew Schedule week and job summary (2026-09-08)
+====================================================================
+
+SESSION SUMMARY
+---------------
+Chris reported that changing Crew Schedule's lower week navigation left the
+black capacity header on today's week. Agreed one bounded update: lower week
+controls both surfaces, brief teal date feedback, and replace the three roster
+bubbles on Crew Schedule with Jobs Starting / Jobs Ending / Jobs Needing Crew.
+B109 tracks this work. Implementation by CODEX.
+
+RELEASE STATUS
+--------------
+Built and locally verified on codex/crew-schedule-week-summary from main bf4aebb.
+Preview acceptance and production merge are pending. Do not describe this as
+live. v235 remains the release record for the earlier scheduling/trips work.
+
+CHANGES / DECISIONS
+------------------
+- Crew Schedule renders its own capacity header using the board's actual week,
+  jobs, trips, assignments and crew-status data. Other routes keep their header.
+- Prev/Next/This Week control both dates and daily figures; week deep links
+  initialize both. Both dates have a 1.1-second teal feedback animation after
+  navigation, none on initial render or unchanged This Week; reduced motion
+  disables animation. Today's marker only appears on the actual date.
+- Starting/Ending count planned trip endpoints within the Mon-Sat window,
+  including return trips and parent-only job dates. Identical saved/parent spans
+  are listed once. Assignment-derived history never invents a planned endpoint.
+- Counts cover the same active jobs as the board. Count each Sales job once
+  (call_log_id); unlinked jobs remain separate by job_id. A job can qualify for
+  more than one bubble, with all matching trips retained in its clicked list.
+- Needing Crew counts jobs with a known daily shortfall, using staffingForDay
+  and distinct assigned names per job/date. Explicit zero needs nobody; blank
+  inherits. Missing requirements / overlapping trips appear separately under
+  Crew Needs to Check, never implied fully staffed or counted as known shortage.
+- Summary dialogs show job and trip names, full trip spans for starts/ends, and
+  dates plus assigned/needed/shortfall for shortages. Daily header click lists
+  remain available and use the same selected week.
+- Week loading hides old figures and board rows until that week's data arrives;
+  failed jobs/trips/week loads show Retry. Stale week responses cannot replace
+  the selected week. Trip loader has an opt-in throwOnError for this caller;
+  all other callers retain existing behavior.
+- Week navigation requires saving/cancelling an open trip draft first. Saves
+  refresh the shared header inputs alongside the board.
+
+VERIFICATION
+------------
+- Production build with fake valid Supabase env: PASS; existing bundle warning.
+- New check-crew-week-summary-model.mjs: PASS (returns, parent spans, duplicate
+  jobs, known daily shortage, zero, inheritance, unknown and overlapping trips).
+- Existing allocation-staffing and job-trips model suites: PASS.
+- New check-crew-week-summary.mjs: PASS on actual React with intercepted fixture
+  requests: all week controls, initial/no-op behavior, deep link, count/list
+  content, day people, empty week, slow response race, loading, failure/retry,
+  trip-load failure/retry, reduced motion, draft guard and Logistics defaults.
+- Existing check-schedule-allocation.mjs: PASS (creation/reload across views,
+  daily staffing, trip edit/cancel/error, Jobs linkage, Build Schedule Create/Edit).
+  Corrected its test router to mount /schedule/* as production does; the old
+  harness mounted ScheduleLayout at root, producing unrealistic toolbar routes.
+- Existing changed app files: 12 baseline lint findings vs 9 current, none new.
+  New app modules and ScheduleTripDetails lint clean. git diff --check PASS.
+- Visual fixture screenshot inspected: /private/tmp/crew-week-summary.png.
+- Browser data is mocked; these are not live persistence tests. No real DB
+  records written. No independent-agent audit claimed; scoped local review done.
+
+NOT TOUCHED / NEXT SESSION
+-------------------------
+B107/B108 print defects remain separately deferred. Other screens retain their
+existing bubbles/current-week behavior. No migrations, RLS, public-page queries,
+edge functions, or job7215 repair SQL changes. Do not rerun that old repair.
+Next: Chris tests preview, then merge/document release when accepted.
+
+FILES TO KNOW
+-------------
+src/schedule/lib/crewWeekSummary.js — pure trip-based counts and details
+src/schedule/components/CrewWeekCapacity.jsx — Crew Schedule summary/dialogs
+src/schedule/components/HomeCapacityStrip.jsx — shared presentation, custom badges
+src/schedule/views/Schedule.jsx — authoritative week/data/loading/draft guard
+src/schedule/components/ScheduleTripDetails.jsx — reports active edit to board
+src/schedule/ScheduleLayout.jsx — other routes retain standalone band
+scripts/check-crew-week-summary{,-model}.mjs — acceptance checks

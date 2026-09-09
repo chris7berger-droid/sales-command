@@ -342,7 +342,7 @@ function ScheduleShell() {
   return (
     <ToolbarContext.Provider value={toolbarActions}>
       {!toolbarInBand && <div className="app-schedule-toolbar">{toolbarActions}</div>}
-      {showCapacityBand && <WeeklyCapacityBand key={`capacity-band-${refreshKey}`} />}
+      {showCapacityBand && location.pathname !== '/schedule/schedule' && <WeeklyCapacityBand key={`capacity-band-${refreshKey}`} />}
       <main className="app-main" key={refreshKey}>
         <Routes>
           <Route index element={<Navigate to="/schedule/home" replace />} />

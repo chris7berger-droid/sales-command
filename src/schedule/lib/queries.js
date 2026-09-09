@@ -336,7 +336,7 @@ export async function loadMobilizationsByCallLog(callLogIds) {
 // block that puts a job on the crew board) is a live job_mobilizations row, not a
 // legacy proposal mobilization (those are a job-card count concern). Default false
 // preserves the job-card behavior (fallback fills zero-row jobs).
-export async function loadMobilizationsByJobId(jobs, { liveOnly = false } = {}) {
+export async function loadMobilizationsByJobId(jobs, { liveOnly = false, throwOnError = false } = {}) {
   const out = {}
   const list = (jobs || []).filter(j => j && j.job_id != null)
   if (!list.length) return out
@@ -351,6 +351,7 @@ export async function loadMobilizationsByJobId(jobs, { liveOnly = false } = {}) 
     { orderBy: 'id', filterFn: q => q.in('job_id', jobIds) },
   )
   if (error) {
+    if (throwOnError) throw error
     console.warn('[mobs] could not load job_mobilizations:', error.message)
   } else {
     for (const row of (data || [])) {

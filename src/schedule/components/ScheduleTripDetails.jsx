@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { updateJobMobilization } from '../lib/queries'
 import { tripRange } from '../lib/trips'
@@ -7,12 +7,16 @@ import './ScheduleTripDetails.css'
 
 const nameLabel = name => name?.includes(',') ? name.split(',').reverse().map(s => s.trim()).join(' ') : name
 
-export default function ScheduleTripDetails({ job, trips, leadNames, onUpdated, children }) {
+export default function ScheduleTripDetails({ job, trips, leadNames, onUpdated, onEditStateChange, children }) {
   const navigate = useNavigate()
   const [selected, setSelected] = useState(null)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [selectionError, setSelectionError] = useState('')
+  useEffect(() => {
+    onEditStateChange?.(job.job_id, dirty || busy)
+    return () => onEditStateChange?.(job.job_id, false)
+  }, [job.job_id, dirty, busy, onEditStateChange])
   const trip = selected === 'job' ? null : trips.find(t => t.id === selected) || trips[0]
   return <div className="sch-trip-editor">
     <div className="sch-trip-heading">{trips.length > 0 && <label className="sch-trip-select">Trip title

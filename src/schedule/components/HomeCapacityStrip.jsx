@@ -20,22 +20,24 @@ function pctColor(pct) {
   return 'var(--sig-red)'
 }
 
-function Badge({ value, label, color }) {
+function Badge({ value, label, color, onClick }) {
+  const Tag = onClick ? 'button' : 'div'
   return (
-    <div className="hcs-badge">
+    <Tag className={`hcs-badge${onClick ? ' hcs-badge-button' : ''}`} onClick={onClick}>
       <div className="hcs-badge-circle" style={{ borderColor: color, color }}>{value}</div>
       <div className="hcs-badge-text">
         <div className="hcs-badge-value">{label}</div>
       </div>
-    </div>
+    </Tag>
   )
 }
 
-export default function HomeCapacityStrip({ data, weekLabel }) {
+export default function HomeCapacityStrip({ data, weekLabel, badges, summaryNote, loading = false, loadError, pulse = false }) {
   const navigate = useNavigate()
   const location = useLocation()
   const days = data?.capacityDays || []
-  const [detailDay, setDetailDay] = useState(null)
+  const [detailDate, setDetailDay] = useState(null)
+  const detailDay = days.find(day => day.date === detailDate)
   // No point linking to the Crew Schedule when we're already on it.
   const onCrewSchedule = location.pathname === '/schedule/schedule'
   // +Job / Actions, provided by ScheduleShell — rendered here so they sit inside
@@ -48,7 +50,7 @@ export default function HomeCapacityStrip({ data, weekLabel }) {
       <div className="hcs-head">
         <div className="hcs-title-block">
           <div className="hcs-title">Weekly Crew Capacity</div>
-          {weekLabel && <div className="hcs-week">{weekLabel}</div>}
+          {weekLabel && <div key={weekLabel} className={`hcs-week${pulse ? ' sch-week-changed' : ''}`}>{weekLabel}</div>}
         </div>
         <div className="hcs-head-actions">
           {toolbarActions}
@@ -56,11 +58,16 @@ export default function HomeCapacityStrip({ data, weekLabel }) {
         </div>
       </div>
 
-      <div className="hcs-body">
+      {loading || loadError ? <div className="hcs-loading" role="status">{loadError ? 'Week data unavailable. Retry below.' : 'Loading selected week…'}</div> : <div className="hcs-body">
+        <div>
         <div className="hcs-badges">
+          {badges ? badges.map(badge => <Badge key={badge.label} {...badge} />) : <>
           <Badge value={data?.crewAvailable ?? 0} label="Crew Available" color="var(--teal)" />
           <Badge value={data?.assignedCount ?? 0} label="Assigned" color="var(--sig-orange)" />
           <Badge value={data?.openSpots ?? 0} label="Open Crew Spots" color="var(--sig-purple)" />
+          </>}
+        </div>
+        {summaryNote}
         </div>
 
         <div className="hcs-days">
@@ -69,7 +76,7 @@ export default function HomeCapacityStrip({ data, weekLabel }) {
             const color = pctColor(d.pct)
             const free = d.free ?? Math.max(0, d.avail - d.assigned)
             return (
-              <div key={d.date} className={`hcs-day hcs-day-click${d.isToday ? ' hcs-day-today' : ''}`} onClick={() => setDetailDay(d)}>
+              <div key={d.date} className={`hcs-day hcs-day-click${d.isToday ? ' hcs-day-today' : ''}`} onClick={() => setDetailDay(d.date)}>
                 <div className="hcs-day-badges">
                   <span className="hcs-day-avail" title={`${free} crew free`}>{free}</span>
                   {d.out > 0 && <span className="hcs-day-off" title={`${d.out} crew off`}>{d.out}</span>}
@@ -85,7 +92,7 @@ export default function HomeCapacityStrip({ data, weekLabel }) {
             )
           })}
         </div>
-      </div>
+      </div>}
 
       {detailDay && (() => {
         const di = days.indexOf(detailDay)

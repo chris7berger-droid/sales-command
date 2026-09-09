@@ -9,6 +9,7 @@ import { getJobStatus } from '../lib/jobStatus'
 import { jobRanges, overlapsWeek, inRange, staffingForDay, staffingSummary, allocationsInWindow } from '../lib/allocations'
 import { tripRange } from '../lib/trips'
 import ScheduleTripDetails from '../components/ScheduleTripDetails'
+import CrewWeekCapacity from '../components/CrewWeekCapacity'
 
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const DAYS_LONG = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -105,9 +106,28 @@ export default function Schedule({ embedded = false } = {}) {
   const leadNames = crewLeadNames(crew)
   const [assignments, setAssignments] = useState([])
   const [crewStatus, setCrewStatus] = useState({})
-  const [loading, setLoading] = useState(true)
+  const [staticReady, setStaticReady] = useState(false)
+  const [staticError, setStaticError] = useState(null)
+  const [staticRetry, setStaticRetry] = useState(0)
+  const [loadedWeek, setLoadedWeek] = useState(null)
   const [error, setError] = useState(null)
   const [weekOffset, setWeekOffset] = useState(0)
+  const [weekChanged, setWeekChanged] = useState(false)
+  const editingTrips = useRef(new Set())
+  const onTripEditStateChange = useCallback((jobId, editing) => {
+    if (editing) editingTrips.current.add(jobId)
+    else editingTrips.current.delete(jobId)
+  }, [])
+  const changeWeek = value => {
+    const offset = typeof value === 'function' ? value(weekOffset) : value
+    if (offset === weekOffset) return
+    if (editingTrips.current.size) {
+      toast('Save or cancel your trip changes before changing weeks.', 'err')
+      return
+    }
+    setWeekChanged(true)
+    setWeekOffset(offset)
+  }
   const [expandedJobs, setExpandedJobs] = useState({})
   const [expandedDefer, setExpandedDefer] = useState({})
   const [workTypes, setWorkTypes] = useState([])
@@ -156,29 +176,38 @@ export default function Schedule({ embedded = false } = {}) {
   const weStr = dates[5]
   const todayStr = fmtD(new Date())
 
-  // Load static data once on mount
+  const currentWeek = useRef(wsStr)
+  useEffect(() => { currentWeek.current = wsStr }, [wsStr])
+  const loading = !staticReady || loadedWeek !== wsStr
+
+  // Load jobs and trips together; a missing trip response cannot become a zero count.
   useEffect(() => {
+    let stale = false
     async function loadStatic() {
-      const [jobRes, crewRes, wtRes] = await Promise.all([
-        loadJobs(),
-        supabase.from('crew').select('*'),
-        supabase.from('work_types').select('*'),
-      ])
-      if (jobRes.error || crewRes.error || wtRes.error) {
-        setError((jobRes.error || crewRes.error || wtRes.error).message)
-        return
+      setStaticError(null)
+      try {
+        const [jobRes, crewRes, wtRes] = await Promise.all([
+          loadJobs(),
+          supabase.from('crew').select('*'),
+          supabase.from('work_types').select('*'),
+        ])
+        if (jobRes.error || crewRes.error || wtRes.error) {
+          throw jobRes.error || crewRes.error || wtRes.error
+        }
+        const allocs = await loadMobilizationsByJobId(jobRes.data, { liveOnly: true, throwOnError: true })
+        if (stale) return
+        setJobs(jobRes.data)
+        setCrew(crewRes.data.filter(c => !c.archived))
+        setWorkTypes(wtRes.data.map(w => w.name))
+        setAllocsByJobId(allocs || {})
+        setStaticReady(true)
+      } catch (err) {
+        if (!stale) setStaticError(err.message || 'Could not load trips')
       }
-      setJobs(jobRes.data)
-      setCrew(crewRes.data.filter(c => !c.archived))
-      setWorkTypes(wtRes.data.map(w => w.name))
-      // Live allocations for every job (liveOnly: a legacy proposal mobilization
-      // is not a schedulable block). Non-fatal — the board still renders first
-      // blocks if this fails.
-      const allocs = await loadMobilizationsByJobId(jobRes.data, { liveOnly: true })
-      setAllocsByJobId(allocs || {})
     }
     loadStatic()
-  }, [])
+    return () => { stale = true }
+  }, [staticRetry])
 
   // Load week-scoped data whenever week changes.
   // Split into fetch + apply so the auto-load effect can guard against stale
@@ -194,18 +223,20 @@ export default function Schedule({ embedded = false } = {}) {
   }, [wsStr, weStr])
 
   const applyWeekData = useCallback(({ asgnRes, csRes }) => {
+    if (currentWeek.current !== wsStr) return
     if (asgnRes.error || csRes.error) {
       setError((asgnRes.error || csRes.error).message)
       return
     }
+    setError(null)
     setAssignments(asgnRes.data)
     const csMap = {}
     for (const c of csRes.data) {
       csMap[c.crew_name + '|' + c.date] = c.status
     }
     setCrewStatus(csMap)
-    setLoading(false)
-  }, [])
+    setLoadedWeek(wsStr)
+  }, [wsStr])
 
   const loadWeekData = useCallback(async () => {
     applyWeekData(await fetchWeekData())
@@ -213,6 +244,7 @@ export default function Schedule({ embedded = false } = {}) {
 
   useEffect(() => {
     let stale = false
+    setError(null)
     fetchWeekData().then(result => { if (!stale) applyWeekData(result) })
     return () => { stale = true }
   }, [fetchWeekData, applyWeekData])
@@ -635,8 +667,6 @@ export default function Schedule({ embedded = false } = {}) {
     setAllocsByJobId(prev => ({ ...prev, [jobId]: Object.fromEntries(data.map(row => [row.seq, row])) }))
   }
 
-  if (loading) return <div className="loading">Loading schedule...</div>
-  if (error) return <div className="error-msg">Error: {error}</div>
 
   function renderBoardRow(j, idx, dimmed) {
     const dailyStaffing = dates.map(ds => staffingForDay(j, allocsByJobId[j.job_id], ds))
@@ -738,7 +768,7 @@ export default function Schedule({ embedded = false } = {}) {
         {/* Expanded detail panel */}
         {expanded && (
           <div className="sch-brd-detail">
-            <ScheduleTripDetails key={wsStr} job={j} trips={weekTrips} leadNames={leadNames} onUpdated={() => refreshJobTrips(j.job_id)}>
+            <ScheduleTripDetails key={wsStr} job={j} trips={weekTrips} leadNames={leadNames} onEditStateChange={onTripEditStateChange} onUpdated={() => refreshJobTrips(j.job_id)}>
             <div className="sch-det-grid">
               <div>
                 <label>Vehicle</label>
@@ -1078,6 +1108,11 @@ export default function Schedule({ embedded = false } = {}) {
   }
 
   return (
+    <>
+      {!embedded && <CrewWeekCapacity key={wsStr} jobs={jobs} weekJobs={weekJobs} crew={crew}
+        assignments={assignments} crewStatus={crewStatus} allocations={allocsByJobId}
+        dates={dates} todayStr={todayStr} weekLabel={fmtWk(monday)} loading={loading}
+        error={staticError || error} pulse={weekChanged} />}
     <div className="sch-layout">
       {!embedded && (
         <div className="jh-back-bar">
@@ -1086,7 +1121,7 @@ export default function Schedule({ embedded = false } = {}) {
       )}
       <div className="sch-wrap">
         {/* Crew pool sidebar */}
-        <div className="sch-pool">
+        <div className="sch-pool" hidden={loading || !!error || !!staticError}>
           <div className="sch-ptitle">
             Crew <span className="sch-ptitle-av">{availCount} free this week</span>
           </div>
@@ -1113,12 +1148,16 @@ export default function Schedule({ embedded = false } = {}) {
         {/* Main board */}
         <div className="sch-main">
           <div className="sch-wknav">
-            <button className={`sch-btn${prevWeekAlert ? ' pulse' : ''}`} onClick={() => setWeekOffset(w => w - 1)}>Prev</button>
-            <div className="sch-wklbl">{fmtWk(monday)}</div>
-            <button className={`sch-btn${nextWeekAlert ? ' pulse' : ''}`} onClick={() => setWeekOffset(w => w + 1)}>Next</button>
-            <button className="sch-btn" onClick={() => setWeekOffset(0)}>This Week</button>
+            <button className={`sch-btn${prevWeekAlert ? ' pulse' : ''}`} onClick={() => changeWeek(w => w - 1)}>Prev</button>
+            <div key={wsStr} className={`sch-wklbl${weekChanged ? ' sch-week-changed' : ''}`} aria-live="polite">{fmtWk(monday)}</div>
+            <button className={`sch-btn${nextWeekAlert ? ' pulse' : ''}`} onClick={() => changeWeek(w => w + 1)}>Next</button>
+            <button className="sch-btn" onClick={() => changeWeek(0)}>This Week</button>
           </div>
 
+          {(error || staticError) ? <div className="error-msg" role="alert">
+            Could not load this week: {staticError || error}{' '}
+            <button className="sch-btn" onClick={() => { if (staticError) setStaticRetry(n => n + 1); loadWeekData() }}>Retry</button>
+          </div> : loading ? <div className="loading" role="status">Loading schedule…</div> : <>
           <div className="sch-job-count">Jobs This Week ({weekJobs.length})</div>
 
           <div className="sch-brd">
@@ -1150,6 +1189,7 @@ export default function Schedule({ embedded = false } = {}) {
               <div className="sch-brd-empty-msg">No jobs this week</div>
             )}
           </div>
+          </>}
         </div>
       </div>
 
@@ -1313,5 +1353,6 @@ export default function Schedule({ embedded = false } = {}) {
         )
       })()}
     </div>
+    </>
   )
 }

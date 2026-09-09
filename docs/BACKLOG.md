@@ -88,6 +88,8 @@ as the first line of the Notes column.
 
 ### Bugs
 
+**SOW-1 — Open, investigation saved 2026-09-09:** Reconcile the WTC → proposal → Schedule job/trips → Field phone SOW pipeline. Confirmed separate scope/date paths, stale PRT reader and unsafe fallback, phone job-resolution ambiguity, and missing trip/crew sync. See [read-only investigation and proposed repair sequence](audit/sow_pipeline_2026-09-09.md). References existing Field B2/FE1 and prior DMS plans; not a new approved build plan. Implementation and live data repairs are not authorized; resume with Chris.
+
 | ID  | Tier | Status | Item                                                                          | Source           | Notes                                                                                                                                                       |
 |-----|------|--------|-------------------------------------------------------------------------------|------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | B107 | T2 | Open — separately deferred by Chris 2026-09-08 | [Sev 6 · Like 6 · Eff half-day] **Week Schedule print excludes Scheduled and In Progress jobs.** | Independent review of 69b158b..0483c1d | `src/schedule/lib/exports.js`, `printWeekSchedule`: only Ongoing/On Hold pass its status filter, unlike Crew Schedule's normalized active statuses. Reproduce with a Scheduled or In Progress job/trip in the current week. Pre-existing; Chris explicitly agreed to track separately from the bounded Trips/Add-to-Schedule release. Not a blocker for that release; do not silently widen the next audit to fix it. |

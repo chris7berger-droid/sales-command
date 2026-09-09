@@ -1,0 +1,29 @@
+SC Handoff v247 — SOW investigation saved — 2026-09-09
+
+SESSION SUMMARY
+Chris requested saving the read-only SOW investigation to GitHub for later work.
+
+CHANGES SHIPPED
+Documentation only: docs/audit/sow_pipeline_2026-09-09.md records the user goal,
+verified repository heads, current pipeline, confirmed gaps, source pointers,
+in-memory verification, live-verification limits, proposed repair sequence and
+acceptance scenario. SOW-1 backlog pointer added.
+
+DECISIONS / BACKLOG
+SOW-1 open. Suggested architecture/sequence is a recommendation, not an approved
+build plan. Preserve existing shared-data contracts and Field B2/FE1 tracking.
+Do not automatically implement SOW repairs or perform live data cleanup.
+
+VERIFICATION
+Reviewed against session findings; documentation diff checked. No app code,
+DB, device, sync configuration or staff messages changed by this save.
+
+NOT TOUCHED
+All SOW implementation. Weekly text polish already released by PR43 (v246).
+
+NEXT SESSION POINTERS / FILES
+Start at docs/audit/sow_pipeline_2026-09-09.md and SOW-1 in docs/BACKLOG.md.
+Refresh GitHub heads and revalidate findings before planning the authorized fix.
+
+GIT STATE
+Documentation closeout on main; commit/push records this resume point in GitHub.

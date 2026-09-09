@@ -1,0 +1,22 @@
+SC Handoff v253 — Compact crew cards — 2026-09-09
+
+SESSION SUMMARY / CHANGES BUILT
+Chris clarified that allocation rows belong to the RIGHT of the name, not below
+it. Crew cards now keep a fixed-width allocation column beside a wrapping name.
+Weekday headings and larger job numbers remain. Teams and Floaters each sort by
+displayed first name (handles stored Last, First names), case-insensitively.
+
+DECISIONS / BACKLOG
+Touches B112 in PR #45. Group membership unchanged; first-name sort within groups.
+
+VERIFICATION
+Build passed with existing bundle warning. Existing real-board browser regression
+run and screenshot inspected. No new tests for the presentation adjustment.
+
+NOT TOUCHED
+Crew data, allocation logic, database, capacity calculations, deployment.
+
+NEXT SESSION / FILES / GIT
+Branch codex/crew-allocation-consistency; PR #45 remains pending release.
+src/schedule/App.css and src/schedule/views/Schedule.jsx. v251 has core context;
+v252 records earlier layout request, superseded by this side-by-side layout.

@@ -878,9 +878,9 @@
 
 .schedule-root .sch-chip-name {
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .schedule-root .sch-db-tag {
@@ -920,7 +920,8 @@
 
 .schedule-root .sch-sbtn:hover { background: var(--danger); color: #fff; }
 
-.schedule-root .sch-crew-days-wrap { padding: 0 0 2px 28px; width: 100%; }
+.schedule-root .sch-crew-days-wrap { padding: 0; width: 125px; flex: 0 0 125px; margin-left: auto; }
+.schedule-root .sch-chip { flex-wrap: nowrap; }
 
 .schedule-root .sch-crew-days-heading,
 .schedule-root .sch-crew-days {

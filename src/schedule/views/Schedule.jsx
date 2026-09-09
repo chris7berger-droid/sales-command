@@ -405,6 +405,9 @@ export default function Schedule({ embedded = false } = {}) {
         teams[t].push(c)
       }
     }
+    const byFirstName = (a, b) => flipName(a.name).localeCompare(flipName(b.name), undefined, { sensitivity: 'base' })
+    for (const members of Object.values(teams)) members.sort(byFirstName)
+    floaters.sort(byFirstName)
     const teamKeys = Object.keys(teams).sort((a, b) => a - b)
     return { teams, teamKeys, floaters }
   }, [crew])

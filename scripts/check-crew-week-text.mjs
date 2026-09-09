@@ -11,10 +11,11 @@ const server = await createServer({ root: resolve('.'), server: { host: '127.0.0
   load(id) { if (id !== '\0weekly-text') return; return `
     import React from 'react'; import {createRoot} from 'react-dom/client';
     import {MemoryRouter,useNavigate,Routes,Route} from 'react-router-dom';
+    import AppSidebar from '/src/components/AppSidebar.jsx';
     import ScheduleLayout from '/src/schedule/ScheduleLayout.jsx';
     import {GLOBAL_CSS} from '/src/lib/tokens.js';
-    function Harness(){window.testNavigate=useNavigate();return React.createElement(React.Fragment,null,
-      React.createElement('style',null,GLOBAL_CSS),React.createElement(Routes,null,
+    function Harness(){const [sidebar,setSidebar]=React.useState(false);window.testSidebar=setSidebar;window.testNavigate=useNavigate();return React.createElement(React.Fragment,null,
+      React.createElement('style',null,GLOBAL_CSS),sidebar && React.createElement(AppSidebar,{open:true,setOpen:()=>{},displayRole:'Admin',teamMember:{apps:['schedule']},cfg:{apps:['schedule']}}),React.createElement(Routes,null,
       React.createElement(Route,{path:'/schedule/*',element:React.createElement(ScheduleLayout,{teamMember:{name:'Fixture admin',role:'Admin'}})})))}
     createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/schedule/schedules?week=2026-09-07']},React.createElement(Harness)));` },
   configureServer(vite) { vite.middlewares.use('/__weekly-text', async (_req,res) => {
@@ -125,6 +126,22 @@ try {
   await launch.click()
   await preview.waitFor()
   assert.match(await preview.inputValue(),/Week of 2026-10-12/)
+  await page.getByRole('button',{name:'← Back to Crew Schedule',exact:true}).click()
+  await launch.waitFor()
+  await page.waitForFunction(()=>document.querySelector('.sch-wklbl')?.textContent.includes('Oct 12'))
+  await launch.click()
+  await preview.waitFor()
+  await page.evaluate(()=>window.testSidebar(true))
+  const sidebar=page.locator('[data-app-sidebar]')
+  assert.equal(await sidebar.locator('[aria-current="page"]').count(),1)
+  assert.equal(await sidebar.locator('[aria-current="page"]').getAttribute('title'),'Schedules')
+  await sidebar.getByTitle('Crew Schedule',{exact:true}).click()
+  await launch.waitFor()
+  assert.equal(await preview.count(),0)
+  assert.equal(await sidebar.locator('[aria-current="page"]').getAttribute('title'),'Crew Schedule')
+  await sidebar.getByTitle('Schedules',{exact:true}).click()
+  await preview.waitFor()
+  assert.equal(await sidebar.locator('[aria-current="page"]').count(),1)
   assert.deepEqual(errors,[])
   console.log('PASS: complete weekly copy, daily crew/lead, Sunday, picker, phone layout, delayed weeks, read failures/retry, clipboard fallback, menu and board week link; no DB writes')
 } finally {

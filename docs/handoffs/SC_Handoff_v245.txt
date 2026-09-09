@@ -1,0 +1,37 @@
+SC Handoff v245 — Weekly crew text polish — 2026-09-09
+
+SESSION SUMMARY
+Fetched GitHub laptop work through db7fa2d and read v242–v244. Chris initially
+reported being stuck on Weekly Crew Texts, then confirmed sidebar navigation
+worked. Requested an explicit way back and visual touch-up.
+
+CHANGES BUILT — NOT RELEASED
+Back to Crew Schedule preserves selected week and remains available during
+loading/errors. Compact week bar; controls and message preview in separate
+linen cards on desktop, stacked on phones. Copy feedback stays with preview.
+Sidebar active matching respects path segment boundaries; /schedule/schedules
+no longer also highlights /schedule/schedule. aria-current marks active item.
+
+DECISIONS / BACKLOG
+Touches F61; release remains complete, this follow-up awaits visual review.
+No unrelated backlog work resumed.
+
+VERIFICATION
+Configured production build PASS (existing large-bundle warning).
+Schedules.jsx ESLint PASS; git diff --check PASS.
+Expanded intercepted React suite PASS: clipboard equality, person navigation,
+phone overflow, delayed loads/retries, default-time override, existing menu
+and board link, new Back week preservation, actual sidebar clicks and unique
+active item. Desktop/mobile screenshots reviewed in /private/tmp/weekly-crew-text-*.png.
+No live data writes or messages.
+
+NOT TOUCHED
+DB/schema/RLS, formatter, print paths, historical data and unrelated branches.
+
+NEXT SESSION / FILES
+Review preview before merge. src/schedule/views/Schedules.jsx,
+src/components/AppSidebar.jsx, scripts/check-crew-week-text.mjs.
+
+GIT STATE
+Branch codex/weekly-text-polish based on db7fa2d. Implementation and docs
+committed together; production remains unchanged pending approval.

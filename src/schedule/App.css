@@ -5844,6 +5844,11 @@
 
 /* ── Clickable header (job title) ────────────────────────────────── */
 .schedule-root .sjc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   padding: 10px 14px 6px;
   cursor: pointer;
 }
@@ -6705,7 +6710,7 @@
 /* Expanded compact card (inline) */
 .schedule-root .sjc-card-home-expanded { position: relative; }
 .schedule-root .jtp-collapse {
-  position: absolute; top: 12px; right: 14px; z-index: 3;
+  flex-shrink: 0; margin-left: auto;
   background: rgba(28,24,20,0.06); border: none; border-radius: 6px; cursor: pointer;
   padding: 5px 10px; font-family: var(--font-heading); font-weight: 700; font-size: 10px;
   letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-light);

@@ -758,13 +758,11 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
       className={`sjc-card${compactMode ? ' sjc-card-home-expanded' : ''}`}
       style={autoOpen ? { boxShadow: '0 0 0 3px #30cfac', borderRadius: 8 } : undefined}
     >
-      {compactMode && (
-        <button className="jtp-collapse" onClick={() => setExpanded(false)} title="Collapse">Close ✕</button>
-      )}
       <StageBanner job={job} stage={stage} crewRows={crewRows} matRows={matRows} prtMap={prtMap} today={today} />
 
       <div className="sjc-header">
         <span className="sjc-header-title">{getCardTitle(job, job._wtcs)}</span>
+        {compactMode && <button className="jtp-collapse" onClick={() => setExpanded(false)} title="Collapse">Close ✕</button>}
       </div>
 
       <IdentityRow job={job} />

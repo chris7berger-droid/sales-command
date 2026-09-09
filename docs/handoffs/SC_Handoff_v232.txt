@@ -1,0 +1,29 @@
+SC HANDOFF v232 — Separate Close from PRT status (2026-09-08)
+==========================================================
+
+SESSION SUMMARY / CHANGES SHIPPED
+Chris reported Close overlapping No PRTs yet in expanded Jobs cards. The Close
+button was absolutely positioned over the stage banner. Moved it into the job
+title row, using normal flex layout with spacing and wrapping. PRT status keeps
+its own banner row; Close stays right aligned alongside the job title.
+
+DECISIONS / BACKLOG
+MOBZ-2 updated for this user-requested polish. No data/behavior changes. Existing
+compact-card collapse handler retained. Noncompact cards still omit Close.
+
+VERIFICATION
+Existing mocked browser regression flow passes and captures desktop/mobile card
+screenshots in /private/tmp/codex-job-close-spacing*.png. Build and diff checks
+pass (existing bundle-size warning). No live writes.
+
+NOT TOUCHED
+Production/main, PRT calculation, trip data/editing, DB, deferred print issues.
+
+NEXT / REVIEW
+Small visual-only delta from 69b425d: Close in job title row, separate PRT banner.
+No broader audit or data writes needed.
+
+FILES / GIT
+StageJobCard.jsx; App.css; existing browser screenshot captures; BACKLOG.md.
+Branch codex/fix-schedule-crew-leads-and-form-theme; parent 69b425d.
+Commit/push and exact preview confirmation follow this handoff.

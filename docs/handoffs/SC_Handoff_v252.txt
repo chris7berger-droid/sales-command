@@ -1,0 +1,22 @@
+SC Handoff v252 — Crew-card readability — 2026-09-09
+
+SESSION SUMMARY / CHANGES BUILT
+Chris approved the shared allocation direction and requested moving job rows right,
+larger job numbers, and day letters over the bubbles. Adjusted Crew Schedule card
+padding from 16 to 28px, job number font 7 to 10px with a wider label column, and
+added M T W T F S aligned above the six bubbles once per card.
+
+DECISIONS / BACKLOG
+Touches B112; remains built pending release in PR #45. No allocation logic change.
+
+VERIFICATION
+Build passed (existing bundle-size warning). Existing board browser fixture used
+for layout and regression verification. No new tests for this presentation edit.
+
+NOT TOUCHED
+Database, crew records, capacity math, trip attribution, production deployment.
+
+NEXT SESSION / FILES / GIT
+Review/release PR #45 when ready. Same branch codex/crew-allocation-consistency.
+Files: src/schedule/App.css and src/schedule/views/Schedule.jsx.
+See v251 for the underlying shared allocation model and its review scope.

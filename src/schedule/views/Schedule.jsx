@@ -1044,6 +1044,10 @@ export default function Schedule({ embedded = false } = {}) {
       const cardRows = crewCardRows(boardRows, c.name)
       detail = (
         <div className="sch-crew-days-wrap">
+          <div className="sch-crew-days-heading" aria-hidden="true">
+            <span className="sch-crew-days-lbl" />
+            <div className="sch-crew-dots">{DAYS_LONG.map(day => <span className="sch-crew-day-letter" key={day} title={day}>{day[0]}</span>)}</div>
+          </div>
           {cardRows.map(jm => {
             const jco = jm.job ? (isPW(jm.job) ? '#6d28d9' : (jm.job.color || jCol(jm.colorIndex))) : '#888'
             return (

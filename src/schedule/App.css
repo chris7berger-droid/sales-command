@@ -920,8 +920,9 @@
 
 .schedule-root .sch-sbtn:hover { background: var(--danger); color: #fff; }
 
-.schedule-root .sch-crew-days-wrap { padding: 0 0 2px 16px; width: 100%; }
+.schedule-root .sch-crew-days-wrap { padding: 0 0 2px 28px; width: 100%; }
 
+.schedule-root .sch-crew-days-heading,
 .schedule-root .sch-crew-days {
   display: flex;
   align-items: center;
@@ -931,14 +932,16 @@
 
 .schedule-root .sch-crew-days-lbl {
   font-family: var(--font-mono);
-  font-size: 7px;
+  font-size: 10px;
   color: var(--text-secondary);
-  width: 36px;
+  width: 62px;
   flex-shrink: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.schedule-root .sch-crew-day-letter { width: 8px; flex-shrink: 0; text-align: center; font-size: 8px; line-height: 12px; color: var(--text-secondary); }
 
 .schedule-root .sch-crew-dots { display: flex; gap: 3px; }
 

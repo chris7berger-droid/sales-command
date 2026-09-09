@@ -33,10 +33,11 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 5191, str
   load(id) {
     if (id !== '\0trips-test') return
     return `import React from 'react';import {createRoot} from 'react-dom/client';import {MemoryRouter,useLocation} from 'react-router-dom';
-    import StageJobCard from '/src/schedule/components/StageJobCard.jsx';import {UserProvider} from '/src/schedule/lib/user.jsx';
+    import JobsToPrepare from '/src/schedule/components/JobsToPrepare.jsx';import StageJobCard from '/src/schedule/components/StageJobCard.jsx';import {UserProvider} from '/src/schedule/lib/user.jsx';
     import '/src/schedule/App.css';import '/src/schedule/index.css';
     function Harness(){const [job,setJob]=React.useState(${JSON.stringify(job)});window.tripSetJob=setJob;const [cardInputs,setCardInputs]=React.useState({});window.setCardInputs=setCardInputs;window.tripPath=useLocation().pathname+useLocation().search;return React.createElement(StageJobCard,{...cardInputs,job,stage:'active',autoOpen:true,onJobUpdate:()=>setJob(j=>({...j}))})}
-    createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/schedule/jobs']},React.createElement(UserProvider,{teamMember:{name:'Codex test'}},React.createElement(Harness))));`
+    function FocusHarness(){const [jobs,setJobs]=React.useState([...Array.from({length:40},(_,i)=>({job_id:i+1,job_num:String(i+1),job_name:'Older job',status:'Complete',start_date:'2026-02-01',end_date:'2026-02-02'})),{job_id:1280,job_num:'10227',job_name:'Target job',status:'Parked',start_date:'2026-09-28',end_date:'2026-10-30'}]);window.refreshFocusJobs=()=>setJobs(js=>js.map(j=>({...j})));return React.createElement(React.Fragment,null,React.createElement('div',{style:{height:650}},'Dashboard'),React.createElement(JobsToPrepare,{jobs,focusJobId:1280}))}
+    createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/schedule/jobs']},React.createElement(UserProvider,{teamMember:{name:'Codex test'}},React.createElement(window.location.search.includes('focus-test') ? FocusHarness : Harness))));`
   },
   configureServer(vite) { vite.middlewares.use('/__trips-test', async (_req, res) => {
     res.setHeader('Content-Type', 'text/html');res.end(await vite.transformIndexHtml('/__trips-test', '<html><body><div class="schedule-root" style="padding:20px;min-height:100vh"><div id="root"></div></div><script type="module">import "virtual:trips-test"</script></body></html>'))
@@ -92,6 +93,21 @@ await page.route('**/*', async route => {
 const article = id => page.locator(`[data-trip-id="${id}"]`)
 async function openTrips() { await page.getByRole('button', { name: 'TRIPS', exact: true }).click();await page.locator('.job-trip').first().waitFor() }
 try {
+  if (!process.env.TRIPS_SNAPSHOT) {
+    await page.goto('http://127.0.0.1:5191/__trips-test?focus-test')
+    const target = page.locator('.jtp-list > .sjc-card').first()
+    await target.waitFor()
+    assert.match(await target.innerText(), /10227/)
+    assert.equal(await page.locator('.jtp-list > *').first().getAttribute('class'), await target.getAttribute('class'))
+    // Allow any old smooth-scroll animation/filter effect to finish before checking.
+    await page.waitForTimeout(700)
+    const before = await target.boundingBox()
+    assert(before.y >= -2 && before.y < 100, `Target must stay at viewport top, got ${before.y}`)
+    await page.evaluate(() => window.refreshFocusJobs())
+    await page.waitForTimeout(200)
+    assert(Math.abs((await target.boundingBox()).y - before.y) < 2, 'Background hydration must not displace focused job')
+    console.log('PASS focused Jobs list pins and scrolls to 10227, remains stable after filtering and background hydration.')
+  }
   await page.goto('http://127.0.0.1:5191/__trips-test')
   if (!process.env.TRIPS_SNAPSHOT) {
     await page.getByRole('button', { name: 'PLANNING', exact: true }).click()

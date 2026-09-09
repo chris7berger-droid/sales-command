@@ -56,8 +56,8 @@ export default function JobsToPrepare({
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
-  const [dateFilter, setDateFilter] = useState('month') // §14: Home default = month
-  const [stageFilter, setStageFilter] = useState(initialStage)
+  const [dateFilter, setDateFilter] = useState(focusJobId ? 'all' : 'month') // Deep links start with their final date filter
+  const [stageFilter, setStageFilter] = useState(focusJobId ? 'all' : initialStage)
   const [manualDate, setManualDate] = useState(false)
 
   // Deep-link (/schedule/jobs?job=<id>): widen the filters so the target job can
@@ -103,10 +103,11 @@ export default function JobsToPrepare({
   }, [stageSearched, dateFilter])
 
   let shown = filtered.slice(0, CAP)
-  // Force the deep-link target into view even if filters would drop it.
-  if (focusJobId && !shown.some(j => String(j.job_id) === String(focusJobId))) {
-    const fj = jobs.find(j => String(j.job_id) === String(focusJobId))
-    if (fj) shown = [fj, ...shown]
+  // Pin the target from the first render. Filter widening must not move it
+  // after the card has already scrolled into view.
+  if (focusJobId) {
+    const target = jobs.find(j => String(j.job_id) === String(focusJobId))
+    if (target) shown = [target, ...shown.filter(j => String(j.job_id) !== String(focusJobId))]
   }
   const n = filtered.length
   const stageLabel = STAGE_OPTIONS.find(s => s.key === stageFilter)?.label || 'All Stages'

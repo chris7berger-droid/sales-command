@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { updateJobField, updateJobStatus, deleteJob } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
@@ -578,8 +578,11 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   const [panels, setPanels] = useState({ planning: false, management: false, details: false, budget: false, trips: initialPanel === 'trips' })
   const cardRef = useRef(null)
   useEffect(() => {
-    if (autoOpen && cardRef.current) cardRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (autoOpen) setExpanded(true)
   }, [autoOpen])
+  useLayoutEffect(() => {
+    if (autoOpen && expanded && cardRef.current) cardRef.current.scrollIntoView({ behavior: 'instant', block: 'start' })
+  }, [autoOpen, expanded, job.job_id])
   const [acting, setActing] = useState(false)
   const [showSowModal, setShowSowModal] = useState(false)
   const [sowFocus, setSowFocus] = useState(null)        // { wtcId, dayIndex } from DaysModal handoff (Option 3)

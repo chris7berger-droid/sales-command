@@ -103,3 +103,12 @@ edit title, delete confirmation, and unnamed Crew Schedule labels agree.
 Numbering uses all saved trips on the job, not the selected calendar week.
 Model and full trip/overlapping-board UI suites PASS, including lone seq2
 showing Trip1 in list, editor and confirmation. Calendar/back navigation pass.
+
+BACK-TO-JOB SCROLL CORRECTION (preview)
+Jobs list previously started in month scope, then widened to all after mount.
+A target card could move to the first row while its smooth scroll continued
+toward the old position. Focused loads now start with final filters and pin
+the target first consistently; card uses immediate layout scroll when expanded.
+New focus also expands an already-mounted compact card. Actual JobsToPrepare
+fixture with 40 older jobs verifies viewport position after effects and data
+hydration. Full trip UI suite, build and diff checks PASS.

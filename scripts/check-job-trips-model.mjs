@@ -74,3 +74,10 @@ assert.equal(result.find(t => t.legacy).assignments[0].id, 4, 'Overlapping unlin
 assert.equal(result.flatMap(t => t.assignments).length, 4)
 assert.equal(buildJobTrips([{ ...shortTrip, start_date: '2026-10-01', end_date: '2026-11-01' }], [], parent).length, 2, 'Different saved spans stay visible even when one contains the other')
 console.log('PASS partially overlapping parent span survives, endpoint crew stays together, and every assignment appears once.')
+
+const remaining = buildJobTrips([{ id: 'remaining', seq: 2, label: 'N-DOT Polish' }])
+assert.equal(remaining[0].displayNumber, 1)
+assert.equal(remaining[0].seq, 2)
+const gaps = buildJobTrips([{ id: 'third', seq: 8 }, { id: 'first', seq: 2 }, { id: 'second', seq: 5 }])
+assert.deepEqual(gaps.map(t => t.displayNumber), [3, 1, 2])
+console.log('PASS consecutive display numbers preserve saved sequence keys and survive input ordering.')

@@ -385,3 +385,12 @@ months and worked-weekend rules; no trip-gap filling. UI test now asserts the
 calendar dialog, September/October months and 28 highlighted dates, not Trips.
 Full trip UI suite/build/diff checks PASS. Trip2 remains seq2 after seq1 deletion
 because field-SOW days reference mobilization_seq; no data renumbering performed.
+
+VISIBLE TRIP NUMBERS — user-approved correction
+Remaining saved trips display consecutive numbers in saved sequence order.
+Trip2 alone displays Trip1. Shared tripDisplayNumbers derives presentation;
+saved seq/UUID and field-SOW references are unchanged. Trips list, modal rows,
+edit title, delete confirmation, and unnamed Crew Schedule labels agree.
+Numbering uses all saved trips on the job, not the selected calendar week.
+Model and full trip/overlapping-board UI suites PASS, including lone seq2
+showing Trip1 in list, editor and confirmation. Calendar/back navigation pass.

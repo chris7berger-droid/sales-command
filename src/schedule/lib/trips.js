@@ -3,8 +3,16 @@
 // for older, unlinked crew days, and only when exactly one saved trip fits.
 import { jobOwnRange } from './allocations.js'
 
+// User-facing numbering is consecutive across all remaining trips on the job.
+// Stored seq remains the field-SOW key and is never rewritten for presentation.
+export function tripDisplayNumbers(rows = []) {
+  return new Map([...rows].sort((a, b) => (a.seq || 0) - (b.seq || 0) || String(a.id).localeCompare(String(b.id)))
+    .map((row, index) => [row.id, index + 1]))
+}
+
 export function buildJobTrips(rows = [], assignments = [], job = null) {
-  const trips = rows.map(row => ({ ...row, key: row.id, assignments: [], legacy: false }))
+  const numbers = tripDisplayNumbers(rows)
+  const trips = rows.map(row => ({ ...row, displayNumber: numbers.get(row.id), key: row.id, assignments: [], legacy: false }))
   const byId = new Map(trips.map(trip => [trip.id, trip]))
   const own = job && jobOwnRange(job)
   // Only an identical saved span represents the parent schedule. An overlapping

@@ -703,7 +703,7 @@ export default function Schedule({ embedded = false } = {}) {
           >
             <div className="sch-brd-job-name">{j.job_num} - {j.job_name}</div>
             <div className="sch-trip-label">
-              <strong>{trip.legacy ? 'Crew assignments — trip not identified' : trip.label || `Trip ${trip.seq}`}</strong><small>{tripRange(trip)}</small>
+              <strong>{trip.legacy ? 'Crew assignments — trip not identified' : trip.label || `Trip ${trip.displayNumber}`}</strong><small>{tripRange(trip)}</small>
             </div>
             <div className="sch-brd-job-meta">
               {j.work_type && String(j.work_type).split(',').map(t => t.trim()).filter(Boolean).map(t => (
@@ -1239,7 +1239,7 @@ export default function Schedule({ embedded = false } = {}) {
           <div className="sch-modal" onClick={e => e.stopPropagation()}>
             <div className="sch-modal-title">Assign {flipName(assignModal.name)}</div>
             <div className="sch-modal-label">
-              to <strong>{assignModal.job.job_num} — {assignModal.row.trip.label || `Trip ${assignModal.row.trip.seq}`}</strong>
+              to <strong>{assignModal.job.job_num} — {assignModal.row.trip.label || `Trip ${assignModal.row.trip.displayNumber}`}</strong>
             </div>
             {(() => {
               const all = assignableDays(assignModal)

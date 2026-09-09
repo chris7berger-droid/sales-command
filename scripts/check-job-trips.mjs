@@ -253,6 +253,8 @@ try {
     assignments.push({ id: 3, job_id: 1150, date: '2026-10-15', crew_name: 'Smith, Jane', mobilization_id: 'short' })
     await page.getByRole('button', { name: 'Refresh trips' }).click()
     await article('short').waitFor()
+    assert.match(await article('short').innerText(), /Trip 1 · Short visit/)
+    assert.equal(rows[0].seq, 2)
     assert.equal(await page.locator('.job-trip').count(), 2)
     assert.match(await initial.innerText(), /Oct 12, 2026 – Oct 30, 2026/)
     assert.match(await initial.innerText(), /1 person · 2 crew dates/)
@@ -263,7 +265,8 @@ try {
   if (!process.env.TRIPS_SNAPSHOT) {
     await article('short').locator('button.job-trip-summary').click()
     await article('short').getByRole('button', { name: 'Edit trip', exact: true }).click()
-    page.once('dialog', d => d.accept())
+    await page.getByRole('dialog').getByRole('heading', { name: 'Trip 1', exact: true }).waitFor()
+    page.once('dialog', async d => { assert.match(d.message(), /Delete Trip 1/); await d.accept() })
     await page.getByRole('button', { name: 'Delete trip', exact: true }).click()
     await page.getByText('This trip has crew assignments.', { exact: false }).waitFor()
     assert(rows.some(r => r.id === 'short'))

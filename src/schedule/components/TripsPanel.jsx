@@ -70,7 +70,7 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
             return <article className="job-trip" key={trip.key} data-trip-id={trip.key}>
               <button className="job-trip-summary" aria-expanded={open} onClick={() => setExpanded(s => ({ ...s, [trip.key]: !s[trip.key] }))}>
                 <span>{open ? '▾' : '▸'}</span>
-                <span className="job-trip-title"><strong>{trip.legacy ? 'Crew records' : trip.parent ? 'Job schedule' : `Trip ${trip.seq}${trip.label ? ` · ${trip.label}` : ''}`}{trip.is_go_back ? ' · Go back' : ''}</strong><span>{tripRange(trip)}</span></span>
+                <span className="job-trip-title"><strong>{trip.legacy ? 'Crew records' : trip.parent ? 'Job schedule' : `Trip ${trip.displayNumber}${trip.label ? ` · ${trip.label}` : ''}`}{trip.is_go_back ? ' · Go back' : ''}</strong><span>{tripRange(trip)}</span></span>
                 <span className="job-trip-staffing"><span>{people.length ? `${people.length} ${people.length === 1 ? 'person' : 'people'} · ${assignedDays.length} crew ${assignedDays.length === 1 ? 'date' : 'dates'}` : period === 'past' ? 'No crew assignments recorded' : 'No crew assigned yet'}</span>{field('lead') && <span>Lead: {nameLabel(field('lead'))}</span>}</span>
               </button>
               {open && <div className="job-trip-details">

@@ -48,7 +48,7 @@ function collectDaySeqs(job) {
   return out
 }
 
-export default function MobsModal({ job, mobs = [], initialEditId = null, onClose, onUpdated }) {
+export default function MobsModal({ job, mobs = [], initialEditId = null, initialCreate = false, editOnly = false, onCreate, onClose, onUpdated }) {
   const user = useUser()
   const changedBy = user?.name || 'unknown'
 
@@ -95,12 +95,16 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, onClos
 
   useEffect(() => { reload() }, [reload])
   useEffect(() => {
-    if (!initialEditId || !loaded || openedInitial.current) return
+    if ((!initialEditId && !initialCreate) || !loaded || openedInitial.current) return
     openedInitial.current = true
+    if (initialCreate) {
+      setDraft({ id: null, seq: Math.max(0, ...rows.map(r => r.seq || 0), ...collectDaySeqs(job)) + 1, label: '', start_date: null, end_date: null, is_go_back: false })
+      return
+    }
     const row = rows.find(r => r.id === initialEditId)
     if (row) setDraft({ ...row })
     else setError('This trip is no longer on this job. Close and refresh the trips list.')
-  }, [initialEditId, loaded, rows])
+  }, [initialEditId, initialCreate, loaded, rows, job])
 
   const nextSeq = () => Math.max(0, ...rows.map(r => r.seq || 0), ...collectDaySeqs(job)) + 1
 
@@ -143,7 +147,7 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, onClos
     setDraft(null); setBusy(false)
     await reload()
     onUpdated?.()
-    if (initialEditId) onClose()
+    if (initialEditId || initialCreate) onClose()
   }
 
   async function removeRow(row) {
@@ -195,16 +199,16 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, onClos
 
   return (
     <div className="mbg" onClick={e => { if (e.target === e.currentTarget && !busy) onClose() }}>
-      <div className="mdl" role="dialog" aria-modal="true" aria-label={initialEditId ? "Edit trip" : "Manage trips"} style={{ maxWidth: 760, maxHeight: '90vh', overflow: 'auto' }}>
+      <div className="mdl" role="dialog" aria-modal="true" aria-label={initialCreate ? "Create a trip" : initialEditId ? "Edit trip" : "Manage trips"} style={{ maxWidth: 760, maxHeight: '90vh', overflow: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-          <h3 style={{ margin: 0 }}>{initialEditId ? 'Edit trip' : 'Trips'} — {job.job_num || ''} {job.job_name || ''}</h3>
+          <h3 style={{ margin: 0 }}>{initialCreate ? 'Create a trip' : initialEditId ? 'Edit trip' : editOnly ? 'Choose a trip to edit' : 'Trips'} — {job.job_num || ''} {job.job_name || ''}</h3>
           <button className="app-act-btn" disabled={busy} onClick={onClose}>Close</button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-light)', fontFamily: 'var(--font-body, inherit)', marginBottom: 12 }}>
-          {initialEditId ? 'Update this trip’s dates and details. Crew assignments are managed in Crew Schedule.' : 'Manage trips to site. Add another trip or a go-back for warranty or added work.'}
+          {initialCreate ? 'Enter this trip’s dates and details. Assign individual crew members in Crew Schedule after saving.' : editOnly ? 'Select a saved trip below to update its dates and details.' : initialEditId ? 'Update this trip’s dates and details. Crew assignments are managed in Crew Schedule.' : 'Manage trips to site. Add another trip or a go-back for warranty or added work.'}
         </div>
 
-        {!initialEditId && <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {!initialEditId && !initialCreate && !editOnly && <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           <button className="app-act-btn app-act-primary" disabled={!loaded || anyEditing || busy} onClick={() => startAdd(true)}>+ Add Go Back</button>
           <button className="app-act-btn" disabled={!loaded || anyEditing || busy} onClick={() => startAdd(false)}>+ Add trip</button>
         </div>}
@@ -215,11 +219,11 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, onClos
           <div style={{ fontSize: 13, color: 'var(--text-light)', padding: '20px 0' }}>Loading…</div>
         ) : rows.length === 0 && !anyEditing ? (
           <div style={{ fontSize: 13, color: 'var(--text-light)', padding: '16px 0' }}>
-            No trips on this job yet. Add a trip or a go-back above.
+            {editOnly ? <>No trips saved yet. <button className="app-act-btn app-act-primary" onClick={onCreate}>Create a trip</button></> : 'No trips on this job yet. Add a trip or a go-back above.'}
           </div>
         ) : (
           <div className="mobs-list">
-            {rows.filter(row => !initialEditId || row.id === initialEditId).map(row => {
+            {rows.filter(row => !initialCreate && (!initialEditId || row.id === initialEditId)).map(row => {
               if (draft && draft.id === row.id) return renderEditor(row.seq)
               const dayCount = dayCountBySeq.get(row.seq)
               return (
@@ -247,7 +251,7 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, onClos
                     })()}
                   </div>
                   <button style={secondaryBtn} disabled={anyEditing || busy} onClick={() => startEdit(row)}>Edit</button>
-                  <button style={deleteBtn} disabled={anyEditing || busy} onClick={() => removeRow(row)}>Delete</button>
+                  {!editOnly && <button style={deleteBtn} disabled={anyEditing || busy} onClick={() => removeRow(row)}>Delete</button>}
                 </div>
               )
             })}
@@ -283,7 +287,7 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, onClos
       </label>)}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button className="app-act-btn app-act-primary" disabled={busy} onClick={saveDraft}>{busy ? 'Saving…' : 'Save'}</button>
-        <button style={secondaryBtn} disabled={busy} onClick={() => { if (initialEditId) onClose(); else { setDraft(null); setError(null) } }}>Cancel</button>
+        <button style={secondaryBtn} disabled={busy} onClick={() => { if (initialEditId || initialCreate) onClose(); else { setDraft(null); setError(null) } }}>Cancel</button>
       </div>
     </div>
   }

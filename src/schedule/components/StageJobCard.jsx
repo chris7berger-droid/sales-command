@@ -10,6 +10,7 @@ import CardSowModal from './CardSowModal'
 import MaterialsModal from './MaterialsModal'
 import DaysModal from './DaysModal'
 import MobsModal from './MobsModal'
+import BuildScheduleModal from './BuildScheduleModal'
 import LoadOutModal from './LoadOutModal'
 import PRTModal from './PRTModal'
 import LogsModal from './LogsModal'
@@ -599,6 +600,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   const [showPrintModal, setShowPrintModal] = useState(false)
   const [showMtrlModal, setShowMtrlModal] = useState(false)
   const [showDaysModal, setShowDaysModal] = useState(false)
+  const [showBuildSchedule, setShowBuildSchedule] = useState(false)
   const [showMobsModal, setShowMobsModal] = useState(false)
   const [showLoadoutModal, setShowLoadoutModal] = useState(false)
   const [showPrtModal, setShowPrtModal] = useState(false)
@@ -703,6 +705,8 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
     return null
   }
 
+  const buildScheduleModal = showBuildSchedule && <BuildScheduleModal job={job} mobs={mobs} onClose={() => setShowBuildSchedule(false)} onUpdated={onJobUpdate} />
+
   // ── Home compact row (collapsed) ──────────────────────────────────────────
   if (compactMode && !expanded) {
     const wtcs = job._wtcs || []
@@ -731,7 +735,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
     const amount = job.amount ? parseFloat(job.amount) : 0
     const stop = (fn) => (e) => { e.stopPropagation(); fn() }
     return (
-      <div className="jtp-row" onClick={() => setExpanded(true)} role="button" tabIndex={0}
+      <><div className="jtp-row" onClick={() => setExpanded(true)} role="button" tabIndex={0}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(true) } }}>
         <span className={`jtp-badge jtp-badge-${badgeClass}`}>{badgeLabel}</span>
         <span className="jtp-box">{'📦'}</span>
@@ -743,12 +747,12 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
         <span className="jtp-cell jtp-crew">{crewRows.length}/{job.crew_needed || '?'}</span>
         <span className="jtp-cell jtp-budget">{amount > 0 ? fmtMoney(amount) : '—'}</span>
         <span className="jtp-actions" onClick={e => e.stopPropagation()}>
-          <button className="jtp-btn jtp-btn-outline" onClick={stop(goCrewSchedule)}>BUILD SCHEDULE →</button>
+          <button className="jtp-btn jtp-btn-outline" onClick={stop(() => setShowBuildSchedule(true))}>BUILD SCHEDULE →</button>
           {stage === 'active'
             ? <span className="jtp-action-spacer" aria-hidden="true" />
             : stageActionBtn('jtp-btn jtp-btn-fill')}
         </span>
-      </div>
+      </div>{buildScheduleModal}</>
     )
   }
 
@@ -882,6 +886,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
         />
       )}
 
+      {buildScheduleModal}
       {showMobsModal && (
         <MobsModal
           job={job}

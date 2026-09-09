@@ -78,3 +78,9 @@ Open Crew Schedule links also pass the UUID. With multiple dated trips, the
 job-card CREW button chooses earliest start, then sequence; no date => existing
 job-date/current-week fallback. No data writes. Model, full card UI, and full
 overlapping-board UI tests PASS, including future-week exact-trip highlighting.
+
+Back-to-job correction (preview): Crew Schedule now routes directly to
+/schedule/jobs?job=<id> instead of browser-back, so the existing Jobs deep-link
+logic expands/includes the intended card. Regression starts from a generic Jobs
+history entry with fromCard:true and verifies the job-specific return. Full
+overlapping-board UI suite, build and diff checks PASS.

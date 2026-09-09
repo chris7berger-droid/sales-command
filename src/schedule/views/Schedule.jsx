@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { loadJobs, updateJobField, loadMobilizationsByJobId, loadJobMobilizationRows } from '../lib/queries'
 import { crewLeadNames } from '../lib/crewLeads'
@@ -156,19 +156,16 @@ export default function Schedule({ embedded = false } = {}) {
 
   // URL-param deep-link from JobDetail: /schedule?job=<id>&week=<YYYY-MM-DD>
   const [searchParams] = useSearchParams()
-  const location = useLocation()
   const focusJobId = searchParams.get('job')
   const focusWeek = searchParams.get('week')
   const focusTripId = searchParams.get('trip')
 
-  // Back button: when we arrived from a job card's CREW button (fromCard state),
-  // browser-back returns to that exact list spot. If deep-linked with ?job= but
-  // no history, fall back to that job. Otherwise the generic stages landing.
+  // The Jobs deep link expands this card and includes it despite list filters.
+  // Browser history may point at a generic list, so use the job identity.
   const goBack = useCallback(() => {
-    if (focusJobId && location.state?.fromCard) navigate(-1)
-    else if (focusJobId) navigate(`/schedule/jobs?job=${focusJobId}`)
+    if (focusJobId) navigate(`/schedule/jobs?job=${encodeURIComponent(focusJobId)}`)
     else navigate('/schedule/jobs')
-  }, [navigate, focusJobId, location.state])
+  }, [navigate, focusJobId])
   const focusedJobRowRef = useRef(null)
   const didHandleFocusRef = useRef(false)
 

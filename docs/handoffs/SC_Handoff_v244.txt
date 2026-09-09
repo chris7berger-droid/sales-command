@@ -1,0 +1,71 @@
+SC Handoff v244 — Trip/job scheduling fixes — 2026-09-08
+
+SESSION SUMMARY
+Chris approved merge/push/cleanup after iterative preview acceptance on 10227.
+PR42 branch codex/bug-squash; incorporates main e60b167 including weekly crew
+texts PR41/F61. v242/v243 belong to that parallel session and are preserved.
+This handoff supersedes the accumulated preview notes from this fix session.
+
+RESULTING BEHAVIOR
+- Send to Schedule no longer copies tentative bidding dates into jobs/job_wtcs
+  scheduling fields. Copied field-SOW days are undated, retaining content/order
+  and mobilization_seq. Mobilizations retain their own dates. Later Schedule
+  edits remain authoritative. Existing jobs are not automatically rewritten.
+- Long expanded trip SOW scrolls in a 180px area; editor textareas capped too.
+- Job deletion says Delete job. Edit trip exposes Delete trip, confirms scope,
+  keeps existing pull-ticket block, blocks linked assignments, scopes by job +
+  trip UUID and verifies returned rows. No delete action on derived parent dates.
+- Display numbers close gaps across all remaining saved trips in stored-seq
+  order. A lone seq2 displays Trip1; UUID/seq and SOW references never change.
+- Planning DAYS uses union of job/live-trip work dates, excludes gaps/duplicate
+  overlaps, includes assigned weekends. Crew target uses saved trips with job
+  fallback; zero remains zero, unknown ?, varied targets varies.
+- DAYS opens the original month calendar, retaining SOW/legacy date behavior
+  and adding live-trip/assignment dates. A mistakenly changed Trips action was
+  caught by Chris and restored; regression test now protects calendar behavior.
+- CREW opens earliest dated saved trip's Monday and passes its UUID. Board
+  highlights only that trip; explicit trip board links also pass UUID.
+- Back to Job uses /schedule/jobs?job=<id>, not browser history. Target starts
+  pinned first with final filters, expands, and scrolls immediately; no smooth
+  scroll toward a pre-filter position. Background hydration preserves position.
+
+LIVE DATA ACTIONS (AUTHORIZED)
+Read-only verified sends: 10262 -> jobs1279; 10227 -> jobs1280/call_log3803.
+Both existed Parked, undeleted/unmerged. No send failure proved. 199 visible
+jobs ruled out server row cap; September ranks14/22 ruled out default list cap.
+At Chris's explicit request cleared ONLY jobs1280 start_date/end_date and
+scheduled_start/scheduled_end, conditional on old Sep28-Oct2 values and the
+remaining trip. Readback confirmed all four null and N-DOT Polish UUID
+ e55a4fce-9d33-4074-9f66-58795189852e unchanged Sep28-Oct30.
+Chris deleted the other trip through preview. Later crew read: 84 assignments,
+3 people,28 dates; crew requirements then null. Chris subsequently set 3 and
+accepted the 3/3 display. Agent did not set crew targets or delete live trips.
+
+VALIDATION
+Focused model tests: send handler, card dates/crew/navigation, trip identity /
+numbering. Stateful intercepted React tests: calendar months/28 highlights,
+crew link, trip edit/save/delete/cancel/block, stable job scroll with40 older
+jobs, overlapping-board exact-trip focus and Back to Job. All passed before
+reconciliation; repeat on merged code as recorded below. No real DB traffic
+in fixtures. Production build must set non-secret fixture env locally: an
+unconfigured build can tree-shake app code after the missing-config throw.
+Hosting uses its normal environment, never fixture credentials.
+
+OPEN / LIMITS
+Automatic refresh catch-up is unimplemented. Readiness/banner/list date readers
+need a trip-authority review: promotion gates still use parent dates. Do not
+claim readiness fixed by cosmetic DAYS repair. Other historical jobs may have
+copied bidding dates; do not bulk-clear Schedule edits. Delete prechecks are
+not atomic; separate DB hardening if required. User discussed direct collapsed
+row Edit/Delete + original-date separation, then redirected to date authority;
+those layout changes remain unimplemented. B107/B108 print and other backlog
+items remain deferred. No staff messages, migrations or public grants changed.
+
+FILES / NEXT SESSION
+ProposalDetail.jsx; jobCardSchedule.js; trips.js; StageJobCard/TripsPanel/
+DaysModal/MobsModal/JobsToPrepare; Schedule.jsx; focused scripts/check-*.
+Fetch main on desktop before starting. Preserve existing named stale-B103 stash;
+it belongs to earlier maintenance, not this branch. Do not reapply it blindly.
+
+RELEASE RECORD
+Pending final integrated checks and authorized merge; updated below after release.

@@ -1162,6 +1162,10 @@ export default function Schedule({ embedded = false } = {}) {
             <div key={wsStr} className={`sch-wklbl${weekChanged && !changingWeek ? ' sch-week-changed' : ''}`} aria-live="polite">{fmtWk(monday)}</div>
             <button className={`sch-btn${nextWeekAlert ? ' pulse' : ''}`} onClick={() => changeWeek(w => w + 1)}>Next</button>
             <button className="sch-btn" onClick={() => changeWeek(0)}>This Week</button>
+            {!embedded && <button className="sch-btn" disabled={loading || changingWeek || !!staticError || !!error} onClick={() => {
+              if (editingTrips.current.size) { toast('Save or cancel your trip changes before sharing.', 'err'); return }
+              navigate(`/schedule/schedules?week=${wsStr}`)
+            }}>Weekly crew texts</button>}
             {changingWeek && !error && <div className="sch-week-progress" role="status">
               Loading {fmtWk(requestedMonday)}…
             </div>}

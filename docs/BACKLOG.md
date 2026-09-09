@@ -1,12 +1,13 @@
 # Sales Command — Backlog
 
-**CREW navigation — 2026-09-08, preview branch:** Job-card CREW opens earliest saved trip start week and passes trip UUID; Crew Schedule highlights only that trip. Per-trip board links preserve identity too. Model + real card and overlapping-board UI regression tests pass.
+**Trip/job handoff fixes — PR42, release authorized 2026-09-08:** Corrected Sales date authority, scrollable SOW, safe trip deletion, consecutive display numbering, trip-aware Planning DAYS/CREW, restored calendar, exact-trip Crew navigation and stable Back to Job. Consolidated handoff: `docs/handoffs/SC_Handoff_v244.txt`. This incorporates released weekly crew texts (F61); no superseded handoff overwrites.
 
-**Trip-aware Planning cards — 2026-09-08, preview branch:** DAYS now counts the union of live trip/job date ranges, preserving staffed-weekend exceptions and excluding gaps/overlap duplicates; trip DAYS opens Trips. CREW uses trip requirements with job fallback, including zero; mixed targets show varies and missing targets remain ?. Model and actual React card tests pass. Existing readiness gates remain unchanged and need a separate trip-aware review.
-
-**Date authority correction — 2026-09-08, `codex/bug-squash` (preview pending):** User clarified that only mobilizations or Schedule edits establish scheduling dates. Send no longer copies tentative WTC start/end into jobs or job_wtcs; copied Sales field-SOW days are undated, with scope/order/mobilization tags retained. Mobilization dates still copy unchanged. Existing job records are untouched. Actual send-handler regression test passes for dated/undated trips and later Schedule edits.
-
-**Trip controls — 2026-09-08, `codex/bug-squash` (local, not deployed):** Bounded scrollable SOW on expanded trips, explicit Delete job label, Delete trip available inside the trip editor with confirmation. Trip deletion retains pull-ticket blocking, blocks linked crew assignments, scopes deletion to job + trip and checks returned rows. UI and model regression checks + build pass. Production 10227/10262 were read only; both sends succeeded. Refresh investigation remains open: Crew Schedule does not reload static jobs/trips on tab return or live updates; Home/Jobs have live subscriptions but no focus/reconnect catch-up. No refresh implementation in this branch. See `docs/handoffs/SC_Handoff_v242.txt`.
+**Follow-ups discovered, not closed by PR42:**
+- Automatic refresh: Crew Schedule static jobs/trips lack return-to-tab/reconnect catch-up; Home/Jobs also lack catch-up after missed realtime events. Preserve drafts when implementing.
+- Readiness/banner/list date readers still use job dates in places; audit them against mobilization-only scheduling. The DAYS/CREW display fixes do not change promotion gates.
+- Historical bidding-date cleanup remains scoped: only 10227 was explicitly authorized and repaired. Do not bulk-clear job dates without provenance.
+- Deletion assignment/pull-ticket prechecks are not atomic database constraints.
+- Direct Edit/Delete controls on collapsed trip rows and original-date separation were discussed but not implemented after the user redirected work to date authority; current deletion is inside Edit trip.
 
 **CODEX RELEASE COMPLETE — 2026-09-08:** Scheduling/trips merged via [Codex PR #38](https://github.com/chris7berger-droid/sales-command/pull/38), merge `555019c`, production verified. B104/B105/B106/MOBZ-2 moved to Completed Log. The merged Codex branch/worktree are retired; main is the next-session starting point. Authoritative handoff: `docs/handoffs/SC_Handoff_v235.txt`. B107/B108 remain explicitly deferred.
 
@@ -322,6 +323,7 @@ older entries to a per-version handoff and trim here.
 
 | Date       | ID  | Item                                                                                                                          | Where done         |
 |------------|-----|-------------------------------------------------------------------------------------------------------------------------------|--------------------|
+| 2026-09-08 | F61 | **CODEX — Done:** One weekly text per crew member with day/trip-specific jobs, addresses, leads and coworkers; exact preview/copy, previous/next person, and editable 6:30 AM shop default overridden by saved scheduler times. Approved by Chris, merged and verified live. B107/B108 printing and F60 Sunday scheduling UI remain deferred. | [PR #41](https://github.com/chris7berger-droid/sales-command/pull/41), merge `0a98826`; approved app `d1141b8`; handoff v243 |
 | 2026-09-08 | B109 | **CODEX — Done:** Crew Schedule header follows the board week; trip-based Jobs Starting / Ending / Needing Crew, exact-trip links, historical requirement wording, and steady week loading. Chris accepted the final preview and authorized merge. Integrated released B110; production deployment verified. | [Codex PR #39](https://github.com/chris7berger-droid/sales-command/pull/39), merge `31069ca`; final app commit `1acc13c`; handoff v241 |
 | 2026-09-08 | B110 | Crew Schedule preserves overlapping trips as separate rows with their own dates, staffing, editor and UUID-linked crew assignments. Sibling-safe removals; ambiguous legacy days visible once. User accepted preview; merged and production verified. B109 subsequently integrated this release and merged in PR #39. | [Codex] PR #40, merge `29af790`; handoff v238 |
 | 2026-09-08 | B104 | **CODEX — Done:** Scheduling crew lead choices and cream modal controls. Accepted by Chris; merged and production verified. | [Codex PR #38](https://github.com/chris7berger-droid/sales-command/pull/38), merge `555019c`; implementation `a338f36`; handoff v235 |
@@ -369,37 +371,3 @@ Originally filed under active tables; closed when the load-bearing premise was o
 | B17 | T2   | Closed 2026-05-12 | Archive import creating duplicate `(proposal_id, work_type_id)` rows in `proposal_wtc`            | Found 2026-05-12 (V8 pre-flight for Multi-GC §5(c)) | **Closed Not-a-Bug 2026-05-12.** §5(c) resolution overturned: multi-WTC-same-`work_type_id` on one proposal is intentional, encoding sub-area splits / time-phasing / crew assignment. V8 "dup" pattern was sub-area data, not import duplication. See AUDIT_LOG 2026-05-12 §5(c) reversal notes + plan §5(c) Reversal section.                                |
 | B18 | T2   | Closed 2026-05-12 | Triage 17 existing duplicate WTC pairs across 14 proposals                                        | Found 2026-05-12 (V8 pre-flight for Multi-GC §5(c)) | **Closed Not-Applicable 2026-05-12.** The 17 "dup" pairs are intentional sub-area encoding, not duplicates. No triage needed. See B17 closure + AUDIT_LOG 2026-05-12.                                                                                                                                                                                          |
 | O5  | T2   | Closed 2026-05-12 | Multi-GC Migration 1b — apply `UNIQUE (proposal_id, work_type_id)` on `proposal_wtc`              | Filed 2026-05-12 (Multi-GC §10 step 2 split — V8 returned dups) | **Closed Won't-Do 2026-05-12.** UNIQUE constraint would actively prevent valid use (multi-WTC-same-work_type for sub-areas). §5(c) resolution overturned. Migration 1b will never ship. §10 step 6 sequencing constraint inverted: blocked on §5 sync-identity re-plan (F16), NOT on UNIQUE. See AUDIT_LOG 2026-05-12.                                          |
-
-Back-to-job correction (preview): Crew Schedule now routes directly to
-/schedule/jobs?job=<id> instead of browser-back, so the existing Jobs deep-link
-logic expands/includes the intended card. Regression starts from a generic Jobs
-history entry with fromCard:true and verifies the job-specific return. Full
-overlapping-board UI suite, build and diff checks PASS.
-
-DAYS CALENDAR REGRESSION CORRECTION — supersedes prior “DAYS opens Trips”.
-User correctly identified removed calendar behavior introduced by this branch.
-Restored DAYS -> DaysModal. Retained SOW-date collection and legacy parent-span
-fallback, added live trip ranges and actual assignment dates, and restored the
-assignmentDates prop removed during the card change. Calendar retains separate
-months and worked-weekend rules; no trip-gap filling. UI test now asserts the
-calendar dialog, September/October months and 28 highlighted dates, not Trips.
-Full trip UI suite/build/diff checks PASS. Trip2 remains seq2 after seq1 deletion
-because field-SOW days reference mobilization_seq; no data renumbering performed.
-
-VISIBLE TRIP NUMBERS — user-approved correction
-Remaining saved trips display consecutive numbers in saved sequence order.
-Trip2 alone displays Trip1. Shared tripDisplayNumbers derives presentation;
-saved seq/UUID and field-SOW references are unchanged. Trips list, modal rows,
-edit title, delete confirmation, and unnamed Crew Schedule labels agree.
-Numbering uses all saved trips on the job, not the selected calendar week.
-Model and full trip/overlapping-board UI suites PASS, including lone seq2
-showing Trip1 in list, editor and confirmation. Calendar/back navigation pass.
-
-BACK-TO-JOB SCROLL CORRECTION (preview)
-Jobs list previously started in month scope, then widened to all after mount.
-A target card could move to the first row while its smooth scroll continued
-toward the old position. Focused loads now start with final filters and pin
-the target first consistently; card uses immediate layout scroll when expanded.
-New focus also expands an already-mounted compact card. Actual JobsToPrepare
-fixture with 40 older jobs verifies viewport position after effects and data
-hydration. Full trip UI suite, build and diff checks PASS.

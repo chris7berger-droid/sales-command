@@ -1,114 +1,79 @@
-SC Handoff v242 — CODEX — Trip controls, 2026-09-08
+SC Handoff v242 — CODEX — 2026-09-08
 
 SESSION SUMMARY
-Work isolated at /Users/chrisberger/sales-command-bug-squash on codex/bug-squash.
-The weekly crew text build is in a different worktree and was not edited.
+Chris requested one copyable weekly itinerary per crew member, replacing the
+proposed single-job image export. Built in an isolated sales-command worktree
+on codex/weekly-crew-text. Ready for review; not merged to production.
 
-CHANGES BUILT (NOT SHIPPED)
-Expanded trip SOW is capped at 180px with keyboard-accessible scrolling.
-Trip editor textareas are capped too. Job-level Delete now says Delete job.
-The trip editor exposes Delete trip; confirmation states job/other trips remain.
-Existing pull-ticket hard block retained. Linked crew assignments block deletion.
-Delete uses job_id + trip id and verifies returned rows; failures stay visible.
+CHANGES BUILT (NOT YET SHIPPED)
+Schedules now shows an exact text preview, week picker, person picker, previous/next-person
+buttons and clipboard copy/manual fallback. Each Mon–Sun day lists assigned jobs,
+trip title, address, lead, same-day/same-trip coworkers, vehicle/equipment/power,
+and trip notes. Internal jobs.notes and billing fields are excluded.
+Optional usual start/meeting instructions persist across people in the mounted
+screen; saved job deferred_days/deferred_time take priority. Chris subsequently
+requested the default "Meet at the shop at 6:30 AM"; it is prefilled and editable.
+Uses buildJobTrips and pickAllocField, preserving UUID assignment identity and
+conservative legacy attribution. Parent dates never hide assigned return trips.
+Missing jobs and ambiguous legacy staffing remain visible with confirmation text.
+Rosterless/archived assigned names remain selectable; unassigned roster members
+can copy an explicit no-work week. Sunday READ support only, not scheduling UI.
+Crew Schedule's new Weekly crew texts button carries its displayed week and guards
+unsaved trip edits/loading. Actions > Send Schedules opens the current-week screen.
+Loads jobs/crew/assignments/trips as one usable snapshot; failures, refresh and
+week changes remove copy controls until complete; stale requests cannot win.
 
 DECISIONS
-10227 screenshot has original Job schedule dates plus two saved trip entries.
-Parent date display is derived, not a third saved trip; no deletion action for it.
-No production writes, data repairs, or deletion of 10227 trips were performed.
+Text-only clipboard flow. No automatic messages, PDF/image, or SMS service.
+No schema/RLS/edge-function/DB writes. Dates derive from assignments, not status
+or job date filtering. No guessing lead/coworkers for ambiguous trip history.
+No reusable-link persistence; texted copies are snapshots with an updated stamp.
 
-INVESTIGATION / OPEN WORK
-Read-only live queries verified 10262 -> job 1279, start Sep14, and 10227 ->
-job 1280, start Sep28. Both active/unmerged Parked (displayed as Staged).
-199 visible jobs rules out the 1000-row cap. September positions 14/22 rule out
-25-row display cap for default September/All Stages; precise UI cause unproven.
-Crew Schedule static jobs/trips load on mount/retry, not live updates/tab return.
-Home/Jobs have realtime but no visibility/focus/reconnect catch-up. Refresh fix
-is still unimplemented; protect unsaved editor state when addressing it.
+BACKLOG
+F61 added In Progress (built; pending review/release).
+B107/B108 old print-path defects remain deferred; F60 Sunday scheduling UI stays open.
 
 VERIFICATION
-npm run build, check-job-trips-model.mjs, git diff --check: PASS.
-check-job-trips.mjs with installed Chrome and intercepted fake data: PASS.
-Covers SOW overflow, deletion cancel, staffed-trip blocking, successful scoped
-trip deletion, parent retained, no job writes, existing trip editing/regressions.
-No authenticated production browser smoke. Pull-ticket block retained but not
-newly simulated; assignment precheck is not an atomic database constraint.
+- Full Vite production build with non-secret fixture URL/key: PASS; existing large
+  bundle warning remains. Env-free build is not meaningful here: missing-config
+  throw allows Vite to eliminate app code. Vercel must use its normal environment.
+- node scripts/check-crew-week-text-model.mjs: PASS (trip/day coworkers, inheritance,
+  Sunday/DST, deferred start, missing jobs, overlap ambiguity, duplicates/multiple
+  assignments, private job-note exclusion).
+- scripts/check-crew-week-text.mjs intercepted React browser suite: PASS (exact
+  clipboard/preview equality, person/week changes, desktop/390px phone layout,
+  read errors/retry, clipboard denial fallback, Actions route and board week link).
+- Existing crew-week-summary browser regression suite: PASS, including loading,
+  rapid navigation, retry, draft guard, trip links and historical wording.
+- Existing crew-week-summary and overlapping-crew-trips model checks: PASS.
+- New screen and formatter ESLint clean. Six unchanged baseline unused-symbol
+  errors remain in ScheduleLayout (1) / Schedule (5); no unrelated cleanup.
+- git diff --check: PASS. All browser requests intercepted; GET-only DB assertion.
+Browser tools: in-app node_repl tool unavailable; used existing Playwright script
+pattern with local Chrome. PLAYWRIGHT_MODULE can point at the installed runtime's
+Playwright index.mjs; existing regression script also accepts CHROME_PATH.
+Screenshots: /private/tmp/weekly-crew-text-desktop.png and -mobile.png (fixtures).
 
-NEXT SESSION / FILES
-User preview/acceptance and production deployment pending.
-TripsPanel.jsx/.css, MobsModal.jsx, StageJobCard.jsx, queries.js,
-scripts/check-job-trips.mjs. No refresh or unrelated scheduling implementation.
+NOT TOUCHED
+Production, retired sch-command code, migrations, billing/printing, staff messages.
+No real crew text sent; clipboard tested with fixture data only.
+
+NEXT SESSION POINTERS
+Review PR/preview then merge when authorized. Normal hosting config supplies the
+Supabase environment; do not deploy fixture environment values. Once released,
+mark F61 complete and record release SHA. Prefer the board's Weekly crew texts
+button to carry the selected week; Actions opens a week-selectable screen.
+
+FILES TO KNOW
+src/schedule/lib/crewWeekText.js — pure formatter / day and trip attribution.
+src/schedule/views/Schedules.jsx — read-only preview and clipboard UI.
+src/schedule/views/Schedule.jsx — 4-line week-preserving launch button.
+src/schedule/ScheduleLayout.jsx — Send Schedules placeholder replaced by routing.
+scripts/check-crew-week-text-model.mjs and check-crew-week-text.mjs — focused proofs.
 
 GIT STATE
-Local codex/bug-squash from main 7503a7c. Not merged or deployed.
-
-DATE AUTHORITY CORRECTION (user approved)
-Tentative bidding dates must not schedule work. ProposalDetail send now writes
-null job/job_wtcs scheduling dates and null day dates in both SOW copies. Scope,
-order, mobilization tags, and the mobilizations' own dates remain intact. This
-prevents a synthesized parent schedule from bidding estimates on new sends.
-No historical cleanup: origin of existing Schedule-edited dates is unproven.
-check-send-schedule-dates.mjs executes the real send handler with an in-memory
-DB boundary. Dated/undated mobilizations, dates_tbd on/off, preserved scope,
-unchanged Sales inputs, no phantom parent and later Schedule edits: PASS.
-Build and diff check PASS. PR42 extends to include this handoff correction.
-Earlier proposed original-date separation/direct trip row controls have not
-been implemented; discussion shifted to correcting the source of the dates.
-
-10227 DATA CLEANUP / CARD FOLLOW-UP
-User explicitly requested clearing the extra job schedule. Guarded live UPDATE
-cleared only jobs1280/call_log3803 start/end/scheduled_start/scheduled_end after
-verifying Sep28-Oct2. Readback confirmed N-DOT Polish trip UUID
-e55a4fce-9d33-4074-9f66-58795189852e retained Sep28-Oct30.
-Later read-only crew check: 84 assignments, 3 people, 28 dates; job and trip
-crew_needed both null. User directed to Trips > Edit trip > Crew needed.
-Planning DAYS and compact/Planning CREW now use jobCardSchedule helper with
-saved trips, not proposal fallback. Union worked days avoids bridging trips
-or double counting overlap. Weekend assignment exception retained. Null crew
-shows ?, zero stays zero, mixed targets show varies. Trip DAYS opens Trips.
-Model cases and real React test of trip-only 28d + 3/3 PASS; full existing
-trip UI suite, build and diff check PASS. No crew requirements were written.
-Readiness/baseChecklistPasses and StageBanner still use job-level dates: known
-follow-up, not represented as fixed by the scoped DAYS-card change.
-
-CREW NAVIGATION FOLLOW-UP
-CREW now opens the earliest dated saved trip's start week and passes its UUID
-in the trip query parameter. Board highlighting/scroll target matches job AND
-trip when supplied; old job-only links keep their behavior. Explicit per-trip
-Open Crew Schedule links also pass the UUID. With multiple dated trips, the
-job-card CREW button chooses earliest start, then sequence; no date => existing
-job-date/current-week fallback. No data writes. Model, full card UI, and full
-overlapping-board UI tests PASS, including future-week exact-trip highlighting.
-
-Back-to-job correction (preview): Crew Schedule now routes directly to
-/schedule/jobs?job=<id> instead of browser-back, so the existing Jobs deep-link
-logic expands/includes the intended card. Regression starts from a generic Jobs
-history entry with fromCard:true and verifies the job-specific return. Full
-overlapping-board UI suite, build and diff checks PASS.
-
-DAYS CALENDAR REGRESSION CORRECTION — supersedes prior “DAYS opens Trips”.
-User correctly identified removed calendar behavior introduced by this branch.
-Restored DAYS -> DaysModal. Retained SOW-date collection and legacy parent-span
-fallback, added live trip ranges and actual assignment dates, and restored the
-assignmentDates prop removed during the card change. Calendar retains separate
-months and worked-weekend rules; no trip-gap filling. UI test now asserts the
-calendar dialog, September/October months and 28 highlighted dates, not Trips.
-Full trip UI suite/build/diff checks PASS. Trip2 remains seq2 after seq1 deletion
-because field-SOW days reference mobilization_seq; no data renumbering performed.
-
-VISIBLE TRIP NUMBERS — user-approved correction
-Remaining saved trips display consecutive numbers in saved sequence order.
-Trip2 alone displays Trip1. Shared tripDisplayNumbers derives presentation;
-saved seq/UUID and field-SOW references are unchanged. Trips list, modal rows,
-edit title, delete confirmation, and unnamed Crew Schedule labels agree.
-Numbering uses all saved trips on the job, not the selected calendar week.
-Model and full trip/overlapping-board UI suites PASS, including lone seq2
-showing Trip1 in list, editor and confirmation. Calendar/back navigation pass.
-
-BACK-TO-JOB SCROLL CORRECTION (preview)
-Jobs list previously started in month scope, then widened to all after mount.
-A target card could move to the first row while its smooth scroll continued
-toward the old position. Focused loads now start with final filters and pin
-the target first consistently; card uses immediate layout scroll when expanded.
-New focus also expands an already-mounted compact card. Actual JobsToPrepare
-fixture with 40 older jobs verifies viewport position after effects and data
-hydration. Full trip UI suite, build and diff checks PASS.
+Base main/origin/main: 7503a7c. Feature branch codex/weekly-crew-text.
+Main checkout /Users/chrisberger/sales-command is clean and unchanged by this build.
+Earlier stale B103 backlog draft preserved in named stash
+preserved-before-reconciliation-2026-09-08-stale-B103-backlog; do not reapply over
+current backlog (old report is already superseded by the released B103 fix).

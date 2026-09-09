@@ -416,6 +416,7 @@ export default function Jobs() {
         today={today}
         initialStage={initialStage}
         focusJobId={searchParams.get('job')}
+        focusPanel={searchParams.get('panel') === 'trips' ? 'trips' : null}
         onJobUpdate={() => loadData({ background: true })}
       />
 

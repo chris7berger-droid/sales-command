@@ -4,3 +4,6 @@
 .schedule-root .sch-trip-select select { flex: 1; min-width: 0; }
 .schedule-root .sch-trip-save { display: flex; gap: 8px; margin-top: 8px; }
 .schedule-root .sch-trip-editor [role="alert"] { color: var(--danger); margin: 8px 0; }
+.schedule-root .sch-trip-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.schedule-root .sch-trip-heading .sch-trip-select { flex: 1; min-width: 220px; margin-bottom: 0; }
+.schedule-root .sch-trip-heading > button { white-space: nowrap; }

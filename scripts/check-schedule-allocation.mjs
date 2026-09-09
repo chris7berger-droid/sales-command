@@ -22,12 +22,15 @@ const server = await createServer({
         import {MemoryRouter,useNavigate,useLocation} from 'react-router-dom';
         import ScheduleLayout from '/src/schedule/ScheduleLayout.jsx';
         import StageJobCard from '/src/schedule/components/StageJobCard.jsx';
+        import Jobs from '/src/schedule/views/Jobs.jsx';
+        import {ToastProvider} from '/src/schedule/lib/toast.jsx';
         import {UserProvider} from '/src/schedule/lib/user.jsx';
         import {addJobMobilization} from '/src/schedule/lib/queries.js';
         import {printWeekSchedule} from '/src/schedule/lib/exports.js';
         window.testAdd = addJobMobilization;
         window.testPrintWeek = printWeekSchedule;
         function Harness(){window.testNavigate=useNavigate();const location=useLocation();
+          if(location.pathname==='/schedule/jobs')return React.createElement('div',{className:'schedule-root'},React.createElement(UserProvider,{teamMember:{name:'Codex regression'}},React.createElement(ToastProvider,null,React.createElement(Jobs))));
           if(location.pathname==='/test-job')return React.createElement('div',{className:'schedule-root'},React.createElement(UserProvider,{teamMember:{name:'Codex regression'}},React.createElement(StageJobCard,{job:${JSON.stringify(main)},stage:'active',autoOpen:true})));
           return React.createElement(ScheduleLayout,{teamMember:{name:'Codex regression',role:'Admin'}})}
         createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/settings']},React.createElement(Harness)));`
@@ -224,7 +227,7 @@ try{
  console.log('PASS weekly printout also preserves the differing daily crew, vehicle, and equipment requirements.')
  await multiRow.locator('.sch-brd-job-label').click()
  const earlyBefore=structuredClone(mobs[0])
- const selector=multiRow.getByLabel('Editing trip',{exact:true})
+ const selector=multiRow.getByLabel('Select trip title',{exact:true})
  await selector.selectOption('late')
  const lateForm=multiRow.locator('[data-schedule-trip-id="late"]')
  assert.equal(await lateForm.getByLabel('Crew needed',{exact:true}).inputValue(),'4')
@@ -318,6 +321,9 @@ try{
  await page.screenshot({path:'/private/tmp/codex-schedule-trip-details.png'})
  await details.getByLabel('Trip title',{exact:true}).fill('WTC1 - Concrete Sealing revised')
  await details.getByLabel('Trip notes',{exact:true}).fill('Updated from Crew Schedule')
+ await crossRow.getByRole('button',{name:'Open job →',exact:true}).click()
+ await crossRow.getByText('Save or cancel your changes before opening the job.').waitFor()
+ assert.equal(await details.getByLabel('Trip notes',{exact:true}).inputValue(),'Updated from Crew Schedule')
  await details.getByLabel('Lead',{exact:true}).selectOption('Smith, Jane')
  await details.getByLabel('End',{exact:true}).fill('2026-10-14')
  await details.getByRole('button',{name:'Save trip',exact:true}).click()
@@ -325,11 +331,12 @@ try{
  assert.equal(await details.getByLabel('Trip notes',{exact:true}).inputValue(),'Updated from Crew Schedule')
  assert.equal(await details.getByLabel('Lead',{exact:true}).inputValue(),'Smith, Jane')
  assert.match(await crossRow.locator('.sch-trip-label').innerText(),/revised/)
- await crossRow.getByLabel('Editing trip',{exact:true}).selectOption('job')
+ await crossRow.getByLabel('Select trip title',{exact:true}).selectOption('job')
  assert.equal(await crossRow.locator('[data-schedule-trip-id]').count(),0)
  assert.equal(await crossRow.locator('.sch-job-notes').count(),1,'Job defaults remain available only when deliberately selected')
- await view('/test-job')
- await page.getByRole('button',{name:'TRIPS',exact:true}).click()
+ await crossRow.getByRole('button',{name:'Open job →',exact:true}).click()
+ await trip.waitFor()
+ assert(await page.getByRole('button',{name:'TRIPS',exact:true}).evaluate(el=>el.classList.contains('open')),'Open job must expand the actual Jobs card on Trips')
  await trip.locator('.job-trip-summary').click()
  assert.match(await trip.innerText(),/revised.*Jane Smith.*Updated from Crew Schedule/s)
  assert.equal(mobs.length,2,'Editing must preserve the same trip, without inserts')

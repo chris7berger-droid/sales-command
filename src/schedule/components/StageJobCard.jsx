@@ -576,7 +576,7 @@ function NotesPanel({ job, changedBy, onSaved }) {
   )
 }
 
-export default function StageJobCard({ job, stage, variant = null, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByJobId = {}, prtMap = new Map(), today = new Date(), onJobUpdate, autoOpen = false }) {
+export default function StageJobCard({ job, stage, variant = null, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByJobId = {}, prtMap = new Map(), today = new Date(), onJobUpdate, autoOpen = false, initialPanel = null }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || 'unknown'
@@ -588,7 +588,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   // scrolls it into view — this is the target Open Job / Edit Schedule / View Job
   // now land on (JobDetail retired).
   const [expanded, setExpanded] = useState(!!autoOpen)
-  const [panels, setPanels] = useState({ planning: false, management: false, details: false, budget: false, trips: false })
+  const [panels, setPanels] = useState({ planning: false, management: false, details: false, budget: false, trips: initialPanel === 'trips' })
   const cardRef = useRef(null)
   useEffect(() => {
     if (autoOpen && cardRef.current) cardRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })

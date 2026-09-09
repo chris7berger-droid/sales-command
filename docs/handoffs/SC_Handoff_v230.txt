@@ -1,0 +1,39 @@
+SC HANDOFF v230 — Trip title and Open job (2026-09-08)
+===================================================
+
+SESSION SUMMARY
+Chris approved renaming Editing to Trip title and adding Open job from Crew
+Schedule, opening the matching expanded job on its Trips tab.
+
+CHANGES SHIPPED / DECISIONS
+- Compact selector label is Trip title; accessible name Select trip title avoids
+  confusion with the existing editable Trip title text input.
+- Open job uses existing /schedule/jobs?job=<id> navigation plus panel=trips.
+- Jobs passes the whitelisted Trips panel choice through JobsToPrepare only to
+  the focused StageJobCard. Existing links without panel keep their prior behavior.
+- Unsaved trip changes block Open job with Save/Cancel guidance; busy saves disable
+  it. Button remains available for parent-only jobs. No extra edit modal.
+
+BACKLOG
+MOBZ-2 updated. B107/B108 remain deferred.
+
+VERIFICATION
+Actual Crew Schedule button -> actual Jobs view -> matching expanded card with
+Trips already open, using mocked Supabase traffic. Cross-screen edits persist in
+the fixture. Unsaved Open job attempt preserves draft and stays on Crew Schedule.
+Existing allocation/browser regression suite passes; build passes with existing
+large-bundle warning. New component lint clean; other changed components have no
+added lint findings compared with HEAD. Diff check passes. No live writes.
+
+NOT TOUCHED
+Database/schema, trip writers, production/main, printing, assignment behavior.
+
+NEXT / REVIEW
+Review 65d0c60..HEAD and v230, only label, navigation, Trips landing and unsaved
+edit guard. Read-only; no broad audit, live writes, repair SQL, push or merge.
+
+FILES / GIT STATE
+ScheduleTripDetails.jsx/.css; Jobs.jsx; JobsToPrepare.jsx; StageJobCard.jsx;
+scripts/check-schedule-allocation.mjs; docs/BACKLOG.md.
+Branch codex/fix-schedule-crew-leads-and-form-theme. Parent 65d0c60.
+Commit/push and exact preview deployment confirmation follow this handoff.

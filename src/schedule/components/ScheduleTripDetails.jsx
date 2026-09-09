@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { updateJobMobilization } from '../lib/queries'
 import { tripRange } from '../lib/trips'
 import { useUser } from '../lib/user'
@@ -7,14 +8,15 @@ import './ScheduleTripDetails.css'
 const nameLabel = name => name?.includes(',') ? name.split(',').reverse().map(s => s.trim()).join(' ') : name
 
 export default function ScheduleTripDetails({ job, trips, leadNames, onUpdated, children }) {
+  const navigate = useNavigate()
   const [selected, setSelected] = useState(null)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [selectionError, setSelectionError] = useState('')
   const trip = selected === 'job' ? null : trips.find(t => t.id === selected) || trips[0]
   return <div className="sch-trip-editor">
-    {trips.length > 0 && <label className="sch-trip-select">Editing
-      <select className="sch-dinp" aria-label="Editing trip" disabled={busy} value={trip?.id || 'job'} onChange={e => {
+    <div className="sch-trip-heading">{trips.length > 0 && <label className="sch-trip-select">Trip title
+      <select className="sch-dinp" aria-label="Select trip title" disabled={busy} value={trip?.id || 'job'} onChange={e => {
         if (dirty) { setSelectionError('Save or cancel your changes before switching trips.'); return }
         setSelectionError(''); setSelected(e.target.value)
       }}>
@@ -22,6 +24,10 @@ export default function ScheduleTripDetails({ job, trips, leadNames, onUpdated, 
         <option value="job">Job defaults / original job dates</option>
       </select>
     </label>}
+    <button type="button" className="app-act-btn" disabled={busy} onClick={() => {
+      if (dirty) { setSelectionError("Save or cancel your changes before opening the job."); return }
+      navigate(`/schedule/jobs?job=${encodeURIComponent(job.job_id)}&panel=trips`)
+    }}>Open job →</button></div>
     {selectionError && <p role="alert">{selectionError}</p>}
     {trip ? <TripFields key={JSON.stringify(trip)} job={job} trip={trip} leadNames={leadNames} onUpdated={onUpdated} onDirty={value => { setDirty(value); setSelectionError('') }} onBusy={setBusy} /> : children}
   </div>

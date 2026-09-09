@@ -52,7 +52,7 @@ function matchesSearch(j, q) {
 export default function JobsToPrepare({
   jobs = [], crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {},
   assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByJobId = {},
-  prtMap = new Map(), today = new Date(), onJobUpdate, initialStage = 'all', focusJobId = null,
+  prtMap = new Map(), today = new Date(), onJobUpdate, initialStage = 'all', focusJobId = null, focusPanel = null,
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -159,6 +159,7 @@ export default function JobsToPrepare({
             job={j}
             variant="home-compact"
             autoOpen={focusJobId != null && String(j.job_id) === String(focusJobId)}
+            initialPanel={String(j.job_id) === String(focusJobId) ? focusPanel : null}
             stage={stageOf(j, crewByCallLog, matsByJobId)}
             crewByCallLog={crewByCallLog}
             matsByJobId={matsByJobId}

@@ -40,3 +40,16 @@ scripts/check-job-trips.mjs. No refresh or unrelated scheduling implementation.
 
 GIT STATE
 Local codex/bug-squash from main 7503a7c. Not merged or deployed.
+
+DATE AUTHORITY CORRECTION (user approved)
+Tentative bidding dates must not schedule work. ProposalDetail send now writes
+null job/job_wtcs scheduling dates and null day dates in both SOW copies. Scope,
+order, mobilization tags, and the mobilizations' own dates remain intact. This
+prevents a synthesized parent schedule from bidding estimates on new sends.
+No historical cleanup: origin of existing Schedule-edited dates is unproven.
+check-send-schedule-dates.mjs executes the real send handler with an in-memory
+DB boundary. Dated/undated mobilizations, dates_tbd on/off, preserved scope,
+unchanged Sales inputs, no phantom parent and later Schedule edits: PASS.
+Build and diff check PASS. PR42 extends to include this handoff correction.
+Earlier proposed original-date separation/direct trip row controls have not
+been implemented; discussion shifted to correcting the source of the dates.

@@ -11,11 +11,10 @@ The original branch name and [Codex] PR title remain provenance after cleanup.
 
 RELEASE STATUS
 --------------
-Chris accepted the preview and explicitly authorized production merge and branch
-maintenance on 2026-09-08. This closeout is prepared before merge; the production
-merge SHA, deployment and final checkout/cleanup state will be recorded below
-after they are verified. Do not treat earlier handoffs' preview-only statements
-as the current release status once this closeout is completed.
+COMPLETE — merged, production deployed and verified, release branch/worktree
+retired. Chris accepted the preview and authorized this merge and cleanup.
+This handoff supersedes v223-v234 preview-only / not-merged status statements.
+B104/B105/B106/MOBZ-2 are completed; B107/B108 remain explicitly deferred.
 
 SESSION SUMMARY / FINAL BEHAVIOR
 --------------------------------
@@ -94,4 +93,28 @@ No custom command/skill is necessary for the documented closeout workflow.
 
 PRODUCTION / CLEANUP RECORD
 ----------------------------
-Pending verified merge, deployment, completed-backlog entries and branch cleanup.
+- PR #38: https://github.com/chris7berger-droid/sales-command/pull/38
+  [Codex] Ship scheduling trip visibility, editing, and workflow fixes
+- Merge: 555019c5e0700b5281e31dd2fd3539e55b6a1532
+  [Codex] Merge scheduling trip fixes and workflows (#38)
+  Merged 2026-09-08 17:44 Pacific (2026-09-09 00:44:26 UTC).
+- Vercel Production deployment 6340084899: SUCCESS, exact merge SHA.
+  https://sales-command-dyj7afior-chris7berger-droids-projects.vercel.app
+- Read-only https://www.scmybiz.com/schedule/jobs: HTTP 200. JS and CSS HTTP 200;
+  deployed JS /assets/index-8euk5hez.js includes Create/Edit choice, unsaved
+  Open-job guard and Calendar trip-title markers. No authenticated write test.
+- Local main fast-forwarded from 2f10b05 to origin/main; application/script tree
+  matches user-accepted 97275ff exactly. No conflict, source rewrite or extra fix.
+- GitHub auto-deleted the merged remote Codex branch; remote ref pruned. Clean
+  Codex worktree removed with normal git worktree remove (no force). Local branch
+  deleted with git branch -d (merge ancestry verified by Git).
+- Removed worktree contained only committed files plus generated dist, node_modules
+  symlink to main, and Supabase CLI temp metadata. Main dependencies preserved.
+- Six unrelated feature worktrees left untouched. No broad branch/stash cleanup.
+- Completed backlog entries and this production record saved as a documentation-
+  only follow-up on main. Final push/clean-state check completes closeout; no
+  application changes in that follow-up.
+- Use /Users/chrisberger/sales-command for the next session. Old reviewer terminals
+  pointing at sales-command-codex-schedule-fix need to start from the main path.
+- No custom Codex command or skill added. Provenance is retained in this CODEX
+  handoff, the [Codex] PR and merge title, and full original branch commit history.

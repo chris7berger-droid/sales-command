@@ -1,0 +1,34 @@
+SC HANDOFF v231 — Calendar trip titles (2026-09-08)
+=================================================
+
+SESSION SUMMARY / CHANGES SHIPPED
+Chris additionally requested trip titles in Calendar. Calendar passes each bar
+segment's allocation label to CalendarBar. The bar shows the title beside the
+job identifier, before lead/staffing. Hover includes the complete title. Job pill
+width is capped when a trip title exists so it cannot consume the entire bar.
+Bars without trip labels keep their previous display; no invented parent title.
+
+DECISIONS / BACKLOG
+Presentation only: existing allocation identity, bar dates, lanes, selection and
+filters untouched. MOBZ-2 updated. B107/B108 still deferred.
+
+VERIFICATION
+Browser checks pass: saved WTC1 title visible after reload and lead filtering;
+two trips for one job in the same week show Preparation and Sealing on their own
+bars with matching leads. Existing cross-screen/inline editing/navigation suite
+passes. Calendar files lint clean; build passes with existing bundle warning;
+diff check passes. Inspected /private/tmp/codex-calendar-trip-titles.png.
+All database traffic mocked, no live writes.
+
+NOT TOUCHED
+Production/main, DB, trip/assignment writers, calendar date/packing algorithms.
+
+NEXT / REVIEW
+For combined latest scope review 65d0c60..HEAD with v230-v231: Trip title label,
+Open job -> expanded Trips, unsaved guard, Calendar's per-trip labels. Stay
+read-only and scoped; no writes, repair SQL, push or merge.
+
+FILES / GIT
+views/Calendar.jsx; components/CalendarBar.jsx; check-schedule-allocation.mjs.
+Branch codex/fix-schedule-crew-leads-and-form-theme; parent d10e6e0.
+Commit/push and exact preview confirmation follow this handoff.

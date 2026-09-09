@@ -1,0 +1,99 @@
+SC HANDOFF v226 — Codex: independent review fixes (2026-09-08)
+===============================================================================
+
+SESSION SUMMARY
+---------------
+Chris supplied a read-only second-terminal review of 2f10b05..69b158b:
+1. Daily now renders unknown crew requirement as green 0/0 (new regression).
+2. Trips omits parent-only initial job dates (feature coverage gap).
+3. Multiple trips in one week borrow the first trip's requirement/lead (existing).
+Verified all three in source and implemented fixes on the same Codex branch.
+
+CHANGES SHIPPED (PREVIEW ONLY)
+----------------------------
+- crewRequirement distinguishes null/empty/invalid (unknown) from numeric zero.
+  staffingForDay resolves the actual dated allocation on each day. Null fields
+  inherit job defaults; explicit zero overrides them. Days outside dated ranges
+  do not generate gaps. Undated jobs retain prior week visibility.
+- Daily calculates each day's available staff against THAT day's requirement;
+  missing requirements show red 0/? rather than green 0/0. Changed daily targets,
+  leads, and vehicles are shown in a per-day row; weekly badge says needs vary
+  instead of presenting one arbitrary target. Star marks any actual week lead.
+- Crew Schedule uses the same date resolver for shortages and lead labels. When
+  needed, each day shows its own target/lead. The job-level edit field now shows
+  the actual job crew default, not a trip value that would save to the job.
+- Overlapping saved trips on the SAME date are explicitly uncertain: display ?
+  and a check-requirements tooltip; do not choose the first or assume their crew
+  requirements should be summed. This preserves separate trip identities.
+- Traced the same old lookup to weekly printing; print now lists differing crew,
+  vehicle, equipment, and power needs by day too. Changed operational strings
+  are HTML escaped. Legacy allocForWeek remains exported but has no app callers.
+- buildJobTrips accepts the parent job. Its scheduled_start/end (then start/end)
+  supplies the initial trip when no overlapping explicit dated trip represents
+  it. Stable job:<id>:initial key; crew dates across long gaps stay inside it.
+  It also coexists with nonoverlapping later explicit trips. No DB row created.
+- Parent-derived details read job fields, show Job notes, and point to Crew
+  Schedule for editing; never send a synthetic identity to the UUID trip editor.
+
+DECISIONS / LIMITS
+-----------------
+Parent fallback is conservative: explicit dated trips take precedence over an
+overlapping parent span. It does not rewrite or union saved trip dates with the
+parent's dates. Exact same-span parent/explicit records must not double-render.
+The separate initial job trip is shown before any crew exists, and still shown
+as one span when crew has an 18-day gap. Existing legacy-only grouping stays as-is.
+No inference that a past trip is complete. No sum/first-match guess for overlapping
+crew requirements. No schema, scope-version workflow, or live data changes.
+
+NEW / CLOSED BACKLOG ITEMS
+--------------------------
+B106 added for staffing semantics; MOBZ-2 updated for parent-only coverage.
+Both tested, awaiting preview/independent/user review; nothing marked merged.
+
+VERIFICATION
+------------
+- check-allocation-staffing-model.mjs: unknown vs zero, inheritance, inactive
+  days, multiple trips in a week, correct date-specific leads, overlapping-trip
+  uncertainty, and weekly summaries passed.
+- check-job-trips-model.mjs: all existing cases plus parent dates before staffing,
+  assignments 18 days apart, scheduled-date precedence, explicit duplicate
+  suppression, and coexistence with a later nonoverlapping trip passed.
+- check-schedule-allocation.mjs: original modal/save/stale-parent/all-three-view
+  cases still passed. New browser cases: blank -> red 0/? on active dates; zero
+  overrides nonzero job target -> 0/0 with no gap; Mon/Tue need 1 and Thu/Fri need
+  4, with one assigned on each date -> only Thu/Fri warn 1/4; correct daily lead
+  in both views; actual print popup lists requirements by date.
+- check-job-trips.mjs: all previous editor/history/error/reload tests passed;
+  new actual job-row case shows Oct 12-30 before staffing, then keeps one trip
+  after Oct 12 and Oct 30 assignments. Parent trip cannot enter UUID editor.
+- Existing real 7215 snapshot replay passed: five explicit trips, Aug 5 legacy
+  records, and all 72 assignments still represented once. No fresh live writes.
+- Build passes with fake valid Supabase env (existing bundle-size warning).
+- Changed new helper/Trips/Daily/export files lint clean; Schedule's 9 findings
+  exactly match original main, compared by rule/message (not just line numbers).
+- Screenshots inspected: /private/tmp/codex-review-daily-multiple.png,
+  /private/tmp/codex-review-schedule-multiple.png, /private/tmp/codex-review-parent-trip.png.
+- Browser tests intercept all external traffic; no actual database persistence
+  or authenticated Vercel browser test is claimed.
+
+NOT TOUCHED
+-----------
+Production/main, database rows, migrations/RLS, existing trip edit save semantics,
+the already-run B105 repair SQL, and Calendar rendering.
+
+NEXT SESSION POINTERS
+--------------------
+Push current commit, confirm exact-commit Vercel preview success, then second
+terminal re-review from 69b158b..HEAD, with full branch context 2f10b05..HEAD.
+Ask reviewer to rerun three supplied cases and look for regressions/edge cases
+in parent fallback, per-day staffing, and the shared weekly print path.
+Keep read-only; no repair SQL, live writes, pushes, or merges in reviewer session.
+Chris still decides whether to merge after review and preview testing.
+
+FILES TO KNOW / GIT STATE
+------------------------
+lib/allocations.js, lib/trips.js, lib/exports.js, views/{Daily,Schedule}.jsx,
+components/TripsPanel.jsx (all under src/schedule).
+scripts/check-{allocation-staffing-model,job-trips-model,job-trips,schedule-allocation}.mjs
+Branch codex/fix-schedule-crew-leads-and-form-theme; parent 69b158b.
+Commit/push/deployment check follow this handoff preparation.

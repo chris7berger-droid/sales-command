@@ -1,0 +1,91 @@
+SC HANDOFF v228 — Codex: trip titles and details in Crew Schedule (2026-09-08)
+===============================================================================
+
+SESSION SUMMARY
+---------------
+Independent review cleared 0483c1d..4952f0b within the agreed scope. Chris then
+tested trip notes and lead visibility, and requested that the saved trip title
+appear on the Crew Schedule row. Approved implementing these together on the
+same Codex branch. No production merge authorized.
+
+CHANGES SHIPPED (PREVIEW ONLY)
+----------------------------
+- Crew Schedule job labels list every saved trip touching the viewed week, with
+  its title and full date span. Other weeks and undated plans are excluded from
+  that week's titles. Multiweek trips retain one identity and their full span.
+- Expanded rows show Trips this week: title, dates, effective lead, crew needed,
+  vehicle, equipment, power, scope and trip notes. Inherited values say from job.
+  Explicit zero remains zero. Trip notes come from job_mobilizations.note.
+- Each saved trip opens the existing MobsModal editor by UUID. Successful edits
+  reload that job's live trip rows and immediately refresh titles/details and
+  the existing day-specific staffing calculations. Failed refresh shows a toast
+  and preserves the previous displayed rows.
+- Existing job-level fields remain in Job dates, defaults and job notes. This
+  section starts collapsed when showing explicit trips, open otherwise. The
+  existing job-wide billing/deferred-start controls remain outside that section.
+- Batched trip reader now includes note and preserves id/seq for the editor.
+  No new persistence path; no copying trip fields onto the parent job.
+
+DECISIONS / EVIDENCE
+--------------------
+Read-only live inspection before implementation showed the October trip's note
+TEST had saved correctly. Crew Schedule's old expanded fields read jobs.notes
+and jobs.lead instead, causing the apparent missing save. Trip lead and daily
+crew assignment are distinct: selecting a lead does not create assignment rows.
+By the latest read, Dave and three other people were already assigned on both
+October dates by the user; no crew allocation was fabricated by this work.
+Trip data remains authoritative in job_mobilizations; job defaults stay on jobs.
+This is within the Schedule driver, reusing its established trip editor/writer.
+
+NEW / UPDATED BACKLOG ITEMS
+--------------------------
+MOBZ-2 extended for user-requested trip visibility/editing across both screens.
+B107/B108 printing issues remain explicitly deferred; not release blockers.
+
+VERIFICATION
+------------
+- Both trip/staffing model suites pass. New visible-week cases cover multiple
+  trips, an intact multiweek span, undated plans and other-week exclusions.
+- Real React browser flow: Jobs card Trips -> Edit trip -> save TEST from Jobs;
+  Crew Schedule displays that note, title, lead and operational details. Edit
+  there changes title/notes/lead, immediately updates the row, then reopening
+  Jobs reads the same changes. Same UUID and trip count; unrelated details
+  preserved. Only two trip PATCHes plus audit entries; no job/assignment writes.
+- Existing allocation browser suite passes: stale/deleted parent guards, save
+  errors, reload in Schedule/Calendar/Daily, allocation-only dates, unknown vs
+  zero, separate daily staffing targets/leads, and Add-to-Schedule validation.
+  Two same-week trip titles/full date ranges verified; November excluded in Oct.
+- Existing Jobs Trips browser suite passes: history/identity, dates-only detail
+  preservation, staffing gaps, parent partial overlap, save/read/roster failures,
+  moved-trip guard, go-backs, reload and responsive panel checks.
+- Build passes with valid fake Supabase env (existing large-bundle warning).
+- New component/helper lint clean. Schedule's nine existing findings and queries'
+  one existing finding match pre-change HEAD after normalizing shifted source
+  line numbers. Initial literal-message comparison differed only in line numbers.
+- git diff --check passes. Inspected screenshot:
+  /private/tmp/codex-schedule-trip-details.png
+- All browser database traffic intercepted; no live writes or authenticated
+  hosted-browser persistence test claimed. User preview test still useful.
+
+NOT TOUCHED
+-----------
+Production/main, database records, migrations/RLS, assignment writers, scope
+versioning, printing implementation, and already-executed repair SQL.
+
+NEXT SESSION / BOUNDED REVIEW
+----------------------------
+Review 4952f0b..HEAD using v228. Scope only Crew Schedule trip titles and expanded
+details, the shared reader/editor connections and direct effects on existing
+Jobs Trips / staffing views. Check normal use: matching week and full date spans;
+all matching trips; saved lead/notes visible; edit either screen, reread the other;
+UUID/details preserved; job defaults remain available; no automatic assignment
+or copying trip fields to jobs. B107/B108 stay deferred. No app-wide audit.
+Reviewer stays read-only: no file edits, live writes, repair SQL, push or merge.
+
+FILES TO KNOW / GIT STATE
+------------------------
+src/schedule/components/ScheduleTripDetails.jsx and .css
+src/schedule/views/Schedule.jsx; lib/allocations.js; lib/queries.js
+scripts/check-schedule-allocation.mjs; check-allocation-staffing-model.mjs
+Branch codex/fix-schedule-crew-leads-and-form-theme; parent 4952f0b.
+Commit/push and exact-commit Vercel preview confirmation follow this handoff.

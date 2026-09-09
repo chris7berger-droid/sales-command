@@ -1,11 +1,14 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { loadJobs, updateJobField, loadMobilizationsByJobId, loadTeamMemberMap } from '../lib/queries'
+import { loadJobs, updateJobField, loadMobilizationsByJobId, loadJobMobilizationRows } from '../lib/queries'
+import { crewLeadNames } from '../lib/crewLeads'
 import { useUser } from '../lib/user'
 import { useToast } from '../lib/toast'
 import { getJobStatus } from '../lib/jobStatus'
-import { jobRanges, overlapsWeek, inRange, allocForWeek as allocForWeekAt, pickAllocField } from '../lib/allocations'
+import { jobRanges, overlapsWeek, inRange, staffingForDay, staffingSummary, allocationsInWindow } from '../lib/allocations'
+import { tripRange } from '../lib/trips'
+import ScheduleTripDetails from '../components/ScheduleTripDetails'
 
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const DAYS_LONG = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -99,7 +102,7 @@ export default function Schedule({ embedded = false } = {}) {
   const changedBy = user?.name || 'unknown'
   const [jobs, setJobs] = useState([])
   const [crew, setCrew] = useState([])
-  const [leadNames, setLeadNames] = useState([])   // team members, for the Lead picker
+  const leadNames = crewLeadNames(crew)
   const [assignments, setAssignments] = useState([])
   const [crewStatus, setCrewStatus] = useState({})
   const [loading, setLoading] = useState(true)
@@ -156,11 +159,10 @@ export default function Schedule({ embedded = false } = {}) {
   // Load static data once on mount
   useEffect(() => {
     async function loadStatic() {
-      const [jobRes, crewRes, wtRes, tmRes] = await Promise.all([
+      const [jobRes, crewRes, wtRes] = await Promise.all([
         loadJobs(),
         supabase.from('crew').select('*'),
         supabase.from('work_types').select('*'),
-        loadTeamMemberMap(),
       ])
       if (jobRes.error || crewRes.error || wtRes.error) {
         setError((jobRes.error || crewRes.error || wtRes.error).message)
@@ -169,9 +171,6 @@ export default function Schedule({ embedded = false } = {}) {
       setJobs(jobRes.data)
       setCrew(crewRes.data.filter(c => !c.archived))
       setWorkTypes(wtRes.data.map(w => w.name))
-      if (tmRes.data) {
-        setLeadNames(Object.values(tmRes.data).map(m => m.name).filter(Boolean).sort((a, b) => a.localeCompare(b)))
-      }
       // Live allocations for every job (liveOnly: a legacy proposal mobilization
       // is not a schedulable block). Non-fatal — the board still renders first
       // blocks if this fails.
@@ -288,14 +287,6 @@ export default function Schedule({ embedded = false } = {}) {
     [rangesByJobId, allocsByJobId])
   const jobOverlapsWeek = useCallback((j, wsS, weS) => overlapsWeek(rangesFor(j), wsS, weS), [rangesFor])
   const jobInRange = useCallback((j, ds) => inRange(rangesFor(j), ds), [rangesFor])
-
-  // The allocation block overlapping the VISIBLE week, if any (B87). A go-back can
-  // run a different crew size than the first run, so when its block is the one in
-  // view its crew_needed drives that week's "needed" count. Null in a normal
-  // first-block week → the job's own crew_needed is used.
-  const allocForWeek = useCallback(
-    (j) => allocForWeekAt(allocsByJobId[j.job_id], wsStr, weStr),
-    [allocsByJobId, wsStr, weStr])
 
   // Week jobs: active jobs overlapping current week.
   // Uses getJobStatus() so legacy 'Parked'-status rows (normalized to
@@ -635,14 +626,23 @@ export default function Schedule({ embedded = false } = {}) {
   // Drag state
   const [dragName, setDragName] = useState(null)
 
+  async function refreshJobTrips(jobId) {
+    const { data, error: refreshError } = await loadJobMobilizationRows(jobId)
+    if (refreshError) {
+      toast('Trip saved, but its refreshed details could not be loaded. Refresh the schedule.', 'err')
+      return
+    }
+    setAllocsByJobId(prev => ({ ...prev, [jobId]: Object.fromEntries(data.map(row => [row.seq, row])) }))
+  }
+
   if (loading) return <div className="loading">Loading schedule...</div>
   if (error) return <div className="error-msg">Error: {error}</div>
 
   function renderBoardRow(j, idx, dimmed) {
-    // Allocation-aware "needed": a go-back block in view uses its own crew_needed;
-    // otherwise the job's own (B87).
-    const wkAlloc = allocForWeek(j)
-    const nd = parseInt(pickAllocField(wkAlloc, j, 'crew_needed')) || 0
+    const dailyStaffing = dates.map(ds => staffingForDay(j, allocsByJobId[j.job_id], ds))
+    const summary = staffingSummary(dailyStaffing)
+    const weekLead = summary.leads.map(flipName).join(', ')
+    const weekTrips = allocationsInWindow(allocsByJobId[j.job_id], wsStr, weStr)
     const pw = isPW(j)
     const unames = wkAsgnUnique(j.job_id)
     const ct = unames.length
@@ -665,6 +665,9 @@ export default function Schedule({ embedded = false } = {}) {
             onClick={() => toggleJob(j.job_id)}
           >
             <div className="sch-brd-job-name">{j.job_num} - {j.job_name}</div>
+            {weekTrips.map(trip => <div className="sch-trip-label" key={trip.id}>
+              <strong>{trip.label || `Trip ${trip.seq}`}</strong><small>{tripRange(trip)}</small>
+            </div>)}
             <div className="sch-brd-job-meta">
               {j.work_type && String(j.work_type).split(',').map(t => t.trim()).filter(Boolean).map(t => (
                 <span key={t} className={`sch-tg ${gTagClass(t)}`}>{t}</span>
@@ -675,13 +678,16 @@ export default function Schedule({ embedded = false } = {}) {
               {j.vehicle && <span className="sch-tg sch-tg-vh">{j.vehicle}</span>}
             </div>
             <div className="sch-brd-crew-info">
-              {ct}/{nd} crew
+              {summary.label === 'varies' ? `${ct} assigned · needs vary by day` : `${ct}/${summary.label} crew`}
+              {weekLead && <span> · {summary.leads.length > 1 ? 'Leads' : 'Lead'}: {weekLead}</span>}
               {j.deferred_time && j.deferred_days && (
                 <span className="sch-defer-badge">{'\u23F0'} {fmt12(j.deferred_time)}</span>
               )}
             </div>
           </div>
-          {dates.map(ds => {
+          {dates.map((ds, dayIndex) => {
+            const staffing = dailyStaffing[dayIndex]
+            const nd = staffing.needed
             const dayCrew = asgnByJobDate[j.job_id + '|' + ds] || []
             const inRange = jobInRange(j, ds)
             const isDefer = ddays.includes(ds)
@@ -691,6 +697,7 @@ export default function Schedule({ embedded = false } = {}) {
               <div
                 key={ds}
                 className={`sch-brd-cell${ds === todayStr ? ' sch-brd-today' : ''}`}
+                style={summary.detailsVary ? { flexDirection: 'column', gap: 3 } : undefined}
                 onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('sch-brd-drop') }}
                 onDragLeave={e => e.currentTarget.classList.remove('sch-brd-drop')}
                 onDrop={e => {
@@ -706,18 +713,23 @@ export default function Schedule({ embedded = false } = {}) {
                     title={dayCrew.map(flipName).join(', ')}
                   >
                     <div className={`sch-brd-cnt${isDefer ? ' sch-defer-text' : ''}`}>{dayCrew.length}</div>
-                    {nd > 0 && dayCrew.length < nd && (
+                    {staffing.active && nd == null && <div className="sch-brd-sub" title={staffing.ambiguous ? 'Overlapping trips — check crew requirements' : 'Crew requirement not set'}>need ?</div>}
+                    {staffing.active && nd > 0 && dayCrew.length < nd && (
                       <div className={`sch-brd-sub${isDefer ? ' sch-defer-text' : ''}`}>need {nd - dayCrew.length}</div>
                     )}
-                    {hasDb && !(nd > 0 && dayCrew.length < nd) && (
+                    {hasDb && !(staffing.active && (nd == null || dayCrew.length < nd)) && (
                       <div className="sch-brd-sub">{'\u26A0'}2X</div>
                     )}
                   </div>
-                ) : inRange ? (
-                  <div className="sch-brd-needs-crew" />
+                ) : inRange && nd !== 0 ? (
+                  <div className="sch-brd-needs-crew" title={staffing.ambiguous ? 'Overlapping trips — check crew requirements' : nd == null ? 'Crew requirement not set' : `${nd} crew needed`}>{nd == null ? '?' : null}</div>
                 ) : (
                   <div className="sch-brd-empty">&mdash;</div>
                 )}
+                {summary.detailsVary && staffing.active && <div className="sch-brd-day-staffing" style={{ fontSize: 10, padding: '3px 2px', textAlign: 'center', overflowWrap: 'anywhere' }}>
+                  <div>Need {nd ?? '?'}</div>
+                  <div>{staffing.leads.length ? staffing.leads.map(flipName).join(', ') : 'Lead not set'}</div>
+                </div>}
               </div>
             )
           })}
@@ -726,6 +738,7 @@ export default function Schedule({ embedded = false } = {}) {
         {/* Expanded detail panel */}
         {expanded && (
           <div className="sch-brd-detail">
+            <ScheduleTripDetails key={wsStr} job={j} trips={weekTrips} leadNames={leadNames} onUpdated={() => refreshJobTrips(j.job_id)}>
             <div className="sch-det-grid">
               <div>
                 <label>Vehicle</label>
@@ -752,8 +765,8 @@ export default function Schedule({ embedded = false } = {}) {
                   }}
                 >
                   <option value="">Select lead…</option>
-                  {j.lead && !leadNames.includes(j.lead) && <option value={j.lead}>{j.lead}</option>}
-                  {leadNames.map(n => <option key={n} value={n}>{n}</option>)}
+                  {j.lead && !leadNames.includes(j.lead) && <option value={j.lead}>{flipName(j.lead)} (current)</option>}
+                  {leadNames.map(n => <option key={n} value={n}>{flipName(n)}</option>)}
                 </select>
               </div>
             </div>
@@ -783,13 +796,14 @@ export default function Schedule({ embedded = false } = {}) {
               </div>
               <div>
                 <label>Crew#</label>
-                <input className="sch-dinp" type="number" min="1" defaultValue={nd || ''} style={{ width: 60 }} onBlur={e => handleUpdateJob(j.job_id, 'crew_needed', e.target.value)} />
+                <input className="sch-dinp" type="number" min="1" defaultValue={j.crew_needed ?? ''} style={{ width: 60 }} onBlur={e => handleUpdateJob(j.job_id, 'crew_needed', e.target.value)} />
               </div>
             </div>
             <div className="sch-det-notes-wrap">
               <label>Job Notes</label>
               <textarea className="sch-job-notes" defaultValue={j.notes || ''} placeholder="Internal notes for this job..." onBlur={e => handleUpdateJob(j.job_id, 'notes', e.target.value)} />
             </div>
+            </ScheduleTripDetails>
 
             {/* Deferred start */}
             <div className="sch-det-defer-wrap">
@@ -1124,7 +1138,7 @@ export default function Schedule({ embedded = false } = {}) {
             {unscheduled.length > 0 && (
               <div className="sch-brd-divider">
                 <div className="sch-brd-divider-line" />
-                <span>Unscheduled this week</span>
+                <span>Crew not assigned this week</span>
                 <div className="sch-brd-divider-line" />
               </div>
             )}

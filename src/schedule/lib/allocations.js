@@ -67,9 +67,8 @@ export function inRange(ranges, ds) {
   })
 }
 
-// The allocation block overlapping the week [wsStr, weStr], if any (B87). Used by
-// the week-oriented surfaces (Schedule board, Daily, week printout): when a
-// go-back block is the one in view, its own crew/scope drives that week's display.
+// Legacy first-match lookup (B87), retained for compatibility. Staffing views and
+// the weekly printout now use staffingForDay: one week can contain several trips.
 // `allocsForJob` is the per-job value from loadMobilizationsByJobId — a
 // { [seq]: {...} } map, an array of those, or null.
 export function allocForWeek(allocsForJob, wsStr, weStr) {
@@ -93,4 +92,50 @@ export function pickAllocField(alloc, job, field) {
   const v = alloc ? alloc[field] : undefined
   if (v !== null && v !== undefined && v !== '') return v
   return job ? job[field] : undefined
+}
+
+// Null means unknown; zero is an explicit instruction that no crew is needed.
+export function crewRequirement(value) {
+  if (value == null || String(value).trim() === '') return null
+  const number = Number(value)
+  return Number.isInteger(number) && number >= 0 ? number : null
+}
+
+// Staffing belongs to a DATE, not the first allocation found in its week.
+// Multiple overlapping trips may share people: do not invent a summed target or
+// silently borrow the first trip's requirement. Ask the scheduler to check it.
+export function staffingForDay(job, allocsForJob, date) {
+  const list = Array.isArray(allocsForJob) ? allocsForJob : Object.values(allocsForJob || {})
+  const allocations = list.filter(a => a && (a.start_date || a.end_date) &&
+    (!a.start_date || dstr(a.start_date) <= date) && (!a.end_date || dstr(a.end_date) >= date))
+  const ranges = jobRanges(job, allocsForJob)
+  const active = !ranges.length || inRange(ranges, date)
+  const ambiguous = allocations.length > 1
+  const sources = allocations.length ? allocations : [null]
+  const values = field => [...new Set(sources.map(a => pickAllocField(a, job, field)).filter(v => v != null && v !== ''))]
+  return {
+    date, active, ambiguous,
+    allocation: allocations.length === 1 ? allocations[0] : null,
+    needed: ambiguous ? null : crewRequirement(pickAllocField(allocations[0], job, 'crew_needed')),
+    leads: active ? values('lead') : [],
+    vehicles: active ? values('vehicle') : [],
+  }
+}
+
+export function staffingSummary(days) {
+  const active = days.filter(day => day.active)
+  const requirements = [...new Set(active.map(day => day.needed))]
+  const label = requirements.length > 1 ? 'varies' : String(requirements[0] ?? '?')
+  const leads = [...new Set(active.flatMap(day => day.leads))]
+  const vehicles = [...new Set(active.flatMap(day => day.vehicles))]
+  const detailsVary = new Set(active.map(day => JSON.stringify([day.needed, day.leads, day.vehicles]))).size > 1
+  return { label, leads, vehicles, detailsVary }
+}
+
+// Every saved trip touching the visible week, retaining identity and full span.
+export function allocationsInWindow(allocsForJob, start, end) {
+  const list = Array.isArray(allocsForJob) ? allocsForJob : Object.values(allocsForJob || {})
+  return list.filter(a => a && (a.start_date || a.end_date) &&
+    overlapsWeek([{ start: dstr(a.start_date), end: dstr(a.end_date) }], start, end))
+    .sort((a, b) => String(a.start_date || '').localeCompare(String(b.start_date || '')) || (a.seq || 0) - (b.seq || 0))
 }

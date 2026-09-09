@@ -14,11 +14,11 @@ function hexA(hex, a) {
 }
 
 export default function CalendarBar({
-  gridColumn, gridRow, color, jobNum, jobName, crewCount, lead, isPW, selected, onSelect,
+  gridColumn, gridRow, color, jobNum, jobName, tripTitle, crewCount, lead, isPW, selected, onSelect,
   height = 16, fontSize = 10,
 }) {
   const label = `${jobNum || ''}${jobNum && jobName ? ' · ' : ''}${jobName || ''}`.trim()
-  const title = `${label}${isPW ? ' (PW)' : ''}`
+  const title = `${label}${tripTitle ? ` · ${tripTitle}` : ''}${isPW ? ' (PW)' : ''}`
     + (crewCount ? ` — ${crewCount} crew` : '')
     + (lead ? ` — ${lead}` : '')
 
@@ -62,8 +62,10 @@ export default function CalendarBar({
           color: '#30cfac', background: '#1c1814', borderRadius: 4,
           padding: '0 6px', lineHeight: `${height - 4}px`,
           flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
+          maxWidth: tripTitle ? '45%' : undefined,
         }}>{jobNum}</span>
       )}
+      {tripTitle && <span className="cal-trip-title" style={{ color: 'var(--text-primary)', fontWeight: 700, flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tripTitle}</span>}
       {isPW && (
         <span style={{
           fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: Math.max(9, fontSize - 2),

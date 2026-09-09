@@ -220,7 +220,7 @@ export default function Jobs() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // Realtime: reload on jobs, assignments (crew), or materials changes.
+  // Realtime: reload on jobs, saved trips, assignments (crew), or materials changes.
   // 300ms debounce so bulk imports don't freeze the tab. [R1:E1 — must survive]
   useEffect(() => {
     let timer = null
@@ -234,6 +234,9 @@ export default function Jobs() {
         .subscribe(),
       supabase.channel('schedule-assignments-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'assignments' }, debouncedLoad)
+        .subscribe(),
+      supabase.channel('schedule-trip-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'job_mobilizations' }, debouncedLoad)
         .subscribe(),
       supabase.channel('schedule-job-material-lines-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'job_material_lines' }, debouncedLoad)
@@ -413,6 +416,7 @@ export default function Jobs() {
         today={today}
         initialStage={initialStage}
         focusJobId={searchParams.get('job')}
+        focusPanel={searchParams.get('panel') === 'trips' ? 'trips' : null}
         onJobUpdate={() => loadData({ background: true })}
       />
 

@@ -1,0 +1,114 @@
+SC HANDOFF v224 — Codex: allocations saved to combined jobs (2026-09-08)
+================================================================================
+
+SESSION SUMMARY
+---------------
+Chris verified the modal/lead fix but job 7215's October 12-13 allocation did not
+appear. Read-only DB inspection found allocation 45ad5024-45e2-4cdf-a470-d7f50835df05
+on job 1199, already combined into visible job 1150. GitHub/Vercel confirmed both
+production (2f10b05) and Codex preview (a338f36) had identical search/save code:
+this was a production bug, not an outdated preview branch.
+Chris authorized fixing it on the SAME Codex branch, repairing this allocation,
+and publishing an updated preview. He expects Crew Schedule, Calendar and Daily.
+
+CHANGES SHIPPED
+---------------
+Frontend prepared on codex/fix-schedule-crew-leads-and-form-theme:
+- searchExistingJobs reads merged_into_job_id and excludes combined/deleted jobs.
+- Shared addJobMobilization rechecks parent combined/deleted state at save time,
+  protecting both Add-to-Schedule and MobsModal. Stale selections fail visibly.
+  No silent redirect: sequence was computed for the originally selected job.
+- Calendar loads allocation-only dated jobs and includes allocation leads in
+  crew options/filter matching (previously only parent lead/assignments counted).
+- Crew Schedule shows the effective week's allocation lead beside its crew count.
+  Renamed misleading "Unscheduled this week" section to "Crew not assigned this
+  week": the section is selected by absence of assignments, not absence of dates.
+- Daily unassigned cards reuse the allocation-aware renderer; show the lead and
+  required crew, with gaps only on dated work (undated legacy behavior preserved).
+
+LIVE DATA REPAIR (COMMITTED)
+---------------------------
+docs/repairs/20260908_job7215_allocation.sql is a narrow DATA repair, not migration.
+Executed via command-suite-db's linked Supabase CLI after rollback rehearsal.
+- Same allocation UUID moved 1199/seq1 -> 1150/seq5.
+- Dates 2026-10-12..2026-10-13, lead "Bash Dave", crew_needed=3, label
+  "WTC1 - Concrete Sealing" and every other business field preserved.
+- Verified no dependent assignments, pull tickets, scope versions or SOW tags;
+  repair aborts if those facts or parent identities/details have changed.
+- Row locks, unique sequence constraint, whole-row before/after assertions,
+  idempotent already-repaired exit. Existing updated_at trigger allowed to fire.
+- One job_changes entry source=codex_job7215_repair includes full before/after
+  row JSON, with tenant_id from original call_log 3791. No rows deleted.
+- Post-commit SELECT confirmed job1150, seq5, unmerged active parent, original
+  dates/lead/crew, and exactly one repair audit entry.
+
+DECISIONS / LIMITS
+-----------------
+- Lead designation and crew_needed are NOT assignment rows. No staff assignments
+  were fabricated; this job should show 0/3 assigned until crew is allocated.
+- Frontend remains PREVIEW ONLY; main not merged. The one authorized DATA repair
+  IS live and can improve visibility in existing production immediately.
+- Save-time recheck prevents the observed stale-parent scenario. It is not an
+  atomic database invariant against a Combine racing BETWEEN that check and
+  insert; no schema/RLS changes in this patch. Old production code can still
+  create this problem until the code fix is merged.
+- Calendar crew filtering retains existing job-level semantics (a matching lead
+  selects the job's bars, not exclusively that lead's individual blocks).
+
+NEW / CLOSED BACKLOG ITEMS
+--------------------------
+B105: combined-job allocation visibility; data repair done, code preview pending
+review. B104 remains the original modal styling/crew-picker fix on this branch.
+
+VERIFICATION
+------------
+- New reproducible browser regression: scripts/check-schedule-allocation.mjs.
+  Uses real components/readers/save helpers, fake Supabase credentials, and all
+  remote traffic intercepted. Persists mocked rows across navigation/reload.
+- Regression against original production source FAILED as intended: search
+  returned 2 choices instead of 1 (combined row incorrectly offered).
+- Fixed source PASS: search exclusion, stale selection rejection, shared helper
+  rejects deleted/combined parents, failed insert stays visible, successful modal
+  saves to surviving job, October 12-13 appears after reload in all 3 views, crew
+  count/lead correct, Calendar lead filtering, and allocation-only parent dates.
+- Read-only snapshot of the REPAIRED live record replayed through the same real
+  views PASS after reload, with zero browser mutations and no runtime errors.
+  This is database-snapshot rendering, not an authenticated hosted browser test.
+- Build with fixture Supabase env passed (existing large-bundle warning).
+- Targeted lint: 10 findings before and after; no new rule/message findings.
+- git diff --check passed. Public-page grant gate not applicable: no public page,
+  grant, schema, or anonymous query changed.
+- Local evidence: /private/tmp/codex-allocation-{schedule,calendar,daily}.png and
+  /private/tmp/codex-job7215-snapshot.json (not committed).
+
+RE-RUN BROWSER CHECK
+-------------------
+Install Playwright outside the app (no app dependency change required):
+  npm install --prefix /private/tmp/codex-schedule-preview-tools --no-save playwright
+From this branch:
+  PLAYWRIGHT_MODULE=/private/tmp/codex-schedule-preview-tools/node_modules/playwright/index.mjs \
+  CHROME_PATH='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
+  node scripts/check-schedule-allocation.mjs
+Optional SCHEDULE_TEST_ROOT selects baseline checkout for regression proof.
+Optional SCHEDULE_SNAPSHOT reads CLI JSON {rows:[{snapshot:{jobs,allocations,
+assignments}}]} and runs read-only rendering checks, no mock writes.
+
+NOT TOUCHED
+-----------
+Production code, migrations, permissions, general Combine algorithm, historical
+job merges, staff assignments, and other tenants/allocations.
+
+NEXT SESSION POINTERS
+---------------------
+Review UPDATED preview, not immutable a338f36 URL. Check October 12-17 in Crew
+Schedule and Daily, October in Calendar. Existing 7215 allocation is repaired;
+do not re-add it just to see it (would create an extra trip). Saves through a
+preview affect the shared business database. Production merge needs Chris's go.
+
+FILES TO KNOW / GIT STATE
+------------------------
+src/schedule/lib/queries.js; views/{Schedule,Calendar,Daily}.jsx
+scripts/check-schedule-allocation.mjs
+docs/repairs/20260908_job7215_allocation.sql
+Branch codex/fix-schedule-crew-leads-and-form-theme; parent a338f36.
+Commit/push and Vercel Preview status check follow this handoff preparation.

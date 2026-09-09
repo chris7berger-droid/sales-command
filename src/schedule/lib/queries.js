@@ -347,7 +347,7 @@ export async function loadMobilizationsByJobId(jobs, { liveOnly = false } = {}) 
   // drop allocation blocks past 1000 and they'd vanish from the board.
   const { data, error } = await loadAllRows(
     'job_mobilizations',
-    'id, job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow',
+    'id, job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow, note',
     { orderBy: 'id', filterFn: q => q.in('job_id', jobIds) },
   )
   if (error) {
@@ -357,6 +357,8 @@ export async function loadMobilizationsByJobId(jobs, { liveOnly = false } = {}) 
       if (row.job_id == null || row.seq == null) continue
       const map = out[row.job_id] || (out[row.job_id] = {})
       map[row.seq] = {
+        id: row.id,
+        seq: row.seq,
         label: row.label || null,
         start_date: row.start_date || null,
         end_date: row.end_date || null,
@@ -368,6 +370,7 @@ export async function loadMobilizationsByJobId(jobs, { liveOnly = false } = {}) 
         equipment: row.equipment || null,
         power_source: row.power_source || null,
         sow: row.sow || null,
+        note: row.note || null,
       }
     }
   }
@@ -605,7 +608,7 @@ export async function searchExistingJobs(term) {
   if (!q) return { data: [], error: null }
   const { data, error } = await loadAllRows(
     'call_log',
-    'id, job_number, display_job_number, customer_name, job_name, jobs!inner(job_id, deleted)',
+    'id, job_number, display_job_number, customer_name, job_name, jobs!inner(job_id, deleted, merged_into_job_id)',
     { orderBy: 'id', orderAsc: false },
   )
   if (error) return { data: [], error }
@@ -613,7 +616,9 @@ export async function searchExistingJobs(term) {
   for (const cl of data || []) {
     const jobsArr = Array.isArray(cl.jobs) ? cl.jobs : (cl.jobs ? [cl.jobs] : [])
     for (const j of jobsArr) {
-      if (j.deleted === 'Yes') continue
+      // Combine keeps the old row (and its Sales link) but the board hides it.
+      // Never offer that hidden row as the parent of a new allocation.
+      if (j.deleted === 'Yes' || j.merged_into_job_id != null) continue
       const num = cl.job_number == null ? '' : String(cl.job_number)
       const hay = `${num} ${cl.customer_name || ''} ${cl.job_name || ''}`.toLowerCase()
       if (!hay.includes(q)) continue
@@ -1405,7 +1410,7 @@ export async function deleteJob(jobId, changedBy, source = 'schedule_command') {
 export async function loadJobMobilizationRows(jobId) {
   const { data, error } = await supabase
     .from('job_mobilizations')
-    .select('id, job_id, seq, label, start_date, end_date, is_go_back')
+    .select('id, job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow, note')
     .eq('job_id', parseInt(jobId))
     .order('seq', { ascending: true })
   if (error) { console.warn('[mobs] could not load job_mobilizations rows:', error.message); return { data: [], error } }
@@ -1436,17 +1441,26 @@ export async function getNextMobSeq(jobId) {
 // BOTH existing rows AND every day's mobilization_seq (audit O2), so a new mob
 // can't collide with a seq that lives only on tagged days. is_go_back distinguishes
 // a tracked return trip (+ Add Go Back) from rescheduled sold work (+ Add trip).
-export async function addJobMobilization(jobId, { seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow }, changedBy, source = 'schedule_mobs') {
+export async function addJobMobilization(jobId, { seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow, note }, changedBy, source = 'schedule_mobs') {
   const jid = parseInt(jobId)
   // add-job-dedup N1: a mobilization must attach to a Sales-linked job. Refuse if
   // the parent has a null call_log_id (a phantom/unallocated orphan). Lives INSIDE
   // this function — not the "+ Job" caller — because MobsModal.jsx also calls here,
   // so the invariant ("no trip on an orphan") holds for BOTH writers.
   const { data: parent, error: pErr } = await supabase
-    .from('jobs').select('call_log_id').eq('job_id', jid).single()
+    .from('jobs').select('call_log_id, deleted, merged_into_job_id').eq('job_id', jid).single()
   if (pErr) return { data: null, error: pErr }
   if (!parent || parent.call_log_id == null) {
     return { data: null, error: new Error('This job has no Sales link — create it in Sales first before adding a mobilization.') }
+  }
+  // Re-check at save time: the picker (or MobsModal) may have been opened before
+  // another user combined/deleted the job. Do not silently redirect: seq was
+  // calculated for the selected job, not the surviving job.
+  if (parent.merged_into_job_id != null) {
+    return { data: null, error: new Error('This job was combined into another record. Reopen the job search and select its current record before adding a trip.') }
+  }
+  if (parent.deleted === 'Yes') {
+    return { data: null, error: new Error('This job was deleted. Select an active job before adding a trip.') }
   }
   const { data, error } = await supabase
     .from('job_mobilizations')
@@ -1455,17 +1469,17 @@ export async function addJobMobilization(jobId, { seq, label, start_date, end_da
       start_date: start_date || null, end_date: end_date || null, is_go_back: !!is_go_back,
       // Per-allocation detail (B87). Null on any field = inherit the job's own value.
       crew_needed: crew_needed ?? null, lead: lead || null, vehicle: vehicle || null,
-      equipment: equipment || null, power_source: power_source || null, sow: sow || null,
+      equipment: equipment || null, power_source: power_source || null, sow: sow || null, note: note || null,
     })
-    .select('id, job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow').single()
+    .select('id, job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow, note').single()
   if (error) return { data: null, error }
   await logJobChange(jid, `mobilization[${seq}].added`, null, `${is_go_back ? 'go_back' : 'trip'}: ${label || `Mob ${seq}`}`, changedBy, source)
   return { data, error: null }
 }
 
-// Edit an existing mobilization's label/dates (never seq or is_go_back — identity
+// Edit a mobilization's dates/details (never seq or is_go_back — identity
 // and go-back classification are fixed at creation). Logs the label change.
-export async function updateJobMobilization(jobId, mobRow, { label, start_date, end_date, crew_needed, lead, vehicle, equipment, power_source, sow }, changedBy, source = 'schedule_mobs') {
+export async function updateJobMobilization(jobId, mobRow, { label, start_date, end_date, crew_needed, lead, vehicle, equipment, power_source, sow, note }, changedBy, source = 'schedule_mobs') {
   const jid = parseInt(jobId)
   // Only overwrite an operational field when the caller actually passed it — an
   // omitted key leaves the stored value alone (edit-a-date must not wipe crew/scope).
@@ -1476,11 +1490,13 @@ export async function updateJobMobilization(jobId, mobRow, { label, start_date, 
   if (equipment !== undefined)    patch.equipment    = equipment || null
   if (power_source !== undefined) patch.power_source = power_source || null
   if (sow !== undefined)          patch.sow          = sow || null
+  if (note !== undefined)         patch.note         = note || null
   const { data, error } = await supabase
     .from('job_mobilizations')
     .update(patch)
     .eq('id', mobRow.id)
-    .select('id, job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow').single()
+    .eq('job_id', jid)
+    .select('id, job_id, seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow, note').single()
   if (error) return { data: null, error }
   await logJobChange(jid, `mobilization[${mobRow.seq}].edited`, mobRow.label || null, label || null, changedBy, source)
   return { data, error: null }

@@ -237,7 +237,9 @@ export default function Calendar() {
       setLoading(true)
       const { data: allJobs, error: jobErr } = await loadJobs()
       if (jobErr) console.error('jobs fetch error', jobErr)
-      const jobData = (allJobs || []).filter(j => j.scheduled_start || j.start_date)
+      // A newly allocated job may have dates only on its allocation, not on the
+      // parent job. Load its blocks before deciding whether it has dated work.
+      const jobData = allJobs || []
 
       // B1: fetch over the union of the month grid + focused week (range memo).
       // Ordering/pagination of this query is B92 — deliberately out of scope here
@@ -324,13 +326,16 @@ export default function Calendar() {
     return map
   }, [assignments])
 
-  // Crew filter options = crews on the board + job leads, sorted
+  // Allocation leads can differ from the parent job's lead.
   const crewOptions = useMemo(() => {
     const set = new Set()
     for (const a of assignments) if (a.crew_name) set.add(a.crew_name)
     for (const j of jobs) if (j.lead) set.add(j.lead)
+    for (const allocs of Object.values(allocsByJobId)) {
+      for (const alloc of Object.values(allocs)) if (alloc.lead) set.add(alloc.lead)
+    }
     return [...set].sort((a, b) => a.localeCompare(b))
-  }, [assignments, jobs])
+  }, [assignments, jobs, allocsByJobId])
 
   function getCrewCountByYmd(jobId, ds) {
     return crewCountMap[`${jobId}|${ds}`] || 0
@@ -343,11 +348,12 @@ export default function Calendar() {
       if (filterCrew) {
         const names = crewNamesByJob[String(j.job_id)]
         const hit = (names && names.has(filterCrew)) || j.lead === filterCrew
+          || Object.values(allocsByJobId[j.job_id] || {}).some(a => a.lead === filterCrew)
         if (!hit) return false
       }
       return true
     })
-  }, [jobs, filterStatus, filterCrew, crewNamesByJob])
+  }, [jobs, filterStatus, filterCrew, crewNamesByJob, allocsByJobId])
 
   // Month rows (6×7) — memoized independent of week nav
   const monthRows = useMemo(() => {
@@ -599,6 +605,7 @@ export default function Calendar() {
                       color={getJobColor(seg.job)}
                       jobNum={seg.job.job_num}
                       jobName={seg.job.job_name}
+                      tripTitle={seg.alloc?.label}
                       crewCount={crewCount}
                       lead={lead}
                       isPW={isPW(seg.job)}

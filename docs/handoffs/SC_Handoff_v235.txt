@@ -1,0 +1,97 @@
+SC HANDOFF v235 — CODEX CLOSEOUT: scheduling and job trips (2026-09-08)
+==================================================================
+
+OWNER / VISUAL IDENTIFICATION
+-----------------------------
+Implemented and closed out by CODEX. Not a Claude Code release.
+Branch: codex/fix-schedule-crew-leads-and-form-theme
+Baseline inherited from production: 2f10b05d9acab7020b93e4d73952b2b16508bc37.
+Final user-accepted application code: 97275ffe19a1d07878c81ee50cc33ee389e9dbbf.
+The original branch name and [Codex] PR title remain provenance after cleanup.
+
+RELEASE STATUS
+--------------
+Chris accepted the preview and explicitly authorized production merge and branch
+maintenance on 2026-09-08. This closeout is prepared before merge; the production
+merge SHA, deployment and final checkout/cleanup state will be recorded below
+after they are verified. Do not treat earlier handoffs' preview-only statements
+as the current release status once this closeout is completed.
+
+SESSION SUMMARY / FINAL BEHAVIOR
+--------------------------------
+- B104: Scheduling lead pickers use active crew, preserve stored names, and use
+  the app's cream styling rather than native white controls.
+- B105: Add-to-Schedule excludes combined/deleted jobs and rechecks the parent
+  before saving. Saved allocations are visible across Crew Schedule, Calendar,
+  and Daily even before crew is assigned.
+- B106: staffing uses each date's applicable trip; unknown requirements show ?,
+  stored zero remains zero, blank inherits. Multiple overlapping explicit trips
+  show uncertainty rather than inventing a target. Add rejects invalid counts.
+- MOBZ-2: Jobs Trips combines saved future/current/past date spans with historical
+  crew records. A trip is its ENTIRE span, never separate Monday-Friday trips.
+  UUID-linked assignments win; ambiguous/unmatched history stays visible once.
+  Parent-only dates remain visible; only identical explicit spans suppress them.
+- Crew Schedule shows trip titles and edits the selected trip inline. Save/Cancel,
+  validation and dirty-draft guards; parent defaults explicitly selectable.
+  Trip dates/lead/notes/details are consistent with Jobs, without copying to jobs.
+- Trip title selector plus Open job -> matching expanded Jobs card on Trips.
+  Calendar bars display their own trip title. Close button has its own title row.
+- Build Schedule offers Create/Edit; both reuse the existing MobsModal form and
+  guarded writers. Create preselects the job; Edit lists its saved trips as Trip
+  1/2/3. Empty Edit list offers Create. Selecting a lead never assigns people.
+
+DATA / SOURCE OF TRUTH
+----------------------
+Trip-specific fields: job_mobilizations (note singular); job defaults: jobs
+(notes plural); assigned crew dates: assignments. No new migrations/RLS changes.
+One LIVE repair was separately authorized and performed earlier this session:
+trip 45ad5024-45e2-4cdf-a470-d7f50835df05 moved from merged job1199/seq1 to live
+job1150/seq5, retaining dates Oct12-13, lead and crew requirement. Audit source
+codex_job7215_repair. No assignment rows created by Codex. User subsequently
+staffed/edited this job while previewing against the shared live database.
+docs/repairs/20260908_job7215_allocation.sql is an already-executed repair record,
+NOT a migration or a step to rerun during deployment/testing/next-session setup.
+
+VERIFICATION / PRACTICAL LIMITS
+-------------------------------
+- Main and Codex worktree were clean at closeout start; origin/main still 2f10b05,
+  so no production drift or merge conflict to resolve.
+- Final model suites, build with fake valid Supabase env, and diff checks pass.
+- Final actual React browser suites run with intercepted Supabase requests:
+  allocation creation/reload across all three views, same-week staffing, zero vs
+  blank, inline edit/cancel/error, Jobs/Calendar titles, Open job, Create/Edit;
+  trip/history identity, parent overlaps, saved details, error/retry, go-backs.
+- All 17 changed application JS/JSX files compared to baseline lint: no new
+  findings; 12 pre-existing findings retained. Existing bundle-size warning.
+- check:public-grants could not query live grants because this app worktree has
+  no Supabase link. No public page/shared Sales queries/functions/grants changed;
+  verified the changed paths. This is not a passing live-grant check and does
+  not require linking the app repo or bypassing deployment hooks.
+- Chris manually tested previews and accepted the result. Independent terminal
+  review cleared the bounded v227 scope; later additions were locally/browser
+  tested and user-tested, not claimed independently audited in a missing report.
+- Mocked browser checks are not live persistence tests. Production verification
+  below covers deployment status and read-only HTTP/asset checks, not new records.
+
+DEFERRED / KNOWN BOUNDARIES
+---------------------------
+B107: Week Schedule print filters omit Scheduled/In Progress.
+B108: Week Schedule print uses current week instead of viewed week.
+Both were explicitly deferred by Chris and remain open; do not expand this
+closeout into an app-wide audit. Existing unrelated backlog/other worktrees are
+not this release's cleanup targets. The parent-save guard is frontend, not an
+atomic DB constraint against a concurrent Combine. Scope-version and historical
+scope-edit audit workflows were not introduced; existing label audit retained.
+
+HANDOFF / NEXT SESSION
+----------------------
+This v235 is the authoritative CODEX release summary; v223-v234 are historical
+implementation/testing detail. Read CLAUDE.md and current BACKLOG.md first.
+After cleanup start new work from the updated /Users/chrisberger/sales-command
+main checkout and create a fresh codex/<task> branch/worktree. Do not resurrect
+this release branch, run its repair SQL, or reuse a stale pre-merge review checkout.
+No custom command/skill is necessary for the documented closeout workflow.
+
+PRODUCTION / CLEANUP RECORD
+----------------------------
+Pending verified merge, deployment, completed-backlog entries and branch cleanup.

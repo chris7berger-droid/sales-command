@@ -1,6 +1,6 @@
 import { supabase } from '../../lib/supabase'
 import { loadMobilizationsByJobId, loadJobs } from './queries'
-import { jobRanges, overlapsWeek, allocForWeek, pickAllocField } from './allocations'
+import { jobRanges, overlapsWeek, staffingForDay, staffingSummary, pickAllocField } from './allocations'
 
 // B103: every export shows every active job — same as the board. Routed through
 // loadJobs so prints get the call_log-joined names and the ⚠ "Needs fixing" flag
@@ -92,10 +92,18 @@ export async function printWeekSchedule() {
       if (String(a.job_id) === String(j.job_id)) crewNames[a.crew_name] = true
     }
     const names = Object.keys(crewNames)
-    // Allocation fields for the week in view override the job's own when present.
-    const wa = allocForWeek(allocsByJobId[j.job_id], wsStr, weStr)
-    const pick = (f) => pickAllocField(wa, j, f) ?? ''
-    b += '<tr><td><b>' + j.job_num + '</b> - ' + j.job_name + '</td><td>' + (j.work_type || '') + '</td><td>' + (isPW(j) ? 'YES' : '') + '</td><td>' + (pick('crew_needed') || '') + '</td><td>' + names.map(flipName).join(', ') + '</td><td>' + (pick('vehicle') || '') + '</td><td>' + (pick('equipment') || '') + '</td><td>' + (pick('power_source') || '') + '</td></tr>'
+    // A week's print must not borrow Monday's crew/equipment for Thursday's trip.
+    const daily = dates.map((date, i) => ({ ...staffingForDay(j, allocsByJobId[j.job_id], date), day: days[i] }))
+    const active = daily.filter(day => day.active)
+    const summary = staffingSummary(daily)
+    const needed = summary.label === 'varies' ? active.map(day => `${day.day}: ${day.needed ?? '?'}`).join('; ') : summary.label
+    const pick = field => {
+      const values = active.map(day => ({ day: day.day, value: day.ambiguous ? 'Multiple trips — check details' : String(pickAllocField(day.allocation, j, field) ?? '') }))
+      const unique = [...new Set(values.map(item => item.value))]
+      const text = unique.length <= 1 ? unique[0] || '' : values.map(item => `${item.day}: ${item.value || 'Not set'}`).join('; ')
+      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    }
+    b += '<tr><td><b>' + j.job_num + '</b> - ' + j.job_name + '</td><td>' + (j.work_type || '') + '</td><td>' + (isPW(j) ? 'YES' : '') + '</td><td>' + needed + '</td><td>' + names.map(flipName).join(', ') + '</td><td>' + pick('vehicle') + '</td><td>' + pick('equipment') + '</td><td>' + pick('power_source') + '</td></tr>'
   }
   b += '</tbody></table>'
   printWin('Week Schedule - ' + fmtWk(monday), b)

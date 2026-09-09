@@ -1,0 +1,89 @@
+SC HANDOFF v227 — Codex: two bounded review fixes (2026-09-08)
+===============================================================================
+
+SESSION SUMMARY
+---------------
+Second review of 69b158b..0483c1d found parent partial-overlap suppression, zero
+converted to null in Add to Schedule, and two pre-existing print issues. Chris
+explicitly agreed: FIX FIRST TWO, LOG PRINTING SEPARATELY, then a bounded review.
+Do not expand this release into an app-wide audit or treat the deferred printing
+items as blockers for the agreed Trips/Add-to-Schedule workflow.
+
+CHANGES SHIPPED (PREVIEW ONLY)
+----------------------------
+- buildJobTrips suppresses the parent-derived Job schedule ONLY when an explicit
+  trip has identical start/end dates. Partial overlap, or containment with different
+  boundaries, keeps the full parent date span alongside the explicit trip.
+- Parent entry label is Job schedule, explaining where dates are saved. Its dates
+  are neither rewritten nor unioned with child trips. UUID editor remains limited
+  to explicit trip records; job dates can be edited through Crew Schedule.
+- Existing assignment rules unchanged: explicit UUID links win; unlinked days
+  match exactly one covering span or remain in Crew records if ambiguous. Parent
+  endpoint assignments remain together across long gaps. Every assignment once.
+- Add to Schedule uses shared crewRequirement: blank -> null/inherit; 0 -> 0.
+  Rejects supplied negative/fractional/invalid numbers before any save request.
+  Input min=0, step=1 agrees with the already-supported trip editor/readers.
+
+DECISIONS
+---------
+V226's any-overlap suppression policy was incomplete and is superseded by exact
+span equality. No assumption that a shorter trip represents the whole parent.
+Showing distinct date spans is deliberate; staffing never creates another copy
+of either record. Overlapping unlinked crew is not guessed into one of them.
+
+NEW / UPDATED BACKLOG ITEMS
+--------------------------
+MOBZ-2: partial-parent-overlap fix; B106: creation path zero/blank correction.
+B107: Week Schedule print excludes Scheduled/In Progress jobs — separately Open.
+B108: Week Schedule print ignores viewed week — separately Open.
+Both printing issues explicitly deferred by Chris; no print code changed here.
+
+VERIFICATION
+------------
+- Added failing-before model regression reproduced the exact partial-overlap loss
+  on 0483c1d (1 span instead of 2). Passes after correction, including parent Oct
+  12-30, short trip Oct 15-16, endpoint staffing, linked middle-day assignment,
+  ambiguous unlinked overlap, and a containing span with different boundaries.
+- Both model suites pass.
+- Actual Trips browser flow passes: both full saved spans visible, same parent
+  entry with Oct 12/Oct 30 staffing; short-trip linked crew stays separate; all
+  prior editor/error/retry/reload/mobile/identity cases pass.
+- Actual Add-to-Schedule browser flow passes on a parent requiring 3: -1 and 1.5
+  refused with no insert; 0 stored as 0 and Daily still 0/0 after reload; blank
+  stored as null and Daily shows inherited 0/3. Prior all-three-view regressions
+  and existing print fixture checks still pass (not a new printing audit).
+- Saved 7215 read-only snapshot replay passes: all five explicit rows once; full
+  Aug 3-5 parent span now also visible alongside explicit Aug 3-4; ambiguous older
+  crew days remain separate. All 72 assignment rows conserved once.
+- Build passes with fake valid Supabase env; existing large-bundle warning.
+- Trips/helper lint clean. ScheduleLayout retains one pre-existing clDelete unused
+  variable finding (also on main); no new lint finding. Initial exact-count lint
+  comparison was too strict because main has additional older findings; verified
+  the current finding is a subset of main's existing findings.
+- Screenshot inspected: /private/tmp/codex-review-parent-overlap.png.
+- All browser traffic intercepted; no live DB writes or authenticated hosted
+  browser persistence claimed. Same original Codex worktree/branch.
+
+NOT TOUCHED
+-----------
+Printing implementation, production/main, database records, migrations/RLS,
+scope versions, and already-executed repair SQL. No production merge authorized.
+
+NEXT SESSION / BOUNDED REVIEW
+----------------------------
+Publish current branch and confirm exact-commit Vercel preview. Review delta
+0483c1d..HEAD; use full branch 2f10b05..HEAD as context, not a mandate to audit all
+pre-existing code. Scope: Jobs Trips, Add to Schedule, and their direct effects
+on Crew Schedule/Calendar/Daily. Verify normal reachable workflows: saved spans
+visible, no lost/duplicated trips or crew records, correct zero/blank saves,
+preserved edits, and no regressions in that flow. Include plausible overlap cases.
+Report unrelated pre-existing findings separately; B107/B108 are already tracked
+and deferred. Stop after these acceptance criteria. Reviewer stays read-only:
+no file edits, live writes, repair SQL, push, or merge.
+
+FILES TO KNOW / GIT STATE
+------------------------
+src/schedule/lib/trips.js; components/TripsPanel.jsx; ScheduleLayout.jsx
+scripts/check-job-trips-model.mjs; check-job-trips.mjs; check-schedule-allocation.mjs
+Branch codex/fix-schedule-crew-leads-and-form-theme; parent 0483c1d.
+Commit/push and exact-commit Vercel preview check follow handoff preparation.

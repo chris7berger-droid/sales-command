@@ -1,0 +1,47 @@
+SC HANDOFF v233 — Build Schedule Create/Edit choice (2026-09-08)
+=============================================================
+
+SESSION SUMMARY / CHANGES SHIPPED
+Chris approved changing collapsed-row Build Schedule from immediate Crew Schedule
+navigation to a Create a trip / Edit a trip choice. Create opens the existing
+MobsModal trip form immediately, with the job preselected. Edit lists this job's
+saved trips with the existing editor. Empty lists offer Create a trip.
+
+DECISIONS
+- BuildScheduleModal coordinates the choice; no new DB writer or duplicated form.
+- MobsModal gains initialCreate and editOnly modes. Existing default/initialEditId
+  callers retain their behavior. Initial Create computes next sequence from live
+  rows and tagged days using the established rule, then saves through the existing
+  guarded helper. Create closes on Save or Cancel. Edit-only hides Add/Delete.
+- Crew assignment remains a separate Crew Schedule action. Existing Planning and
+  Open Crew Schedule links unchanged. No automatic assignments.
+- Modal renders outside the collapsed row's click handler; opening it does not
+  require expanding the job or navigating away.
+
+BACKLOG
+MOBZ-2 updated. B107/B108 remain deferred.
+
+VERIFICATION
+Actual Jobs collapsed row -> Build Schedule -> Create -> enter dates/lead/crew/
+notes -> correct job receives one trip. Edit path finds that same trip and saves
+notes without changing UUID/count. Empty Edit list offers Create; Cancel writes
+nothing. Existing allocation/cross-screen browser checks pass. Initial run found
+Create Cancel needed to close instead of returning to the manager; corrected and
+full workflow passes. Existing Jobs trip-editor browser suite also checked.
+Build passes with existing bundle warning. New component and shared editor lint
+clean; StageJobCard has no new findings. Diff check passes. Choice screenshot:
+/private/tmp/codex-build-schedule-choice.png. Browser DB traffic mocked only.
+
+NOT TOUCHED
+Production/main, DB/schema/RLS, trip writers, assignment writers, printing.
+
+NEXT / REVIEW
+Review aa3f2fa..HEAD and v233 only for Build Schedule choice, direct create form,
+saved-trip selection/editor, correct job/UUID, empty-list handling and original
+editor regression. Read-only; no broad audit, edits/live writes/repair SQL/merge.
+
+FILES / GIT
+BuildScheduleModal.jsx; StageJobCard.jsx; MobsModal.jsx;
+check-schedule-allocation.mjs; BACKLOG.md.
+Branch codex/fix-schedule-crew-leads-and-form-theme; parent aa3f2fa.
+Commit/push and exact preview confirmation follow this handoff.

@@ -1,0 +1,77 @@
+SC HANDOFF v229 — Codex: direct trip-specific fields (2026-09-08)
+================================================================
+
+SESSION SUMMARY
+---------------
+Chris rejected v228's bulky read-only card above the old job form. Approved one
+set of directly editable fields belonging to the selected trip. This supersedes
+v228's display/editor design; same branch, preview only.
+
+CHANGES SHIPPED
+---------------
+- Removed the large trip summary card and Edit trip modal entry in Crew Schedule.
+- Existing operational-field layout now edits the selected saved trip directly:
+  vehicle, equipment, power, lead, dates, scope, crew count, title and trip notes.
+  A compact selector identifies the trip/full span; one trip selects itself.
+- Multiple same-week trips are selectable without duplicating forms. Job defaults
+  and original job dates are a deliberate selector option, not a second section.
+  Jobs without explicit trips continue using the existing parent fields.
+- Save trip / Cancel appear when fields change. Switching trip with unsaved edits
+  asks the user to save or cancel first; selection is disabled while saving.
+- Inline saves reuse updateJobMobilization, scoped by UUID and job ID. Only edited
+  operational fields are patched; date/title fields follow the existing editor
+  contract. Blank operational fields inherit the job; explicit zero is preserved.
+- Negative/fractional crew counts and reversed dates blocked. Failed saves keep
+  the draft visible. Existing scope-link opening retained, including inherited URL.
+- Job-wide billing and deferred-start controls remain job-wide, outside this form.
+
+DECISIONS
+---------
+No automatic crew assignments. No copying trip values onto the parent job.
+Existing Jobs trip modal remains; only Crew Schedule now edits inline.
+Explicit Save batches date/detail edits so temporary intermediate date values
+do not persist on blur. User can Cancel. Full spans/identities remain intact.
+
+BACKLOG
+-------
+MOBZ-2 updated. B107/B108 remain deferred and outside this change.
+
+VERIFICATION
+------------
+- Both model suites pass; allocation/browser suite passes with added inline cases.
+- Editing Thursday's trip leaves the entire earlier trip object unchanged; selected
+  trip shows its own dates/lead/crew. Zero persists, invalid counts/dates rejected.
+- Save failure retains draft and supports retry; Cancel restores prior notes;
+  attempting to switch trips with a dirty draft does not switch or write.
+- Jobs modal saves notes -> Crew Schedule inline reads them -> inline edits title,
+  end date, lead and notes -> Jobs reads same saved values. UUID, vehicle, other
+  trip and parent lead preserved; no assignments or parent-job writes.
+- Only one notes form at a time. Job defaults explicitly selectable. Existing
+  Schedule/Calendar/Daily, creation guards and zero/inheritance browser checks pass.
+- Build passes (existing bundle-size warning), component lint clean, Schedule's
+  nine existing lint findings unchanged. git diff --check passes.
+- Browser test harness initially waited for the Save button label to disappear,
+  which happens when it says Saving; corrected to wait for completed save controls.
+  Another assertion assumed undefined for an existing null; replaced with full
+  before/after comparison of the untouched trip. Final browser run passes.
+- Screenshot inspected: /private/tmp/codex-schedule-trip-details.png.
+- All browser DB requests mocked; no live DB writes or hosted persistence claims.
+
+NOT TOUCHED
+-----------
+Production/main, DB/schema/RLS, history grouping, assignment writers, print code,
+Jobs modal implementation, repair SQL, and job-wide billing behavior.
+
+NEXT / REVIEW
+-------------
+Review 8ca3193..HEAD and v229. Scope: inline trip editing, selected UUID, saving,
+cancel/error behavior, zero/blank/date validation, cross-screen consistency and
+no duplicate form. Confirm job defaults remain explicitly accessible. No broad
+audit; B107/B108 deferred. Read-only: no edits/live writes/repair SQL/push/merge.
+
+FILES / GIT
+-----------
+ScheduleTripDetails.jsx/.css; views/Schedule.jsx;
+scripts/check-schedule-allocation.mjs; docs/BACKLOG.md.
+Branch codex/fix-schedule-crew-leads-and-form-theme; parent 8ca3193.
+Commit/push and exact-commit preview verification follow this handoff.

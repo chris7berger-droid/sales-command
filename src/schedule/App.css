@@ -6843,3 +6843,7 @@
   .imp-panes { grid-template-columns: 1fr; }
   .imp-right { border-left: none; padding-left: 0; border-top: 1px solid var(--brd); padding-top: 12px; }
 }
+
+/* Week navigation retains the complete previous snapshot while fetching. */
+.sch-wknav-steady { position: relative; margin-bottom: 28px; }
+.sch-week-progress { position: absolute; left: 0; bottom: -21px; color: var(--text-primary); font-size: 12px; }

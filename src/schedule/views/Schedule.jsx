@@ -171,7 +171,7 @@ export default function Schedule({ embedded = false } = {}) {
   const focusedJobRowRef = useRef(null)
   const didHandleFocusRef = useRef(false)
 
-  const monday = useMemo(() => {
+  const requestedMonday = useMemo(() => {
     const m = getMonday(new Date())
     m.setDate(m.getDate() + weekOffset * 7)
     return m
@@ -189,14 +189,21 @@ export default function Schedule({ embedded = false } = {}) {
     didHandleFocusRef.current = true
   }, [focusWeek])
 
+  const requestedDates = useMemo(() => wkDates(requestedMonday), [requestedMonday])
+  const requestedWeek = requestedDates[0]
+  const requestedEnd = requestedDates[5]
+  // Keep dates and staffing on the last complete snapshot until the next is ready.
+  const monday = useMemo(() => loadedWeek
+    ? new Date(loadedWeek + 'T00:00:00') : requestedMonday, [loadedWeek, requestedMonday])
   const dates = useMemo(() => wkDates(monday), [monday])
   const wsStr = dates[0]
   const weStr = dates[5]
   const todayStr = fmtD(new Date())
 
-  const currentWeek = useRef(wsStr)
-  useEffect(() => { currentWeek.current = wsStr }, [wsStr])
-  const loading = !staticReady || loadedWeek !== wsStr
+  const currentWeek = useRef(requestedWeek)
+  useEffect(() => { currentWeek.current = requestedWeek }, [requestedWeek])
+  const loading = !staticReady || !loadedWeek
+  const changingWeek = !!loadedWeek && loadedWeek !== requestedWeek
 
   // Load jobs and trips together; a missing trip response cannot become a zero count.
   useEffect(() => {
@@ -234,14 +241,14 @@ export default function Schedule({ embedded = false } = {}) {
   // the valid data).
   const fetchWeekData = useCallback(async () => {
     const [asgnRes, csRes] = await Promise.all([
-      supabase.from('assignments').select('*').gte('date', wsStr).lte('date', weStr),
-      supabase.from('crew_status').select('*').gte('date', wsStr).lte('date', weStr),
+      supabase.from('assignments').select('*').gte('date', requestedWeek).lte('date', requestedEnd),
+      supabase.from('crew_status').select('*').gte('date', requestedWeek).lte('date', requestedEnd),
     ])
     return { asgnRes, csRes }
-  }, [wsStr, weStr])
+  }, [requestedWeek, requestedEnd])
 
   const applyWeekData = useCallback(({ asgnRes, csRes }) => {
-    if (currentWeek.current !== wsStr) return
+    if (currentWeek.current !== requestedWeek) return
     if (asgnRes.error || csRes.error) {
       setError((asgnRes.error || csRes.error).message)
       return
@@ -253,8 +260,8 @@ export default function Schedule({ embedded = false } = {}) {
       csMap[c.crew_name + '|' + c.date] = c.status
     }
     setCrewStatus(csMap)
-    setLoadedWeek(wsStr)
-  }, [wsStr])
+    setLoadedWeek(requestedWeek)
+  }, [requestedWeek])
 
   const loadWeekData = useCallback(async () => {
     applyWeekData(await fetchWeekData())
@@ -1113,10 +1120,10 @@ export default function Schedule({ embedded = false } = {}) {
 
   return (
     <>
-      {!embedded && <CrewWeekCapacity key={wsStr} jobs={jobs} weekJobs={weekJobs} crew={crew}
+      {!embedded && <div inert={changingWeek ? true : undefined}><CrewWeekCapacity key={wsStr} jobs={jobs} weekJobs={weekJobs} crew={crew}
         assignments={assignments} crewStatus={crewStatus} allocations={allocsByJobId}
         dates={dates} todayStr={todayStr} weekLabel={fmtWk(monday)} loading={loading}
-        error={staticError || error} pulse={weekChanged} onOpenTrip={openSummaryTrip} />}
+        error={staticError || (loading ? error : null)} pulse={weekChanged && !changingWeek} onOpenTrip={openSummaryTrip} /></div>}
     <div className="sch-layout">
       {!embedded && (
         <div className="jh-back-bar">
@@ -1125,7 +1132,7 @@ export default function Schedule({ embedded = false } = {}) {
       )}
       <div className="sch-wrap">
         {/* Crew pool sidebar */}
-        <div className="sch-pool" hidden={loading || !!error || !!staticError}>
+        <div className="sch-pool" hidden={loading || !!staticError} inert={changingWeek ? true : undefined}>
           <div className="sch-ptitle">
             Crew <span className="sch-ptitle-av">{availCount} free this week</span>
           </div>
@@ -1151,17 +1158,21 @@ export default function Schedule({ embedded = false } = {}) {
 
         {/* Main board */}
         <div className="sch-main">
-          <div className="sch-wknav">
+          <div className="sch-wknav sch-wknav-steady">
             <button className={`sch-btn${prevWeekAlert ? ' pulse' : ''}`} onClick={() => changeWeek(w => w - 1)}>Prev</button>
-            <div key={wsStr} className={`sch-wklbl${weekChanged ? ' sch-week-changed' : ''}`} aria-live="polite">{fmtWk(monday)}</div>
+            <div key={wsStr} className={`sch-wklbl${weekChanged && !changingWeek ? ' sch-week-changed' : ''}`} aria-live="polite">{fmtWk(monday)}</div>
             <button className={`sch-btn${nextWeekAlert ? ' pulse' : ''}`} onClick={() => changeWeek(w => w + 1)}>Next</button>
             <button className="sch-btn" onClick={() => changeWeek(0)}>This Week</button>
+            {changingWeek && !error && <div className="sch-week-progress" role="status">
+              Loading {fmtWk(requestedMonday)}…
+            </div>}
           </div>
 
-          {(error || staticError) ? <div className="error-msg" role="alert">
-            Could not load this week: {staticError || error}{' '}
+          {(error || staticError) && <div className="error-msg" role="alert">
+            Could not load {fmtWk(requestedMonday)}: {staticError || error}{' '}
             <button className="sch-btn" onClick={() => { if (staticError) setStaticRetry(n => n + 1); loadWeekData() }}>Retry</button>
-          </div> : loading ? <div className="loading" role="status">Loading schedule…</div> : <>
+          </div>}
+          {loading ? (!error && !staticError && <div className="loading" role="status">Loading schedule…</div>) : <div inert={changingWeek ? true : undefined} aria-busy={changingWeek}>
           <div className="sch-job-count">Jobs This Week ({weekJobs.length}) · Trips ({boardRows.filter(row => !row.trip.legacy).length})</div>
 
           <div className="sch-brd">
@@ -1193,7 +1204,7 @@ export default function Schedule({ embedded = false } = {}) {
               <div className="sch-brd-empty-msg">No jobs this week</div>
             )}
           </div>
-          </>}
+          </div>}
         </div>
       </div>
 

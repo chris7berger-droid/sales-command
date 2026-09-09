@@ -1,0 +1,43 @@
+SC Handoff v240 — CODEX — 2026-09-08
+
+SESSION SUMMARY
+Chris likes the integrated B109 preview, but reported an aggressive blink when
+changing weeks. Replaced destructive loading placeholders during week navigation
+with retention of the last complete displayed week.
+
+CHANGES SHIPPED (PREVIEW)
+Requested week and displayed week are separate. Both dates, crew pool, header
+figures, and board switch together once the requested staffing response succeeds.
+A small loading message names the destination week without shifting the board.
+Previous content stays visible; editing and summary actions are inert while a
+new week is pending. Prev/Next/This Week remain usable, and late responses cannot
+replace the final selection. Errors retain the last complete week with explicit
+destination and Retry. The date glow runs on successful transition.
+
+DECISIONS / BACKLOG
+Touches B109. Preview branch only; no production merge authorized for this fix.
+First-load placeholders remain. Global Actions > Refresh and other screens are
+unchanged; this addresses the week-navigation blink introduced by B109.
+
+VERIFICATION
+Production build passes (existing large-bundle warning). Updated real React
+browser suite check-crew-week-summary.mjs passes delayed response retention,
+fixed crew/board bounding boxes, date/data alignment, navigation race, error/retry,
+draft guards, deep links, historical details and reduced motion. Intercepted
+fixtures only; no live writes. Schedule.jsx lint retains its five existing unused
+symbols, no new findings. git diff --check passes.
+
+NOT TOUCHED
+No DB/schema/RLS changes or historical repairs. B107/B108 printing deferred.
+Released B110 trip identity and staffing rules unchanged.
+
+NEXT SESSION / FILES
+Chris tests the updated PR #39 preview. Core edit: src/schedule/views/Schedule.jsx;
+loading positioning in src/schedule/App.css; regression in
+scripts/check-crew-week-summary.mjs. Integration context: v239.
+
+GIT STATE
+Branch codex/crew-schedule-week-summary, based on integrated 4fcd4ff.
+Commit subject: [Codex] Touches B109: keep crew schedule steady while weeks load
+Draft PR https://github.com/chris7berger-droid/sales-command/pull/39
+Preview https://sales-command-git-codex-cre-0f8ef7-chris7berger-droids-projects.vercel.app/schedule/schedule

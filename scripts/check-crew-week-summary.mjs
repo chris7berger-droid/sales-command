@@ -67,15 +67,21 @@ try {
   assert.equal(await badge('Jobs Starting').locator('.hcs-badge-circle').textContent(),'1')
   assert.equal(await badge('Jobs Needing Crew').locator('.hcs-badge-circle').textContent(),'0')
   assert.match(await page.locator('.hcs-day').nth(1).innerText(),/1 \/ 4/)
-  // Prove stale values disappear before the next week's response arrives.
+  // Pending navigation retains the complete old week, with its original dates.
+  const poolBounds = await page.locator('.sch-pool').boundingBox()
+  const boardBounds = await page.locator('.sch-brd').boundingBox()
+  const rowCount = await page.locator('.sch-board-row-wrap').count()
   delayWeek='2026-09-14'
   await next()
-  await page.getByText('Loading selected week…').waitFor()
-  assert.equal(await page.locator('.hcs-week').textContent(),'Sep 14 – Sep 19, 2026')
-  assert.equal(await page.locator('.sch-wklbl').textContent(),'Sep 14 – Sep 19, 2026')
-  assert.equal(await page.locator('.sch-week-changed').count(),2)
-  assert.equal(await page.locator('.hcs-day').count(),0)
-  assert.equal(await page.locator('.sch-board-row-wrap').count(),0)
+  await page.getByText('Loading Sep 14 – Sep 19, 2026…').waitFor()
+  assert.equal(await page.locator('.hcs-week').textContent(),'Sep 7 – Sep 12, 2026')
+  assert.equal(await page.locator('.sch-wklbl').textContent(),'Sep 7 – Sep 12, 2026')
+  assert.equal(await page.locator('.hcs-day').count(),6)
+  assert.equal(await page.locator('.sch-board-row-wrap').count(),rowCount)
+  assert.deepEqual(await page.locator('.sch-pool').boundingBox(),poolBounds)
+  assert.deepEqual(await page.locator('.sch-brd').boundingBox(),boardBounds)
+  assert.equal(await page.locator('.sch-pool').getAttribute('inert'),'')
+  assert.match(await page.locator('.hcs-day').nth(1).innerText(),/1 \/ 4/)
   // A slow previous response must not overwrite the final selection.
   await next()
   await ready('Sep 21 – Sep 26, 2026')
@@ -143,7 +149,9 @@ try {
   failWeek='2026-10-19'
   await next()
   await page.getByRole('alert').waitFor()
-  assert.equal(await page.locator('.hcs-badge-button').count(),0,'Failure must not masquerade as zero')
+  assert.equal(await page.locator('.hcs-badge-button').count(),3,'Failure retains the last complete summary')
+  assert.equal(await page.locator('.hcs-week').textContent(),'Oct 12 – Oct 17, 2026')
+  assert.match(await page.getByRole('alert').innerText(),/Oct 19 – Oct 24, 2026/)
   assert.equal(await page.locator('.sch-wklbl').evaluate(el=>getComputedStyle(el).animationName),'none')
   failWeek=null
   await page.getByRole('button',{name:'Retry',exact:true}).click()

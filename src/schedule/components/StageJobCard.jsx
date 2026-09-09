@@ -763,7 +763,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
           onSowClick={() => { setSowFocus(null); setShowSowModal(true) }}
           onMtrlClick={() => setShowMtrlModal(true)}
           onCrewClick={goCrewSchedule}
-          onDateClick={() => scheduleSummary.hasTrips ? setPanels({ trips: true }) : setShowDaysModal(true)}
+          onDateClick={() => setShowDaysModal(true)}
           scheduleSummary={scheduleSummary}
           mobs={mobs}
           onMobsClick={() => setShowMobsModal(true)}
@@ -857,6 +857,8 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
       {showDaysModal && (
         <DaysModal
           job={job}
+          assignmentDates={assignmentDates}
+          mobilizations={mobsByJobId[job.job_id]}
           onClose={() => setShowDaysModal(false)}
         />
       )}

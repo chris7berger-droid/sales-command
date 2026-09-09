@@ -84,3 +84,13 @@ Back-to-job correction (preview): Crew Schedule now routes directly to
 logic expands/includes the intended card. Regression starts from a generic Jobs
 history entry with fromCard:true and verifies the job-specific return. Full
 overlapping-board UI suite, build and diff checks PASS.
+
+DAYS CALENDAR REGRESSION CORRECTION — supersedes prior “DAYS opens Trips”.
+User correctly identified removed calendar behavior introduced by this branch.
+Restored DAYS -> DaysModal. Retained SOW-date collection and legacy parent-span
+fallback, added live trip ranges and actual assignment dates, and restored the
+assignmentDates prop removed during the card change. Calendar retains separate
+months and worked-weekend rules; no trip-gap filling. UI test now asserts the
+calendar dialog, September/October months and 28 highlighted dates, not Trips.
+Full trip UI suite/build/diff checks PASS. Trip2 remains seq2 after seq1 deletion
+because field-SOW days reference mobilization_seq; no data renumbering performed.

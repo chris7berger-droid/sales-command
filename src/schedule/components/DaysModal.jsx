@@ -27,7 +27,7 @@ function fmtDate(iso) {
 }
 
 // Gather the set of 'YYYY-MM-DD' scheduled work days for this job.
-function collectScheduledDates(job, assignmentDates) {
+function collectScheduledDates(job, assignmentDates, mobilizations) {
   const set = new Set()
   const wtcs = Array.isArray(job._wtcs) ? job._wtcs : []
   for (const wtc of wtcs) {
@@ -49,6 +49,12 @@ function collectScheduledDates(job, assignmentDates) {
       set.add(start.slice(0, 10))
     }
   }
+  // Include live trips without turning gaps between trips into scheduled days.
+  for (const trip of Object.values(mobilizations || {}).filter(t => t?.id)) {
+    for (const date of workedDaySet(trip.start_date, trip.end_date, assignmentDates)) set.add(date)
+    if (trip.start_date && !trip.end_date) set.add(trip.start_date.slice(0, 10))
+  }
+  for (const date of assignmentDates || []) set.add(date)
   return set
 }
 
@@ -85,8 +91,8 @@ function MonthCalendar({ year, month, scheduledSet, todayYmd }) {
   )
 }
 
-export default function DaysModal({ job, assignmentDates = null, onClose }) {
-  const scheduledSet = collectScheduledDates(job, assignmentDates)
+export default function DaysModal({ job, assignmentDates = null, mobilizations = {}, onClose }) {
+  const scheduledSet = collectScheduledDates(job, assignmentDates, mobilizations)
   const sorted = [...scheduledSet].sort()
 
   // Unique months present, in order.
@@ -111,7 +117,7 @@ export default function DaysModal({ job, assignmentDates = null, onClose }) {
 
   return (
     <div className="mbg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="mdl" style={{ maxWidth: 480, maxHeight: '90vh', overflow: 'auto' }}>
+      <div className="mdl" role="dialog" aria-modal="true" aria-label="Job schedule calendar" style={{ maxWidth: 480, maxHeight: '90vh', overflow: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <h3 style={{ margin: 0 }}>Schedule — {job.job_num || ''} {job.job_name || ''}</h3>
           <button className="app-act-btn" onClick={onClose}>Close</button>

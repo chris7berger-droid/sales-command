@@ -95,5 +95,7 @@ export function buildCrewWeekText({ name, dates, jobs, allocations, assignments,
     lines.push(entries.length ? entries.join('\n\n') : 'No work assigned', '')
   }
   if (updatedAt) lines.push(`Updated ${updatedAt.toLocaleString('en-US')}`)
-  return { text: lines.join('\n').trim(), warnings: [...warnings] }
+  return { text: lines.join('\n').trim(), warnings: [...warnings],
+    days: [...days].map(([date, entries]) => ({ date, entries })),
+  }
 }

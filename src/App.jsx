@@ -34,6 +34,7 @@ import UpdateBanner from "./components/UpdateBanner";
 import Archive from "./pages/Archive";
 import { GROUPS, SUBCON_HOME, SETTINGS, groupVisible, sectionFromPath, groupFromPath, resolveNavTarget } from "./lib/nav";
 import ScheduleLayout from "./schedule/ScheduleLayout";
+import CrewPhone from "./schedule/views/CrewPhone";
 import FieldLayout from "./field/FieldLayout";
 import ARLayout from "./ar/ARLayout";
 
@@ -227,6 +228,8 @@ function SalesCommandApp() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<><style>{GLOBAL_CSS}</style><Login /></>} />
+          {/* Keep this direct phone URL through sign-in; desktop login is unchanged. */}
+          <Route path="/crew-texts" element={<><style>{GLOBAL_CSS}</style><div className="crew-phone-login"><Login /></div><style>{`.crew-phone-login input { font-size: 16px !important; }`}</style></>} />
           <Route path="/suite" element={<SubConCommandPage />} />
           <Route path="/features/:slug" element={<FeatureDetailPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
@@ -286,6 +289,8 @@ function SalesCommandApp() {
     <AlertsProvider displayName={displayName} displayRole={displayRole}>
     <BrowserRouter>
       <Routes>
+        {/* Standalone office sharing page; same Schedule access gate, no desktop shell. */}
+        <Route path="/crew-texts" element={<><style>{GLOBAL_CSS}</style><GroupGuard app="schedule" teamMember={teamMember}><ErrorBoundary><CrewPhone /></ErrorBoundary></GroupGuard></>} />
         <Route path="/suite" element={<SubConCommandPage />} />
         <Route path="/sign/:token" element={<PublicSigningPage />} />
         <Route path="/invoice-paid" element={<InvoicePaidPage />} />

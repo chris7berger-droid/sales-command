@@ -74,7 +74,7 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
     next = next.map(m => ({ ...m, label: m.label.trim() }));
     const ids = new Set(), seqs = new Set();
     for (const m of next) {
-      if (ids.has(m.id) || seqs.has(m.seq)) { setError("Duplicate mobilization id/seq — not saved."); return; }
+      if (ids.has(m.id) || seqs.has(m.seq)) { setError("Duplicate trip id/seq — not saved."); return; }
       ids.add(m.id); seqs.add(m.seq);
     }
     setMobs(next); onChange?.(next); setSaving(true); setError(null);
@@ -132,7 +132,7 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
   // auto-tag to the single mob (the day factory defaults to mobilizations[0]).
   async function applyStandardJob() {
     if (mobs.length > 1 && !window.confirm(
-      "Standard job uses a single mobilization. Trips 2+ will be removed and every field-SOW day tagged to Mob 1. Continue?"
+      "Standard job uses a single trip. Trips 2+ will be removed and every field-SOW day tagged to Trip 1. Continue?"
     )) return;
     const mob = mobs[0] || { id: uid(), seq: 1, label: "", start_date: null, end_date: null };
     if (!String(mob.label ?? '').trim()) {
@@ -169,8 +169,8 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
     let count = 0;
     (wtcRows || []).forEach(w => (w.field_sow || []).forEach(d => { if (d.mobilization_id === mob.id) count++; }));
     if (count > 0 && !window.confirm(
-      `Mobilization ${mob.seq} — ${mob.label || "(no label)"} is tagged on ${count} field-SOW day(s). ` +
-      `Deleting it will leave those days without a mobilization and block Send to Schedule until you re-tag them. Delete anyway?`
+      `Trip ${mob.seq} — ${mob.label || "(no label)"} is tagged on ${count} field-SOW day(s). ` +
+      `Deleting it will leave those days without a trip and block Send to Schedule until you re-tag them. Delete anyway?`
     )) return;
     persist(mobs.filter(m => m.id !== mob.id));
   }
@@ -185,17 +185,17 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
   return (
     <div style={{ background: C.linenCard, border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: 20, marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Step 1 · Mobilizations</div>
+        <div style={{ fontWeight: 800, fontSize: 12.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase" }}>Step 1 · Trips</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {saving && <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>Saving…</span>}
           {saved && !saving && <span style={{ fontSize: 11, color: C.green, fontFamily: F.ui }}>✓ Saved</span>}
-          {showAdd && <Btn sz="sm" onClick={addMob} disabled={!loaded || saving || editingId != null}>+ Add Mobilization</Btn>}
+          {showAdd && <Btn sz="sm" onClick={addMob} disabled={!loaded || saving || editingId != null}>+ Add Trip</Btn>}
         </div>
       </div>
       {/* Proposal-wide scope note — the editor lives inside a per-WTC tab, but the list
           is shared by every work type on the proposal. Say so, always visible. */}
       <div style={{ fontSize: 11.5, color: C.tealDark, fontFamily: F.ui, fontWeight: 700, background: "rgba(48,207,172,0.10)", border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 10px", marginBottom: 10 }}>
-        ⓘ These mobilizations (trips to site) apply to the whole job — every work type on this proposal shares this one list.
+        ⓘ These trips apply to the whole job — every work type on this proposal shares this one list.
       </div>
 
       {/* Standard-job shortcut — most jobs are a single trip. Checking it makes ONE
@@ -209,7 +209,7 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
           <span>
             <span style={{ fontSize: 12.5, fontWeight: 800, color: C.textHead, fontFamily: F.ui }}>Standard job — one trip for the whole job</span>
             <span style={{ display: "block", fontSize: 11, color: C.textFaint, fontFamily: F.ui, marginTop: 2, lineHeight: 1.4 }}>
-              Creates a single mobilization (Mob 1) and tags every field-SOW day on this job to it — across every work type — so you don't pick a mobilization per day. Uncheck, or add a second trip, if the job needs more than one mobilization.
+              Creates a single trip (Trip 1) and tags every field-SOW day on this job to it — across every work type — so you don't pick a trip per day. Uncheck, or add a second trip, if the job needs more than one trip.
             </span>
           </span>
         </label>
@@ -217,17 +217,17 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
 
       <div style={{ fontSize: 11.5, color: C.textFaint, fontFamily: F.ui, marginBottom: 12 }}>
         {readOnly
-          ? "This job is live — its mobilizations are now owned by Schedule Command. Add or change trips (including go-back work) there; edits here no longer reach the scheduled job."
+          ? "This job is live — its trips are now owned by Schedule Command. Add or change trips (including go-back work) there; edits here no longer reach the scheduled job."
           : configuredStandard
-            ? "One trip for the whole job. Every field-SOW day is tagged to Mob 1."
-            : "Group the job into mobilizations (trips to site), then tag each field-SOW day below to one of them."}
+            ? "One trip for the whole job. Every field-SOW day is tagged to Trip 1."
+            : "Group the job into trips, then tag each field-SOW day below to one of them."}
       </div>
       {error && <div style={{ fontSize: 12, color: C.red, fontFamily: F.ui, marginBottom: 10 }}>{error}</div>}
       {!loaded ? (
         <div style={{ fontSize: 12.5, color: C.textFaint, fontFamily: F.ui, padding: "8px 0" }}>Loading…</div>
       ) : mobs.length === 0 ? (
         <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui, padding: "10px 0" }}>
-          {readOnly ? "No mobilizations were authored before this job went live." : "Most jobs are one trip — check Standard job above. Or add a mobilization for each trip."}
+          {readOnly ? "No trips were authored before this job went live." : "Most jobs are one trip — check Standard job above. Or add multiple trips."}
         </div>
       ) : mobs.map(mob => {
         const editing = editingId === mob.id;
@@ -241,7 +241,7 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
           return (
             <div key={mob.id} style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: "10px 12px", background: C.linen, border: `1.5px solid ${C.tealDark}`, borderRadius: 8, marginBottom: 6 }}>
               <div style={{ width: 46, flexShrink: 0 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>Mob</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>Trip</div>
                 <div style={{ fontSize: 15, fontWeight: 800, color: C.tealDark, fontFamily: F.display }}>{mob.seq}</div>
               </div>
               <div style={{ flex: 1 }}>
@@ -265,7 +265,7 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
         // Display (saved) mode — settled summary + Edit / Delete, with a brief ✓.
         return (
           <div key={mob.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, minWidth: 52 }}>Mob {mob.seq}</span>
+            <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, minWidth: 52 }}>Trip {mob.seq}</span>
             <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: C.textBody, fontFamily: F.ui }}>{mob.label || <span style={{ color: C.textFaint, fontWeight: 400 }}>(no label)</span>}</span>
             <span style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{dateText}</span>
             {justSavedId === mob.id && <span style={{ fontSize: 11, fontWeight: 700, color: C.green, fontFamily: F.ui }}>✓ Saved</span>}
@@ -273,7 +273,7 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
               <>
                 <button onClick={() => setEditingId(mob.id)} disabled={anyEditing} style={{ background: "none", border: `1px solid ${C.borderStrong}`, borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, color: C.textBody, cursor: anyEditing ? "default" : "pointer", opacity: anyEditing ? 0.4 : 1, fontFamily: F.display, flexShrink: 0 }}>Edit</button>
                 {/* No Delete in standard mode — the single trip stays; uncheck Standard job to manage multiple. */}
-                {!configuredStandard && <button onClick={() => deleteMob(mob)} disabled={anyEditing} title="Delete mobilization" style={{ background: "none", border: `1px solid ${C.red}`, borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, color: C.red, cursor: anyEditing ? "default" : "pointer", opacity: anyEditing ? 0.4 : 1, fontFamily: F.display, flexShrink: 0 }}>Delete</button>}
+                {!configuredStandard && <button onClick={() => deleteMob(mob)} disabled={anyEditing} title="Delete trip" style={{ background: "none", border: `1px solid ${C.red}`, borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, color: C.red, cursor: anyEditing ? "default" : "pointer", opacity: anyEditing ? 0.4 : 1, fontFamily: F.display, flexShrink: 0 }}>Delete</button>}
               </>
             )}
           </div>

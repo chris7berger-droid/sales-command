@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { loadAllRows, loadJobMobilizationRows } from '../lib/queries'
-import { pickAllocField } from '../lib/allocations'
+import { jobOwnRange, pickAllocField } from '../lib/allocations'
 import { buildJobTrips, tripDate, tripPeriod, tripRange } from '../lib/trips'
 import MobsModal from './MobsModal'
 import './TripsPanel.css'
@@ -30,7 +30,9 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
       if (!alive) return
       const failure = trips.error || crew.error
       setError(failure?.message || null)
-      if (!failure) setData({ jobId: job.job_id, trips: buildJobTrips(trips.data, crew.data, job) })
+      if (failure) return
+      const built = buildJobTrips(trips.data, crew.data, job)
+      setData({ jobId: job.job_id, trips: built })
     }).catch(err => { if (alive) setError(err.message) })
     return () => { alive = false }
   }, [job, refresh])
@@ -40,7 +42,12 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
     onUpdated?.()
   }
 
-  const trips = data?.jobId === job.job_id ? data.trips : null
+  const allTrips = data?.jobId === job.job_id ? data.trips : null
+  // The job's own date range is reference information, not a saved trip. Keep it
+  // above the list so the list contains only real trips and legacy crew records.
+  const trips = allTrips?.filter(trip => !trip.parent)
+  const own = jobOwnRange(job)
+  const jobSchedule = own && { start_date: own.start, end_date: own.end }
   return <div className="sjc-panel job-trips">
     <div className="job-trips-toolbar">
       <span>Grouped by scheduled dates. Past dates do not mean the work is completed.</span>
@@ -48,8 +55,12 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
     </div>
     {error ? <div role="alert">Couldn’t load all trips and crew: {error} <button className="app-act-btn" onClick={() => setRefresh(n => n + 1)}>Retry</button></div>
       : !trips ? <p>Loading trips and crew…</p>
-      : !trips.length ? <p>No trips or crew history saved for this job yet.</p>
-      : sections.map(([period, title]) => {
+      : <>
+        {jobSchedule && <div className="job-schedule-reference">
+          <strong>Job schedule</strong>
+          <span>{tripRange(jobSchedule)}</span>
+        </div>}
+        {!trips.length ? <p>No trips or crew history saved for this job yet.</p> : sections.map(([period, title]) => {
         const items = trips.filter(t => tripPeriod(t, date) === period).sort((a, b) => {
           const order = String(a.start_date || a.end_date || '').localeCompare(String(b.start_date || b.end_date || ''))
           return (period === 'past' ? -order : order) || (a.seq || 0) - (b.seq || 0)
@@ -70,7 +81,7 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
             return <article className="job-trip" key={trip.key} data-trip-id={trip.key}>
               <button className="job-trip-summary" aria-expanded={open} onClick={() => setExpanded(s => ({ ...s, [trip.key]: !s[trip.key] }))}>
                 <span>{open ? '▾' : '▸'}</span>
-                <span className="job-trip-title"><strong>{trip.legacy ? 'Crew records' : trip.parent ? 'Job schedule' : `Trip ${trip.displayNumber}${trip.label ? ` · ${trip.label}` : ''}`}{trip.is_go_back ? ' · Go back' : ''}</strong><span>{tripRange(trip)}</span></span>
+                <span className="job-trip-title"><strong>{trip.legacy ? 'Crew records' : `Trip ${trip.displayNumber}${trip.label && trip.label !== `Trip ${trip.displayNumber}` ? ` · ${trip.label}` : ''}`}{trip.is_go_back ? ' · Go back' : ''}</strong><span>{tripRange(trip)}</span>{trip.label && /^Trip \d+$/.test(trip.label) && <small className="job-trip-title-reminder">Please update trip title.</small>}</span>
                 <span className="job-trip-staffing"><span>{people.length ? `${people.length} ${people.length === 1 ? 'person' : 'people'} · ${assignedDays.length} crew ${assignedDays.length === 1 ? 'date' : 'dates'}` : period === 'past' ? 'No crew assignments recorded' : 'No crew assigned yet'}</span>{field('lead') && <span>Lead: {nameLabel(field('lead'))}</span>}</span>
               </button>
               {open && <div className="job-trip-details">
@@ -93,6 +104,7 @@ export default function TripsPanel({ job, mobs = [], onUpdated, today }) {
           })}
         </section>
       })}
+      </>}
     {editing && <MobsModal job={job} mobs={mobs} initialEditId={editing} onClose={() => setEditing(null)} onUpdated={updated} />}
   </div>
 }

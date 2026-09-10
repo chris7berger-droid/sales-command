@@ -3,10 +3,10 @@
 // visible separately; editing dates must never move crew between trips.
 import { jobOwnRange } from './allocations.js'
 
-// User-facing numbering is consecutive across all remaining trips on the job.
+// User-facing numbering counts all trips, oldest first, including named trips.
 // Stored seq remains the field-SOW key and is never rewritten for presentation.
 export function tripDisplayNumbers(rows = []) {
-  return new Map([...rows].sort((a, b) => (a.seq || 0) - (b.seq || 0) || String(a.id).localeCompare(String(b.id)))
+  return new Map([...rows].sort((a, b) => String(a.start_date || a.end_date || '9999-12-31').localeCompare(String(b.start_date || b.end_date || '9999-12-31')) || (a.seq || 0) - (b.seq || 0) || String(a.id).localeCompare(String(b.id)))
     .map((row, index) => [row.id, index + 1]))
 }
 

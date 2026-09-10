@@ -166,6 +166,7 @@ function ScheduleShell() {
   async function doAddMobilization() {
     if (!pickedJob || addBusy) return
     const d = mobDraft
+    if (!d.label.trim()) { toast('Enter a trip title before adding it.', 'err'); return }
     if (d.start_date && d.end_date && d.end_date < d.start_date) {
       toast('End date can’t be before the start date', 'err'); return
     }
@@ -417,7 +418,7 @@ function ScheduleShell() {
                   <label className="mchk"><input type="checkbox" checked={mobDraft.is_go_back} onChange={e => setMobDraft(p => ({ ...p, is_go_back: e.target.checked }))} /> Is this go-back work?</label>
                 </div>
                 <div className="mfr">
-                  <input placeholder="Trip label (optional)" value={mobDraft.label} onChange={e => setMobDraft(p => ({ ...p, label: e.target.value }))} />
+                  <input aria-label="Trip title" required placeholder="Trip title (required)" value={mobDraft.label} onChange={e => setMobDraft(p => ({ ...p, label: e.target.value }))} />
                 </div>
                 <div className="mfr">
                   <input type="date" value={mobDraft.start_date} onChange={e => setMobDraft(p => ({ ...p, start_date: e.target.value }))} />

@@ -1,0 +1,49 @@
+SC Handoff v255 — Trip ownership / 10262 repair — 2026-09-10
+
+SESSION SUMMARY
+B113 released, app PR46 d2ee2af and DB PR1 8bde5a1. Vercel production succeeded.
+Chris then requested mandatory trip titles and future assignment links: B114 is
+now active on codex/require-titled-trips. Continue that current request.
+
+CHANGES SHIPPED
+Trip reads use assignment.mobilization_id only; never infer links from dates.
+Crew Schedule excludes synthetic parent-date rows (including parent-only jobs).
+Saved trips share normal edit/delete controls; unlinked crew stays visible.
+New board assignments require a saved trip. Whole-job / actual-work guards remain.
+Migration 20260910190000 scopes trip deletion to linked crew; job-wide deletion
+still considers every assignment. Six concurrency checks and DB gates passed.
+
+LIVE REPAIR — DO NOT REPEAT
+Job10262 / job_id1279: deleted empty Sep14–16 trip
+62fc6ad1-a123-4b34-a635-52146191f8a1. Created Flake Floor Sep17–19 trip
+c0232d75-ac61-4462-8ef0-deb3dac47248. Linked assignments14898–14906, preserving
+all nine IDs, people, dates and other fields. Daniel Luna, Jacob Medina, Jorge
+Ramirez each remain Sep17/18/19. Transaction checks + audit; exact rehearsal passed.
+Canonical DB scripts/repairs/job10262_trip_ownership.sql records authorized action.
+Job10088 read only: job1179 has zero trips, eight Sep14–17 crew days Darrin/Jesse
+Ary, four August Adam Little days. No 10088 data changed.
+
+VERIFICATION
+Final Vercel preview g67tprjqb tested through full deployed bundle with intercepted
+Supabase traffic: 10262 empty-trip deletion, matching dates without ownership,
+nine preserved days, staffed sibling block, no phantom parent, 10088 duplicate
+removed. Screenshots inspected. Phone dialog fits; full mobile board navigation
+NOT certified (desktop-width board can obscure buttons). Local model, trip,
+overlap and deletion browser regressions + focused lint + build passed.
+Some previous tests expected date inference and synthetic parents: updated those
+expectations to explicit ownership, preserving original job dates as reference.
+
+DECISIONS / REMAINING
+Job schedule was a synthetic row, NOT the default name of an unnamed saved trip.
+Do not restore the inference to mask unlinked crew. No mandatory DB trip link or
+label rule in B113; B114 now requested. Imports / legacy writers and historical
+cleanup were explicitly excluded by yesterday PR45; do not claim all repaired.
+7215 wrong-trip dates and SOW-1 remain separate. No other live repair authorized.
+Chris requires Vercel preview for every build (CLAUDE.md, ad3263f).
+Use latest preview links; immutable older URLs keep old bugs. User saw old
+4rztssxt9 preview and was given g67tprjqb after reporting phantom rows.
+
+GIT
+Canonical app main includes d2ee2af. Canonical DB main clean at8bde5a1.
+Isolated DB checkout /private/tmp/command-suite-db-trip-owned preserved.
+Feature branches retained; current B114 app branch codex/require-titled-trips.

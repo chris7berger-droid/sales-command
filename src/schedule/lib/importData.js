@@ -116,6 +116,15 @@ export async function applyImport({ jobsRaw, assignmentsRaw, billingLogRaw, crew
   // qualifying proposals) — surfaced so the user can review, not guessed (A-14.1).
   const review = []
 
+  // YESv2 crew rows have only JobID/name/date, never a trip identity or title.
+  // Stop BEFORE crew/job inserts, rather than leave a partially applied import.
+  if ((assignmentsRaw || []).some(row => {
+    const assignment = transformAssignment(row)
+    return assignment && Object.prototype.hasOwnProperty.call(mapping, assignment._oldJobId)
+  })) {
+    return { ok: false, counts, error: 'This legacy crew file has no trip titles or trip links. Crew import cannot be applied. Create titled trips and assign crew in Crew Schedule; no records were imported.' }
+  }
+
   // 1) crew first (FK parent). Upsert ignore-duplicates so names already in the
   //    tenant's crew list don't error and aren't clobbered.
   const crew = deriveCrew(assignmentsRaw, crewStatusRaw)

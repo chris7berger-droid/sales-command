@@ -1444,6 +1444,7 @@ export async function getNextMobSeq(jobId) {
 // can't collide with a seq that lives only on tagged days. is_go_back distinguishes
 // a tracked return trip (+ Add Go Back) from rescheduled sold work (+ Add trip).
 export async function addJobMobilization(jobId, { seq, label, start_date, end_date, is_go_back, crew_needed, lead, vehicle, equipment, power_source, sow, note }, changedBy, source = 'schedule_mobs') {
+  if (!String(label ?? '').trim()) return { data: null, error: new Error('Enter a trip title before saving.') }
   const jid = parseInt(jobId)
   // add-job-dedup N1: a mobilization must attach to a Sales-linked job. Refuse if
   // the parent has a null call_log_id (a phantom/unallocated orphan). Lives INSIDE
@@ -1467,7 +1468,7 @@ export async function addJobMobilization(jobId, { seq, label, start_date, end_da
   const { data, error } = await supabase
     .from('job_mobilizations')
     .insert({
-      job_id: jid, seq, label: label || null,
+      job_id: jid, seq, label: label.trim(),
       start_date: start_date || null, end_date: end_date || null, is_go_back: !!is_go_back,
       // Per-allocation detail (B87). Null on any field = inherit the job's own value.
       crew_needed: crew_needed ?? null, lead: lead || null, vehicle: vehicle || null,
@@ -1482,10 +1483,11 @@ export async function addJobMobilization(jobId, { seq, label, start_date, end_da
 // Edit a mobilization's dates/details (never seq or is_go_back — identity
 // and go-back classification are fixed at creation). Logs the label change.
 export async function updateJobMobilization(jobId, mobRow, { label, start_date, end_date, crew_needed, lead, vehicle, equipment, power_source, sow, note }, changedBy, source = 'schedule_mobs') {
+  if (!String(label ?? '').trim()) return { data: null, error: new Error('Enter a trip title before saving.') }
   const jid = parseInt(jobId)
   // Only overwrite an operational field when the caller actually passed it — an
   // omitted key leaves the stored value alone (edit-a-date must not wipe crew/scope).
-  const patch = { label: label || null, start_date: start_date || null, end_date: end_date || null }
+  const patch = { label: label.trim(), start_date: start_date || null, end_date: end_date || null }
   if (crew_needed !== undefined)  patch.crew_needed  = crew_needed ?? null
   if (lead !== undefined)         patch.lead         = lead || null
   if (vehicle !== undefined)      patch.vehicle      = vehicle || null

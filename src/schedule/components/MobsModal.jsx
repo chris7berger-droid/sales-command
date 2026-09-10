@@ -122,6 +122,7 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, initia
 
   async function saveDraft() {
     if (!draft || busy) return
+    if (!String(draft.label ?? '').trim()) { setError('Enter a trip title before saving.'); return }
     // Validate the range (the <input min> is only a hint, T5 #3): a bad end can't persist.
     if (draft.start_date && draft.end_date && draft.end_date < draft.start_date) {
       setError('End date can’t be before the start date.')
@@ -238,13 +239,13 @@ export default function MobsModal({ job, mobs = [], initialEditId = null, initia
 
   // The existing editor handles both entry points; identity and crew-day links stay fixed.
   function renderEditor() {
-    const fields = [['label', 'Trip label', 'text'], ['start_date', 'Start date', 'date'], ['end_date', 'End date', 'date'], ['crew_needed', 'Crew needed', 'number'], ['vehicle', 'Vehicle', 'text'], ['equipment', 'Equipment', 'text'], ['power_source', 'Power source', 'text']]
+    const fields = [['label', 'Trip title', 'text'], ['start_date', 'Start date', 'date'], ['end_date', 'End date', 'date'], ['crew_needed', 'Crew needed', 'number'], ['vehicle', 'Vehicle', 'text'], ['equipment', 'Equipment', 'text'], ['power_source', 'Power source', 'text']]
     return <div key={`edit-${draft.id ?? 'new'}`} className="mobs-row" style={{ display: 'block', borderLeftColor: 'var(--command-green)' }}>
       <h4 style={{ margin: '0 0 12px' }}>Trip {draft.id ? displayNumbers.get(draft.id) : rows.length + 1}{draft.is_go_back ? ' · Go back' : ''}</h4>
       <p style={{ fontSize: 12, color: 'var(--text-light)' }}>Leave crew, vehicle, equipment, power source, or scope blank to use the job’s value. Assign individual crew members in Crew Schedule.</p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
         {fields.map(([field, label, type]) => <label key={field} style={lbl}>{label}
-          <input aria-label={label} type={type} disabled={busy} min={type === 'number' ? 0 : field === 'end_date' ? draft.start_date || '' : undefined} step={type === 'number' ? 1 : undefined} value={draft[field] ?? ''} onChange={e => setDraft(d => ({ ...d, [field]: e.target.value }))} style={{ ...inp, width: '100%', display: 'block', marginTop: 4 }} />
+          <input aria-label={label} required={field === 'label'} type={type} disabled={busy} min={type === 'number' ? 0 : field === 'end_date' ? draft.start_date || '' : undefined} step={type === 'number' ? 1 : undefined} value={draft[field] ?? ''} onChange={e => setDraft(d => ({ ...d, [field]: e.target.value }))} style={{ ...inp, width: '100%', display: 'block', marginTop: 4 }} />
         </label>)}
         <label style={lbl}>Lead
           <select aria-label="Lead" value={draft.lead || ''} disabled={busy || !crewLoaded || !!crewError} onChange={e => setDraft(d => ({ ...d, lead: e.target.value }))} style={{ ...inp, width: '100%', display: 'block', marginTop: 4 }}>

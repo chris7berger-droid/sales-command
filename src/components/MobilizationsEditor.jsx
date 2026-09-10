@@ -70,6 +70,8 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
   // never sits ahead of the DB, and surface the message (audit #1). Every optimistic
   // hop also fires onChange so the parent WTC's day dropdown tracks the same list.
   async function persist(next) {
+    if (next.some(m => !String(m.label ?? '').trim())) { setError('Enter a trip title before saving.'); return; }
+    next = next.map(m => ({ ...m, label: m.label.trim() }));
     const ids = new Set(), seqs = new Set();
     for (const m of next) {
       if (ids.has(m.id) || seqs.has(m.seq)) { setError("Duplicate mobilization id/seq — not saved."); return; }
@@ -104,6 +106,7 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
   // Save the row being edited: persist the whole array, collapse to the summary
   // view, and flash a per-row ✓. persist() handles the write + error-revert.
   function saveRow(id) {
+    if (mobs.some(m => !String(m.label ?? '').trim())) { setError('Enter a trip title before saving.'); return; }
     persist(mobs);
     setEditingId(null);
     setJustSavedId(id);
@@ -132,6 +135,11 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
       "Standard job uses a single mobilization. Trips 2+ will be removed and every field-SOW day tagged to Mob 1. Continue?"
     )) return;
     const mob = mobs[0] || { id: uid(), seq: 1, label: "", start_date: null, end_date: null };
+    if (!String(mob.label ?? '').trim()) {
+      setMobs([mob]); setEditingId(mob.id); setMultiMode(true);
+      setError('Enter and save a trip title, then select Standard job.');
+      return;
+    }
     setMultiMode(false);
     setEditingId(null);
     // 1. Collapse the proposal's mobilization list to just this one (persist + onChange).
@@ -238,7 +246,7 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>Label</div>
-                <input autoFocus value={mob.label || ""} placeholder="e.g. Prep & mask" onChange={e => setField(mob.id, "label", e.target.value)} style={{ ...inp, width: "100%" }} />
+                <input autoFocus aria-label="Trip title" required value={mob.label || ""} placeholder="Trip title (required), e.g. Prep & mask" onChange={e => setField(mob.id, "label", e.target.value)} style={{ ...inp, width: "100%" }} />
               </div>
               <div style={{ width: 130, flexShrink: 0 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>Start</div>

@@ -281,6 +281,15 @@ This applies to both the CallLog wizard upload and CallLogDetail upload.
 8. Whenever we do a build, deploy and check the Vercel preview before merging or
    releasing. A successful local build alone is not enough; inspect the affected
    app flow in the preview. (Chris, 2026-09-10.)
+9. Before giving a time estimate, read the relevant code and identify what already
+   exists. Estimate only the remaining changes and required verification, using
+   expected agent elapsed time rather than generic human development hours. State
+   the endpoint (e.g. tested preview versus production release) and name specific
+   uncertainties instead of adding blanket padding. Re-estimate from the actual
+   scope when evidence changes; do not stay anchored to an earlier number. Use
+   observed completion times to calibrate future estimates without skipping checks.
+   (Chris, 2026-09-10: the Sales Trips change took under 20 minutes to a verified
+   preview after an inflated hours-long estimate counted existing functionality.)
 
 ## Key File Locations
 

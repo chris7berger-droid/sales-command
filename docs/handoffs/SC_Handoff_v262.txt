@@ -32,8 +32,8 @@ Schedule fields preserved. Exactly25 archived Sales metadata records restored.
 Chris-authenticated reads return all49 repaired job→Sales joins and saved trips.
 K7job1054→Sales3901:two trips/six crew rows Sep7–13.
 DaveLeejob1278→Sales3847:one trip/one crew row Sep7–13.
-Kalb historical rows→Sales3903. Actual screen acceptance still awaits refresh;
-no claim that an automated browser inspected the post-repair live screen.
+Kalb historical rows→Sales3903. Chris subsequently confirmed: "confirmed warnings are gone" on his actual
+Crew Schedule. This is user visual acceptance; no automated browser claim.
 
 NOT TOUCHED
 No crew reassigned, dates changed, trip recreation, proposals/invoices/amounts
@@ -56,3 +56,6 @@ GIT STATE
 App feat/sales-trips-direct-send / PR49 remains unmerged.
 DB fix/historical-sales-links has applied repair0c49c1c and release documentation.
 No schema migration required; live data repair was executed from canonical DB repo.
+
+Release record: DB PR5 https://github.com/chris7berger-droid/command-suite-db/pull/5
+User acceptance closes verification of the49 applied matches, not the11 exceptions.

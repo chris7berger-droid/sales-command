@@ -1,0 +1,98 @@
+SC Handoff v263 — Sales Trips release and session closeout — 2026-09-10
+
+SESSION SUMMARY
+Chris confirmed "warnings are gone" and authorized wrap-up/branch maintenance.
+App PR49 merged c3d7506; production Vercel deployment is Ready on scmybiz.com.
+DB PR4 access fix and PR5 historical Sales repair are merged and applied live.
+The current release is finished. B118 remains OPEN for eleven explicit exceptions;
+this is not a claim that every historical Sales identity has been reconciled.
+Handoff v263 supersedes v258-v262's pending-release/branch pointers.
+
+CHANGES SHIPPED
+B116: Sales WTC Mobilizations labels now read Trips. Multiple trips with distinct
+Field SOW remain supported. Send to Schedule validates and sends directly,
+without the review modal; single-trip defaults and real validation remain.
+Only Field SOW transfers into Schedule. Customer-facing Sales SOW stays in Sales.
+Schedule Field SOW now displays the daily scope notes already transferred.
+The separate trip Scope / SOW summary remains MANUAL, per Chris.
+Crew cards show only the job number beside weekday dots; name suffix removed.
+B117 / DB MOB-3: trip access uses owning job tenant, so saved historical trips
+are visible even before a missing Sales identity is reconciled. Applied live.
+B118 / DB MOB-4: 49 historical Schedule records linked to their actual Sales
+identities: 14 existing Sales records and 25 archived records serving 35 rows.
+Includes Dave Lee 10252, K7 6665 and Kalb 6814. No trips or crew recreated.
+
+DECISIONS / CHRIS'S REQUIREMENTS
+Keep technical work focused; no unsolicited UI/workflow changes or repeated tests.
+CLAUDE rule9: estimate remaining work after inspecting existing implementation,
+using observed agent elapsed time and a clearly stated endpoint, not blanket padding.
+CLAUDE rule10: completion claims must match the agreed outcome. Distinguish built,
+applied, authenticated visibility and user acceptance; name unresolved cases.
+Read handoffs and locked decisions before reopening questions or repeating work.
+v257 now carries a scope correction: B115 crew-to-trip conversion really happened,
+but its broad closure missed Sales links and authenticated trip visibility.
+Do not rerun B115 or the 49 completed B118 repairs. Do not hide unresolved warnings.
+1111 Shop Work is an ALREADY-DECIDED internal overhead type, not an unknown customer.
+Its design document says implementation is not built. Do not ask Chris to identify
+1111 again. No automatic merging of Schedule jobs or guessing the keeper.
+
+NEW/CLOSED BACKLOG ITEMS
+B116 CLOSED: PR49 and production release complete. B117 CLOSED: DB PR4/live fix.
+B118 OPEN: only the remaining three Shop Work entries and eight customer matches.
+Known Shop Work Schedule IDs: 998, 1219, 1260 (number 1111).
+Remaining customer identities (Schedule ID / legacy number / reason):
+1082 / 6488 CO3: no matching CO3; base archive has different customer context.
+1005 / 6507CO: change-order number unspecified; several actual COs exist.
+1024 / 6977: archive variants disagree on job/scope identity.
+1235 / 7095 & 6550: one Schedule entry names two Sales jobs.
+1147 / 7234: archive variants have conflicting customers.
+1200 / 7366: Greg Job versus archive training-job identity mismatch.
+1144 / 7431: Contract Flooring versus archive Lepori identity mismatch.
+1275 / 10037: no matching active or archived Sales record found.
+Broader SOW-1, F42/F43 redesign and existing off-trip-date follow-ups remain separate.
+No automatic work on these items next session; wait for Chris's task.
+
+VERIFICATION
+Prior focused build/send/date/preview checks passed for B116. Scope-note rendering
+and preservation verified in deployed fixtures; live source comparison matched.
+Latest crew-card change built successfully and appears in Chris's deployed screenshot.
+B118 production-snapshot rehearsal passed preservation, final-write rollback and
+repeat no-op. Fresh pre-apply data matched the rehearsal. Independent live
+comparison preserved all 302 trips and 3,379 assignments, original Sales/customer/
+archive records, and every other Schedule field except normal updated_at.
+All 49 repaired Sales joins readable under Chris's authenticated role. He confirmed
+actual Crew Schedule warnings are gone. This is user acceptance, not a fixture claim.
+App PR49 checks passed; merge c3d7506 deployed to production Ready:
+dpl_E2r1sd5NFMzzMhPCMWny1SYQtY2s
+https://sales-command-cbqsotf8t-chris7berger-droids-projects.vercel.app
+Vercel aliases include scmybiz.com and www.scmybiz.com.
+No extra application suite reruns for documentation/cleanup.
+
+NOT TOUCHED
+No crew rescheduled/deleted, trip/date/scope edits, automatic job consolidation,
+new proposals/invoices/financial totals/customers, or Shop Work implementation.
+Archive restorations retain source UUID and qb_skip_sync=true.
+Unrelated branches and parked worktrees preserved.
+
+NEXT SESSION POINTERS
+Read CLAUDE.md, BACKLOG and this handoff; wait for Chris. Safe to close terminal.
+Both canonical repositories are on main. Completed feature/repair branches removed
+locally and on GitHub; two temporary DB worktrees removed. Vite preview on port5194
+stopped. No active repair or test process is required for the deployed behavior.
+Private before/after snapshots remain under /private/tmp; never commit customer data.
+Do not depend on temporary paths to remember remaining work: IDs/reasons are above.
+
+FILES TO KNOW
+src/components/ProposalDetail.jsx; MobilizationsEditor.jsx; src/pages/WTCCalculator.jsx.
+src/schedule/components/FieldSowBuilder.jsx; src/schedule/views/Schedule.jsx.
+CLAUDE.md Workflow Rules9-10; docs/plans/shop_work_overhead_type.md.
+Canonical DB scripts/repairs/historical_sales_links.sql and
+scripts/rehearse-historical-sales-links.mjs; DB handoff v10.
+
+GIT STATE
+App PR49: https://github.com/chris7berger-droid/sales-command/pull/49 (MERGED).
+DB PR5: https://github.com/chris7berger-droid/command-suite-db/pull/5 (MERGED fee1210).
+DB PR4 already merged967622e; applied access migration20260910230000.
+App main includes c3d7506; DB main includes fee1210. This docs-only closeout follows.
+Removed app feat/sales-trips-direct-send and DB fix/historical-sales-links /
+fix/trip-access-job-tenant. App remote branch was already auto-deleted after merge.

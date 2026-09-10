@@ -1,6 +1,6 @@
 SC Handoff v260 — trip warning root cause — 2026-09-10
 
-B117 / DB MOB-3 prepared, NOT deployed. Corrects v259's stale-tab hypothesis.
+B117 / DB MOB-3 DEPLOYED with Chris's approval. Corrects v259's stale-tab hypothesis.
 Production contains B115 trip code. Old jobs with null call_log_id have saved
 trips, but job_mobilizations RLS requires a Sales join and hides them from users.
 Live authenticated reproduction: jobs1054/1278 visible=2, trips visible=0.
@@ -22,8 +22,11 @@ Browser checks have NOT passed; don't claim deployed success. Failures were
 fixture JSON formatting and production www redirect, not application failures.
 See DB CSDB_Handoff_v8 for exact verification/release pointers.
 
-Await approval to apply this shared production access-rule change. Afterwards
-verify actual authenticated trip reads and ask Chris to confirm his displayed week.
+Chris approved applying this shared production access-rule change. The normal
+gated db:push applied only migration 20260910230000. Live authenticated reads
+now return all three trips on jobs1054/1278 with their seven September7–13 crew
+assignments. Asked Chris to reload for visual acceptance. DB release commit
+694600c records the baseline and deployment; DB PR4 is the release record.
 Do not redo historical conversion, touch crew records, or expand to other RLS.
 B116 PR49 and the verified scope-note fix remain pushed but unmerged as in v259.
 Crew trip SOW summary stays manual.

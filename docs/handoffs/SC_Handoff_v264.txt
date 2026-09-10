@@ -1,0 +1,54 @@
+SC Handoff v264 — Phone schedule sharing released — 2026-09-10
+
+SESSION SUMMARY
+Chris approved launch after his other work finished. PR50 merged 4b01cda;
+production is Ready. Short phone address: https://scmybiz.com/crew.
+Supersedes v263-crew-phone's pending-review/no-release instructions.
+
+CHANGES SHIPPED
+Standalone phone page outside the desktop shell, with direct-link login,
+week/person selection, daily schedule cards, leads, day/trip coworkers,
+addresses, default shop start and delayed starts. Share/Copy uses the existing
+canonical weekly-message text. Return/focus refresh preserves meeting edits.
+Both /crew and /crew-texts work. User chooses contacts and sends in Messages.
+
+DECISIONS
+One-week bridge while Field Command is completed. No Twilio, new PDF output,
+desktop redesign, migrations, live assignment changes or automatic sending.
+AppShell, sidebar, board, original Schedules view and Schedule CSS match the
+completed PR49/main exactly. Latest main was merged into the phone branch;
+the only conflict was BACKLOG, resolved preserving both sets of notes.
+Chris requested focused checks and explicitly authorized release despite being
+unable to access the Vercel-protected preview from his phone.
+
+BACKLOG
+F61 temporary sharing is released. Native iPhone Messages/user acceptance is
+still a device check; do not describe fixtures as actual crew delivery.
+B118's eleven historical exceptions and other deferred work remain separate.
+
+VERIFICATION
+Final app candidate 541205f: build/focused lint passed; one real-entry browser
+check on the deployed preview passed login + /crew week preservation, phone
+layout, exact share/copy payload, data refresh, failure/stale guards, desktop
+rendering and Schedule entitlement. API/native share calls were intercepted.
+Prior weekly-message model checks passed; no expanded regression suite.
+Final preview: sales-command-rf87ica1t-chris7berger-droids-projects.vercel.app
+Production: dpl_2wLkiYyeexfBKEvZQStF6AeVzMRf, Ready, merge 4b01cda; aliases
+include scmybiz.com and www.scmybiz.com. A fresh browser visit to scmybiz.com/crew
+returned 200 and rendered standalone phone login, preserving /crew without
+Vercel approval or desktop shell. No live login or crew messages sent by agent.
+
+NEXT
+Chris opens scmybiz.com/crew in Safari, signs in, selects a person/week and
+tries Share week or Copy week into Messages. Await his feedback; no old work
+resumed automatically. Desktop callers continue using their existing routes.
+
+FILES TO KNOW
+src/schedule/views/CrewPhone.jsx; src/App.jsx (additive routes only);
+src/schedule/lib/crewWeekText.js; scripts/check-crew-phone.mjs.
+
+GIT STATE
+PR50 merged; zero open app PRs at release. Remote feature branch auto-deleted.
+Main checkout fast-forwarded to production; this docs-only closeout follows.
+Completed local phone branch is being retired with its checkout retained
+detached; unrelated parked branches/worktrees are preserved.

@@ -91,8 +91,15 @@ try {
  assert.equal(await page.locator('[data-trip-row="job"]').count(),0)
  const unique=new Set(original.assignments.filter(a=>a.job_id===holland.job_id&&a.date>='2026-09-14'&&a.date<='2026-09-19').map(a=>a.crew_name)).size
  assert.match(await row.locator('.sch-brd-crew-info').innerText(),new RegExp(`${unique}/`))
+ for(let i=0;i<6;i++) {
+  const date=`2026-09-${14+i}`
+  const expected=new Set(original.assignments.filter(a=>a.mobilization_id===active.id&&a.date===date).map(a=>a.crew_name)).size
+  const cell=row.locator('.sch-brd-cell').nth(i)
+  assert.equal(await cell.locator('.sch-brd-cnt').count(),expected?1:0)
+  if(expected)assert.equal(Number(await cell.locator('.sch-brd-cnt').innerText()),expected)
+ }
  await row.locator('.sch-brd-job-label').click()
- await row.screenshot({path:'/private/tmp/legacy-trips-7380-crew.png'})
+ await page.screenshot({path:'/private/tmp/legacy-trips-7380-crew.png',fullPage:true})
  assert.deepEqual(errors,[])
  console.log(`PASS deployed bundle: 10088/7380 dates, chronological titles, reminder, no load writes, blank-title block, rename retains all ${snapshot.assignments.length} crew rows/links, staffed Crew Schedule row.`)
 } catch(e) {console.error((await page.locator('body').innerText()).slice(0,2500));throw e} finally {await browser.close()}

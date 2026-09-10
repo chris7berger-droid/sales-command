@@ -42,6 +42,10 @@ export function crewWeekRows(jobs, allocations, assignments, start, end) {
   const rows = jobs.flatMap(job => {
     const active = ['Scheduled', 'In Progress', 'On Hold', 'Ongoing'].includes(getJobStatus(job))
     return crewScheduleRows(job, allocations[job.job_id], week, start, end)
+      // Job dates are reference data, not another crew trip. Legacy assignments
+      // already have their own visible row; an empty parent row cannot be staffed
+      // or deleted as a trip and creates a misleading duplicate (job 10088).
+      .filter(row => !row.trip.parent)
       .filter(row => row.assignments.length || (active && row.ranges.length && overlapsWeek(row.ranges, start, end)))
       .map(row => ({ ...row, issue: !active ? 'Crew remains assigned to a job outside the active schedule.'
         : row.assignments.some(a => a.mobilization_id && !inRange(row.ranges, a.date))

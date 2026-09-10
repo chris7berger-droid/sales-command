@@ -22,7 +22,7 @@ function reset(kind = 'multi', status = 'Sold') {
     tax_rate: 0, regular_hours: 24, ot_hours: 0, markup_pct: 0, size: 800, unit: 'SQFT', materials: [], travel: {}, discount: 0,
     start_date: null, end_date: null, dates_tbd: true, sales_sow: `Customer-facing scope ${i}`,
     field_sow: kind === 'empty' ? [] : [{ id: `day-${i}`, day_label: `Day ${i + 1}`, date: null,
-      mobilization_id: kind === 'single' ? null : trips[i].id, scope_notes: `Crew instructions ${i}`, crew_count: 3, hours_planned: 24,
+      mobilization_id: kind === 'single' ? null : trips[i].id, scope_notes: `Crew instructions ${i}\nKeep this day's scope with its trip.`, crew_count: 3, hours_planned: 24,
       sq_ft: 800, linear_ft: 50, tasks: [{ id: `task-${i}`, description: i ? 'Apply finish' : 'Prepare floor', pct_complete: 100 }], materials: [],
     }],
   }))
@@ -55,7 +55,7 @@ await page.route('**/*', async route => {
   if (url.pathname.startsWith('/storage/')) return send([])
   const matches = row => [...url.searchParams].every(([k, v]) => v.startsWith('eq.') ? String(row[k]) === v.slice(3) : v.startsWith('neq.') ? String(row[k]) !== v.slice(4) : v === 'is.null' ? row[k] == null : v.startsWith('in.') ? v.slice(4, -1).split(',').includes(String(row[k])) : true)
   if (req.method() !== 'GET' && req.method() !== 'HEAD') {
-    assert(['jobs', 'job_wtcs', 'job_mobilizations', 'call_log', 'proposals', 'proposal_wtc'].includes(table), `Unexpected write ${table}`)
+    assert(['jobs', 'job_wtcs', 'job_mobilizations', 'job_changes', 'call_log', 'proposals', 'proposal_wtc'].includes(table), `Unexpected write ${table}`)
     const payload = req.postDataJSON()
     writes.push({ table, method: req.method(), payload })
     if (req.method() === 'PATCH') {
@@ -66,6 +66,7 @@ await page.route('**/*', async route => {
       const rows = (Array.isArray(payload) ? payload : [payload]).map((r, i) => ({ ...r,
         ...(table === 'jobs' ? { job_id: 1280, id: 1280, deleted: 'No', tenant_id: tenant, call_log: db.call_log[0] } : { id: r.id || `${table}-${i}` }),
       }))
+      db[table] ||= []
       db[table].push(...rows); return send(single ? rows[0] : rows)
     }
     return send([])
@@ -141,6 +142,24 @@ try {
       assert((await page.locator('.job-trips').innerText()).includes('Preparation'))
       assert((await page.locator('.job-trips').innerText()).includes('Finish'))
       await page.locator('.job-trips').screenshot({ path: '/private/tmp/sales-trips-schedule.png' })
+      await page.getByRole('button', { name: 'PLANNING', exact: true }).click()
+      await page.locator('.sjc-score').filter({ has: page.getByText('SOW', { exact: true }) }).click()
+      const builder = page.locator('.fsb-wrap')
+      await builder.waitFor()
+      const firstScope = db.job_wtcs[0].field_sow[0].scope_notes
+      assert.equal(await builder.locator('.fsb-day-scope-notes > div').last().textContent(), firstScope)
+      assert.equal(await builder.locator('.fsb-day-scope-notes > div').last().evaluate(el => getComputedStyle(el).whiteSpace), 'pre-wrap')
+      assert(!(await builder.innerText()).includes('Customer-facing scope'))
+      await page.locator('.mdl').screenshot({ path: '/private/tmp/sales-trips-schedule-scope.png' })
+      await builder.locator('input[type=date]').fill('2026-10-12')
+      await builder.getByRole('button', { name: 'Save Field SOW', exact: true }).click()
+      await builder.getByRole('button', { name: '✓ Saved', exact: true }).waitFor()
+      assert.equal(db.job_wtcs[0].field_sow[0].scope_notes, firstScope)
+      assert.equal(db.job_wtcs[0].field_sow[0].mobilization_seq, 1)
+      await page.locator('.mdl').getByRole('button', { name: 'Coating', exact: true }).click()
+      assert.equal(await builder.locator('.fsb-day-scope-notes > div').last().textContent(), db.job_wtcs[1].field_sow[0].scope_notes)
+      assert(!(await builder.innerText()).includes('Crew instructions 0'))
+      assert.deepEqual(db.proposal_wtc, original.wtcs)
       assert.deepEqual(errors, [])
     }
   }

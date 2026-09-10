@@ -389,6 +389,13 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
             <button className="fsb-remove-day" onClick={() => removeDay(day.id)} title="Remove day">×</button>
           </div>
 
+          {day.scope_notes && (
+            <div className="fsb-tasks fsb-day-scope-notes">
+              <div className="fsb-label">Scope Notes</div>
+              <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{day.scope_notes}</div>
+            </div>
+          )}
+
           <div className="fsb-tasks">
             {(day.tasks || []).map((task, ti) => {
               const committed = getCommittedPct(task.description, day.id)

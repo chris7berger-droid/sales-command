@@ -1,0 +1,58 @@
+SC Handoff v262 — historical Sales repair applied — 2026-09-10
+
+SESSION SUMMARY
+Chris's latest screenshot still showed job triangles because B118 had not been
+applied. Resumed and applied the49-record repair. This is now LIVE DATA, not
+just a branch or documentation change. Eleven exceptions remain; B118 stays open.
+
+CHANGES SHIPPED
+49 historical Schedule rows now reference Sales:14 existing Sales records and
+25 restored archive Sales records serving35 rows. Includes DaveLee10252,
+K76665 and historicalKalb6814. DB implementation0c49c1c on
+fix/historical-sales-links. No app implementation changes in this step.
+B116 appPR49 remains unmerged; latest user screenshot shows the requested
+job-number-only crew labels on deployed preview cdgf9y50d.
+
+DECISIONS
+Keep trip SOW summary manual. Do not rerun the completed B115 conversion.
+Do not hide warnings or guess remaining identities. No automatic job merging.
+1111 Shop Work is already a settled overhead decision, not an unknown customer.
+
+NEW/CLOSED BACKLOG ITEMS
+B118 remains IN PROGRESS for three Shop Work records and eight ambiguous/missing
+customer matches.49 clear matches are now applied and verified at the database.
+B117 trip-access fix remains live. B116/PR49 stays separate from this data repair.
+
+VERIFICATION
+Focused production-snapshot rehearsal passed: complete preservation, forced
+final-audit failure rolls back imports/links, repeat no-op. Fresh pre-apply data
+matched the rehearsal exactly. Live after comparison confirms all302 trips and
+3379 assignments unchanged; existing Sales/customer/archive records and other
+Schedule fields preserved. Exactly25 archived Sales metadata records restored.
+Chris-authenticated reads return all49 repaired job→Sales joins and saved trips.
+K7job1054→Sales3901:two trips/six crew rows Sep7–13.
+DaveLeejob1278→Sales3847:one trip/one crew row Sep7–13.
+Kalb historical rows→Sales3903. Actual screen acceptance still awaits refresh;
+no claim that an automated browser inspected the post-repair live screen.
+
+NOT TOUCHED
+No crew reassigned, dates changed, trip recreation, proposals/invoices/amounts
+or customers created. Restored Sales records retain source archive UUID and
+qb_skip_sync=true. No Shop Work workflow redesign or automatic Combine.
+
+NEXT SESSION POINTERS
+Read current BACKLOG. Do not repeat repairs for these49. DB handoffv9 is the
+release record; private snapshots historical-sales-preapply.json and
+historical-sales-after.json contain exact live before/after evidence.
+Remaining customer Schedule IDs1082,1005,1024,1235,1147,1200,1144,1275;
+Shop Work IDs998,1219,1260. See v261 for identity details and scope correction.
+
+FILES TO KNOW
+DB scripts/repairs/historical_sales_links.sql;
+scripts/rehearse-historical-sales-links.mjs; docs/handoffs/CSDB_Handoff_v9.txt.
+App CLAUDE.md rule10 and docs/BACKLOG.md B118.
+
+GIT STATE
+App feat/sales-trips-direct-send / PR49 remains unmerged.
+DB fix/historical-sales-links has applied repair0c49c1c and release documentation.
+No schema migration required; live data repair was executed from canonical DB repo.

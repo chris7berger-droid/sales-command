@@ -81,3 +81,10 @@ Branch feat/sales-trips-direct-send; PR49 targeting main:
 https://github.com/chris7berger-droid/sales-command/pull/49
 App commit bc84347; this tests/docs closeout follows it. Branch pushed.
 Main/production remain at the prior B115 release and documentation closure.
+
+ADDENDUM — ESTIMATION INSTRUCTION
+Chris reported the build took under 20 minutes and asked to retain the lesson.
+Added CLAUDE.md Workflow Rule 9 (f342be8): inspect existing code first, estimate
+remaining work plus verification to a stated endpoint, name uncertainty instead
+of padding, and calibrate against actual agent elapsed time.
+Docs only, included on the same PR49 branch; app/preview code unchanged.

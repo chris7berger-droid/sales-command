@@ -3,8 +3,8 @@ import { crewWeekSummary } from '../src/schedule/lib/crewWeekSummary.js'
 const dates = ['2026-10-12','2026-10-13','2026-10-14','2026-10-15','2026-10-16','2026-10-17']
 const job = {job_id:1,call_log_id:10,crew_needed:4,start_date:'2026-08-03',end_date:'2026-08-05'}
 const trip = {id:'a',seq:1,label:'Return trip',start_date:dates[0],end_date:dates[1],crew_needed:4}
-const rows = [0,1,2].map(n=>({job_id:1,date:dates[0],crew_name:`Person ${n}`}))
-rows.push(...[0,1].map(n=>({job_id:1,date:dates[1],crew_name:`Person ${n}`})),rows[0])
+const rows = [0,1,2].map(n=>({job_id:1,mobilization_id:"a",date:dates[0],crew_name:`Person ${n}`}))
+rows.push(...[0,1].map(n=>({job_id:1,mobilization_id:"a",date:dates[1],crew_name:`Person ${n}`})),rows[0])
 let result = crewWeekSummary([job],{1:[trip]},rows,dates)
 assert.equal(result.starting.length,1)
 assert.equal(result.ending.length,1)
@@ -42,7 +42,7 @@ assert.equal(result.needing.length,0)
 console.log('Crew week summary: return trips, parent plans, deduplication, daily shortages, zero/inherit/unknown and overlap checks passed.')
 // A missing target is not missing crew (10062 preview feedback).
 const historicalDates=['2026-08-31','2026-09-01','2026-09-02','2026-09-03']
-const historicalCrew=historicalDates.flatMap((date,index)=>Array.from({length:index===3?3:2},(_,n)=>({job_id:1081,date,crew_name:`Crew ${n}`})))
+const historicalCrew=historicalDates.flatMap((date,index)=>Array.from({length:index===3?3:2},(_,n)=>({job_id:1081,mobilization_id:"schommers",date,crew_name:`Crew ${n}`})))
 result=crewWeekSummary([{job_id:1081,call_log_id:3521,crew_needed:null}],{1081:[{id:'schommers',seq:4,start_date:historicalDates[0],end_date:historicalDates[3],crew_needed:null}]},historicalCrew,historicalDates)
 assert.equal(result.needing.length,0,'Missing historical target must not claim a shortage')
 assert.deepEqual(result.unknown[0].details.map(d=>d.assigned),[2,2,2,3],'Keep the recorded staffing visible')
@@ -50,13 +50,13 @@ console.log('PASS historical missing targets preserve recorded crew counts and d
 
 // Per-trip assignment identity: filling one trip must not fill its sibling.
 const overlapTrips=[{...trip,crew_needed:1},{...trip,id:'b',seq:2,crew_needed:1}]
-const linked=[{job_id:1,date:dates[0],crew_name:'Same person',mobilization_id:'a'},
-  {job_id:1,date:dates[0],crew_name:'Unidentified person',mobilization_id:null}]
+const linked=[{job_id:1,mobilization_id:"a",date:dates[0],crew_name:'Same person',mobilization_id:'a'},
+  {job_id:1,mobilization_id:"a",date:dates[0],crew_name:'Unidentified person',mobilization_id:null}]
 result=crewWeekSummary([job],{1:overlapTrips},linked,dates)
 assert.equal(result.needing[0].details.find(d=>d.trip.id==='b'&&d.date===dates[0]).assigned,0)
 assert.equal(result.needing[0].details.some(d=>d.trip.id==='a'&&d.date===dates[0]),false)
 assert.equal(result.unknown.length,0,'Unidentified crew history does not invent a missing requirement')
-linked.push({job_id:1,date:dates[0],crew_name:'Same person',mobilization_id:'b'})
+linked.push({job_id:1,mobilization_id:"a",date:dates[0],crew_name:'Same person',mobilization_id:'b'})
 result=crewWeekSummary([job],{1:overlapTrips},linked,dates)
 assert(result.needing[0].details.every(d=>d.date===dates[1]),'Each trip uses its own linked assignment')
 console.log('PASS overlapping trip requirements, UUID assignment isolation, and conservative legacy attribution match the board.')

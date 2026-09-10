@@ -428,6 +428,7 @@ export default function Schedule({ embedded = false } = {}) {
 
   function handleAssignCrew(name, row) {
     if (row.unavailable || row.trip.legacy || !row.ranges.length) return
+    if (!row.trip.id) { toast('Open the job and add a trip for these dates before assigning crew.', 'err'); return }
     setAssignModal({ name, jobId: row.job.job_id, selectedDays: crewJobDays(row, name), job: row.job, row })
   }
 
@@ -473,15 +474,10 @@ export default function Schedule({ embedded = false } = {}) {
       const toAdd = selectedDays.filter(d => !existing.includes(d))
       const removed = row.assignments.filter(a => a.crew_name === name && !selectedDays.includes(a.date))
       if (toAdd.some(d => !crewRowInRange(row, d)) || (row.trip.legacy && toAdd.length)) throw new Error('Choose a saved trip to add crew.')
-      // A NULL link cannot identify parent-default crew on an overlapping saved
-      // trip date. Require an explicit trip instead of creating ambiguous data.
-      if (!row.trip.id && toAdd.some(d => Object.values(allocsByJobId[row.job.job_id] || {}).some(t =>
-        (t.start_date || t.end_date) && (!t.start_date || t.start_date <= d) && (!t.end_date || t.end_date >= d)))) {
-        throw new Error('Add crew to the saved trip for these dates.')
-      }
+      if (!row.trip.id && toAdd.length) throw new Error('Open the job and add a trip for these dates before assigning crew.')
       if (toAdd.length) {
         const { error } = await supabase.from('assignments').insert(toAdd.map(date => ({
-          job_id: row.job.job_id, mobilization_id: row.trip.id || null, crew_name: name, date,
+          job_id: row.job.job_id, mobilization_id: row.trip.id, crew_name: name, date,
         })))
         if (error) throw error
       }
@@ -952,7 +948,7 @@ export default function Schedule({ embedded = false } = {}) {
             <div className="sch-det-section-label">
               {row.ranges.length && !trip.legacy
                 ? 'Scheduled Days Available'
-                : <span>{trip.legacy ? 'These crew days have no single matching trip. Add new crew on the intended trip’s row.' : 'Set Start/End dates to enable crew assignment'}</span>
+                : <span>{trip.legacy ? 'These crew days have no saved trip link. Add new crew on the intended trip’s row.' : 'Set Start/End dates to enable crew assignment'}</span>
               }
             </div>
             <div

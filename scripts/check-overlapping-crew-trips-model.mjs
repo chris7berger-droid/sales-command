@@ -25,6 +25,6 @@ assert.equal(crewScheduleRows(job, [wide, short], [], '2026-09-30', '2026-10-03'
 assert.equal(crewScheduleRows(job, [short], [], day, '2026-10-03').length, 2, 'Distinct parent span is retained')
 assert.equal(crewScheduleRows({ job_id: 1 }, [short], [], day, '2026-10-03').length, 1, 'Trip works without parent dates')
 assert.equal(crewScheduleRows({ job_id: 1 }, [], [], day, '2026-10-03').length, 1, 'Undated job stays visible')
-assert.equal(crewScheduleRows(job, [wide], [assignments[2]], day, '2026-10-03')[0].assignments.length, 1, 'Unambiguous legacy days still resolve')
+assert.equal(crewScheduleRows(job, [wide], [assignments[2]], day, '2026-10-03')[0].assignments.length, 0, 'Matching dates never establish trip ownership')
 assert.equal(crewScheduleRows(job, [wide], [{ ...assignments[2], mobilization_id: 'missing' }], day, '2026-10-03').length, 2, 'Unknown UUID never assigned by dates')
 console.log('PASS: nested/identical trips, per-trip staffing, zero, parent fallback, legacy identity')

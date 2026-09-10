@@ -1,0 +1,29 @@
+SC Handoff v260 — trip warning root cause — 2026-09-10
+
+B117 / DB MOB-3 prepared, NOT deployed. Corrects v259's stale-tab hypothesis.
+Production contains B115 trip code. Old jobs with null call_log_id have saved
+trips, but job_mobilizations RLS requires a Sales join and hides them from users.
+Live authenticated reproduction: jobs1054/1278 visible=2, trips visible=0.
+Unrestricted reads show all seven crew records correctly linked. Same issue
+affects 62 trips on 60 jobs. No missing job tenants or conflicting Sales tenants.
+
+DB fix 8f35de0 on fix/trip-access-job-tenant:
+/private/tmp/command-suite-db-trip-access
+Migration 20260910230000_trip_access_from_job_tenant.sql plus paired rollback.
+Four existing policies now check jobs.tenant_id, with no grants/data changes.
+Authenticated CRUD, crew preservation, cross-company, ownership move, no-tenant,
+anonymous access tests pass. Old-policy control fails; rollback/reapply passes.
+No app implementation change needed. Job-name triangle for missing Sales link
+is separate and remains; this addresses the false trip-not-identified message.
+
+Chris questioned excessive testing. Acknowledged necessary access-rule tests
+had passed and repeated browser fixture attempts added little value. Stop those.
+Browser checks have NOT passed; don't claim deployed success. Failures were
+fixture JSON formatting and production www redirect, not application failures.
+See DB CSDB_Handoff_v8 for exact verification/release pointers.
+
+Await approval to apply this shared production access-rule change. Afterwards
+verify actual authenticated trip reads and ask Chris to confirm his displayed week.
+Do not redo historical conversion, touch crew records, or expand to other RLS.
+B116 PR49 and the verified scope-note fix remain pushed but unmerged as in v259.
+Crew trip SOW summary stays manual.

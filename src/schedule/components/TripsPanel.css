@@ -1,6 +1,6 @@
 .schedule-root .job-trips { color: var(--text-primary); }
 .schedule-root .job-trips-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--text-light); font-size: 12px; }
-.schedule-root .job-schedule-reference { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 4px; padding: 10px 12px; border-left: 4px solid var(--brd); color: var(--text-primary); }
+.schedule-root .job-schedule-reference { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin: 18px 0 4px; padding: 10px 12px; border-left: 4px solid var(--brd); color: var(--text-primary); }
 .schedule-root .job-schedule-reference strong { font-family: var(--font-heading); }
 .schedule-root .job-schedule-reference span { color: var(--text-light); font-size: 12px; }
 .schedule-root .job-trips h4 { margin: 18px 0 8px; font-family: var(--font-heading); font-size: 16px; }

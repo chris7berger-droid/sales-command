@@ -15,11 +15,9 @@ export function buildJobTrips(rows = [], assignments = [], job = null) {
   const trips = rows.map(row => ({ ...row, displayNumber: numbers.get(row.id), key: row.id, assignments: [], legacy: false }))
   const byId = new Map(trips.map(trip => [trip.id, trip]))
   const own = job && jobOwnRange(job)
-  // Only an identical saved span represents the parent schedule. An overlapping
-  // (or containing) trip with different dates must not erase the parent's dates.
-  const represented = own && rows.some(row =>
-    (row.start_date || null) === own.start && (row.end_date || null) === own.end)
-  if (own && !represented) trips.push({
+  // Once saved trips exist, the parent dates are reference only. Rendering them
+  // as an extra trip creates a phantom staffing requirement after trip deletion.
+  if (own && !rows.length) trips.push({
     key: `job:${job.job_id}:initial`, parent: true, legacy: false,
     label: 'Job schedule', start_date: own.start, end_date: own.end, assignments: [],
   })

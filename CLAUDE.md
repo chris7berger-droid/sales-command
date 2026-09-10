@@ -278,6 +278,9 @@ This applies to both the CallLog wizard upload and CallLogDetail upload.
 5. Git commit after every completed task
 6. Ask for screenshot before assuming error cause
 7. `git push` + handoff doc at session end
+8. Whenever we do a build, deploy and check the Vercel preview before merging or
+   releasing. A successful local build alone is not enough; inspect the affected
+   app flow in the preview. (Chris, 2026-09-10.)
 
 ## Key File Locations
 

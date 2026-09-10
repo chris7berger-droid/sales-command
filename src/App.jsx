@@ -229,7 +229,7 @@ function SalesCommandApp() {
         <Routes>
           <Route path="/login" element={<><style>{GLOBAL_CSS}</style><Login /></>} />
           {/* Keep this direct phone URL through sign-in; desktop login is unchanged. */}
-          <Route path="/crew-texts" element={<><style>{GLOBAL_CSS}</style><div className="crew-phone-login"><Login /></div><style>{`.crew-phone-login input { font-size: 16px !important; }`}</style></>} />
+          {["/crew", "/crew-texts"].map(path => <Route key={path} path={path} element={<><style>{GLOBAL_CSS}</style><div className="crew-phone-login"><Login /></div><style>{`.crew-phone-login input { font-size: 16px !important; }`}</style></>} />)}
           <Route path="/suite" element={<SubConCommandPage />} />
           <Route path="/features/:slug" element={<FeatureDetailPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
@@ -290,7 +290,7 @@ function SalesCommandApp() {
     <BrowserRouter>
       <Routes>
         {/* Standalone office sharing page; same Schedule access gate, no desktop shell. */}
-        <Route path="/crew-texts" element={<><style>{GLOBAL_CSS}</style><GroupGuard app="schedule" teamMember={teamMember}><ErrorBoundary><CrewPhone /></ErrorBoundary></GroupGuard></>} />
+        {["/crew", "/crew-texts"].map(path => <Route key={path} path={path} element={<><style>{GLOBAL_CSS}</style><GroupGuard app="schedule" teamMember={teamMember}><ErrorBoundary><CrewPhone /></ErrorBoundary></GroupGuard></>} />)}
         <Route path="/suite" element={<SubConCommandPage />} />
         <Route path="/sign/:token" element={<PublicSigningPage />} />
         <Route path="/invoice-paid" element={<InvoicePaidPage />} />

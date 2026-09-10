@@ -1,0 +1,60 @@
+SC Handoff v261 — historical completion correction — 2026-09-10
+
+SESSION SUMMARY
+Chris challenged v257's claim that historical trip work was complete. He is
+right: the report closed the crew-to-trip subtask without clearly recording
+the remaining Sales identity and authenticated visibility gaps.
+
+CHANGES SHIPPED
+B115 conversion is live: 190 trips, 2,053 crew links; do not run it again.
+B117 access-rule fix is live (DB PR4); Chris's screenshot now shows saved trips.
+B116 / app PR49 remains unmerged. Latest app commit 0ccbab6 removes job-name
+suffixes beside crew weekday dots as requested; local build passed. That latest
+one-line change has not yet had its deployed preview inspected.
+This documentation update corrects v257 and BACKLOG, and adds CLAUDE rule10.
+
+DECISIONS
+Completion must describe the agreed user outcome, not only a successful subtask.
+Distinguish built, applied, authenticated access and user acceptance. Fixture
+screens and administrator SQL alone cannot establish actual user visibility.
+Use focused verification; do not respond with redundant test suites.
+Keep the trip Scope / SOW summary manual. Preserve all crew/trip identities.
+1111 Shop Work is a settled overhead decision; do not ask Chris what it means.
+Its design document currently says implementation is not built.
+
+NEW/CLOSED BACKLOG ITEMS
+B118 remains IN PROGRESS, NOT APPLIED: 49 clear historical Schedule matches;
+14 link to existing Sales records, 35 need 25 archived Sales records restored.
+Three Shop Work rows and eight ambiguous/missing customer identities remain
+outside that prepared map. No blanket completion or warning suppression.
+
+VERIFICATION
+Read v257, v260 and current BACKLOG. v257 explicitly preserved jobs and used
+intercepted browser APIs; it did not prove missing Sales links were repaired.
+Documentation-only correction: diff check, no application test reruns.
+B118 isolated DB rehearsal is not passing yet: repair SQL has a PL/pgSQL record
+variable p colliding with a query alias. Fix that before any live application.
+
+NOT TOUCHED
+No additional live records changed for this correction. No automatic Schedule
+job consolidation; the prior Combine decision requires a deliberate keeper.
+
+NEXT SESSION POINTERS
+Read current BACKLOG and this correction before claiming historical completion.
+B118 worktree /private/tmp/command-suite-db-historical-sales contains uncommitted
+scripts/repairs/historical_sales_links.sql and
+scripts/rehearse-historical-sales-links.mjs. Prepared only, not deployed.
+Private before snapshot and mapping: /private/tmp/historical-sales-before.json
+and /private/tmp/historical-sales-plan.json. Never commit those customer records.
+Remaining ambiguous identities: Schedule jobs1082,1005,1024,1235,1147,1200,1144,1275.
+Shop Work jobs998,1219,1260 are separate from customer matching.
+
+FILES TO KNOW
+CLAUDE.md Workflow rule10; docs/BACKLOG.md B115/B117/B118;
+docs/handoffs/SC_Handoff_v257.txt correction;
+docs/plans/shop_work_overhead_type.md.
+
+GIT STATE
+App feat/sales-trips-direct-send / PR49; 0ccbab6 pushed before this doc update.
+Canonical DB main967622e includes deployed B117. B118 branch
+fix/historical-sales-links has uncommitted preparation, no release.

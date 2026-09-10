@@ -1,0 +1,42 @@
+SC Handoff v259 — Schedule scope notes display — 2026-09-10
+
+Supersedes v258's app-commit / preview pointers; its B116 decisions remain.
+Branch feat/sales-trips-direct-send; PR49 OPEN, not merged or released.
+App fix 3b3b225 adds read-only day scope_notes above tasks in FieldSowBuilder.
+Existing spacing/styles reused; line breaks preserved. No storage changes.
+The builder already preserved these notes but did not render them.
+Chris explicitly chose to KEEP the crew trip Scope / SOW summary MANUAL.
+Do not wire Sales SOW or structured day notes into that separate trip field.
+
+VERIFICATION
+Build and check-sales-trips-send / check-send-schedule-dates pass.
+check-sales-trips-preview extended to open Schedule's canonical Field SOW modal:
+distinct WTC notes display, line breaks retained, date save preserves notes and
+trip membership, switching WTCs shows correct notes, Sales source unchanged.
+Passes local AND Vercel preview with synthetic data / all API calls intercepted.
+Screenshot sales-trips-schedule-scope.png visually inspected.
+FieldSowBuilder has the same six pre-existing lint findings. Initial comparison
+flagged shifted line numbers embedded in diagnostics; normalized comparison passes.
+
+Preview: https://sales-command-6uw5sef7i-chris7berger-droids-projects.vercel.app
+Deployment dpl_Fi6V1pPy4cssGu86hK5nEcB5cjXg, Ready, app commit 3b3b225.
+
+LIVE READ-ONLY FINDINGS
+Active test job 1284 / 10176 / call_log 3712: Day 1 scope_notes (302 chars)
+exactly match source proposal afe388d9-d3c1-4eeb-ac87-e815c29c0cc1's WTC.
+Day 2 has no notes in source or destination. Previous test job 1283 is deleted.
+No backfill required for the active job; display was missing.
+
+Chris also saw old unlinked-trip warnings and asked whether earlier trip work
+was released. Confirmed PR48 merged to main; PR49 alone remains pending.
+Live September 7–13 assignments: Dave Lee 10252/job1278 September11 links to
+Trip1; K7 6665/job1054 all six September8–10 assignments link to Trip2. All
+links reference matching saved trips with matching dates. No data repair needed.
+Likely stale browser state: Schedule loads static jobs/trips on mount and has
+the previously documented refresh gap. Asked Chris to reload. We did not inspect
+his browser state or prove reload resolves it; await his report if it persists.
+No live writes, migrations, cleanup, or unrelated refresh implementation.
+
+NEXT
+Review updated PR49 preview. Keep manual trip summary as requested.
+Do not merge/release or resume broader SOW-1 work automatically.

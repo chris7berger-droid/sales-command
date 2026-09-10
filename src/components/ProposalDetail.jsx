@@ -13,7 +13,6 @@ import Pill from "./Pill";
 import ProposalPDFModal from "./ProposalPDFModal";
 import MultiGCWizard from "./MultiGCWizard";
 import SyncConflictModal from "./SyncConflictModal";
-import MobilizationsEditor from "./MobilizationsEditor";
 
 // [K1] mobilization validation (material_flow Screen 1 §5.1). Given the freshly-fetched
 // WTC list and proposals.mobilizations, returns the resolution map (mobilization_id →
@@ -90,10 +89,6 @@ const [sentToSchedule, setSentToSchedule] = useState(false);
 // [DMS-1 §4.3] "SOW updated in Schedule — this version is historical" badge. True when
 // any job_wtcs row for this proposal's job has sow_revision_count > 0 (Phase-1 trigger).
 const [sowRevisedInSchedule, setSowRevisedInSchedule] = useState(false);
-// Pre-send review modal (material_flow §5.2): holds the [K1]-validated snapshot
-// (wtcList, mobById map, mobilizations, failures) so the commit reuses the same fetch.
-const [showSendReview, setShowSendReview] = useState(false);
-const [sendReview, setSendReview] = useState(null);
 const [customerContacts, setCustomerContacts] = useState([]);
 const [editingRecipient, setEditingRecipient] = useState(null);
 const [contactDraft, setContactDraft] = useState({});
@@ -628,71 +623,72 @@ async function deletePropAttachment(fullName) {
     setSignedPdfUrl(null);
   }
 
-  // Open the read-only pre-send review (§5.2). Runs the send guards + the [K1]
-  // validation and snapshots the freshly-fetched WTC + mobilization state, then opens
-  // the review modal. Writes NOTHING — the send commits only on Confirm. [K1] and the
-  // send stamp share this ONE fetch so the validated set and the stamped set can't
-  // diverge (§5.1 E1).
-  async function openSendReview() {
+  // Validate a fresh snapshot and send it directly. Field SOW retains its trip
+  // membership; the customer-facing Sales SOW stays on the proposal.
+  async function handleSendToSchedule() {
     setSendingToSchedule(true);
     try {
       // Check if already sent. A soft-deleted job (deleted='Yes') doesn't count —
       // Schedule Command's Delete is meant to free the proposal for a re-send, so a
       // tombstoned job must not block it here.
-      const { data: existing } = await supabase.from("jobs").select("job_id").eq("source_proposal_id", p.id).eq("deleted", "No").maybeSingle();
+      const { data: existing, error: existingError } = await supabase.from("jobs").select("job_id").eq("source_proposal_id", p.id).eq("deleted", "No").maybeSingle();
+      if (existingError) throw existingError;
       if (existing) { alert("This proposal has already been sent to Schedule Command."); setSentToSchedule(true); setSendingToSchedule(false); return; }
 
       // Block if invoiced — don't schedule work that's already been billed
-      const { data: invoices } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null).limit(1);
+      const { data: invoices, error: invoiceError } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null).limit(1);
+      if (invoiceError) throw invoiceError;
       if (invoices && invoices.length > 0) { alert("This proposal has already been invoiced. Cannot send to Schedule Command."); setSendingToSchedule(false); return; }
 
       // Gather WTC data (field_sow comes fresh from here)
-      const { data: wtcData } = await supabase.from("proposal_wtc").select("*, work_types(name, cost_code)").eq("proposal_id", p.id).order("created_at", { ascending: true });
-      const wtcList = wtcData || [];
+      const { data: wtcData, error: wtcError } = await supabase.from("proposal_wtc").select("*, work_types(name, cost_code)").eq("proposal_id", p.id).order("created_at", { ascending: true });
+      if (wtcError) throw wtcError;
 
       // [K1] (§5.1): mobilizations come from a SEPARATE fresh fetch (different table —
       // proposals, not proposal_wtc) so we never trust possibly-stale ProposalDetail
       // state. buildMobValidation returns both the resolution map (used by the send
       // stamp) and the list of days that don't resolve to a live mobilization.
-      const { data: freshProp } = await supabase.from("proposals").select("mobilizations").eq("id", p.id).single();
+      const { data: freshProp, error: tripError } = await supabase.from("proposals").select("mobilizations").eq("id", p.id).single();
+      if (tripError) throw tripError;
+      if (!freshProp) throw new Error("Could not load the proposal trips. Please try again.");
       const freshMobilizations = freshProp?.mobilizations || [];
       if (freshMobilizations.some(m => !String(m?.label ?? '').trim())) {
-        throw new Error('Every trip needs a title. Open the WTC mobilizations and name each trip before sending to Schedule.');
+        throw new Error('Every trip needs a title. Open the WTC Trips section and name each trip before sending to Schedule.');
       }
+      // One trip has an unambiguous default. Keep explicit associations intact,
+      // including stale IDs so validation can flag them instead of guessing.
+      const wtcList = (wtcData || []).map(wtc => ({
+        ...wtc,
+        field_sow: (wtc.field_sow || []).map(day => freshMobilizations.length === 1 && day.mobilization_id == null
+          ? { ...day, mobilization_id: freshMobilizations[0].id }
+          : day),
+      }));
       const { mobById, failures } = buildMobValidation(wtcList, freshMobilizations);
       const specFailures = buildSpecConfirmValidation(wtcList);
 
-      setSendReview({ wtcList, mobById, mobilizations: freshMobilizations, failures, specFailures });
-      setShowSendReview(true);
+      if (failures.length > 0) {
+        throw new Error(`Can't send yet — Field SOW days without a valid trip: ${failures.map(f => `${f.wtcLabel} '${f.dayLabel}'`).join(", ")}. Open the WTC Scope of Work tab, select a trip for each day, and save before sending.`);
+      }
+      if (specFailures.length > 0) {
+        throw new Error(`Can't send yet — materials with unconfirmed specs: ${specFailures.map(f => `${f.wtcLabel} '${f.dayLabel}' — ${f.name}`).join(", ")}. Open the WTC Scope of Work tab and confirm the material specs before sending.`);
+      }
+      await commitSendToSchedule({ wtcList, mobById, mobilizations: freshMobilizations });
     } catch (e) {
       alert("Error: " + e.message);
     }
     setSendingToSchedule(false);
   }
 
-  // Commit the send from the reviewed snapshot (§5.3). Uses the SAME wtcList + mobById
-  // [K1] validated — never a re-fetch, so the validated set and the stamped set stay
-  // identical. Stamps the resolved mobilization_seq into BOTH field_sow copies and
-  // strips the Sales-only mobilization_id. No new write, no new rollback: the existing
-  // send shape (jobs insert → job_wtcs upsert + rollback → Parked) is intact.
-  async function commitSendToSchedule() {
-    const review = sendReview;
-    // Belt-and-suspenders — the Confirm button is disabled when failures exist.
-    if (!review || review.failures.length > 0) return;
-    const { wtcList, mobById, mobilizations } = review;
-    if ((mobilizations || []).some(m => !String(m?.label ?? '').trim())) {
-      alert('Every trip needs a title before sending to Schedule.'); return;
-    }
+  // Use the same validated snapshot for both Field SOW copies and the trip rows.
+  async function commitSendToSchedule({ wtcList, mobById, mobilizations }) {
     setSendingToSchedule(true);
     try {
-      // Re-check invoiced at commit (audit #3): the review modal may have sat open
-      // while the proposal got invoiced. Already-sent is backstopped by the jobs 23505
-      // guard below, but invoiced has no DB constraint — so verify it here before the
-      // insert rather than scheduling work that's already been billed.
-      const { data: invAtSend } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null).limit(1);
+      // Re-check immediately before writing, after the scope/trip reads.
+      const { data: invAtSend, error: invoiceError } = await supabase.from("invoices").select("id").eq("proposal_id", p.id).is("deleted_at", null).is("voided_at", null).limit(1);
+      if (invoiceError) throw invoiceError;
       if (invAtSend && invAtSend.length > 0) {
-        alert("This proposal has been invoiced since the review opened. Cannot send to Schedule Command.");
-        setShowSendReview(false); setSendingToSchedule(false); return;
+        alert("This proposal has already been invoiced. Cannot send to Schedule Command.");
+        setSendingToSchedule(false); return;
       }
 
       // Strip the Sales-only uuid; stamp the wire seq (§5.3 C1/C3). One shared transform
@@ -710,12 +706,6 @@ async function deletePropAttachment(fullName) {
       // Merge field_sow from all WTCs — flat jobs.field_sow legacy mirror; stamp each
       // day (C1 — a reader of the flat copy must also see the mobilization_seq).
       const fieldSow = wtcList.flatMap(w => (w.field_sow || []).map(stampDay));
-
-      // Combine sales_sow text
-      const salesSow = wtcList.map((w, i) => {
-        const label = wtcList.length > 1 ? `WTC ${i + 1} — ${w.work_types?.name || ""}:\n` : "";
-        return label + (w.sales_sow || "");
-      }).filter(s => s.trim()).join("\n\n");
 
       // Bidding dates are estimates, not a schedule. Trip dates are copied only
       // into job_mobilizations below; Schedule owns job/day dates after send.
@@ -735,7 +725,6 @@ async function deletePropAttachment(fullName) {
         amount,
         work_type: workType,
         field_sow: fieldSow.length > 0 ? fieldSow : null,
-        sow: salesSow || null,
         scheduled_start: null,
         scheduled_end: null,
         start_date: null,
@@ -903,7 +892,7 @@ async function deletePropAttachment(fullName) {
         // ── F1 (Phase F): seed job_mobilizations from the proposal's mobilizations.
         // Copy-at-Send (data contract §2/§3): the live job gets its own trips so
         // Schedule can add/edit go-backs post-send without touching the frozen
-        // proposal. Source label/dates from review.mobilizations (the raw
+        // proposal. Source label/dates from the validated mobilizations (the raw
         // proposals.mobilizations rows — they carry label/start_date/end_date);
         // mobById is only an id→seq map and would write null labels (audit F3).
         //
@@ -936,7 +925,7 @@ async function deletePropAttachment(fullName) {
               .upsert(mobRows, { onConflict: "job_id,seq", ignoreDuplicates: true });
             if (mobErr) {
               console.warn("[send] job_mobilizations seed failed (non-fatal, backfillable):", mobErr.message);
-              alert("Job sent to Schedule. Note: the mobilization list didn't copy over (" + mobErr.message +
+              alert("Job sent to Schedule. Note: the trip list didn't copy over (" + mobErr.message +
                 ") — it can be added in Schedule Command; the job itself is fine.");
             }
           }
@@ -950,7 +939,6 @@ async function deletePropAttachment(fullName) {
         refreshAlerts(); // N4
       }
 
-      setShowSendReview(false);
       setSentToSchedule(true);
     } catch (e) {
       alert("Error: " + e.message);
@@ -1082,7 +1070,7 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
             <Btn sz="sm" v="ghost" onClick={handlePullBack} style={{ color: C.amber, borderColor: C.amber }}>↩ Pull Back</Btn>
           )}
           {p.status === "Sold" && (
-            <Btn sz="sm" v="ghost" onClick={openSendReview} disabled={sendingToSchedule || sentToSchedule}
+            <Btn sz="sm" v="ghost" onClick={handleSendToSchedule} disabled={sendingToSchedule || sentToSchedule}
               style={{ color: sentToSchedule ? C.textFaint : C.teal, borderColor: sentToSchedule ? C.border : C.teal }}>
               {sentToSchedule ? "✓ Sent to Schedule" : sendingToSchedule ? "Sending..." : "Send to Schedule"}
             </Btn>
@@ -1633,110 +1621,6 @@ if (showWTC) return <WTCCalculator proposalId={p.id} wtcId={activeWtcId} initial
           </div>
         </div>
       )}
-      {showSendReview && sendReview && (() => {
-        // Read-only pre-send review (§5.2). NULL mob dates render as "TBD", never
-        // "Invalid Date" (F1). Per-day mobilization resolves via the [K1] map to seq +
-        // label. When [K1] has failures the Confirm button is disabled and the blocking
-        // days are listed with a pointer back to the WTC SowTab.
-        const mobLabel = new Map((sendReview.mobilizations || []).map(m => [m.id, m]));
-        const fmtDate = d => d ? fmtD(d) : "TBD";
-        const specFailures = sendReview.specFailures || [];
-        const blocked = sendReview.failures.length > 0 || specFailures.length > 0;
-        return (
-          <div style={{ position: "fixed", inset: 0, zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,20,35,0.7)", backdropFilter: "blur(4px)" }}
-            onClick={e => { if (e.target === e.currentTarget && !sendingToSchedule) setShowSendReview(false); }}>
-            <div style={{ background: C.linenCard, borderRadius: 16, width: "min(680px,92vw)", maxHeight: "88vh", overflowY: "auto", padding: "26px 30px", boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: C.textHead, fontFamily: F.display, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 4 }}>Send to Schedule — Review</div>
-              <div style={{ fontSize: 13, color: C.textFaint, fontFamily: F.ui, marginBottom: 18 }}>Confirm the mobilizations and field-SOW day plan before this job lands in Schedule Command.</div>
-
-              {/* Mobilizations */}
-              <div style={{ fontWeight: 800, fontSize: 11.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Mobilizations</div>
-              {(sendReview.mobilizations || []).length === 0 ? (
-                <div style={{ fontSize: 12.5, color: C.textFaint, fontFamily: F.ui, marginBottom: 16 }}>None authored.</div>
-              ) : (
-                <div style={{ marginBottom: 16 }}>
-                  {sendReview.mobilizations.map(m => (
-                    <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 12px", background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 5 }}>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: C.tealDark, fontFamily: F.display, minWidth: 52 }}>Mob {m.seq}</span>
-                      <span style={{ fontSize: 13, color: C.textBody, fontFamily: F.ui, flex: 1 }}>{m.label || <span style={{ color: C.textFaint }}>(no label)</span>}</span>
-                      <span style={{ fontSize: 11.5, color: C.textMuted, fontFamily: F.ui }}>{fmtDate(m.start_date)} → {fmtDate(m.end_date)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Per-WTC field-SOW day plan */}
-              <div style={{ fontWeight: 800, fontSize: 11.5, color: C.textHead, fontFamily: F.display, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Field-SOW Days</div>
-              {sendReview.wtcList.map((wtc, wi) => {
-                const days = wtc.field_sow || [];
-                return (
-                  <div key={wtc.id} style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: C.textBody, fontFamily: F.ui, marginBottom: 5 }}>
-                      WTC {wi + 1}{wtc.work_types?.name ? ` — ${wtc.work_types.name}` : ""} · {days.length} day{days.length === 1 ? "" : "s"}
-                    </div>
-                    {days.length === 0 ? (
-                      <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, paddingLeft: 6 }}>No day entries.</div>
-                    ) : days.map((d, di) => {
-                      const seq = sendReview.mobById.get(d.mobilization_id);
-                      const mob = mobLabel.get(d.mobilization_id);
-                      const resolved = seq != null;
-                      return (
-                        <div key={d.id || di} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 12px", background: C.linen, border: `1px solid ${resolved ? C.border : C.red}`, borderRadius: 7, marginBottom: 4 }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: C.textBody, fontFamily: F.ui, minWidth: 60 }}>{d.day_label || `Day ${di + 1}`}</span>
-                          <span style={{ fontSize: 11.5, color: resolved ? C.tealDark : C.red, fontFamily: F.ui, flex: 1 }}>
-                            {resolved ? `Mob ${seq}${mob?.label ? ` — ${mob.label}` : ""}` : "⚠ no mobilization"}
-                          </span>
-                          <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui }}>{(d.sq_ft || 0)} sf · {(d.linear_ft || 0)} lf</span>
-                          <span style={{ fontSize: 11, color: C.textFaint, fontFamily: F.ui, minWidth: 66, textAlign: "right" }}>{wtc.dates_tbd ? "TBD" : fmtDate(d.date)}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-
-              {/* [K1] block state */}
-              {sendReview.failures.length > 0 && (() => {
-                // Location-aware fix: if zero mobilizations are authored there is nothing
-                // to tag days to, so point to the Mobilizations panel first. Otherwise the
-                // mobs exist and the fix is just tagging each day in the WTC SowTab.
-                const noMobs = (sendReview.mobilizations || []).length === 0;
-                return (
-                  <div style={{ marginTop: 8, marginBottom: 4, padding: "12px 14px", background: "rgba(229,57,53,0.08)", border: `1px solid ${C.red}`, borderRadius: 10 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 800, color: C.red, fontFamily: F.ui, marginBottom: 4 }}>Can't send yet — {sendReview.failures.length} day{sendReview.failures.length === 1 ? "" : "s"} without a mobilization</div>
-                    <div style={{ fontSize: 12, color: C.textBody, fontFamily: F.ui, lineHeight: 1.5 }}>
-                      Unassigned: {sendReview.failures.map(f => `${f.wtcLabel} '${f.dayLabel}'`).join(", ")}.
-                      {noMobs ? (
-                        <> No mobilizations exist yet, so there's nothing to tag these days to. <strong>Cancel</strong> this, open each work type's <strong>Scope of Work</strong> tab, add your trips to site under <strong>Step 1 · Mobilizations</strong>, then pick a mobilization on every day and save before sending.</>
-                      ) : (
-                        <> <strong>Cancel</strong> this, open each work type's <strong>Scope of Work</strong> tab, pick a mobilization on every day, and save before sending.</>
-                      )}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* [DMS-1 §2] Spec-confirm block state */}
-              {specFailures.length > 0 && (
-                <div style={{ marginTop: 8, marginBottom: 4, padding: "12px 14px", background: "rgba(229,57,53,0.08)", border: `1px solid ${C.red}`, borderRadius: 10 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 800, color: C.red, fontFamily: F.ui, marginBottom: 4 }}>Can't send yet — {specFailures.length} material{specFailures.length === 1 ? "" : "s"} with unconfirmed specs</div>
-                  <div style={{ fontSize: 12, color: C.textBody, fontFamily: F.ui }}>
-                    {specFailures.map(f => `${f.wtcLabel} '${f.dayLabel}' — ${f.name}`).join(", ")}. Open the WTC → Scope of Work, review the specs pulled from Material Memory, and click <strong>Confirm specs</strong> on each before sending.
-                  </div>
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
-                <Btn sz="sm" v="ghost" onClick={() => setShowSendReview(false)} disabled={sendingToSchedule}>Cancel</Btn>
-                <Btn sz="sm" onClick={commitSendToSchedule} disabled={blocked || sendingToSchedule}
-                  title={blocked ? "Assign a mobilization to every field-SOW day first." : undefined}>
-                  {sendingToSchedule ? "Sending..." : "Confirm & Send"}
-                </Btn>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
       {showMultiGC && (
         <MultiGCWizard
           sourceProposalId={p.id}

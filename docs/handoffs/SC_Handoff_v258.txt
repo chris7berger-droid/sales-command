@@ -1,0 +1,90 @@
+SC Handoff v258 — Sales Trips and direct Send to Schedule — 2026-09-10
+
+SESSION SUMMARY
+B116 built and verified on preview. PR49 is open, NOT merged or released.
+Chris authorized the discussed implementation and explicitly required staying
+focused: no unrelated fixes, UI redesign or invented workflows.
+App implementation commit bc84347; subsequent changes are tests/docs only.
+
+CHANGES SHIPPED (BRANCH / PREVIEW ONLY)
+Sales WTC visible Mobilizations/Mob labels now read Trips/Trip. Existing module,
+Standard job shortcut, multiple-trip creation and per-day scope selection remain.
+Send to Schedule directly validates fresh WTC/trip data and transfers it; removed
+the mandatory review modal and its extra Confirm & Send click.
+A single existing trip supplies the default for a Field SOW day with no selection.
+Explicit stale references are not silently reassigned; multiple-trip missing
+selections, untitled trips and unconfirmed material specs still block via alerts.
+Read failures stop this direct send before writes. Existing duplicate/invoice
+checks and WTC rollback remain in place.
+Removed the Sales SOW -> jobs.sow copy. Customer-facing scope stays on the Sales
+proposal; structured Field SOW and its trip associations still transfer.
+
+DECISIONS
+The initial suggestion to remove Sales trip authoring was WRONG and withdrawn.
+Salespeople need to define multiple trips with different Field SOW before Send.
+Sales SOW and Field SOW are distinct: only FIELD SOW has day/trip assignments.
+No-trip/no-Field-SOW proposals can still send. Existing trip names, IDs, sequence
+keys, dates, scope and crew records are retained; no data cleanup was authorized.
+Schedule dates/staffs trips and handles later operational changes. No change to
+post-commit editing rules, trip-date authority, Schedule UI, or Field phone sync.
+Do not rename stored mobilization fields merely to match UI terminology.
+
+NEW/CLOSED BACKLOG ITEMS
+B116 added: In Progress (built, preview verified; awaiting release).
+F42/F43 annotated for this narrow change; broader clickable correction links
+and authoring redesign remain deferred. SOW-1 is still separate and unbuilt.
+B115 and prior crew/trip fixes remain complete; do not reopen them.
+
+VERIFICATION
+npm run build passes; existing large-bundle warning only.
+ESLint compared by rule/message with pre-change main: no new findings.
+Existing counts: ProposalDetail 12, MobilizationsEditor 1, WTCCalculator 25.
+check-sales-trips-send.mjs passes: multiple/single/no trips, source preservation,
+full distinct task/material/metric transfer, no Sales SOW in writes, blocked
+selections/specs/title/read failures, invoices at either check, duplicate and
+WTC short-write rollback.
+check-send-schedule-dates.mjs passes. Updated its call signature and stale parent
+trip assertion to the already-shipped B115 model (no extra parent trip when
+saved trips exist); no Schedule implementation changed.
+check-sales-trips-preview.mjs passes on local build AND immutable Vercel preview:
+https://sales-command-gt2g5l9k1-chris7berger-droids-projects.vercel.app
+Vercel deployment dpl_4SSCRzXZxdS2yPuZJhs1otf5SqUA, Ready, app commit bc84347.
+Real WTC UI creates another trip, assigns distinct scope, saves it; direct send
+handles two/one/zero trips; Schedule displays both copied trips; incomplete
+multi-trip Field SOW blocks before writes. All API requests intercepted and all
+records synthetic. No live record preservation claim from fixture tests alone.
+Screenshot outputs visually inspected under /private/tmp/sales-trips-*.png.
+Preview protection accessed via authenticated vercel curl; cookie stays private
+in /private/tmp/sales-trips-preview-cookies.txt. Deployment protection remains on.
+
+NOT TOUCHED
+No migrations, live data writes, emails, pricing changes, component redesign,
+Schedule/Field changes, phone build/sync, unrelated lint cleanup or old repairs.
+Existing nonfatal trip-seed failure behavior and broader SOW-1 gaps unchanged.
+
+NEXT SESSION POINTERS
+Review PR49 / preview with Chris. Implementation complete for agreed scope.
+Normal preview visits use the shared live database; fixture isolation applies
+only to the automated test script. No synthetic proposal was created on prod.
+Do not auto-resume unrelated backlog work. Merge/release has not happened.
+
+FILES TO KNOW
+src/components/MobilizationsEditor.jsx
+src/pages/WTCCalculator.jsx
+src/components/ProposalDetail.jsx
+scripts/check-sales-trips-send.mjs
+scripts/check-sales-trips-preview.mjs
+scripts/check-send-schedule-dates.mjs
+
+GIT STATE
+Branch feat/sales-trips-direct-send; PR49 targeting main:
+https://github.com/chris7berger-droid/sales-command/pull/49
+App commit bc84347; this tests/docs closeout follows it. Branch pushed.
+Main/production remain at the prior B115 release and documentation closure.
+
+ADDENDUM — ESTIMATION INSTRUCTION
+Chris reported the build took under 20 minutes and asked to retain the lesson.
+Added CLAUDE.md Workflow Rule 9 (f342be8): inspect existing code first, estimate
+remaining work plus verification to a stated endpoint, name uncertainty instead
+of padding, and calibrate against actual agent elapsed time.
+Docs only, included on the same PR49 branch; app/preview code unchanged.

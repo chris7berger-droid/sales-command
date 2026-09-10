@@ -78,14 +78,14 @@ async function fits() {
   assert(box.y >= 0 && box.y + box.height <= await page.evaluate(() => innerHeight), 'Copy stays reachable')
 }
 try {
-  await page.goto(`${base}/crew-texts?week=2026-09-07`)
+  await page.goto(`${base}/crew?week=2026-09-07`)
   await page.getByRole('button', { name: 'Sign In', exact: true }).waitFor()
   assert(!reads.includes('jobs') && !reads.includes('crew'), 'No schedule fetched before sign-in')
   await page.locator('input[type=email]').fill('fixture@example.test')
   await page.locator('input[type=password]').fill('fixture-only')
   await page.getByRole('button', { name: 'Sign In', exact: true }).click()
   await loaded()
-  assert(page.url().endsWith('/crew-texts?week=2026-09-07'), 'Direct link and week survive login')
+  assert(page.url().endsWith('/crew?week=2026-09-07'), 'Direct link and week survive login')
   assert.equal(await page.locator('[data-app-shell], [data-app-sidebar]').count(), 0, 'Phone route has no desktop shell')
   const text = await preview.inputValue()
   assert.match(text, /^JoseJR\n/)
@@ -167,7 +167,7 @@ try {
   // Authenticated users without Schedule entitlement cannot load the phone data.
   allowedApps = ['sales']
   const before = reads.filter(t => t === 'jobs' || t === 'crew').length
-  await page.goto(`${base}/crew-texts`)
+  await page.goto(`${base}/crew`)
   await page.getByText('Not authorized', { exact: true }).waitFor()
   assert.equal(await root.count(), 0)
   assert.equal(reads.filter(t => t === 'jobs' || t === 'crew').length, before)

@@ -5,7 +5,7 @@ import vm from 'node:vm'
 import { buildJobTrips } from '../src/schedule/lib/trips.js'
 import { jobRanges } from '../src/schedule/lib/allocations.js'
 const source = readFileSync(new URL('../src/components/ProposalDetail.jsx', import.meta.url), 'utf8')
-const handler = source.slice(source.indexOf('  async function commitSendToSchedule()'), source.indexOf('  async function handleInternalApprove()'))
+const handler = source.slice(source.indexOf('  async function commitSendToSchedule('), source.indexOf('  async function handleInternalApprove()'))
 assert(handler.includes('setSentToSchedule(true)'))
 for (const mobilizations of [
   [{ id: 'mob1', seq: 1, label: 'First visit', start_date: null, end_date: null }],
@@ -36,10 +36,11 @@ for (const mobilizations of [
     calcBidStamp: () => ({ total: 100 }), usesExactPricing: () => false,
     setSendingToSchedule() {}, setShowSendReview() {}, refreshAlerts() {}, setSentToSchedule(value) { sent = value }, alert(message) { notices.push(message) }, console,
   })
-  await vm.runInContext(`${handler}\ncommitSendToSchedule()`, context)
+  await vm.runInContext(`${handler}\ncommitSendToSchedule(sendReview)`, context)
   assert.deepEqual(notices, [])
   assert(sent)
   const job = writes.find(w => w.table === 'jobs').payload[0]
+  assert(!('sow' in job), 'Customer-facing Sales SOW must not transfer to Schedule')
   const wtcs = writes.find(w => w.table === 'job_wtcs').payload
   const mobs = writes.find(w => w.table === 'job_mobilizations').payload
   for (const field of ['start_date', 'end_date', 'scheduled_start', 'scheduled_end']) assert.equal(job[field], null)
@@ -54,6 +55,6 @@ for (const mobilizations of [
   assert(!buildJobTrips(mobs, [], job).some(t => t.parent))
   assert.equal(jobRanges(job, mobs).length, mobilizations.filter(m => m.start_date || m.end_date).length)
   const editedJob = { ...job, scheduled_start: '2026-12-01', scheduled_end: '2026-12-02' }
-  assert(buildJobTrips(mobs, [], editedJob).some(t => t.parent), 'Later Schedule edits remain valid')
+  assert.equal(buildJobTrips(mobs, [], editedJob).length, mobs.length, 'Parent reference dates do not create an extra trip when saved trips exist')
 }
 console.log('PASS real send handler: tentative and Sales day dates do not schedule work; mobilization dates, scope, links, and later Schedule edits remain intact.')

@@ -1051,7 +1051,7 @@ export default function Schedule({ embedded = false } = {}) {
             const jco = jm.job ? (isPW(jm.job) ? '#6d28d9' : (jm.job.color || jCol(jm.colorIndex))) : '#888'
             return (
               <div key={jm.key} className="sch-crew-days" title={`${jm.job.job_num} · ${jm.trip.label || 'Trip'} · ${tripRange(jm.trip)}${jm.issue ? ' — ' + jm.issue : ''}`}>
-                <div className="sch-crew-days-lbl">{jm.issue ? '⚠ ' : ''}{jm.job.job_num}</div>
+                <div className="sch-crew-days-lbl">{jm.issue ? '⚠ ' : ''}{String(jm.job.job_num || '').split(/\s+[—–-]\s+/)[0]}</div>
                 <div className="sch-crew-dots">
                   {dates.map(ds => {
                     const daySt = getCSt(c.name, ds)

@@ -1192,7 +1192,7 @@ function SowTab({ data, onChange, locked, committed = false, wtcMaterials, onSav
             <span style={{ fontSize: 11, color: T.gray500, fontWeight: 600, letterSpacing: "0.04em" }}>CREW FACING · GOES TO FIELD COMMAND · NEVER SEEN BY CUSTOMER</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {!mobsLoaded && <span style={{ fontSize: 10.5, color: T.gray500, fontWeight: 600 }}>loading mobilizations…</span>}
+            {!mobsLoaded && <span style={{ fontSize: 10.5, color: T.gray500, fontWeight: 600 }}>loading trips…</span>}
             {/* Gate on mobsLoaded (§3.2), NOT mobilizations.length — the flag settles on
                 both fetch outcomes, so a failed fetch enables the button with an empty
                 list rather than stranding it disabled forever. */}
@@ -1255,15 +1255,15 @@ function SowTab({ data, onChange, locked, committed = false, wtcMaterials, onSav
                     style={{ width: "100%", border: `1.5px solid ${T.gray200}`, borderRadius: 6, padding: "5px 8px", fontSize: 13, outline: "none", fontFamily: "inherit", background: datesTbd ? T.gray200 : "#bfb3a1", color: datesTbd ? T.gray400 : T.gray900, cursor: datesTbd ? "not-allowed" : "pointer" }} />
                 </div>
                 <div style={{ width: 180, flexShrink: 0 }}>
-                  <Label>Mobilization</Label>
+                  <Label>Trip</Label>
                   {mobilizations.length === 0 ? (
                     <div style={{ fontSize: 10.5, color: T.gray500, padding: "6px 8px", border: `1.5px dashed ${T.gray300}`, borderRadius: 6, background: "rgba(28,24,20,0.04)", lineHeight: 1.2 }}>
-                      No mobilizations yet — add one in Step 1 above
+                      No trips yet — add one in Step 1 above
                     </div>
                   ) : (mobilizations.length === 1 && entry.mobilization_id === mobilizations[0].id) ? (
                     // Standard job (single trip): no picking needed — every day is this mob.
-                    <div title="Standard job — one mobilization for the whole job" style={{ fontSize: 12.5, fontWeight: 700, color: T.gray900, padding: "6px 8px", border: `1.5px solid ${T.gray200}`, borderRadius: 6, background: "#bfb3a1", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      Mob {mobilizations[0].seq}{mobilizations[0].label ? ` — ${mobilizations[0].label}` : ""}
+                    <div title="Standard job — one trip for the whole job" style={{ fontSize: 12.5, fontWeight: 700, color: T.gray900, padding: "6px 8px", border: `1.5px solid ${T.gray200}`, borderRadius: 6, background: "#bfb3a1", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      Trip {mobilizations[0].seq}{mobilizations[0].label ? ` — ${mobilizations[0].label}` : ""}
                     </div>
                   ) : (
                     <select value={entry.mobilization_id || ""} onChange={e => updateDay(entry.id, "mobilization_id", e.target.value)}
@@ -1271,7 +1271,7 @@ function SowTab({ data, onChange, locked, committed = false, wtcMaterials, onSav
                       onFocus={e => e.target.style.borderColor = T.green}
                       onBlur={e => e.target.style.borderColor = entry.mobilization_id ? T.gray200 : T.red}>
                       <option value="">— select —</option>
-                      {mobilizations.map(m => <option key={m.id} value={m.id}>Mob {m.seq}{m.label ? ` — ${m.label}` : ""}</option>)}
+                      {mobilizations.map(m => <option key={m.id} value={m.id}>Trip {m.seq}{m.label ? ` — ${m.label}` : ""}</option>)}
                     </select>
                   )}
                 </div>
@@ -1377,7 +1377,7 @@ function SowTab({ data, onChange, locked, committed = false, wtcMaterials, onSav
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
             <Btn onClick={addDay} variant="blue" small icon="＋" disabled={!mobsLoaded}>Add Day Entry</Btn>
             <Btn onClick={onSave} variant="primary" small>{saved ? "✓ Saved" : (committed ? "Save Scope of Work" : "Save Field SOW")}</Btn>
-            {!mobsLoaded && <span style={{ fontSize: 10.5, color: T.gray500, fontWeight: 600 }}>loading mobilizations…</span>}
+            {!mobsLoaded && <span style={{ fontSize: 10.5, color: T.gray500, fontWeight: 600 }}>loading trips…</span>}
           </div>
         )}
       </div>

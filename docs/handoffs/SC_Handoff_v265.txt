@@ -1,0 +1,58 @@
+SC Handoff v265 — Phone sharing session closeout — 2026-09-10
+
+SESSION SUMMARY
+Phone schedule sharing is released at https://scmybiz.com/crew.
+PR50 merged 4b01cda; production Ready and public phone login verified in v264.
+Chris requested the numbered GitHub handoff, branch cleanup and terminal closeout.
+This handoff supersedes v264's cleanup pointers; its release evidence still applies.
+
+CHANGES SHIPPED
+No further app changes this closeout. The separate /crew page supports week/person
+selection, daily job/lead/coworker/start details, and Share/Copy through the phone.
+/crew-texts remains available. Desktop views and navigation remain unchanged.
+
+DECISIONS
+Keep the one-week phone bridge separate from desktop and Field Command work.
+No Twilio, new PDF workflow, database changes or automatic message sending.
+Use scmybiz.com/crew; the old hdsp-crew.vercel.app address is a protected preview.
+Preserve unrelated parked branches and worktrees; do not resume their tasks.
+
+NEW/CLOSED BACKLOG ITEMS
+F61 temporary phone sharing is released; BACKLOG points to this closeout.
+Actual iPhone Messages sending and user acceptance remain Chris's device check.
+No new backlog item. B118's eleven exceptions and other deferred work are unchanged.
+
+VERIFICATION
+GitHub's latest numbered handoff was v264 before this file was created.
+No open sales-command PRs. feat/ideation-planning absent locally and on GitHub.
+Main clean and synchronized before closeout; release-doc commit 9eb83fb has a
+successful Vercel deployment (dpl_FsGxusyAidWMiSwm856eB188Bqd8).
+The temporary phone checkout was clean; its only ignored extras were Vercel
+project configuration and the dependency symlink. Worktree removed successfully.
+The session's preview server was stopped; nothing is listening on port5197.
+No build or browser suite repeated for this documentation/cleanup-only turn.
+
+NOT TOUCHED
+Desktop app layouts, Schedule data, crew/trips, database schema, Field work,
+unrelated parked branches/worktrees, and historical repair exceptions.
+No actual crew messages sent by the agent; no claim of user/device acceptance.
+
+NEXT SESSION POINTERS
+Read CLAUDE.md, docs/BACKLOG.md and this handoff, then wait for Chris's task.
+If he reports a phone issue, start from scmybiz.com/crew and his actual behavior.
+Do not repeat the completed release or automatically resume old backlog work.
+Safe to close this terminal: production is hosted by Vercel and does not depend
+on a local server, the removed worktree, or any running process from this session.
+
+FILES TO KNOW
+src/schedule/views/CrewPhone.jsx — standalone phone screen.
+src/App.jsx — additive /crew and /crew-texts routes with existing access gates.
+src/schedule/lib/crewWeekText.js — shared message and day entries.
+scripts/check-crew-phone.mjs — focused intercepted browser check.
+docs/handoffs/SC_Handoff_v264.txt — release and verification details.
+
+GIT STATE
+Canonical checkout /Users/chrisberger/sales-command is on main.
+PR50 merged; completed phone branch deleted locally/remotely; temporary
+sales-command-ideation-planning worktree removed. Other parked work retained.
+This handoff and BACKLOG pointer are committed and pushed in the closeout commit.

@@ -1,0 +1,69 @@
+SC Handoff v263 — Separate phone schedule sharing — 2026-09-10
+
+SESSION SUMMARY
+Chris needs a one-week bridge while Field Command is completed. Twilio and a
+desktop/mobile navigation redesign were dropped. He explicitly approved a
+separate phone page with a direct URL, preserving the desktop app's views.
+Built on isolated feat/ideation-planning, based on main 9bbfac6. Preview only.
+
+CHANGES BUILT
+App commit b850c61 adds /crew-texts outside AppShell and ScheduleLayout.
+The direct URL remains in place during existing Login sign-in, including week
+query; existing onboarding/recovery and Schedule entitlement gates remain.
+CrewPhone shows week/person selectors, daily cards, leads, same-day/trip crew,
+addresses, default shop start and saved delayed starts. Uses buildCrewWeekText;
+the helper now also returns its existing day entries without changing text.
+Share week passes the exact reviewed text to native sharing. Copy week plus
+manual text selection provide fallbacks. No delivery claim or sent tracking.
+Refresh on return/focus reloads the week while preserving meeting instructions.
+Controls cannot share stale data during loading, failed reads or week switches.
+
+DECISIONS
+Desktop AppShell, sidebar, Schedule board, original Schedules page and Schedule
+CSS are byte-for-byte unchanged from this branch's main base. Only two additive
+phone routes and a component import were added to App.jsx.
+No Twilio, PDF generator, app-wide responsive changes, live writes, migration,
+assignment edits, contact access, public schedule link or automatic SMS sending.
+Share opens the phone's own sharing menu; Chris chooses the contact and sends.
+Chris requested focused verification, not expanded test/audit suites.
+
+BACKLOG
+Touches F61 with a temporary phone-sharing follow-up. Built/preview verified;
+await Chris's iPhone review. Original F61 desktop functionality remains released.
+PR49/B116 and other concurrent Sales/Schedule work are not included or changed.
+
+VERIFICATION
+Build, focused new-code lint and existing crewWeekText model regression pass.
+scripts/check-crew-phone.mjs runs the actual app entry point with a synthetic
+login and all API requests intercepted. Focused run passed locally and on the
+Vercel preview: direct-link login, 360/390/430px layout, correct day/trip detail,
+exact Copy/Share payloads, cancellation/fallback, return refresh with preserved
+draft, read failure/stale-week guard, empty week, desktop shell/board and
+Schedule entitlement rejection. No app API mutations; no real messages sent.
+Phone screenshot from the deployed preview visually inspected.
+Native iPhone Messages/share-sheet behavior still requires Chris's device check;
+browser tests stub navigator.share and clipboard. No Safari install/test sweep.
+
+PREVIEW
+https://sales-command-hw2lq74ej-chris7berger-droids-projects.vercel.app/crew-texts
+Deployment dpl_Gf1JjfBM5VSHb34EAPkQG7QsXCQw, Ready, app b850c61.
+Normal signed-in visits use the existing shared DB, read-only from this page.
+Vercel deployment protection remains enabled; no settings changed. Automated
+inspection used a locally stored preview-access cookie, never committed.
+
+NEXT
+Chris opens the separate preview on iPhone, signs in, selects person/week and
+tries Share week or Copy week into Messages. Await acceptance before release.
+Do not merge or change desktop navigation automatically.
+
+FILES TO KNOW
+src/schedule/views/CrewPhone.jsx — standalone phone page, scoped styling.
+src/App.jsx — dedicated signed-out and signed-in routes only.
+src/schedule/lib/crewWeekText.js — canonical message plus day entries.
+scripts/check-crew-phone.mjs — real-entry intercepted browser check.
+
+GIT STATE
+/Users/chrisberger/sales-command-ideation-planning, feat/ideation-planning.
+App commit b850c61 pushed; this handoff/docs-only commit follows it.
+Primary /Users/chrisberger/sales-command checkout and other worktrees untouched.
+No merge or production release.

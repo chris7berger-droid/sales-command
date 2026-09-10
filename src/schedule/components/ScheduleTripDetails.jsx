@@ -49,6 +49,7 @@ function TripFields({ job, trip, leadNames, onUpdated, onDirty, onBusy }) {
   async function save(e) {
     e.preventDefault()
     if (busy) return
+    if (!String(draft.label ?? '').trim()) { setError('Enter a trip title before saving.'); return }
     if (draft.start_date && draft.end_date && draft.end_date < draft.start_date) { setError('End date can’t be before the start date.'); return }
     if (draft.crew_needed != null && draft.crew_needed !== '' && (!Number.isInteger(Number(draft.crew_needed)) || Number(draft.crew_needed) < 0)) { setError('Crew needed must be a whole number of zero or more.'); return }
     const patch = { label: draft.label, start_date: draft.start_date, end_date: draft.end_date }
@@ -69,7 +70,7 @@ function TripFields({ job, trip, leadNames, onUpdated, onDirty, onBusy }) {
   const input = (field, label, type = 'text') => <div key={field}>
     <label>{label}</label>
     <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-    <input className="sch-dinp" aria-label={label} type={type} min={type === 'number' ? 0 : undefined} step={type === 'number' ? 1 : undefined} disabled={busy} value={draft[field] ?? ''} placeholder={job[field] != null ? `Use job: ${job[field]}` : ''} onChange={e => change(field, e.target.value)} />
+    <input className="sch-dinp" aria-label={label} required={field === 'label'} type={type} min={type === 'number' ? 0 : undefined} step={type === 'number' ? 1 : undefined} disabled={busy} value={draft[field] ?? ''} placeholder={job[field] != null ? `Use job: ${job[field]}` : ''} onChange={e => change(field, e.target.value)} />
     {field === 'sow' && sowUrl && <a href={sowUrl} target="_blank" rel="noopener noreferrer" className="sch-sow-link" title="Open SOW">📄</a>}
     </div>
   </div>

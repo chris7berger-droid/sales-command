@@ -656,6 +656,9 @@ async function deletePropAttachment(fullName) {
       // stamp) and the list of days that don't resolve to a live mobilization.
       const { data: freshProp } = await supabase.from("proposals").select("mobilizations").eq("id", p.id).single();
       const freshMobilizations = freshProp?.mobilizations || [];
+      if (freshMobilizations.some(m => !String(m?.label ?? '').trim())) {
+        throw new Error('Every trip needs a title. Open the WTC mobilizations and name each trip before sending to Schedule.');
+      }
       const { mobById, failures } = buildMobValidation(wtcList, freshMobilizations);
       const specFailures = buildSpecConfirmValidation(wtcList);
 
@@ -677,6 +680,9 @@ async function deletePropAttachment(fullName) {
     // Belt-and-suspenders — the Confirm button is disabled when failures exist.
     if (!review || review.failures.length > 0) return;
     const { wtcList, mobById, mobilizations } = review;
+    if ((mobilizations || []).some(m => !String(m?.label ?? '').trim())) {
+      alert('Every trip needs a title before sending to Schedule.'); return;
+    }
     setSendingToSchedule(true);
     try {
       // Re-check invoiced at commit (audit #3): the review modal may have sat open
@@ -916,7 +922,7 @@ async function deletePropAttachment(fullName) {
           .map(m => ({
             job_id: newJobId,
             seq: m.seq,
-            label: m.label || null,
+            label: m.label.trim(),
             start_date: m.start_date || null,
             end_date: m.end_date || null,
             is_go_back: false,

@@ -1,5 +1,15 @@
 SC Handoff v257 — Historical crew converted to saved trips — 2026-09-10
 
+COMPLETION SCOPE CORRECTION — 2026-09-10
+The completion statements below were too broad for Chris's intended historical
+result. The 190-trip / 2,053-crew-link conversion was applied and must NOT be
+repeated. It preserved jobs, including missing jobs.call_log_id Sales links.
+Intercepted browser checks did not establish actual authenticated visibility:
+trip RLS hid 62 trips on 60 jobs without Sales links. B117 subsequently repaired
+that access rule live; B118 tracks the still-unfinished Sales reconciliation.
+Read v261 and the current BACKLOG before treating historical work as complete.
+The original report follows unchanged so its claims and evidence remain visible.
+
 SESSION SUMMARY
 B115 complete. App PR48 merged e0a77fd; production deployment 1qgjq06ym succeeded.
 DB PR3 merged 9593b1c. The authorized historical conversion is applied LIVE.

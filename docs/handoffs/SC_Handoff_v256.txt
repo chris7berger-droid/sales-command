@@ -1,0 +1,63 @@
+SC Handoff v256 — Required trip titles and links — 2026-09-10
+
+SESSION SUMMARY
+B114 completed. Chris requested focused prevention, code-based decisions, no
+unrelated cleanup, and preservation checks. App PR47 merged at 00050f0;
+Vercel production msiblblbg succeeded. Database DEL-3 / PR2 deployed through
+normal gates; migration 20260910200000 requires titled trips and new crew links.
+
+CHANGES SHIPPED
+Schedule add/edit and Sales mobilization forms reject blank/whitespace titles.
+Standard job requires a saved title before tagging field-SOW days. Send to
+Schedule checks titles before writes. Shared trip query helpers also reject blanks.
+Database CHECK requires a nonblank job_mobilizations.label. Existing assignment
+guard rejects new NULL trip links, detaching linked crew, and job/date moves of
+unlinked history without explicit trip selection. Valid updates/repairs work.
+Legacy YESv2 crew importer stops before first write when mapped crew rows lack
+trip identity; no importer redesign or inferred trip creation.
+
+DECISIONS
+Stopping point: focused behavior tests + deployed preview + preventive DB guard.
+Do not pursue unrelated defects. Do not infer trip ownership from job dates.
+Historical unlinked records remain visible and require deliberate repair.
+
+NEW/CLOSED BACKLOG ITEMS
+B114 closed; canonical DB DEL-3 closed. B113 repair remains completed as v255.
+
+VERIFICATION
+check-job-trips, check-schedule-allocation, check-required-trip-titles passed:
+blank titles write nothing, named creation and edits retain identity/details,
+Jobs/Crew Schedule/Calendar/Daily agree, Standard job tags the saved named trip.
+DB prod-shaped title/link + full deletion regression and six concurrency cases
+passed. Standard push gates passed. Refreshed baseline read from live schema
+and replayed with same regressions. Title CHECK validated live.
+All 3,315 full assignment rows had IDENTICAL before/after deployment fingerprints.
+Build passed (index-BUUIrtjk.js). Existing 12 lint errors/3 warnings across touched
+files unchanged from released main; no new lint findings.
+Vercel preview ds17qqe04 at commit67d2be0: actual deployed bundle with intercepted
+Supabase fixtures. Blank title rejection, empty-trip deletion, nine preserved crew
+days, staffed sibling block and 10088 no phantom parent row passed. Screenshots
+inspected. Browser fixture RPC mocked; actual DB independently rehearsed.
+
+NOT TOUCHED
+No historical repair beyond already-completed 10262 in v255. No 10088 or 7215
+crew edits. No importer redesign, unrelated lint cleanup or broad refactor.
+Full mobile board navigation not certified; open deletion dialog fits phone.
+
+NEXT SESSION POINTERS
+Read BACKLOG and wait for Chris. Do not resume historical cleanup automatically.
+All builds require Vercel preview inspection (CLAUDE.md). Older immutable preview
+URLs retain older behavior; current verified preview:
+https://sales-command-ds17qqe04-chris7berger-droids-projects.vercel.app/schedule/schedule
+
+FILES TO KNOW
+src/schedule/lib/queries.js, src/schedule/components/MobsModal.jsx,
+src/schedule/components/ScheduleTripDetails.jsx, src/schedule/ScheduleLayout.jsx,
+src/components/MobilizationsEditor.jsx, src/components/ProposalDetail.jsx,
+src/schedule/lib/importData.js; scripts/check-required-trip-titles.mjs.
+DB migration/rollback 20260910200000; scripts/rehearse/required_trip_identity.sql.
+
+GIT STATE
+App main includes PR47 00050f0; this documentation closure follows it.
+Canonical DB PR2 contains deployed migration and refreshed live baseline.
+Feature branches retained. No further implementation work pending for B114.

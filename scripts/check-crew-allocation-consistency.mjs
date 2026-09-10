@@ -35,5 +35,6 @@ assert.match(wrong.find(r=>r.trip.id==='trip').issue, /outside/)
 assert.equal(crewCardRows(wrong,'Jacob')[0].trip.id,'trip') // no automatic relinking
 const summary = crewWeekSummary([],{},[],dates,rows)
 assert.equal(summary.starting.some(entry => entry.job.job_id === 1), false)
-assert.ok(summary.needing.some(entry => entry.job.job_id === 2))
+assert.equal(summary.needing.some(entry => entry.job.job_id === 2), false, 'Reference job dates do not invent a staffing requirement')
+assert.equal(rows.some(row => row.trip.parent), false, 'No undeletable synthetic Job schedule row beside unlinked crew')
 console.log('PASS shared board/cards/capacity: off-date, inactive, unavailable, conflict, time off, trip mismatch, no invented starts.')

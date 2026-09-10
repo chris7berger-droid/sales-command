@@ -3,8 +3,7 @@ import { buildJobTrips } from './trips.js'
 import { inRange, overlapsWeek, staffingForDay } from './allocations.js'
 
 // Keep UUID identity even when trips have identical or nested date spans.
-// Reuse Jobs' conservative assignment attribution: ambiguous legacy crew days
-// appear once in their own row rather than being counted on every overlapping trip.
+// Unlinked crew days appear once in their own row, never on a guessed trip.
 export function crewScheduleRows(job, allocations, assignments, start, end) {
   const saved = Object.values(allocations || {})
   const crewDays = assignments.filter(a => String(a.job_id) === String(job.job_id) && a.date >= start && a.date <= end)
@@ -43,11 +42,15 @@ export function crewWeekRows(jobs, allocations, assignments, start, end) {
   const rows = jobs.flatMap(job => {
     const active = ['Scheduled', 'In Progress', 'On Hold', 'Ongoing'].includes(getJobStatus(job))
     return crewScheduleRows(job, allocations[job.job_id], week, start, end)
+      // Job dates are reference data, not another crew trip. Legacy assignments
+      // already have their own visible row; an empty parent row cannot be staffed
+      // or deleted as a trip and creates a misleading duplicate (job 10088).
+      .filter(row => !row.trip.parent)
       .filter(row => row.assignments.length || (active && row.ranges.length && overlapsWeek(row.ranges, start, end)))
       .map(row => ({ ...row, issue: !active ? 'Crew remains assigned to a job outside the active schedule.'
         : row.assignments.some(a => a.mobilization_id && !inRange(row.ranges, a.date))
           ? 'Assigned crew dates fall outside this trip. Review the crew days below.'
-          : row.trip.legacy ? 'These crew days have no matching trip. Review them before scheduling more crew.' : null }))
+          : row.trip.legacy ? 'These crew days have no saved trip link. Review them before scheduling more crew.' : null }))
   })
   const missing = new Map()
   for (const a of week) {

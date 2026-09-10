@@ -1,6 +1,6 @@
 // A saved trip owns its entire date span, even across weeks or gaps in staffing.
-// Assignment links are authoritative. Date matching is only a read-time fallback
-// for older, unlinked crew days, and only when exactly one saved trip fits.
+// Only a saved assignment link establishes trip ownership. Unlinked crew stays
+// visible separately; editing dates must never move crew between trips.
 import { jobOwnRange } from './allocations.js'
 
 // User-facing numbering is consecutive across all remaining trips on the job.
@@ -15,22 +15,15 @@ export function buildJobTrips(rows = [], assignments = [], job = null) {
   const trips = rows.map(row => ({ ...row, displayNumber: numbers.get(row.id), key: row.id, assignments: [], legacy: false }))
   const byId = new Map(trips.map(trip => [trip.id, trip]))
   const own = job && jobOwnRange(job)
-  // Only an identical saved span represents the parent schedule. An overlapping
-  // (or containing) trip with different dates must not erase the parent's dates.
-  const represented = own && rows.some(row =>
-    (row.start_date || null) === own.start && (row.end_date || null) === own.end)
-  if (own && !represented) trips.push({
+  // Once saved trips exist, the parent dates are reference only. Rendering them
+  // as an extra trip creates a phantom staffing requirement after trip deletion.
+  if (own && !rows.length) trips.push({
     key: `job:${job.job_id}:initial`, parent: true, legacy: false,
     label: 'Job schedule', start_date: own.start, end_date: own.end, assignments: [],
   })
   const unmatched = []
   for (const assignment of assignments) {
-    let trip = byId.get(assignment.mobilization_id)
-    if (!trip && !assignment.mobilization_id) {
-      const matches = trips.filter(t => t.start_date && t.end_date &&
-        t.start_date <= assignment.date && assignment.date <= t.end_date)
-      if (matches.length === 1) trip = matches[0]
-    }
+    const trip = byId.get(assignment.mobilization_id)
     if (trip) trip.assignments.push(assignment)
     else unmatched.push(assignment)
   }

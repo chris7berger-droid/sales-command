@@ -1102,20 +1102,6 @@ export default function Schedule({ embedded = false } = {}) {
         dates={dates} todayStr={todayStr} weekLabel={fmtWk(monday)} loading={loading}
         error={staticError || (loading ? error : null)} pulse={weekChanged && !changingWeek} onOpenTrip={openSummaryTrip} /></div>}
     <div className="sch-layout">
-      {!loading && !staticError && (
-        <div className="sch-date-bar">
-          <div className="sch-date-bar-gutter" aria-hidden="true" />
-          <div className="sch-brd-hdr-row">
-            <div className="sch-brd-hdr-job">Job</div>
-            {dates.map((d, i) => (
-              <div key={d} className={`sch-brd-hdr${d === todayStr ? ' sch-brd-hdr-today' : ''}`}>
-                {DAYS[i]}<br />
-                <span className="sch-brd-hdr-date">{d.split('-')[1]}/{d.split('-')[2]}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
       {!embedded && (
         <div className="jh-back-bar">
           <button className="jh-back-btn" onClick={goBack}>← {focusJobId ? 'Back to job' : 'All stages'}</button>
@@ -1171,6 +1157,14 @@ export default function Schedule({ embedded = false } = {}) {
           <div className="sch-job-count">Jobs This Week ({weekJobs.length}) · Trips ({boardRows.filter(row => !row.trip.legacy).length})</div>
 
           <div className="sch-brd">
+            <div className="sch-brd-hdr-job">Job</div>
+            {dates.map((d, i) => (
+              <div key={d} className={`sch-brd-hdr${d === todayStr ? ' sch-brd-hdr-today' : ''}`}>
+                {DAYS[i]}<br />
+                <span className="sch-brd-hdr-date">{d.split('-')[1]}/{d.split('-')[2]}</span>
+              </div>
+            ))}
+
             {scheduled.map(j => renderBoardRow(j, false))}
 
             {unscheduled.length > 0 && (

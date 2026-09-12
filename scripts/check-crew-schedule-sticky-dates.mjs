@@ -105,34 +105,39 @@ try {
   })
 
   await page.goto(`http://127.0.0.1:${PORT}/__sticky-dates`)
-  await page.waitForFunction(() => document.querySelector('.sch-date-bar') && document.querySelector('.sch-brd') && document.querySelectorAll('.sch-board-row-wrap').length > 10)
+  await page.waitForFunction(() => document.querySelector('.sch-brd-hdr-job') && document.querySelector('.sch-brd') && document.querySelectorAll('.sch-board-row-wrap').length > 10)
 
   const before = await page.evaluate(() => {
     const content = document.querySelector('[data-app-content]')
     const capacity = document.querySelector('.hcs')
-    const header = document.querySelector('.sch-date-bar')
-    const body = document.querySelector('.sch-brd')
+    const board = document.querySelector('.sch-brd')
+    const header = document.querySelector('.sch-brd-hdr-job')
     const firstJob = document.querySelector('.sch-brd-job-label')
     return {
+      extraBar: !!document.querySelector('.sch-date-bar'),
+      headerInBoard: board.contains(header),
       contentScroll: content.scrollTop,
       contentCanScroll: content.scrollHeight > content.clientHeight + 1,
-      bodyCanScroll: body.scrollHeight > body.clientHeight + 1,
+      bodyCanScroll: board.scrollHeight > board.clientHeight + 1,
       capacityBottom: capacity.getBoundingClientRect().bottom,
       headerTop: header.getBoundingClientRect().top,
-      headerText: header.innerText.replace(/\s+/g, ' ').trim(),
+      headerLeft: header.getBoundingClientRect().left,
+      headerText: `${header.innerText} ${[...document.querySelectorAll('.sch-brd-hdr')].map(el => el.innerText).join(' ')}`.replace(/\s+/g, ' ').trim(),
       firstJobTop: firstJob.getBoundingClientRect().top,
+      firstJobLeft: firstJob.getBoundingClientRect().left,
       firstJobHeight: firstJob.getBoundingClientRect().height,
       firstJobName: firstJob.querySelector('.sch-brd-job-name').textContent,
     }
   })
 
+  assert.equal(before.extraBar, false, 'Must not add a second date bar under capacity')
+  assert.equal(before.headerInBoard, true, 'Date header must stay on the job board')
   assert.equal(before.contentCanScroll, false, 'Host pane must not scroll the capacity bar')
   assert.equal(before.bodyCanScroll, true, 'Job rows must overflow their own scroller')
   assert.match(before.headerText, /JOB/i)
   assert.match(before.headerText, /MO/i)
   assert.match(before.headerText, /SA/i)
-  assert.ok(before.headerTop >= before.capacityBottom - 1, 'Date row must sit under the capacity bar')
-  assert.ok(before.headerTop - before.capacityBottom < 8, 'Date row should sit directly under the capacity bar')
+  assert.ok(Math.abs(before.headerLeft - before.firstJobLeft) < 2, 'Date header must line up with job rows')
   assert.ok(before.firstJobHeight >= 48, 'Job rows must keep their natural height')
 
   await page.locator('.sch-brd').evaluate(el => { el.scrollTop = 400 })
@@ -141,12 +146,12 @@ try {
   const after = await page.evaluate(() => {
     const content = document.querySelector('[data-app-content]')
     const capacity = document.querySelector('.hcs')
-    const header = document.querySelector('.sch-date-bar')
-    const body = document.querySelector('.sch-brd')
+    const board = document.querySelector('.sch-brd')
+    const header = document.querySelector('.sch-brd-hdr-job')
     const firstJob = document.querySelector('.sch-brd-job-label')
     return {
       contentScroll: content.scrollTop,
-      bodyScroll: body.scrollTop,
+      bodyScroll: board.scrollTop,
       capacityBottom: capacity.getBoundingClientRect().bottom,
       headerTop: header.getBoundingClientRect().top,
       firstJobTop: firstJob.getBoundingClientRect().top,
@@ -163,7 +168,7 @@ try {
   assert.equal(after.firstJobHeight, before.firstJobHeight, 'Scrolling must not squash job rows')
   assert.equal(after.firstJobName, before.firstJobName)
   assert.deepEqual(errors, [])
-  console.log('PASS Crew Schedule date row stays under the capacity bar; only job rows scroll.')
+  console.log('PASS Crew Schedule board date header stays put; only job rows scroll.')
 } catch (error) {
   console.error(error)
   throw error

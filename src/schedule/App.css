@@ -741,21 +741,6 @@
   flex-shrink: 0;
 }
 
-.schedule-root .app-main:has(.sch-date-bar) .hcs {
-  margin-bottom: 0;
-}
-
-.schedule-root .sch-date-bar {
-  flex-shrink: 0;
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  background: var(--header-dark);
-}
-
-.schedule-root .sch-date-bar .sch-brd-hdr-row {
-  margin: 0 16px;
-}
-
 .schedule-root .sch-stats-bar {
   background: var(--header-dark);
   border-bottom: 1px solid rgba(28, 24, 20, 0.15);
@@ -1089,13 +1074,7 @@
   flex-direction: column;
 }
 
-/* Date header lives above the board; job rows keep their natural height. */
-.schedule-root .sch-brd-hdr-row {
-  display: grid;
-  grid-template-columns: 260px repeat(6, 1fr);
-  background: var(--header-dark);
-}
-
+/* Live board header stays on the job columns and stays put while rows scroll. */
 .schedule-root .sch-brd {
   display: grid;
   grid-template-columns: 260px repeat(6, 1fr);
@@ -1113,7 +1092,9 @@
 
 .schedule-root .sch-brd-hdr-job,
 .schedule-root .sch-brd-hdr {
-  display: inline;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .schedule-root .sch-brd-hdr-job {

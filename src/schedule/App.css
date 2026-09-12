@@ -1120,7 +1120,7 @@
 
 .schedule-root .sch-brd-hdr {
   font-family: var(--font-heading);
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
   text-transform: uppercase;
   text-align: center;
@@ -1135,7 +1135,7 @@
 .schedule-root .sch-brd-hdr-today { color: var(--command-green); }
 
 .schedule-root .sch-brd-hdr-date {
-  font-size: 9px;
+  font-size: 12px;
   opacity: 0.7;
 }
 

@@ -741,6 +741,14 @@
   flex-shrink: 0;
 }
 
+.schedule-root .app-main:has(.sch-layout) .hcs {
+  margin-bottom: 0;
+}
+
+.schedule-root .sch-layout .sch-main {
+  padding-top: 10px;
+}
+
 .schedule-root .sch-stats-bar {
   background: var(--header-dark);
   border-bottom: 1px solid rgba(28, 24, 20, 0.15);

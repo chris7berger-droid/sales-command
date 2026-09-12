@@ -161,10 +161,6 @@ export default function Schedule({ embedded = false } = {}) {
 
   // The Jobs deep link expands this card and includes it despite list filters.
   // Browser history may point at a generic list, so use the job identity.
-  const goBack = useCallback(() => {
-    if (focusJobId) navigate(`/schedule/jobs?job=${encodeURIComponent(focusJobId)}`)
-    else navigate('/schedule/jobs')
-  }, [navigate, focusJobId])
   const focusedJobRowRef = useRef(null)
   const didHandleFocusRef = useRef(false)
 
@@ -1102,11 +1098,6 @@ export default function Schedule({ embedded = false } = {}) {
         dates={dates} todayStr={todayStr} weekLabel={fmtWk(monday)} loading={loading}
         error={staticError || (loading ? error : null)} pulse={weekChanged && !changingWeek} onOpenTrip={openSummaryTrip} /></div>}
     <div className="sch-layout">
-      {!embedded && (
-        <div className="jh-back-bar">
-          <button className="jh-back-btn" onClick={goBack}>← {focusJobId ? 'Back to job' : 'All stages'}</button>
-        </div>
-      )}
       <div className="sch-wrap">
         {/* Crew pool sidebar */}
         <div className="sch-pool" hidden={loading || !!staticError} inert={changingWeek ? true : undefined}>

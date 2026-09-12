@@ -1,0 +1,50 @@
+SC Handoff v267 — Crew Schedule date bar lift, no row squash — 2026-09-11
+
+SESSION SUMMARY
+Chris accepted the first B119 preview’s sticky dates but rejected the squashed
+job rows. Second pass moves the Mon–Sat date bar up under the Weekly Crew
+Capacity strip and restores natural job-row height. Branch pushed for preview
+review. No data or assignment changes.
+
+CHANGES SHIPPED
+Not merged. Built on `fix/crew-schedule-sticky-dates` (follow-up to `b80ebbb`):
+- Date header is now `.sch-date-bar` under the capacity strip, outside `.sch-brd`.
+- `.sch-brd` is a single job-row grid again (`grid-auto-rows: max-content`).
+- Removed the wrapper `height: 100%` that compressed rows in the first pass.
+- Layout check now asserts the date bar sits directly under `.hcs` and first
+  job label height stays ≥ 48px after scroll.
+
+DECISIONS
+Move the date bar up under capacity; do not compress existing job rows.
+Week nav and job-count stay where they were (below the date bar). Do not
+restyle the capacity bar. Other Schedule screens still use the host scroller.
+
+NEW/CLOSED BACKLOG ITEMS
+B119 remains In Progress on the branch (not closed until merge).
+B118 eleven exceptions and other deferred work are unchanged.
+
+VERIFICATION
+`npx vite build` passed.
+Focused intercepted layout check passed with system Chrome and 28 fixture
+jobs: host pane does not scroll, date bar Y is unchanged after scrolling
+`.sch-brd`, first job label stays ≥ 48px, only job rows move.
+Authenticated Vercel preview visual acceptance is still Chris’s check.
+
+NOT TOUCHED
+Assignments, trips, capacity math, Calendar/Daily/Home, database, Field,
+phone sharing, and B118 exceptions.
+
+NEXT SESSION POINTERS
+Open the branch preview on /schedule/schedule and scroll the job board.
+Confirm the black Weekly Crew Capacity bar and Mon–Sat date row stay put
+and that job rows look like production (not compressed). Merge only after
+Chris accepts the preview. Do not resume B118 or phone work.
+
+FILES TO KNOW
+src/schedule/views/Schedule.jsx — `.sch-date-bar` above the board.
+src/schedule/App.css — pane lock, date bar, natural-height job grid.
+scripts/check-crew-schedule-sticky-dates.mjs — intercepted layout check.
+
+GIT STATE
+Branch `fix/crew-schedule-sticky-dates` off main. Not merged.
+This handoff and B119 notes belong in the same commit as the second-pass fix.

@@ -105,14 +105,14 @@ try {
   })
 
   await page.goto(`http://127.0.0.1:${PORT}/__sticky-dates`)
-  await page.waitForFunction(() => document.querySelector('.sch-brd-hdr-row') && document.querySelector('.sch-brd-body') && document.querySelectorAll('.sch-board-row-wrap').length > 10)
+  await page.waitForFunction(() => document.querySelector('.sch-date-bar') && document.querySelector('.sch-brd') && document.querySelectorAll('.sch-board-row-wrap').length > 10)
 
   const before = await page.evaluate(() => {
     const content = document.querySelector('[data-app-content]')
     const capacity = document.querySelector('.hcs')
-    const header = document.querySelector('.sch-brd-hdr-row')
-    const body = document.querySelector('.sch-brd-body')
-    const firstJob = document.querySelector('.sch-brd-job-name')
+    const header = document.querySelector('.sch-date-bar')
+    const body = document.querySelector('.sch-brd')
+    const firstJob = document.querySelector('.sch-brd-job-label')
     return {
       contentScroll: content.scrollTop,
       contentCanScroll: content.scrollHeight > content.clientHeight + 1,
@@ -121,7 +121,8 @@ try {
       headerTop: header.getBoundingClientRect().top,
       headerText: header.innerText.replace(/\s+/g, ' ').trim(),
       firstJobTop: firstJob.getBoundingClientRect().top,
-      firstJobName: firstJob.textContent,
+      firstJobHeight: firstJob.getBoundingClientRect().height,
+      firstJobName: firstJob.querySelector('.sch-brd-job-name').textContent,
     }
   })
 
@@ -131,23 +132,26 @@ try {
   assert.match(before.headerText, /MO/i)
   assert.match(before.headerText, /SA/i)
   assert.ok(before.headerTop >= before.capacityBottom - 1, 'Date row must sit under the capacity bar')
+  assert.ok(before.headerTop - before.capacityBottom < 8, 'Date row should sit directly under the capacity bar')
+  assert.ok(before.firstJobHeight >= 48, 'Job rows must keep their natural height')
 
-  await page.locator('.sch-brd-body').evaluate(el => { el.scrollTop = 400 })
+  await page.locator('.sch-brd').evaluate(el => { el.scrollTop = 400 })
   await page.waitForTimeout(80)
 
   const after = await page.evaluate(() => {
     const content = document.querySelector('[data-app-content]')
     const capacity = document.querySelector('.hcs')
-    const header = document.querySelector('.sch-brd-hdr-row')
-    const body = document.querySelector('.sch-brd-body')
-    const firstJob = document.querySelector('.sch-brd-job-name')
+    const header = document.querySelector('.sch-date-bar')
+    const body = document.querySelector('.sch-brd')
+    const firstJob = document.querySelector('.sch-brd-job-label')
     return {
       contentScroll: content.scrollTop,
       bodyScroll: body.scrollTop,
       capacityBottom: capacity.getBoundingClientRect().bottom,
       headerTop: header.getBoundingClientRect().top,
       firstJobTop: firstJob.getBoundingClientRect().top,
-      firstJobName: firstJob.textContent,
+      firstJobHeight: firstJob.getBoundingClientRect().height,
+      firstJobName: firstJob.querySelector('.sch-brd-job-name').textContent,
     }
   })
 
@@ -156,6 +160,7 @@ try {
   assert.equal(after.headerTop, before.headerTop, 'Date row must stay fixed')
   assert.equal(after.capacityBottom, before.capacityBottom, 'Capacity bar must stay fixed')
   assert.ok(after.firstJobTop < before.firstJobTop - 100, 'Only job rows should move')
+  assert.equal(after.firstJobHeight, before.firstJobHeight, 'Scrolling must not squash job rows')
   assert.equal(after.firstJobName, before.firstJobName)
   assert.deepEqual(errors, [])
   console.log('PASS Crew Schedule date row stays under the capacity bar; only job rows scroll.')

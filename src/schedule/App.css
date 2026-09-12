@@ -489,7 +489,6 @@
 .schedule-root:has(.sch-layout) {
   flex: 1;
   min-height: 0;
-  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -740,6 +739,21 @@
 
 .schedule-root .sch-capacity-wrap {
   flex-shrink: 0;
+}
+
+.schedule-root .app-main:has(.sch-date-bar) .hcs {
+  margin-bottom: 0;
+}
+
+.schedule-root .sch-date-bar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  background: var(--header-dark);
+}
+
+.schedule-root .sch-date-bar .sch-brd-hdr-row {
+  margin: 0 16px;
 }
 
 .schedule-root .sch-stats-bar {
@@ -1075,37 +1089,26 @@
   flex-direction: column;
 }
 
-/* Board: date header stays put; only .sch-brd-body scrolls */
-.schedule-root .sch-brd {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  border: 1px solid rgba(28, 24, 20, 0.18);
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--bg-card);
-  box-shadow: 0 2px 8px rgba(28, 24, 20, 0.07);
-}
-
-.schedule-root .sch-brd-hdr-row,
-.schedule-root .sch-brd-body {
+/* Date header lives above the board; job rows keep their natural height. */
+.schedule-root .sch-brd-hdr-row {
   display: grid;
   grid-template-columns: 260px repeat(6, 1fr);
-}
-
-.schedule-root .sch-brd-hdr-row {
-  flex-shrink: 0;
-  position: relative;
-  z-index: 2;
   background: var(--header-dark);
 }
 
-.schedule-root .sch-brd-body {
+.schedule-root .sch-brd {
+  display: grid;
+  grid-template-columns: 260px repeat(6, 1fr);
+  grid-auto-rows: max-content;
+  align-content: start;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-radius: 10px;
+  background: var(--bg-card);
+  box-shadow: 0 2px 8px rgba(28, 24, 20, 0.07);
 }
 
 .schedule-root .sch-brd-hdr-job,
@@ -1164,7 +1167,7 @@
   flex-direction: column;
   gap: 2px;
   cursor: default;
-  min-height: 48px;
+  min-height: max(48px, min-content);
 }
 
 .schedule-root .sch-brd-job-label:hover { background: var(--sand-light); }

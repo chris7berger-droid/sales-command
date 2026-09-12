@@ -1148,29 +1148,32 @@ export default function Schedule({ embedded = false } = {}) {
           <div className="sch-job-count">Jobs This Week ({weekJobs.length}) · Trips ({boardRows.filter(row => !row.trip.legacy).length})</div>
 
           <div className="sch-brd">
-            <div className="sch-brd-hdr-job">Job</div>
-            {dates.map((d, i) => (
-              <div key={d} className={`sch-brd-hdr${d === todayStr ? ' sch-brd-hdr-today' : ''}`}>
-                {DAYS[i]}<br />
-                <span className="sch-brd-hdr-date">{d.split('-')[1]}/{d.split('-')[2]}</span>
-              </div>
-            ))}
+            <div className="sch-brd-hdr-row">
+              <div className="sch-brd-hdr-job">Job</div>
+              {dates.map((d, i) => (
+                <div key={d} className={`sch-brd-hdr${d === todayStr ? ' sch-brd-hdr-today' : ''}`}>
+                  {DAYS[i]}<br />
+                  <span className="sch-brd-hdr-date">{d.split('-')[1]}/{d.split('-')[2]}</span>
+                </div>
+              ))}
+            </div>
+            <div className="sch-brd-body">
+              {scheduled.map(j => renderBoardRow(j, false))}
 
-            {scheduled.map(j => renderBoardRow(j, false))}
+              {unscheduled.length > 0 && (
+                <div className="sch-brd-divider">
+                  <div className="sch-brd-divider-line" />
+                  <span>Crew not assigned this week</span>
+                  <div className="sch-brd-divider-line" />
+                </div>
+              )}
 
-            {unscheduled.length > 0 && (
-              <div className="sch-brd-divider">
-                <div className="sch-brd-divider-line" />
-                <span>Crew not assigned this week</span>
-                <div className="sch-brd-divider-line" />
-              </div>
-            )}
+              {unscheduled.map(j => renderBoardRow(j, true))}
 
-            {unscheduled.map(j => renderBoardRow(j, true))}
-
-            {weekJobs.length === 0 && (
-              <div className="sch-brd-empty-msg">No jobs this week</div>
-            )}
+              {weekJobs.length === 0 && (
+                <div className="sch-brd-empty-msg">No jobs this week</div>
+              )}
+            </div>
           </div>
           </div>}
         </div>

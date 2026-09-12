@@ -105,24 +105,25 @@ try {
   })
 
   await page.goto(`http://127.0.0.1:${PORT}/__sticky-dates`)
-  await page.waitForFunction(() => document.querySelector('.sch-brd-hdr-job') && document.querySelector('.sch-brd') && document.querySelectorAll('.sch-board-row-wrap').length > 10)
+  await page.waitForFunction(() => document.querySelector('.sch-brd-hdr-row') && document.querySelector('.sch-brd-body') && document.querySelectorAll('.sch-board-row-wrap').length > 10)
 
   const before = await page.evaluate(() => {
     const content = document.querySelector('[data-app-content]')
     const capacity = document.querySelector('.hcs')
     const board = document.querySelector('.sch-brd')
-    const header = document.querySelector('.sch-brd-hdr-job')
+    const header = document.querySelector('.sch-brd-hdr-row')
+    const body = document.querySelector('.sch-brd-body')
     const firstJob = document.querySelector('.sch-brd-job-label')
     return {
       extraBar: !!document.querySelector('.sch-date-bar'),
       headerInBoard: board.contains(header),
       contentScroll: content.scrollTop,
       contentCanScroll: content.scrollHeight > content.clientHeight + 1,
-      bodyCanScroll: board.scrollHeight > board.clientHeight + 1,
+      bodyCanScroll: body.scrollHeight > body.clientHeight + 1,
       capacityBottom: capacity.getBoundingClientRect().bottom,
       headerTop: header.getBoundingClientRect().top,
-      headerLeft: header.getBoundingClientRect().left,
-      headerText: `${header.innerText} ${[...document.querySelectorAll('.sch-brd-hdr')].map(el => el.innerText).join(' ')}`.replace(/\s+/g, ' ').trim(),
+      headerLeft: document.querySelector('.sch-brd-hdr-job').getBoundingClientRect().left,
+      headerText: header.innerText.replace(/\s+/g, ' ').trim(),
       firstJobTop: firstJob.getBoundingClientRect().top,
       firstJobLeft: firstJob.getBoundingClientRect().left,
       firstJobHeight: firstJob.getBoundingClientRect().height,
@@ -140,18 +141,18 @@ try {
   assert.ok(Math.abs(before.headerLeft - before.firstJobLeft) < 2, 'Date header must line up with job rows')
   assert.ok(before.firstJobHeight >= 48, 'Job rows must keep their natural height')
 
-  await page.locator('.sch-brd').evaluate(el => { el.scrollTop = 400 })
+  await page.locator('.sch-brd-body').evaluate(el => { el.scrollTop = 400 })
   await page.waitForTimeout(80)
 
   const after = await page.evaluate(() => {
     const content = document.querySelector('[data-app-content]')
     const capacity = document.querySelector('.hcs')
-    const board = document.querySelector('.sch-brd')
-    const header = document.querySelector('.sch-brd-hdr-job')
+    const body = document.querySelector('.sch-brd-body')
+    const header = document.querySelector('.sch-brd-hdr-row')
     const firstJob = document.querySelector('.sch-brd-job-label')
     return {
       contentScroll: content.scrollTop,
-      bodyScroll: board.scrollTop,
+      bodyScroll: body.scrollTop,
       capacityBottom: capacity.getBoundingClientRect().bottom,
       headerTop: header.getBoundingClientRect().top,
       firstJobTop: firstJob.getBoundingClientRect().top,

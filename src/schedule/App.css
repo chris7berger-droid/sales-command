@@ -1082,27 +1082,37 @@
   flex-direction: column;
 }
 
-/* Live board header stays on the job columns and stays put while rows scroll. */
+/* Board card: date row is outside the job scroller so it cannot bounce. */
 .schedule-root .sch-brd {
-  display: grid;
-  grid-template-columns: 260px repeat(6, 1fr);
-  grid-auto-rows: max-content;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
   border: 1px solid rgba(28, 24, 20, 0.18);
   border-radius: 10px;
   background: var(--bg-card);
   box-shadow: 0 2px 8px rgba(28, 24, 20, 0.07);
 }
 
-.schedule-root .sch-brd-hdr-job,
-.schedule-root .sch-brd-hdr {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+.schedule-root .sch-brd-hdr-row,
+.schedule-root .sch-brd-body {
+  display: grid;
+  grid-template-columns: 260px repeat(6, 1fr);
+}
+
+.schedule-root .sch-brd-hdr-row {
+  flex-shrink: 0;
+  background: var(--header-dark);
+}
+
+.schedule-root .sch-brd-body {
+  grid-auto-rows: max-content;
+  align-content: start;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .schedule-root .sch-brd-hdr-job {

@@ -1,0 +1,20 @@
+---
+description: Confirm what Chris means and wait for OK before coding. Do not invent design.
+alwaysApply: true
+---
+
+# Confirm intent before you edit
+
+Chris is fast to review and precise when the words are locked. Guessing the wrong control wastes the session.
+
+1. Name the thing you think he means, in his words. Point at the screenshot or label if you have one.
+2. If two things could match (week strip vs Job/Mo–Sa bar, All Stages vs Back to job), ask which.
+3. State the change in one short list. No extra polish.
+4. Wait for **OK**. Do not edit, commit, or push before that.
+5. Then do only that. Preview. Stop.
+
+Do not invent layout, spacing, type, or extra chrome. If it is not specified, ask. Do not "improve" design on the way through.
+
+Wrong this session: treating "date bar" as the Job/Mo–Sa header, adding a second black bar, coding before OK.
+
+Right: "Your date bar = Prev / Sep 7–12 / Next. Job/Mo–Sa stays. Say OK."

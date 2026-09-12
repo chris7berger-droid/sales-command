@@ -1,0 +1,54 @@
+SC Handoff v268 — Crew Schedule sticky dates release — 2026-09-11
+
+SESSION SUMMARY
+Chris accepted the Crew Schedule layout preview and authorized merge.
+PR51 merged ea41bb9. B119 is closed. The Job / Mo–Sa date bar stays put
+when job rows scroll. No data or assignment changes.
+
+CHANGES SHIPPED
+PR51 on sales-command, merge ea41bb9:
+- Job / Mo–Sa header is pinned at the top of the job board. Only job rows scroll.
+- Fast scroll no longer bounces that black date bar.
+- All Stages / Back to job row removed. Crew cards and the week strip
+  (Prev / week / Next / This Week / Weekly crew texts) sit under Weekly
+  Crew Capacity.
+- Day name and date are larger on the capacity day cards and on the board header.
+- Host pane on Crew Schedule does not scroll the capacity bar away.
+
+DECISIONS
+The week strip is what Chris called the date bar for spacing. Job / Mo–Sa
+stays on the board, not as a second bar under capacity.
+Remove the whole All Stages / Back to job row, not only the All Stages label.
+Do not squash job rows. Do not restyle the capacity bar beyond larger day/date
+text. Other Schedule screens still use the host scroller.
+
+NEW/CLOSED BACKLOG ITEMS
+B119 CLOSED: PR51 merged ea41bb9; Chris accepted preview.
+B118 eleven exceptions and other deferred work are unchanged.
+
+VERIFICATION
+Chris accepted the Vercel preview on /schedule/schedule, including fast scroll
+of the job board. Focused intercepted layout check
+scripts/check-crew-schedule-sticky-dates.mjs passed with system Chrome.
+npx vite build passed earlier on the branch. Production will auto-deploy from
+main; reload scmybiz.com/schedule/schedule after Vercel is Ready.
+
+NOT TOUCHED
+Assignments, trips, capacity math, Calendar/Daily/Home content, database,
+Field, phone sharing, and B118 exceptions.
+
+NEXT SESSION POINTERS
+Read CLAUDE.md, docs/BACKLOG.md and this handoff, then wait for Chris's task.
+Do not reopen B119 or resume B118 / phone work unless he asks.
+Safe to close this terminal after the closeout commit is on main and the
+feature branch is gone. Production is hosted by Vercel.
+
+FILES TO KNOW
+src/schedule/views/Schedule.jsx — board header vs job-row split; All Stages removed.
+src/schedule/App.css — pane lock, pinned .sch-brd-hdr-row, larger day/date type.
+scripts/check-crew-schedule-sticky-dates.mjs — intercepted layout check.
+
+GIT STATE
+Canonical checkout is on main at merge ea41bb9 plus this closeout commit.
+PR51 merged. Branch fix/crew-schedule-sticky-dates deleted locally and on GitHub.
+No extra worktrees were created for this work.

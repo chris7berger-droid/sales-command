@@ -161,10 +161,6 @@ export default function Schedule({ embedded = false } = {}) {
 
   // The Jobs deep link expands this card and includes it despite list filters.
   // Browser history may point at a generic list, so use the job identity.
-  const goBack = useCallback(() => {
-    if (focusJobId) navigate(`/schedule/jobs?job=${encodeURIComponent(focusJobId)}`)
-    else navigate('/schedule/jobs')
-  }, [navigate, focusJobId])
   const focusedJobRowRef = useRef(null)
   const didHandleFocusRef = useRef(false)
 
@@ -1097,16 +1093,11 @@ export default function Schedule({ embedded = false } = {}) {
 
   return (
     <>
-      {!embedded && <div inert={changingWeek ? true : undefined}><CrewWeekCapacity key={wsStr} rows={boardRows} crew={crew}
+      {!embedded && <div className="sch-capacity-wrap" inert={changingWeek ? true : undefined}><CrewWeekCapacity key={wsStr} rows={boardRows} crew={crew}
         crewStatus={crewStatus}
         dates={dates} todayStr={todayStr} weekLabel={fmtWk(monday)} loading={loading}
         error={staticError || (loading ? error : null)} pulse={weekChanged && !changingWeek} onOpenTrip={openSummaryTrip} /></div>}
     <div className="sch-layout">
-      {!embedded && (
-        <div className="jh-back-bar">
-          <button className="jh-back-btn" onClick={goBack}>← {focusJobId ? 'Back to job' : 'All stages'}</button>
-        </div>
-      )}
       <div className="sch-wrap">
         {/* Crew pool sidebar */}
         <div className="sch-pool" hidden={loading || !!staticError} inert={changingWeek ? true : undefined}>
@@ -1153,37 +1144,36 @@ export default function Schedule({ embedded = false } = {}) {
             Could not load {fmtWk(requestedMonday)}: {staticError || error}{' '}
             <button className="sch-btn" onClick={() => { if (staticError) setStaticRetry(n => n + 1); loadWeekData() }}>Retry</button>
           </div>}
-          {loading ? (!error && !staticError && <div className="loading" role="status">Loading schedule…</div>) : <div inert={changingWeek ? true : undefined} aria-busy={changingWeek}>
+          {loading ? (!error && !staticError && <div className="loading" role="status">Loading schedule…</div>) : <div className="sch-board-pane" inert={changingWeek ? true : undefined} aria-busy={changingWeek}>
           <div className="sch-job-count">Jobs This Week ({weekJobs.length}) · Trips ({boardRows.filter(row => !row.trip.legacy).length})</div>
 
           <div className="sch-brd">
-            {/* Header row */}
-            <div className="sch-brd-hdr-job">Job</div>
-            {dates.map((d, i) => (
-              <div key={d} className={`sch-brd-hdr${d === todayStr ? ' sch-brd-hdr-today' : ''}`}>
-                {DAYS[i]}<br />
-                <span className="sch-brd-hdr-date">{d.split('-')[1]}/{d.split('-')[2]}</span>
-              </div>
-            ))}
+            <div className="sch-brd-hdr-row">
+              <div className="sch-brd-hdr-job">Job</div>
+              {dates.map((d, i) => (
+                <div key={d} className={`sch-brd-hdr${d === todayStr ? ' sch-brd-hdr-today' : ''}`}>
+                  {DAYS[i]}<br />
+                  <span className="sch-brd-hdr-date">{d.split('-')[1]}/{d.split('-')[2]}</span>
+                </div>
+              ))}
+            </div>
+            <div className="sch-brd-body">
+              {scheduled.map(j => renderBoardRow(j, false))}
 
-            {/* Scheduled jobs */}
-            {scheduled.map(j => renderBoardRow(j, false))}
+              {unscheduled.length > 0 && (
+                <div className="sch-brd-divider">
+                  <div className="sch-brd-divider-line" />
+                  <span>Crew not assigned this week</span>
+                  <div className="sch-brd-divider-line" />
+                </div>
+              )}
 
-            {/* Divider */}
-            {unscheduled.length > 0 && (
-              <div className="sch-brd-divider">
-                <div className="sch-brd-divider-line" />
-                <span>Crew not assigned this week</span>
-                <div className="sch-brd-divider-line" />
-              </div>
-            )}
+              {unscheduled.map(j => renderBoardRow(j, true))}
 
-            {/* Unscheduled jobs */}
-            {unscheduled.map(j => renderBoardRow(j, true))}
-
-            {weekJobs.length === 0 && (
-              <div className="sch-brd-empty-msg">No jobs this week</div>
-            )}
+              {weekJobs.length === 0 && (
+                <div className="sch-brd-empty-msg">No jobs this week</div>
+              )}
+            </div>
           </div>
           </div>}
         </div>

@@ -452,7 +452,11 @@
 
 .schedule-root .app-main:has(.sch-layout) {
   padding: 0;
-  overflow: visible;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Daily view paints a full-bleed linen surface; content is centered inside it. */
@@ -472,6 +476,23 @@
    ONLY while Schedule is mounted — scoped by :has(.schedule-root) so Sales/Field
    keep their padded frame. !important is required to beat the inline style. */
 [data-app-content]:has(.schedule-root) { padding: 0 !important; }
+
+/* Crew Schedule fills the host pane. Only job rows scroll — the capacity
+   band and Mon–Sat date header stay put (B119). Do not apply to other
+   Schedule screens; they still need the host content scroller. */
+[data-app-content]:has(.sch-layout) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+[data-app-content]:has(.sch-layout) > *,
+.schedule-root:has(.sch-layout) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 
 /* Jobs View */
 .schedule-root .jobs-scoreboard {
@@ -711,8 +732,21 @@
 .schedule-root .sch-layout {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 52px);
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
+}
+
+.schedule-root .sch-capacity-wrap {
+  flex-shrink: 0;
+}
+
+.schedule-root .app-main:has(.sch-layout) .hcs {
+  margin-bottom: 0;
+}
+
+.schedule-root .sch-layout .sch-main {
+  padding-top: 10px;
 }
 
 .schedule-root .sch-stats-bar {
@@ -779,6 +813,7 @@
   width: 280px;
   background: var(--bg-card);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px;
   border-right: 1px solid rgba(28, 24, 20, 0.18);
   flex-shrink: 0;
@@ -968,8 +1003,11 @@
 /* Main board area */
 .schedule-root .sch-main {
   flex: 1;
+  min-height: 0;
   padding: 16px;
-  overflow-y: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .schedule-root .sch-wknav {
@@ -981,6 +1019,7 @@
   background: var(--bg-card);
   border-radius: 8px;
   border: 1px solid rgba(28, 24, 20, 0.18);
+  flex-shrink: 0;
 }
 
 .schedule-root .sch-wklbl {
@@ -1033,34 +1072,47 @@
   padding: 0 0 6px;
   margin-bottom: 6px;
   border-bottom: 1px solid rgba(28, 24, 20, 0.22);
+  flex-shrink: 0;
 }
 
-/* Board grid */
+.schedule-root .sch-board-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Board card: date row is outside the job scroller so it cannot bounce. */
 .schedule-root .sch-brd {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   border: 1px solid rgba(28, 24, 20, 0.18);
   border-radius: 10px;
-  overflow: hidden;
   background: var(--bg-card);
   box-shadow: 0 2px 8px rgba(28, 24, 20, 0.07);
 }
 
-.schedule-root .sch-brd > .sch-board-row-wrap:first-child .sch-board-row,
-.schedule-root .sch-brd > .sch-brd-hdr-job {
-  /* headers handled separately */
-}
-
-/* Header row uses CSS grid */
-.schedule-root .sch-brd-hdr-job,
-.schedule-root .sch-brd-hdr {
-  display: inline;
-}
-
-/* We use a grid approach: header + each board row is a 7-col grid */
-.schedule-root .sch-brd {
+.schedule-root .sch-brd-hdr-row,
+.schedule-root .sch-brd-body {
   display: grid;
   grid-template-columns: 260px repeat(6, 1fr);
+}
+
+.schedule-root .sch-brd-hdr-row {
+  flex-shrink: 0;
+  background: var(--header-dark);
+}
+
+.schedule-root .sch-brd-body {
+  grid-auto-rows: max-content;
+  align-content: start;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .schedule-root .sch-brd-hdr-job {
@@ -1078,7 +1130,7 @@
 
 .schedule-root .sch-brd-hdr {
   font-family: var(--font-heading);
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
   text-transform: uppercase;
   text-align: center;
@@ -1093,7 +1145,7 @@
 .schedule-root .sch-brd-hdr-today { color: var(--command-green); }
 
 .schedule-root .sch-brd-hdr-date {
-  font-size: 9px;
+  font-size: 12px;
   opacity: 0.7;
 }
 
@@ -1114,7 +1166,7 @@
   flex-direction: column;
   gap: 2px;
   cursor: default;
-  min-height: 48px;
+  min-height: max(48px, min-content);
 }
 
 .schedule-root .sch-brd-job-label:hover { background: var(--sand-light); }
@@ -5625,6 +5677,7 @@
   align-items: center;
   gap: 10px;
   margin: 4px 0 10px;
+  flex-shrink: 0;
 }
 
 .schedule-root .jh-back-btn {
@@ -6590,7 +6643,7 @@
 .schedule-root .hcs-day-avail { background: var(--sig-green); }
 .schedule-root .hcs-day-off { background: var(--sig-red); margin-left: auto; }
 .schedule-root .hcs-day-today { background: rgba(48,207,172,0.08); border-radius: 8px; }
-.schedule-root .hcs-day-label { font-family: var(--font-heading); font-weight: 700; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.55); }
+.schedule-root .hcs-day-label { font-family: var(--font-heading); font-weight: 700; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.55); }
 .schedule-root .hcs-day-count { font-family: var(--font-mono); font-weight: 700; font-size: 15px; margin: 4px 0 5px; }
 .schedule-root .hcs-day-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.12); overflow: hidden; }
 .schedule-root .hcs-day-bar-fill { height: 100%; border-radius: 2px; }

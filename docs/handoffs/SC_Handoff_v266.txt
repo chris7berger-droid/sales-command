@@ -1,0 +1,48 @@
+SC Handoff v266 — Crew Schedule sticky date row — 2026-09-11
+
+SESSION SUMMARY
+Chris asked to stop the Crew Schedule Mon–Sat date row from bouncing when jobs
+scroll. The date header now stays under the Weekly Crew Capacity bar; only job
+rows scroll. Branch pushed for preview review. No data or assignment changes.
+
+CHANGES SHIPPED
+Not merged. Built on `fix/crew-schedule-sticky-dates`:
+- Split the Job / Mon–Sat header out of the job-row scroller in Schedule.jsx.
+- Locked the Crew Schedule pane so the host content area, capacity bar, week
+  nav, and date row do not move with job scroll.
+- Added `scripts/check-crew-schedule-sticky-dates.mjs` for the layout check.
+
+DECISIONS
+Do not restyle the capacity bar. Keep week nav and job-count chrome above the
+date row. Other Schedule screens still use the host scroller.
+
+NEW/CLOSED BACKLOG ITEMS
+B119 filed and built on the branch (not closed until merge).
+B118 eleven exceptions and other deferred work are unchanged.
+
+VERIFICATION
+`npx vite build` passed.
+Focused intercepted layout check passed with 28 fixture jobs: host pane does
+not scroll, date header Y is unchanged after scrolling `.sch-brd-body`, and
+job rows move. Local Playwright Chromium crashed in the sandbox; the check
+ran with system Chrome. Docker is available but was not needed once Chrome
+launched. Authenticated production / Vercel preview visual acceptance is
+still Chris’s check.
+
+NOT TOUCHED
+Assignments, trips, capacity math, Calendar/Daily/Home, database, Field,
+phone sharing, and B118 exceptions.
+
+NEXT SESSION POINTERS
+Open the branch preview on /schedule/schedule and scroll the job board.
+Confirm the black Weekly Crew Capacity bar and Mon–Sat date row stay put.
+Merge only after Chris accepts the preview. Do not resume B118 or phone work.
+
+FILES TO KNOW
+src/schedule/views/Schedule.jsx — date header vs job-row split.
+src/schedule/App.css — Crew Schedule pane lock and `.sch-brd-body` scroller.
+scripts/check-crew-schedule-sticky-dates.mjs — intercepted layout check.
+
+GIT STATE
+Branch `fix/crew-schedule-sticky-dates` off main. Not merged.
+This handoff and B119 notes belong in the same commit as the layout fix.

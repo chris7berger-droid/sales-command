@@ -6633,7 +6633,7 @@
 .schedule-root .hcs-day-avail { background: var(--sig-green); }
 .schedule-root .hcs-day-off { background: var(--sig-red); margin-left: auto; }
 .schedule-root .hcs-day-today { background: rgba(48,207,172,0.08); border-radius: 8px; }
-.schedule-root .hcs-day-label { font-family: var(--font-heading); font-weight: 700; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.55); }
+.schedule-root .hcs-day-label { font-family: var(--font-heading); font-weight: 700; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.55); }
 .schedule-root .hcs-day-count { font-family: var(--font-mono); font-weight: 700; font-size: 15px; margin: 4px 0 5px; }
 .schedule-root .hcs-day-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.12); overflow: hidden; }
 .schedule-root .hcs-day-bar-fill { height: 100%; border-radius: 2px; }

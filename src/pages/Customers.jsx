@@ -12,7 +12,7 @@ import Checkbox from "../components/Checkbox";
 import CustomerMergeModal from "../components/CustomerMergeModal";
 
 const STD_TERMS = [5, 15, 30, 45, 60, 90, 120];
-const CONTACT_ROLES = ["Project Manager", "Office Manager", "Billing Contact"];
+const CONTACT_ROLES = ["Project Manager", "Office Manager", "Billing Contact", "Job Site Contact"];
 const inputStyle = { width: "100%", padding: "9px 12px", borderRadius: 7, border: `1px solid ${C.borderStrong}`, background: C.linenDeep, color: C.textBody, fontSize: 13, fontFamily: F.ui, WebkitAppearance: "none" };
 const stageColor = s => ({ "New Inquiry": C.teal, "Wants Bid": C.amber, "Has Bid": C.purple, Sold: C.green, Lost: C.red }[s] || C.textFaint);
 

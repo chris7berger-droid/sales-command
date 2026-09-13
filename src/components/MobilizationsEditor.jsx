@@ -4,6 +4,98 @@ import { supabase } from "../lib/supabase";
 import { fmtD } from "../lib/utils";
 import Btn from "./Btn";
 
+const SITE_CONTACT_ROLE = "Job Site Contact";
+
+function digits(s) {
+  return String(s || "").replace(/\D/g, "");
+}
+
+function emptySiteContact(id) {
+  return { id, source: "manual", first_name: "", last_name: "", phone: "", note: "", team_member_id: "" };
+}
+
+function contactLabel(c, teamById) {
+  if (c.source === "team") return teamById.get(c.team_member_id)?.name || c.team_member_name || "Sales person";
+  return [c.first_name, c.last_name].filter(Boolean).join(" ") || "Contact";
+}
+
+function pickSiteFields(mobs) {
+  const src = (mobs || []).find(m => (m.site_contacts || []).length || m.access_note) || (mobs || [])[0];
+  return { contacts: src?.site_contacts || [], access: src?.access_note || "" };
+}
+
+function stampSite(mobs, contacts, access) {
+  return (mobs || []).map(m => ({ ...m, site_contacts: contacts, access_note: access }));
+}
+
+// Writer: Sales. People SoT = customer_contacts (manual) or team_members (sales
+// person). Trip jsonb holds ids + a display snapshot + per-contact note + access_note.
+// Do not copy people onto field_sow days (Field handoff v17).
+async function resolveSiteContacts(mobs, customerId, teamMembers) {
+  const teamById = new Map((teamMembers || []).map(t => [t.id, t]));
+  let known = [];
+  if (customerId) {
+    const { data, error } = await supabase.from("customer_contacts").select("id, name, phone, role").eq("customer_id", customerId);
+    if (error) throw error;
+    known = data || [];
+  }
+  const out = [];
+  for (const mob of mobs) {
+    const contacts = [];
+    for (const c of mob.site_contacts || []) {
+      const note = String(c.note || "").trim();
+      if (c.source === "team") {
+        if (!c.team_member_id) continue;
+        const tm = teamById.get(c.team_member_id);
+        contacts.push({
+          id: c.id,
+          source: "team",
+          team_member_id: c.team_member_id,
+          team_member_name: tm?.name || c.team_member_name || "",
+          phone: tm?.phone || c.phone || "",
+          note,
+        });
+        continue;
+      }
+      const first_name = String(c.first_name || "").trim();
+      const last_name = String(c.last_name || "").trim();
+      const phone = String(c.phone || "").trim();
+      if (!first_name && !last_name && !phone) continue;
+      const name = [first_name, last_name].filter(Boolean).join(" ");
+      let customer_contact_id = c.customer_contact_id || null;
+      if (customerId) {
+        const match = known.find(cc =>
+          (customer_contact_id && cc.id === customer_contact_id)
+          || (digits(phone) && digits(cc.phone) === digits(phone))
+          || (name && String(cc.name || "").trim().toLowerCase() === name.toLowerCase())
+        );
+        if (match) {
+          customer_contact_id = match.id;
+          if (match.role === SITE_CONTACT_ROLE && (match.name !== name || match.phone !== phone)) {
+            const { error } = await supabase.from("customer_contacts").update({ name, phone }).eq("id", match.id);
+            if (error) throw error;
+            match.name = name;
+            match.phone = phone;
+          }
+        } else {
+          const { data: inserted, error } = await supabase.from("customer_contacts").insert({
+            customer_id: customerId,
+            name,
+            phone,
+            role: SITE_CONTACT_ROLE,
+          }).select("id, name, phone, role").single();
+          if (error) throw error;
+          customer_contact_id = inserted.id;
+          known.push(inserted);
+        }
+      }
+      contacts.push({ id: c.id, source: "manual", first_name, last_name, phone, note, customer_contact_id });
+    }
+    out.push({ ...mob, site_contacts: contacts, access_note: String(mob.access_note || "").trim() });
+  }
+  return out;
+}
+
 // Mobilizations editor (material_flow Screen 1 §4). Writes proposals.mobilizations
 // jsonb — the proposal-level bid intent, shared by EVERY work type (WTC) on the
 // proposal. Relocated 2026-08-25 out of the proposal page and into each WTC's Scope
@@ -45,6 +137,11 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
   // Serialize persists: chain each write behind the previous so issue order == apply
   // order and two rapid onBlur commits never race to a stale last-writer (audit #2).
   const writeChain = useRef(Promise.resolve());
+  const customerIdRef = useRef(null);
+  const teamRef = useRef([]);
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [siteContacts, setSiteContacts] = useState([]);
+  const [accessNote, setAccessNote] = useState("");
 
   // Same UUID generator the day/task factory uses (WTCCalculator uid()), with the
   // non-secure-context fallback.
@@ -55,9 +152,27 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
   useEffect(() => {
     if (!proposalId) return;
     let alive = true;
-    supabase.from("proposals").select("mobilizations").eq("id", proposalId).single()
-      .then(({ data }) => { if (alive) { const m = data?.mobilizations || []; savedRef.current = m; setMobs(m); setLoaded(true); onChange?.(m); } })
+    supabase.from("proposals").select("mobilizations, call_log(customer_id)").eq("id", proposalId).single()
+      .then(({ data }) => {
+        if (!alive) return;
+        const m = data?.mobilizations || [];
+        customerIdRef.current = data?.call_log?.customer_id || null;
+        savedRef.current = m;
+        const picked = pickSiteFields(m);
+        setMobs(m);
+        setSiteContacts(picked.contacts.length ? picked.contacts : [emptySiteContact(uid())]);
+        setAccessNote(picked.access);
+        setLoaded(true);
+        onChange?.(m);
+      })
       .catch(() => { if (alive) setLoaded(true); });
+    supabase.from("team_members").select("id, name, phone").eq("active", true).order("name")
+      .then(({ data }) => {
+        if (!alive) return;
+        const list = data || [];
+        teamRef.current = list;
+        setTeamMembers(list);
+      });
     return () => { alive = false; };
   }, [proposalId]);
 
@@ -70,22 +185,38 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
   // never sits ahead of the DB, and surface the message (audit #1). Every optimistic
   // hop also fires onChange so the parent WTC's day dropdown tracks the same list.
   async function persist(next) {
-    if (next.some(m => !String(m.label ?? '').trim())) { setError('Enter a trip title before saving.'); return; }
+    if (next.some(m => !String(m.label ?? '').trim())) { setError('Enter a trip title before saving.'); return false; }
+    try {
+      next = await resolveSiteContacts(stampSite(next, siteContacts, accessNote), customerIdRef.current, teamRef.current);
+    } catch (e) {
+      setError(e.message || "Could not save job site contacts.");
+      return false;
+    }
     next = next.map(m => ({ ...m, label: m.label.trim() }));
     const ids = new Set(), seqs = new Set();
     for (const m of next) {
-      if (ids.has(m.id) || seqs.has(m.seq)) { setError("Duplicate trip id/seq — not saved."); return; }
+      if (ids.has(m.id) || seqs.has(m.seq)) { setError("Duplicate trip id/seq — not saved."); return false; }
       ids.add(m.id); seqs.add(m.seq);
     }
     setMobs(next); onChange?.(next); setSaving(true); setError(null);
     writeChain.current = writeChain.current.then(async () => {
       const { error: e } = await supabase.from("proposals").update({ mobilizations: next }).eq("id", proposalId);
-      if (e) { setMobs(savedRef.current); onChange?.(savedRef.current); setError(e.message); setSaving(false); return; }
+      if (e) {
+        setMobs(savedRef.current); onChange?.(savedRef.current); setError(e.message); setSaving(false);
+        const picked = pickSiteFields(savedRef.current);
+        setSiteContacts(picked.contacts.length ? picked.contacts : [emptySiteContact(uid())]);
+        setAccessNote(picked.access);
+        return;
+      }
       // Re-assert `next` on success: a prior queued write may have failed and reverted
       // the UI to an older savedRef; this reconciles it back to what we just committed.
       savedRef.current = next; setMobs(next); onChange?.(next); setSaving(false);
+      const picked = pickSiteFields(next);
+      setSiteContacts(picked.contacts.length ? picked.contacts : [emptySiteContact(uid())]);
+      setAccessNote(picked.access);
       setSaved(true); setTimeout(() => setSaved(false), 1600);
     });
+    return true;
   }
 
   function addMob() {
@@ -95,19 +226,23 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
     // edit mode; nothing hits the DB (and the day dropdown never sees a blank mob)
     // until Save. onChange is deliberately NOT called here for the same reason.
     const nextSeq = mobs.reduce((mx, m) => Math.max(mx, m.seq || 0), 0) + 1;
-    const row = { id: uid(), seq: nextSeq, label: "", start_date: null, end_date: null };
+    const row = { id: uid(), seq: nextSeq, label: "", start_date: null, end_date: null, site_contacts: siteContacts, access_note: accessNote };
     setMobs(ms => [...ms, row]);
     setEditingId(row.id);
   }
 
   // Local-only field edit (controlled input); the DB write happens on Save.
   const setField = (id, key, val) => setMobs(ms => ms.map(m => m.id === id ? { ...m, [key]: val } : m));
+  const setContact = (contactId, patch) => setSiteContacts(cs => cs.map(c => c.id === contactId ? { ...c, ...patch } : c));
+  const addContact = () => setSiteContacts(cs => [...cs, emptySiteContact(uid())]);
+  const removeContact = contactId => setSiteContacts(cs => cs.filter(c => c.id !== contactId));
 
   // Save the row being edited: persist the whole array, collapse to the summary
   // view, and flash a per-row ✓. persist() handles the write + error-revert.
-  function saveRow(id) {
+  async function saveRow(id) {
     if (mobs.some(m => !String(m.label ?? '').trim())) { setError('Enter a trip title before saving.'); return; }
-    persist(mobs);
+    const ok = await persist(mobs);
+    if (!ok) return;
     setEditingId(null);
     setJustSavedId(id);
     if (savedTimer.current) clearTimeout(savedTimer.current);
@@ -120,8 +255,17 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
   function cancelRow() {
     setMobs(savedRef.current);
     onChange?.(savedRef.current);
+    const picked = pickSiteFields(savedRef.current);
+    setSiteContacts(picked.contacts.length ? picked.contacts : [emptySiteContact(uid())]);
+    setAccessNote(picked.access);
     setEditingId(null);
     setError(null);
+  }
+
+  async function saveSite() {
+    if (mobs.length === 0) { setError("Add a trip or check Standard job first."); return; }
+    if (mobs.some(m => !String(m.label ?? "").trim())) { setError("Enter a trip title before saving."); return; }
+    await persist(mobs);
   }
 
   // Standard job — collapse to a single mobilization (Mob 1) and tag EVERY field-SOW
@@ -134,7 +278,7 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
     if (mobs.length > 1 && !window.confirm(
       "Standard job uses a single trip. Trips 2+ will be removed and every field-SOW day tagged to Trip 1. Continue?"
     )) return;
-    const mob = mobs[0] || { id: uid(), seq: 1, label: "", start_date: null, end_date: null };
+    const mob = mobs[0] || { id: uid(), seq: 1, label: "", start_date: null, end_date: null, site_contacts: siteContacts, access_note: accessNote };
     if (!String(mob.label ?? '').trim()) {
       setMobs([mob]); setEditingId(mob.id); setMultiMode(true);
       setError('Enter and save a trip title, then select Standard job.');
@@ -222,6 +366,73 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
             ? "One trip for the whole job. Every field-SOW day is tagged to Trip 1."
             : "Group the job into trips, then tag each field-SOW day below to one of them."}
       </div>
+
+      {(() => {
+        const teamById = new Map(teamMembers.map(t => [t.id, t]));
+        const lbl = { fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 };
+        const filled = siteContacts.filter(c => c.source === "team" ? c.team_member_id : (c.first_name || c.last_name || c.phone));
+        if (readOnly) {
+          return (
+            <div style={{ background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+              <div style={lbl}>Job Site Contact</div>
+              {filled.length === 0
+                ? <div style={{ fontSize: 12, color: C.textFaint, fontFamily: F.ui, marginBottom: 8 }}>None</div>
+                : filled.map(c => (
+                  <div key={c.id} style={{ fontSize: 12, color: C.textBody, fontFamily: F.ui, marginBottom: 4 }}>
+                    {contactLabel(c, teamById)}{c.phone ? ` · ${c.phone}` : ""}{c.note ? ` — ${c.note}` : ""}
+                  </div>
+                ))}
+              <div style={{ ...lbl, marginTop: 8 }}>Access info</div>
+              <div style={{ fontSize: 12, color: accessNote ? C.textBody : C.textFaint, fontFamily: F.ui, whiteSpace: "pre-wrap" }}>{accessNote || "None"}</div>
+            </div>
+          );
+        }
+        return (
+          <div style={{ background: C.linen, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <div style={{ ...lbl, marginBottom: 0 }}>Job Site Contact</div>
+              <button type="button" onClick={addContact} style={{ background: "none", border: `1px dashed ${C.borderStrong}`, borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: C.textBody, cursor: "pointer", fontFamily: F.display }}>＋ Add</button>
+            </div>
+            {siteContacts.map(c => (
+              <div key={c.id} style={{ background: C.linenDeep, border: `1px solid ${C.border}`, borderRadius: 7, padding: 8, marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <select aria-label="Contact type" value={c.source || "manual"} onChange={e => setContact(c.id, e.target.value === "team"
+                    ? { source: "team", first_name: "", last_name: "", customer_contact_id: null, team_member_id: "" }
+                    : { source: "manual", team_member_id: "", team_member_name: "" })}
+                    style={{ ...inp, width: 170 }}>
+                    <option value="manual">First / Last / Phone</option>
+                    <option value="team">Sales person</option>
+                  </select>
+                  <button type="button" onClick={() => removeContact(c.id)} style={{ background: "none", border: "none", color: C.textFaint, cursor: "pointer", fontSize: 16, lineHeight: 1, marginLeft: "auto" }} aria-label="Remove contact">×</button>
+                </div>
+                {c.source === "team" ? (
+                  <select aria-label="Sales person" value={c.team_member_id || ""} onChange={e => setContact(c.id, { team_member_id: e.target.value })}
+                    style={{ ...inp, width: "100%", marginBottom: 6 }}>
+                    <option value="">— select —</option>
+                    {teamMembers.map(t => <option key={t.id} value={t.id}>{t.name}{t.phone ? ` · ${t.phone}` : ""}</option>)}
+                  </select>
+                ) : (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                    <input aria-label="First name" value={c.first_name || ""} placeholder="First name" onChange={e => setContact(c.id, { first_name: e.target.value })} style={{ ...inp, flex: 1, minWidth: 110 }} />
+                    <input aria-label="Last name" value={c.last_name || ""} placeholder="Last name" onChange={e => setContact(c.id, { last_name: e.target.value })} style={{ ...inp, flex: 1, minWidth: 110 }} />
+                    <input aria-label="Phone" value={c.phone || ""} placeholder="Phone" onChange={e => setContact(c.id, { phone: e.target.value })} style={{ ...inp, width: 140 }} />
+                  </div>
+                )}
+                <input aria-label="Contact note" value={c.note || ""} placeholder="Note" onChange={e => setContact(c.id, { note: e.target.value })} style={{ ...inp, width: "100%" }} />
+              </div>
+            ))}
+            <div style={{ marginTop: 8 }}>
+              <div style={lbl}>Access info</div>
+              <textarea aria-label="Access info" value={accessNote} rows={3} placeholder="Gate, lock, badge, hours…"
+                onChange={e => setAccessNote(e.target.value)}
+                style={{ ...inp, width: "100%", resize: "vertical" }} />
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <Btn sz="sm" onClick={saveSite} disabled={!loaded || saving}>Save</Btn>
+            </div>
+          </div>
+        );
+      })()}
       {error && <div style={{ fontSize: 12, color: C.red, fontFamily: F.ui, marginBottom: 10 }}>{error}</div>}
       {!loaded ? (
         <div style={{ fontSize: 12.5, color: C.textFaint, fontFamily: F.ui, padding: "8px 0" }}>Loading…</div>
@@ -235,16 +446,15 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
         const dateText = (mob.start_date || mob.end_date)
           ? `${mob.start_date ? fmtD(mob.start_date) : "—"} → ${mob.end_date ? fmtD(mob.end_date) : "—"}`
           : "no dates set";
-
         // Edit mode — inline fields + Save / Cancel. Teal border marks the open row.
         if (editing) {
           return (
-            <div key={mob.id} style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: "10px 12px", background: C.linen, border: `1.5px solid ${C.tealDark}`, borderRadius: 8, marginBottom: 6 }}>
+            <div key={mob.id} style={{ display: "flex", alignItems: "flex-end", gap: 8, padding: "10px 12px", background: C.linen, border: `1.5px solid ${C.tealDark}`, borderRadius: 8, marginBottom: 6, flexWrap: "wrap" }}>
               <div style={{ width: 46, flexShrink: 0 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>Trip</div>
                 <div style={{ fontSize: 15, fontWeight: 800, color: C.tealDark, fontFamily: F.display }}>{mob.seq}</div>
               </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 160 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, fontFamily: F.ui, marginBottom: 3 }}>Label</div>
                 <input autoFocus aria-label="Trip title" required value={mob.label || ""} placeholder="Trip title (required), e.g. Prep & mask" onChange={e => setField(mob.id, "label", e.target.value)} style={{ ...inp, width: "100%" }} />
               </div>

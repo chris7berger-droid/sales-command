@@ -10,22 +10,24 @@ handoff. Do not wait to be asked.
 CHANGES SHIPPED
 On main (not an app release):
 - `.cursor/rules/session-wrap.mdc` @ ee8ce47 — always-on Sales wrap rule.
-  Same order as Field: Bugbot → fix this slice → commit → merge to main →
-  delete the merged feature branch → write SC_Handoff_vN.txt → push main.
+  Order: Bugbot → fix this slice → commit → Vercel preview + Chris accept
+  (app slices) → merge to main → delete the merged feature branch →
+  write SC_Handoff_vN.txt → push. Preview step added after Chris said
+  the first merge-always draft missed it.
 
 DECISIONS
-Sales wrap matches Field. Wrap is the OK for that close-out.
-Bugbot flagged "merge without preview" against CLAUDE.md. Not changed —
-Chris ordered the Field sequence. Preview-before-merge still applies when
-the slice is an unaccepted app PR; this session's slice was the rule only.
+Sales wrap matches Field, plus the missing step Chris confirmed: **Vercel
+preview Ready + Chris accept before merge** on any app slice. If that is
+not done, stop: leave the PR open, keep the branch, write the handoff.
+Docs/rules-only slices skip preview. Wrap is the OK for close-out.
 Do not merge F62 / PR 52 until Chris accepts the preview.
 
 NEW/CLOSED BACKLOG ITEMS
 None. F62 stays In Progress on feat/wtc-trip-site-contact. B118 unchanged.
 
 VERIFICATION
-One Bugbot pass on the uncommitted rule. One finding (merge vs preview).
-No slice-breaking fix. Rule committed on main as ee8ce47.
+One Bugbot pass on the uncommitted rule. Finding: merge without preview.
+Chris later confirmed that gap. Preview+accept step added on main.
 
 NOT TOUCHED
 F62 UI, PR 52, production app, send-to-schedule seed, B118, B119, phone,
@@ -46,6 +48,6 @@ docs/handoffs/SC_Handoff_v270.txt — F62 capture (on the feature branch)
 docs/handoffs/SC_Handoff_v271.txt — this record
 
 GIT STATE
-~/sales-command on main. Rule commit ee8ce47; this handoff follows on main.
-feat/wtc-trip-site-contact kept (F62 not merged). origin/main updated after
-the handoff push.
+~/sales-command on main. Rule first landed ee8ce47 / handoff 4031d0f.
+Preview-before-merge correction follows on main. feat/wtc-trip-site-contact
+kept (F62 not merged).

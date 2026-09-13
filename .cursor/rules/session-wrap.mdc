@@ -1,11 +1,11 @@
 ---
-description: End-of-session wrap — offer wrap at three-quarters full, then Bugbot, fixes, commit, merge, branch cleanup, handoff, and push without being asked
+description: End-of-session wrap — offer wrap at three-quarters full, then Bugbot, fixes, commit, Vercel preview + Chris accept, merge, branch cleanup, handoff, and push without being asked
 alwaysApply: true
 ---
 
 # Session wrap
 
-When Chris wraps a slice — “wrap”, “merge”, “new session”, “done for now”, “go” after a wrap offer, or you judge the slice complete — **do the close-out. Do not wait to be asked** for Bugbot, a handoff, commit, merge, push, branch cleanup, or a safe-to-close check.
+When Chris wraps a slice — “wrap”, “merge”, “new session”, “done for now”, “go” after a wrap offer, or you judge the slice complete — **do the close-out. Do not wait to be asked** for Bugbot, a handoff, commit, preview, merge, push, branch cleanup, or a safe-to-close check.
 
 `confirm-intent` still applies to product changes before wrap. Wrap is the OK for the close-out below.
 
@@ -26,15 +26,17 @@ If he says keep going, do not nag. Still run the close-out later if he wraps, or
 ## Close-out (in order)
 
 1. **One Bugbot pass** before merge. Fix only findings that would break **this slice**. Do not loop on edge cases or deferred backlog.
-2. **Commit** leftover work on the slice branch. Do not leave a dirty tree.
-3. **Merge** to `main` (PR merge or fast-forward when possible). Check out `main`.
-4. **Branch cleanup:** delete the local feature branch after it is on `main`. Delete the remote feature branch if it was merged. Do not leave leftover feature-branch checkouts for the next session.
-5. **Write the handoff** — next `docs/handoffs/SC_Handoff_vN.txt` (N = last existing + 1). Do this after merge so commit SHAs are real. Update `docs/BACKLOG.md` if this session closed, deferred, or discovered a row. Cover: session summary, what shipped, decisions, new/closed backlog, verification, not touched, next-session pointers, files to know, git state. Commit it on `main`.
-6. **Push `main`** to `origin` (never force). Confirm the remote moved.
-7. **Say it’s safe to close** only after the checklist below is true. If something is not, say what is left in one line.
+2. **Commit** leftover work on the slice branch. Do not leave a dirty tree. Push that branch (never force) if a PR/preview is needed.
+3. **Vercel preview + Chris accept** before merge when the slice changes the app (UI, layout, routing, client state, rendered data). Preview must be Ready. Walk the affected flow. Do not merge until Chris accepts. If there is no preview or he has not accepted, **stop**: leave the PR open, keep the feature branch, write the handoff, say waiting on preview accept. Docs/rules-only slices skip this step.
+4. **Merge** to `main` (PR merge or fast-forward when possible). Check out `main`.
+5. **Branch cleanup:** delete the local feature branch after it is on `main`. Delete the remote feature branch if it was merged. Do not leave leftover feature-branch checkouts for the next session.
+6. **Write the handoff** — next `docs/handoffs/SC_Handoff_vN.txt` (N = last existing + 1). Do this after merge so commit SHAs are real (or on the slice branch if stopped at preview). Update `docs/BACKLOG.md` if this session closed, deferred, or discovered a row. Cover: session summary, what shipped, decisions, new/closed backlog, verification, not touched, next-session pointers, files to know, git state. Commit it on the branch you are on.
+7. **Push** that branch to `origin` (never force). Confirm the remote moved.
+8. **Say it’s safe to close** only after the checklist below is true. If something is not, say what is left in one line.
 
 ## Safe to close — say all of these
 
+If merge completed:
 - Working tree clean
 - On `main`
 - Local `main` matches `origin/main` (pushed)
@@ -42,10 +44,17 @@ If he says keep going, do not nag. Still run the close-out later if he wraps, or
 - Handoff for this session is on `main` (`docs/handoffs/SC_Handoff_vN.txt`)
 - Next session can start on `main` without picking up a dirty tree or unpushed commits
 
+If stopped at preview:
+- Working tree clean
+- Slice branch matches `origin` (pushed)
+- PR still open; preview URL in the handoff
+- Next session starts from that handoff, not from a merge
+
 ## Do not
 
 - End a wrap with “say if you want this committed / pushed”
 - Skip the handoff, or leave it only in chat
 - Force-push, skip hooks, or commit secrets
+- Merge an app slice without a Ready Vercel preview and Chris’s accept
 - Start a new slice in the same wrap
 - Re-run Bugbot after a clean pass or after non-blocking nits

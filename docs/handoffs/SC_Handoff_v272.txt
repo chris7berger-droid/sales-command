@@ -1,0 +1,50 @@
+SC Handoff v272 — F62 WTC capture merged — 2026-09-13
+
+SESSION SUMMARY
+Chris accepted the F62 Vercel preview. Close-out ran the focused Bugbot
+pass (designed result only), two slice fixes, then merge.
+
+CHANGES SHIPPED
+- PR #52 merged `698ad68` — Job Site Contact + Access on WTC Step 1 · Trips.
+- Bugbot (focused): (1) typed contacts only match/update Job Site Contact
+  rows, not Billing/PM; (2) trip Cancel no longer wipes card Contact/Access.
+  Fix commit `425164e`.
+- Feature branch deleted (local + origin).
+
+DECISIONS
+Audit stays on the designed result. Do not expand into lock/security split,
+copy-at-Send, or Field pipe in the review.
+Preview accept is the merge go-ahead. F62 is not closed — capture is on
+main; Schedule/Field copy still waits on a command-suite-db migration.
+
+NEW/CLOSED BACKLOG ITEMS
+F62 still In Progress. WTC capture marked shipped (`698ad68`). Remaining:
+job_mobilizations columns + copy-at-Send; Field Customer/Job Site pipe;
+optional lock vs security split.
+
+VERIFICATION
+Preview accepted by Chris. Focused Bugbot: two medium findings, both
+fixed before merge. Did not re-run Bugbot. Production deploy follows
+main auto-deploy; not walked this session after merge.
+
+NOT TOUCHED
+command-suite-db, send-to-schedule seed, Schedule MobsModal, Field phone,
+B118, B119, lock/security split.
+
+NEXT SESSION POINTERS
+1. Read BACKLOG + this handoff. Wait for Chris.
+2. Next F62 slice is the DB columns + copy-at-Send only after he asks.
+   Do not add unknown columns before that migration.
+3. Do not reopen B118 / B119 / phone unless he asks.
+
+FILES TO KNOW
+src/components/MobilizationsEditor.jsx — capture UI + persist
+src/pages/Customers.jsx — Job Site Contact role
+.cursor/rules/session-wrap.mdc — wrap protocol (preview + accept before merge)
+docs/BACKLOG.md — F62
+docs/handoffs/SC_Handoff_v270.txt — original capture record
+docs/handoffs/SC_Handoff_v272.txt — this record
+
+GIT STATE
+~/sales-command on main at merge 698ad68 plus this closeout commit.
+origin/main updated after the handoff push. No leftover F62 feature branch.

@@ -64,10 +64,13 @@ async function resolveSiteContacts(mobs, customerId, teamMembers) {
       const name = [first_name, last_name].filter(Boolean).join(" ");
       let customer_contact_id = c.customer_contact_id || null;
       if (customerId) {
-        const match = known.find(cc =>
-          (customer_contact_id && cc.id === customer_contact_id)
-          || (digits(phone) && digits(cc.phone) === digits(phone))
-          || (name && String(cc.name || "").trim().toLowerCase() === name.toLowerCase())
+        const byId = customer_contact_id && known.find(cc => cc.id === customer_contact_id && cc.role === SITE_CONTACT_ROLE);
+        const match = byId || known.find(cc =>
+          cc.role === SITE_CONTACT_ROLE
+          && (
+            (digits(phone) && digits(cc.phone) === digits(phone))
+            || (name && String(cc.name || "").trim().toLowerCase() === name.toLowerCase())
+          )
         );
         if (match) {
           customer_contact_id = match.id;
@@ -249,15 +252,11 @@ export default function MobilizationsEditor({ proposalId, onChange, readOnly = f
     savedTimer.current = setTimeout(() => setJustSavedId(cur => (cur === id ? null : cur)), 1800);
   }
 
-  // Cancel: discard local edits by restoring the last DB-confirmed snapshot. Drops
-  // a brand-new unsaved row (it isn't in savedRef) and reverts field edits on an
-  // existing one. Keeps the day dropdown honest via onChange.
+  // Cancel: discard trip-row edits (title/dates) by restoring the last DB snapshot.
+  // Do not reset Job Site Contact / Access — those live on the card, not the trip form.
   function cancelRow() {
     setMobs(savedRef.current);
     onChange?.(savedRef.current);
-    const picked = pickSiteFields(savedRef.current);
-    setSiteContacts(picked.contacts.length ? picked.contacts : [emptySiteContact(uid())]);
-    setAccessNote(picked.access);
     setEditingId(null);
     setError(null);
   }

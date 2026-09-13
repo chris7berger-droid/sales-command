@@ -1,0 +1,51 @@
+---
+description: End-of-session wrap — offer wrap at three-quarters full, then Bugbot, fixes, commit, merge, branch cleanup, handoff, and push without being asked
+alwaysApply: true
+---
+
+# Session wrap
+
+When Chris wraps a slice — “wrap”, “merge”, “new session”, “done for now”, “go” after a wrap offer, or you judge the slice complete — **do the close-out. Do not wait to be asked** for Bugbot, a handoff, commit, merge, push, branch cleanup, or a safe-to-close check.
+
+`confirm-intent` still applies to product changes before wrap. Wrap is the OK for the close-out below.
+
+## Chat about three-quarters full
+
+Cursor shows how full this chat is. When that meter hits **about three-quarters (~75%)**, treat it as a wrap trigger — wrap *before* the chat dies.
+
+1. Stop adding new work. Do not start another slice.
+2. Offer wrap **once** in this chat (do not repeat it every message).
+3. Say this, in plain English — no token counts:
+
+   This chat is about three-quarters full — good time to wrap. Want me to close it out now?
+
+4. If Chris says wrap / go / yes / merge / done for now / new session, run the close-out below immediately.
+
+If he says keep going, do not nag. Still run the close-out later if he wraps, or if you judge the slice complete.
+
+## Close-out (in order)
+
+1. **One Bugbot pass** before merge. Fix only findings that would break **this slice**. Do not loop on edge cases or deferred backlog.
+2. **Commit** leftover work on the slice branch. Do not leave a dirty tree.
+3. **Merge** to `main` (PR merge or fast-forward when possible). Check out `main`.
+4. **Branch cleanup:** delete the local feature branch after it is on `main`. Delete the remote feature branch if it was merged. Do not leave leftover feature-branch checkouts for the next session.
+5. **Write the handoff** — next `docs/handoffs/SC_Handoff_vN.txt` (N = last existing + 1). Do this after merge so commit SHAs are real. Update `docs/BACKLOG.md` if this session closed, deferred, or discovered a row. Cover: session summary, what shipped, decisions, new/closed backlog, verification, not touched, next-session pointers, files to know, git state. Commit it on `main`.
+6. **Push `main`** to `origin` (never force). Confirm the remote moved.
+7. **Say it’s safe to close** only after the checklist below is true. If something is not, say what is left in one line.
+
+## Safe to close — say all of these
+
+- Working tree clean
+- On `main`
+- Local `main` matches `origin/main` (pushed)
+- No leftover feature branch that still has the only copy of the work
+- Handoff for this session is on `main` (`docs/handoffs/SC_Handoff_vN.txt`)
+- Next session can start on `main` without picking up a dirty tree or unpushed commits
+
+## Do not
+
+- End a wrap with “say if you want this committed / pushed”
+- Skip the handoff, or leave it only in chat
+- Force-push, skip hooks, or commit secrets
+- Start a new slice in the same wrap
+- Re-run Bugbot after a clean pass or after non-blocking nits

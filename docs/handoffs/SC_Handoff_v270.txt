@@ -1,0 +1,70 @@
+SC Handoff v270 — F62 WTC Job Site Contact + Access — 2026-09-13
+
+SESSION SUMMARY
+Chris asked to capture Job Site Contact and Access info on the WTC where day
+info / Day Trips live. Agreed: on Step 1 · Trips (not per-day field_sow),
+typed First/Last/Phone or pick a Sales person, multiple contacts with a note,
+Access as one note box. People stay on customer_contacts. Localhost showed a
+stale bundle; he asked to switch to a Vercel branch. Chat hit ~83% context —
+stop here and pick up in a new session.
+
+CHANGES SHIPPED
+Not merged. Branch + PR only.
+- feat/wtc-trip-site-contact @ 0042383
+- PR #52: https://github.com/chris7berger-droid/sales-command/pull/52
+- Vercel preview Ready:
+  https://sales-command-git-feat-wtc-af1f33-chris7berger-droids-projects.vercel.app
+  Inspect: https://vercel.com/chris7berger-droids-projects/sales-command/CsDE3RW4QXTmPJ4ENBMmW1gVJvmV
+
+UI: Job Site Contact + Access sit on the Step 1 · Trips card (always visible).
+Typed contacts write to customer_contacts as role "Job Site Contact". Sales
+person pick is team_members. Trip jsonb holds ids + snapshot + note +
+access_note. Customers.jsx CONTACT_ROLES includes the new role.
+
+DECISIONS
+- Capture on the Step 1 · Trips card, not the day-row header. First build hid
+  the fields inside trip Edit; empty trips looked unchanged. Moved onto the
+  card so they show with zero trips.
+- Sales person = active team_members. Typed First/Last/Phone = customer_contacts.
+- Access is one note box. Field also asked for lock/security split — not built.
+- Do not add job_mobilizations columns or copy-at-Send until a command-suite-db
+  migration is live. Extra keys on the send upsert would fail the whole trip
+  seed (non-fatal warning, trip list dropped).
+- Test on the Vercel preview, not localhost.
+
+NEW/CLOSED BACKLOG ITEMS
+- F62 filed In Progress (T2). WTC capture built on the branch. Not closed.
+  Remaining: job_mobilizations columns + copy-at-Send; Field Customer/Job Site
+  pipe; optional lock vs security split.
+
+VERIFICATION
+Localhost WTC on /sales/proposals did not show the new fields (stale HMR).
+Vite was serving the new module; the open tab was not. Preview not yet walked
+in-browser this session. Chris should open a draft proposal → WTC → Scope of
+Work on the preview URL.
+
+NOT TOUCHED
+Production, main, send-to-schedule seed, Schedule MobsModal, Field phone,
+command-suite-db migrations, B118.
+
+NEXT SESSION POINTERS
+1. Open the preview (not localhost, not scmybiz.com). Draft proposal → WTC →
+   Scope of Work. Confirm Job Site Contact + Access on Step 1 · Trips.
+2. Save still needs a trip (Standard job or + Add Trip + title), then Save on
+   the contact/access block.
+3. Do not merge until Chris accepts the preview.
+4. After accept: command-suite-db columns (site_contacts jsonb, access_note)
+   then wire ProposalDetail send seed. Then Field can pipe.
+5. Do not reopen B118 / B119 / phone work unless he asks.
+
+FILES TO KNOW
+src/components/MobilizationsEditor.jsx — the UI + persist
+src/pages/Customers.jsx — Job Site Contact role
+docs/BACKLOG.md — F62
+docs/handoffs/SC_Handoff_v270.txt — this record
+Field: FC_HANDOFF_v17.md (contacts stay on customer_contacts)
+
+GIT STATE
+~/sales-command on feat/wtc-trip-site-contact at 0042383, pushed.
+PR #52 open. main unchanged at d3c5fd5. Handoff written locally; not in the
+PR unless Chris asks to add it.

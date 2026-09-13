@@ -1,0 +1,51 @@
+SC Handoff v269 — One Sales Command working copy — 2026-09-13
+
+SESSION SUMMARY
+Chris asked how to keep current across repos, then spotted two Sales Command
+folders on this Mac. They were two clones of the same GitHub repo, not two
+products. Chris approved keeping ~/sales-command and deleting the extra clone.
+
+CHANGES SHIPPED
+Local only (not a product release):
+- Deleted /Users/chrisberger/Projects/sales-command (cloned 2026-09-11).
+- This chat moved to /Users/chrisberger/sales-command (original clone, 2026-03-30).
+- CLAUDE.md Session Start now says: one working copy, do not clone again under ~/Projects.
+
+DECISIONS
+Do not give the two folders unique IDs. That would make the next chat treat
+them as two apps.
+Keep ~/sales-command. It has .env.local and sits next to field-command,
+command-suite-db, and sch-command. Field chats already open this path.
+GitHub main is the published code for this repo. A Sales handoff is not a
+guarantee Field or command-suite-db have not moved. Check those remotes
+before cross-driver work. Do not auto-pull other repos into this chat.
+
+NEW/CLOSED BACKLOG ITEMS
+None. B118 eleven exceptions and other deferred work are unchanged.
+
+VERIFICATION
+Both clones were on main at b36e73c, clean, matching origin/main.
+ProposalDetail.jsx was identical. After delete: ~/sales-command remains,
+.env.local present, field-command / command-suite-db / sch-command untouched.
+~/Projects is empty.
+
+NOT TOUCHED
+App code, production, GitHub, database, Field, B118, B119.
+
+NEXT SESSION POINTERS
+Read CLAUDE.md, docs/BACKLOG.md and this handoff, then wait for Chris's task.
+Do not recreate ~/Projects/sales-command. Do not reopen B119 or resume B118
+/ phone work unless he asks.
+Field handoff v17 (2026-09-13) asked Sales to add access / lock / security
+fields and to leave customer contacts on customers / customer_contacts.
+command-suite-db moved the same morning (PowerSync assignments publish).
+Those are other repos; wait for Chris before picking them up here.
+
+FILES TO KNOW
+CLAUDE.md — Session Start one-copy sticky.
+docs/handoffs/SC_Handoff_v269.txt — this record.
+
+GIT STATE
+Canonical checkout is ~/sales-command on main at b36e73c (matches origin/main).
+This handoff and the CLAUDE.md sticky are written locally; not committed unless
+Chris asks. No feature branch. No extra worktrees.

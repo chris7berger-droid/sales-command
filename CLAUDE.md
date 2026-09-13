@@ -27,6 +27,8 @@ owns it. Full contract + open decisions:
 
 ## Session Start
 
+**One working copy: `~/sales-command`.** Do not clone Sales Command again under `~/Projects`. A second folder at `~/Projects/sales-command` was deleted 2026-09-13 (handoff v269). Field, `command-suite-db`, and `sch-command` already sit next to this path.
+
 **Before doing anything else in a Sales Command session, read `docs/BACKLOG.md`.**
 That file is the single source of truth for outstanding work — security findings,
 bugs, features, cleanup. Do not propose work, recommend priorities, or claim

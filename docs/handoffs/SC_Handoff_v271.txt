@@ -1,0 +1,51 @@
+SC Handoff v271 — Sales session-wrap close-out rule — 2026-09-13
+
+SESSION SUMMARY
+Started from v270. Chris asked why Field's close-out protocol did not carry
+over. It lives in field-command `.cursor/rules/session-wrap.mdc` and is
+per-repo. First Sales draft skipped merge and asked before commit. Chris
+corrected: run Bugbot, fix this slice, commit, merge, clean branches, write
+handoff. Do not wait to be asked.
+
+CHANGES SHIPPED
+On main (not an app release):
+- `.cursor/rules/session-wrap.mdc` @ ee8ce47 — always-on Sales wrap rule.
+  Same order as Field: Bugbot → fix this slice → commit → merge to main →
+  delete the merged feature branch → write SC_Handoff_vN.txt → push main.
+
+DECISIONS
+Sales wrap matches Field. Wrap is the OK for that close-out.
+Bugbot flagged "merge without preview" against CLAUDE.md. Not changed —
+Chris ordered the Field sequence. Preview-before-merge still applies when
+the slice is an unaccepted app PR; this session's slice was the rule only.
+Do not merge F62 / PR 52 until Chris accepts the preview.
+
+NEW/CLOSED BACKLOG ITEMS
+None. F62 stays In Progress on feat/wtc-trip-site-contact. B118 unchanged.
+
+VERIFICATION
+One Bugbot pass on the uncommitted rule. One finding (merge vs preview).
+No slice-breaking fix. Rule committed on main as ee8ce47.
+
+NOT TOUCHED
+F62 UI, PR 52, production app, send-to-schedule seed, B118, B119, phone,
+command-suite-db.
+
+NEXT SESSION POINTERS
+1. Next Sales chat reads BACKLOG + this handoff, then waits.
+2. F62 is still on feat/wtc-trip-site-contact @ 0a4fc0d / PR 52.
+   Preview: https://sales-command-git-feat-wtc-af1f33-chris7berger-droids-projects.vercel.app
+   Walk draft proposal → WTC → Scope of Work. Do not merge until accepted.
+3. Do not recreate ~/Projects/sales-command. Do not reopen B118 / B119 /
+   phone unless he asks.
+
+FILES TO KNOW
+.cursor/rules/session-wrap.mdc — close-out protocol
+.cursor/rules/confirm-intent.mdc — wait for OK before product edits
+docs/handoffs/SC_Handoff_v270.txt — F62 capture (on the feature branch)
+docs/handoffs/SC_Handoff_v271.txt — this record
+
+GIT STATE
+~/sales-command on main. Rule commit ee8ce47; this handoff follows on main.
+feat/wtc-trip-site-contact kept (F62 not merged). origin/main updated after
+the handoff push.

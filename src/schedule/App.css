@@ -1129,25 +1129,40 @@
 }
 
 .schedule-root .sch-brd-hdr {
-  font-family: var(--font-heading);
-  font-size: 14px;
-  font-weight: 700;
-  text-transform: uppercase;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-family: var(--font-body);
   text-align: center;
   padding: 8px 4px;
   background: var(--header-dark);
   border-bottom: 1px solid rgba(28, 24, 20, 0.15);
   color: var(--sand-dark);
-  letter-spacing: 1px;
-  line-height: 1.4;
+  line-height: 1.2;
 }
 
-.schedule-root .sch-brd-hdr-today { color: var(--command-green); }
+.schedule-root .sch-brd-hdr-day {
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sand-dark);
+}
 
 .schedule-root .sch-brd-hdr-date {
-  font-size: 12px;
-  opacity: 0.7;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--sand-light);
 }
+
+.schedule-root .sch-brd-hdr-today,
+.schedule-root .sch-brd-hdr-today .sch-brd-hdr-day,
+.schedule-root .sch-brd-hdr-today .sch-brd-hdr-date { color: var(--command-green); }
 
 /* Board rows span full grid */
 .schedule-root .sch-board-row-wrap {
@@ -6633,8 +6648,8 @@
   .schedule-root .sch-week-changed { animation: none; }
 }
 
-.schedule-root .hcs-days { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; flex: 1; }
-.schedule-root .hcs-day { position: relative; padding: 4px 6px 18px; text-align: center; }
+.schedule-root .hcs-days { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; flex: 1; min-width: 0; }
+.schedule-root .hcs-day { position: relative; min-width: 0; padding: 20px 4px 18px; text-align: center; }
 .schedule-root .hcs-day-click { cursor: pointer; border-radius: 8px; transition: background 0.12s; }
 .schedule-root .hcs-day-click:hover { background: rgba(255,255,255,0.06); }
 .schedule-root .hcs-day-badges { position: absolute; top: -2px; left: 2px; right: 2px; display: flex; justify-content: space-between; pointer-events: none; }
@@ -6643,7 +6658,22 @@
 .schedule-root .hcs-day-avail { background: var(--sig-green); }
 .schedule-root .hcs-day-off { background: var(--sig-red); margin-left: auto; }
 .schedule-root .hcs-day-today { background: rgba(48,207,172,0.08); border-radius: 8px; }
-.schedule-root .hcs-day-label { font-family: var(--font-heading); font-weight: 700; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.55); }
+.schedule-root .hcs-day-label {
+  display: inline-block;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #79CDE0;
+  background: #1c1c1a;
+  border-radius: 999px;
+  padding: 3px 10px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
 .schedule-root .hcs-day-count { font-family: var(--font-mono); font-weight: 700; font-size: 15px; margin: 4px 0 5px; }
 .schedule-root .hcs-day-bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.12); overflow: hidden; }
 .schedule-root .hcs-day-bar-fill { height: 100%; border-radius: 2px; }
@@ -6800,6 +6830,7 @@
   .schedule-root .home-panels { grid-template-columns: 1fr; }
   .schedule-root .hcs-body { flex-direction: column; align-items: stretch; gap: 18px; }
   .schedule-root .hcs-badges { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.1); padding-right: 0; padding-bottom: 16px; justify-content: space-around; }
+  .schedule-root .hcs-day-label { font-size: 13px; padding: 2px 8px; letter-spacing: 0.03em; }
 }
 
 /* ── Phase 2 merge fence: content-level mount adjustments ─────────────────────

@@ -1,6 +1,6 @@
 # Sales Command — Backlog
 
-**B121 — T2 · In Progress (not merged):** Weekly crew texts omit days with no work — no weekday/date and no **No work assigned**. Preview cards and the shared text both skip those days. Days with work unchanged. Branch `fix/crew-text-skip-empty-days`.
+**B121 — T2 · Closed 2026-09-13 (PR54 merged `ac0b74b`):** Weekly crew texts omit days with no work — no weekday/date and no **No work assigned** in the preview or the shared text. Chris accepted the preview. Days with work unchanged. Handoff v274.
 
 **B120 — T2 · Closed 2026-09-13 (PR53 merged `48342cf`):** Weekly crew texts (`/crew` and desktop Schedules) now use the same lead as Crew Schedule: trip lead if set, otherwise the job Lead. Unlinked / “trip not identified” days no longer print Confirm with office when the board already has a lead. Chris accepted the preview. Coworkers and start times unchanged. Handoff v273.
 
@@ -364,6 +364,7 @@ older entries to a per-version handoff and trim here.
 
 | Date       | ID  | Item                                                                                                                          | Where done         |
 |------------|-----|-------------------------------------------------------------------------------------------------------------------------------|--------------------|
+| 2026-09-13 | B121 | Weekly crew texts omit empty days (no date, no “No work assigned”). Chris accepted preview. | [PR #54](https://github.com/chris7berger-droid/sales-command/pull/54), merge `ac0b74b`; handoff v274 |
 | 2026-09-13 | B120 | Weekly crew texts use the Crew Schedule lead (trip lead if set, else job Lead). Confirm with office only when the board has no lead. Chris accepted preview. | [PR #53](https://github.com/chris7berger-droid/sales-command/pull/53), merge `48342cf`; handoff v273 |
 | 2026-09-11 | B119 | Crew Schedule Job / Mo–Sa date bar stays put while job rows scroll. All Stages row removed; crew cards and week strip sit under Weekly Crew Capacity. Larger day/date labels on capacity cards and the board header. Chris accepted preview. No data writes. | [PR #51](https://github.com/chris7berger-droid/sales-command/pull/51), merge `ea41bb9`; handoff v268 |
 | 2026-09-10 | — | Added CLAUDE.md Workflow Rule 9: inspect existing code before estimating, count remaining work and verification, define the endpoint, name uncertainties, and calibrate against observed agent elapsed time. | f342be8; user-requested session instruction; PR49 |

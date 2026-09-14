@@ -1,0 +1,52 @@
+SC Handoff v274 — B121 skip empty days — 2026-09-13
+
+SESSION SUMMARY
+Started from v273. Chris asked to drop empty days from weekly crew texts
+because “No work assigned” was abrasive. Authorized: omit weekday/date and
+that line when a person has no work that day. Chris accepted the preview.
+Close-out: focused Bugbot (design result only), merge, branch cleanup,
+this handoff. Next ask named, not built: lead gets the opened job-row
+crew grid only.
+
+CHANGES SHIPPED
+- PR #54 merged `ac0b74b` — skip empty days in weekly crew texts.
+- `src/schedule/lib/crewWeekText.js` @ `0df42d0`: preview and shared text
+  include only days with work. `/crew` cards no longer render empty days.
+- Feature branch `fix/crew-text-skip-empty-days` deleted (local + origin).
+
+DECISIONS
+Empty days are omitted entirely, not rewritten. Days with work unchanged.
+Lead-grid share is the next slice; wait for OK before building.
+
+NEW/CLOSED BACKLOG ITEMS
+B121 closed (PR54, `ac0b74b`). F62 / B118 unchanged. Lead-grid not filed
+until Chris confirms the path.
+
+VERIFICATION
+Focused Bugbot on the empty-day result: no bugs. Model script passed.
+Chris accepted preview. Did not re-run Bugbot. Production follows main
+auto-deploy.
+
+NOT TOUCHED
+Lead share / job-row crew grid, Send This Job's Schedule stub, F62
+remaining slices, B118, command-suite-db, coworkers, start times.
+
+NEXT SESSION POINTERS
+1. Read BACKLOG + this handoff.
+2. Next ask (not built): the opened Crew Schedule job-row crew grid
+   (names × Mo–Sa dots) to the Lead only. Confirm path before coding:
+   /crew when the person is Lead, vs the stub Send This Job's Schedule
+   button on that opened row.
+3. Do not reopen B118 / B119 / F62 unless he asks.
+
+FILES TO KNOW
+src/schedule/lib/crewWeekText.js — shared text builder
+src/schedule/views/CrewPhone.jsx — /crew
+src/schedule/views/Schedule.jsx — opened job-row crew grid (~960–1005)
+docs/BACKLOG.md — B121 closed
+docs/handoffs/SC_Handoff_v274.txt — this record
+
+GIT STATE
+~/sales-command on main at merge `ac0b74b` plus this closeout commit.
+origin/main updated after the handoff push. No leftover B121 feature
+branch. Next session starts on main.

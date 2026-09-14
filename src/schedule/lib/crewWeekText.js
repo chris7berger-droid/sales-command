@@ -87,16 +87,17 @@ export function buildCrewWeekText({ name, dates, jobs, allocations, assignments,
     }
   }
   const lines = [crewDisplayName(name), `Week of ${dates[0]} through ${dates.at(-1)}`, '']
-  for (const [date, entries] of days) {
+  const scheduled = [...days].filter(([, entries]) => entries.length)
+  for (const [date, entries] of scheduled) {
     lines.push(crewDateLabel(date).toUpperCase())
     if (entries.length > 1) {
       lines.push('Multiple assignments — confirm order/start times with office.')
       warnings.add(`${crewDateLabel(date)}: multiple assignments; confirm timing.`)
     }
-    lines.push(entries.length ? entries.join('\n\n') : 'No work assigned', '')
+    lines.push(entries.join('\n\n'), '')
   }
   if (updatedAt) lines.push(`Updated ${updatedAt.toLocaleString('en-US')}`)
   return { text: lines.join('\n').trim(), warnings: [...warnings],
-    days: [...days].map(([date, entries]) => ({ date, entries })),
+    days: scheduled.map(([date, entries]) => ({ date, entries })),
   }
 }

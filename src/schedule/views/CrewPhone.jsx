@@ -151,13 +151,13 @@ export default function CrewPhone() {
             <h2>Check before sharing</h2><ul>{message.warnings.map(w => <li key={w}>{w}</li>)}</ul>
           </section>}
           <div className="cp-days">
-            {message.days.map(day => <section className={`cp-day${day.entries.length ? '' : ' cp-day-empty'}`} key={day.date}>
+            {message.days.map(day => <section className="cp-day" key={day.date}>
               <h3>{crewDateLabel(day.date)}</h3>
               {day.entries.length > 1 && <p className="cp-multiple">Multiple assignments — confirm order/start times with office.</p>}
-              {day.entries.length ? day.entries.map((entry, index) => {
+              {day.entries.map((entry, index) => {
                 const [title, ...lines] = entry.split('\n')
                 return <article key={index}><h4>{title}</h4><p>{lines.join('\n')}</p></article>
-              }) : <p>No work assigned</p>}
+              })}
             </section>)}
           </div>
           <details className="cp-exact" open={showText} onToggle={e => setShowText(e.currentTarget.open)}>
@@ -210,9 +210,6 @@ export default function CrewPhone() {
         .cp-day article:first-of-type { border-top: 0; }
         .cp-day h4 { font-size: 18px; line-height: 1.35; margin-bottom: 10px; overflow-wrap: anywhere; }
         .cp-day article p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 16px; line-height: 1.65; }
-        .cp-day-empty { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: transparent; }
-        .cp-day-empty h3 { padding: 0; background: none; border: 0; font-size: 16px; }
-        .cp-day-empty p { font-size: 13px; color: ${C.textMuted}; }
         .cp-notice { padding: 14px; margin: 16px 0; background: ${C.linenLight}; border-left: 3px solid ${C.amber}; overflow-wrap: anywhere; }
         .cp-notice h2 { font-size: 21px; margin-bottom: 8px; }
         .cp-notice ul { padding-left: 18px; font-size: 14px; line-height: 1.5; }

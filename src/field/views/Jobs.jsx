@@ -22,7 +22,7 @@ export default function Jobs() {
   return (
     <FieldOfficeScreen
       title="Jobs"
-      subtitle="Every active field job, view-only for the office"
+      subtitle="Live jobs from Schedule, view-only for the office"
       count={!error && loaded ? recordCount(rows.length, "job", "jobs") : null}
       loading={loading}
       onRefresh={reload}
@@ -35,7 +35,7 @@ export default function Jobs() {
           loaded={loaded}
           loading={loading}
           rows={rows || []}
-          empty="No active field jobs."
+          empty="No live jobs."
           columns={[
             {
               key: "job",

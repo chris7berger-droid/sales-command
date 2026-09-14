@@ -1,6 +1,7 @@
 import { fetchAll } from "../../lib/supabaseHelpers";
 import { supabase } from "../../lib/supabase";
 import { tod } from "../../lib/utils";
+import { getJobStatus } from "../../schedule/lib/jobStatus";
 import { jobFormStatus } from "./lateForm";
 
 // Field-web reads. All child tables (time_punches, job_crew, daily_log_entries,
@@ -189,18 +190,31 @@ export async function fetchLoadOutJobs({ today = tod(), windowDays = 7 } = {}) {
 // ── Plain reads for the four "later UI session" screens ─────────────────────
 // Real data, minimal shape — polished layouts come in Chris's later UI sessions.
 
-// Jobs: every active field-stage job (the office's full field job list).
+// Jobs: live Schedule jobs (same spine as the board). Not Complete, not
+// deleted, not merged. Dates use scheduled_* with start_date/end_date fallback
+// so start-date-only rows still list. Stage is jobs.status, not Sales stage.
 export async function fetchFieldJobs() {
-  const active = await fetchActiveFieldJobs();
-  return active
+  const jobs = await fetchAll(
+    "jobs",
+    "job_id, job_name, job_num, call_log_id, scheduled_start, scheduled_end, start_date, end_date, status, deleted, merged_into_job_id, call_log:call_log_id(display_job_number)",
+    {
+      filters: [
+        ["is", "deleted_at", null],
+        ["or", "deleted.is.null,deleted.eq.No"],
+        ["is", "merged_into_job_id", null],
+      ],
+    }
+  );
+  return jobs
+    .filter((j) => getJobStatus(j) !== "Complete")
     .map((j) => ({
       jobPk: j.job_id,
       callLogId: j.call_log_id,
-      jobName: j.job_name || j.call_log?.display_job_number || `Job ${j.call_log_id}`,
+      jobName: j.job_name || j.call_log?.display_job_number || `Job ${j.job_num || j.call_log_id || j.job_id}`,
       jobNum: j.call_log?.display_job_number || j.job_num,
-      stage: j.call_log?.stage || null,
-      scheduledStart: j.scheduled_start,
-      scheduledEnd: j.scheduled_end,
+      stage: getJobStatus(j),
+      scheduledStart: j.scheduled_start || j.start_date || null,
+      scheduledEnd: j.scheduled_end || j.end_date || null,
     }))
     .sort((a, b) => (a.scheduledStart || "").localeCompare(b.scheduledStart || ""));
 }

@@ -1,49 +1,68 @@
-import { C } from "../../lib/tokens";
 import { fmtD } from "../../lib/utils";
-import FieldScreen, { PlainTable, RefreshBtn, useAsync } from "../components/FieldScreen";
+import { useAsync } from "../components/FieldScreen";
+import {
+  FieldOfficeScreen,
+  FieldOfficeTable,
+  FieldOfficeError,
+  QuietBadge,
+  recordCount,
+} from "../components/FieldOfficeList";
 import { fetchFieldJobs } from "../lib/queries";
+
+function fmtRange(start, end) {
+  if (!start) return "—";
+  const a = fmtD(start);
+  if (!end || end === start) return a;
+  return `${a} – ${fmtD(end)}`;
+}
 
 export default function Jobs() {
   const { data: rows, loading, error, reload } = useAsync(fetchFieldJobs, []);
+  const loaded = Array.isArray(rows);
   return (
-    <FieldScreen
+    <FieldOfficeScreen
       title="Jobs"
       subtitle="Every active field job, view-only for the office"
-      right={<RefreshBtn onClick={reload} loading={loading} />}
+      count={!error && loaded ? recordCount(rows.length, "job", "jobs") : null}
+      loading={loading}
+      onRefresh={reload}
     >
       {error ? (
-        <ErrorNote>{error}</ErrorNote>
+        <FieldOfficeError>{error}</FieldOfficeError>
       ) : (
-        <PlainTable
+        <FieldOfficeTable
           keyField="jobPk"
+          loaded={loaded}
+          loading={loading}
           rows={rows || []}
-          empty={loading ? "Loading…" : "No active field jobs."}
+          empty="No active field jobs."
           columns={[
             {
               key: "job",
               label: "Job",
+              width: "minmax(200px, 2.2fr)",
               render: (r) => (
-                <span>
-                  {r.jobNum ? <b style={{ color: C.textHead }}>#{r.jobNum}</b> : null} {r.jobName}
-                </span>
+                <>
+                  {r.jobNum ? <span className="field-office-jobnum">#{r.jobNum}</span> : null}
+                  <span className="field-office-jobname">{r.jobName}</span>
+                </>
               ),
             },
-            { key: "stage", label: "Stage", render: (r) => r.stage || "—" },
+            {
+              key: "stage",
+              label: "Stage",
+              width: "minmax(120px, 0.9fr)",
+              render: (r) => <QuietBadge>{r.stage}</QuietBadge>,
+            },
             {
               key: "sched",
               label: "Scheduled",
-              render: (r) =>
-                r.scheduledStart
-                  ? `${fmtD(r.scheduledStart)}${r.scheduledEnd ? " – " + fmtD(r.scheduledEnd) : ""}`
-                  : "—",
+              width: "minmax(168px, 1.1fr)",
+              render: (r) => fmtRange(r.scheduledStart, r.scheduledEnd),
             },
           ]}
         />
       )}
-    </FieldScreen>
+    </FieldOfficeScreen>
   );
-}
-
-function ErrorNote({ children }) {
-  return <div style={{ padding: "12px 16px", borderRadius: 8, background: "#3a1c1c", color: "#ef6b6b", fontSize: 13 }}>{children}</div>;
 }

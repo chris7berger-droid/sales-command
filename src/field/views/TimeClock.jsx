@@ -1,5 +1,12 @@
 import { fmtD } from "../../lib/utils";
-import FieldScreen, { PlainTable, RefreshBtn, useAsync } from "../components/FieldScreen";
+import { useAsync } from "../components/FieldScreen";
+import {
+  FieldOfficeScreen,
+  FieldOfficeTable,
+  FieldOfficeError,
+  PunchBadge,
+  recordCount,
+} from "../components/FieldOfficeList";
 import { fetchFieldPunches } from "../lib/queries";
 
 const fmtTime = (iso) => {
@@ -7,31 +14,54 @@ const fmtTime = (iso) => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 };
-const label = (t) => (t ? t.replace(/_/g, " ") : "—");
 
 export default function TimeClock() {
   const { data, loading, error, reload } = useAsync(fetchFieldPunches, []);
-  const rows = data?.punches || [];
+  const rows = data?.punches;
+  const loaded = Array.isArray(rows);
   return (
-    <FieldScreen
+    <FieldOfficeScreen
       title="Time Clock"
       subtitle={data?.today ? `Crew punches · ${fmtD(data.today)}` : "Crew punches, by job and day"}
-      right={<RefreshBtn onClick={reload} loading={loading} />}
+      count={!error && loaded ? recordCount(rows.length, "punch", "punches") : null}
+      loading={loading}
+      onRefresh={reload}
     >
       {error ? (
-        <div style={{ padding: "12px 16px", borderRadius: 8, background: "#3a1c1c", color: "#ef6b6b", fontSize: 13 }}>{error}</div>
+        <FieldOfficeError>{error}</FieldOfficeError>
       ) : (
-        <PlainTable
-          rows={rows}
-          empty={loading ? "Loading…" : "No punches today."}
+        <FieldOfficeTable
+          loaded={loaded}
+          loading={loading}
+          rows={rows || []}
+          empty="No punches today."
           columns={[
-            { key: "time", label: "Time", render: (r) => fmtTime(r.time) },
-            { key: "member", label: "Crew member" },
-            { key: "job", label: "Job" },
-            { key: "type", label: "Punch", render: (r) => label(r.type) },
+            {
+              key: "time",
+              label: "Time",
+              width: "minmax(88px, 0.7fr)",
+              render: (r) => fmtTime(r.time),
+            },
+            {
+              key: "member",
+              label: "Crew member",
+              width: "minmax(140px, 1.2fr)",
+              render: (r) => <span className="field-office-member">{r.member}</span>,
+            },
+            {
+              key: "job",
+              label: "Job",
+              width: "minmax(180px, 1.6fr)",
+            },
+            {
+              key: "type",
+              label: "Punch",
+              width: "minmax(120px, 0.9fr)",
+              render: (r) => <PunchBadge type={r.type} />,
+            },
           ]}
         />
       )}
-    </FieldScreen>
+    </FieldOfficeScreen>
   );
 }

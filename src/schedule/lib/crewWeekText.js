@@ -58,8 +58,9 @@ export function buildCrewWeekText({ name, dates, jobs, allocations, assignments,
       for (const date of myDates) {
         const title = [job.job_num, job.job_name].filter(Boolean).join(' — ') || 'Unnamed job'
         const address = [job.jobsite_address, job.jobsite_city, job.jobsite_state, job.jobsite_zip].filter(Boolean).join(', ')
-        // Ambiguous legacy crew days cannot establish a trip lead or coworkers.
-        const lead = trip.legacy ? '' : pickAllocField(trip, job, 'lead')
+        // Same lead as the Crew Schedule board: trip lead if set, else job lead.
+        // Unlinked days have no trip lead, so they inherit the job lead.
+        const lead = pickAllocField(trip.legacy ? null : trip, job, 'lead')
         const coworkers = [...new Set(trip.assignments
           .filter(a => a.date === date && a.crew_name !== name).map(a => a.crew_name))].sort()
         const lines = [title]

@@ -160,6 +160,10 @@ export default function CrewPhone() {
               })}
             </section>)}
           </div>
+          {message.grids?.length > 0 && <section className="cp-grids" aria-label="Crew">
+            <h2>Crew</h2>
+            {message.grids.map(grid => <article key={grid.key}><h3>{grid.title}</h3><pre>{grid.text.split('\n').slice(1).join('\n')}</pre></article>)}
+          </section>}
           <details className="cp-exact" open={showText} onToggle={e => setShowText(e.currentTarget.open)}>
             <summary>Full text to share</summary>
             <textarea ref={textRef} aria-label="Full text to share" readOnly value={message.text} />
@@ -215,6 +219,11 @@ export default function CrewPhone() {
         .cp-notice ul { padding-left: 18px; font-size: 14px; line-height: 1.5; }
         .cp-notice button { margin-top: 12px; }
         .cp-multiple { padding: 12px 14px; font-size: 14px; }
+        .cp-grids { margin: 8px 0 16px; }
+        .cp-grids h2 { font: 700 24px/1.2 ${F.display}; margin-bottom: 10px; }
+        .cp-grids article { border: 1px solid ${C.borderStrong}; background: ${C.linenCard}; border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+        .cp-grids h3 { padding: 11px 14px; background: ${C.linenDeep}; border-bottom: 1px solid ${C.border}; font: 700 18px ${F.display}; overflow-wrap: anywhere; }
+        .cp-grids pre { margin: 0; padding: 14px; overflow-x: auto; white-space: pre; font: 400 14px/1.7 ${F.body}; }
         .cp-exact textarea { min-height: 400px; resize: vertical; line-height: 1.5; }
         .cp-desktop-link { display: inline-block; color: ${C.textMuted}; padding: 18px 0; font-size: 14px; }
         .cp-actions { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; padding: 12px 16px max(16px, env(safe-area-inset-bottom)); border-top: 1px solid ${C.borderStrong}; background: ${C.linenCard}; box-shadow: 0 -4px 20px rgba(28,24,20,.06); }

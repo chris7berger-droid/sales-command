@@ -1,5 +1,7 @@
 # Sales Command — Backlog
 
+**B122 — T2 · In Progress (not merged):** Weekly crew texts drop the **With:** coworker line and add the opened job-row crew grid (names × Mo–Sa) once per job at the bottom. Address, start, lead, vehicle, equipment, power, trip notes stay. Everyone gets the grid, not leads only. Branch `fix/crew-text-crew-grid`.
+
 **B121 — T2 · Closed 2026-09-13 (PR54 merged `ac0b74b`):** Weekly crew texts omit days with no work — no weekday/date and no **No work assigned** in the preview or the shared text. Chris accepted the preview. Days with work unchanged. Handoff v274.
 
 **B120 — T2 · Closed 2026-09-13 (PR53 merged `48342cf`):** Weekly crew texts (`/crew` and desktop Schedules) now use the same lead as Crew Schedule: trip lead if set, otherwise the job Lead. Unlinked / “trip not identified” days no longer print Confirm with office when the board already has a lead. Chris accepted the preview. Coworkers and start times unchanged. Handoff v273.

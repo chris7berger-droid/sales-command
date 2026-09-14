@@ -1,0 +1,52 @@
+SC Handoff v273 — B120 weekly text lead — 2026-09-13
+
+SESSION SUMMARY
+Started from v272 on main. Chris asked where the phone crew-text page is
+(https://scmybiz.com/crew), then reported it was not reading the Crew
+Schedule lead. Authorized fix: use the same lead the board shows. Chris
+accepted the Vercel preview. Close-out: focused Bugbot (design result
+only), merge, branch cleanup, this handoff.
+
+CHANGES SHIPPED
+- PR #53 merged `48342cf` — weekly crew texts use Crew Schedule lead.
+- `src/schedule/lib/crewWeekText.js` @ `21902e4`: trip lead if set, else
+  job Lead, including unlinked / “trip not identified” days. Confirm with
+  office only when the board has no lead. Coworkers and start times
+  unchanged. `/crew` and desktop Schedules share this helper.
+- Feature branch `fix/crew-text-lead` deleted (local + origin).
+
+DECISIONS
+Lead source matches the Crew Schedule board (`pickAllocField`). Unlinked
+days inherit the job Lead instead of blanking it. Audit stays on that
+result; coworkers/start times left alone.
+
+NEW/CLOSED BACKLOG ITEMS
+B120 closed (PR53, `48342cf`). F62 / B118 unchanged.
+
+VERIFICATION
+Focused Bugbot on the lead result: no bugs. Model script
+`scripts/check-crew-week-text-model.mjs` passed. Chris accepted preview
+`sales-command-git-fix-crew-ef80b5-…vercel.app/crew` (short link
+da.gd/JkvpNR). Did not re-run Bugbot. Production follows main
+auto-deploy; live phone check after deploy is Chris’s.
+
+NOT TOUCHED
+F62 remaining slices, B118 exceptions, B119, command-suite-db, Twilio,
+PDF, coworkers, start times, Crew Schedule board layout.
+
+NEXT SESSION POINTERS
+1. Read BACKLOG + this handoff. Wait for Chris.
+2. Live phone check after production Ready: https://scmybiz.com/crew
+3. Do not reopen B118 / B119 / F62 unless he asks.
+
+FILES TO KNOW
+src/schedule/lib/crewWeekText.js — shared text builder
+src/schedule/views/CrewPhone.jsx — /crew
+src/schedule/views/Schedules.jsx — desktop weekly texts
+docs/BACKLOG.md — B120 closed
+docs/handoffs/SC_Handoff_v273.txt — this record
+
+GIT STATE
+~/sales-command on main at merge `48342cf` plus this closeout commit.
+origin/main updated after the handoff push. No leftover B120 feature
+branch. Next session starts on main.

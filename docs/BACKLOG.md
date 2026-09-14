@@ -1,5 +1,7 @@
 # Sales Command — Backlog
 
+**B123 — T2 · Closed 2026-09-13 (PR56 merged `d12cfef`):** Crew Schedule weekday/date labels only — capacity-strip `MON 14` charcoal pills in `#79CDE0`, stacked Job/Mo–Sa `MON` over `09/14`, then ~25% larger equal-circle free/off badges. Chris accepted the preview. Week-nav, scores, bars, JOB, grid, and date logic unchanged. Handoff v276.
+
 **B122 — T2 · Scrapped 2026-09-13 (Chris rejected):** Do not put a names × Mo–Sa crew grid on weekly texts, and do not drop the **With:** line for that. PR55 closed unmerged; branch deleted. Empty-day B121 and lead B120 stay. Handoff v275.
 
 **B121 — T2 · Closed 2026-09-13 (PR54 merged `ac0b74b`):** Weekly crew texts omit days with no work — no weekday/date and no **No work assigned** in the preview or the shared text. Chris accepted the preview. Days with work unchanged. Handoff v274.
@@ -366,6 +368,7 @@ older entries to a per-version handoff and trim here.
 
 | Date       | ID  | Item                                                                                                                          | Where done         |
 |------------|-----|-------------------------------------------------------------------------------------------------------------------------------|--------------------|
+| 2026-09-13 | B123 | Crew Schedule weekday/date label restyle (capacity pills + stacked Job/Mo–Sa headings) and ~25% larger free/off badges. Chris accepted preview. | [PR #56](https://github.com/chris7berger-droid/sales-command/pull/56), merge `d12cfef`; handoff v276 |
 | 2026-09-13 | B122 | Scrapped: weekly-text crew grid / drop With: line. Chris rejected. Do not rebuild. | [PR #55](https://github.com/chris7berger-droid/sales-command/pull/55) closed unmerged; handoff v275 |
 | 2026-09-13 | B121 | Weekly crew texts omit empty days (no date, no “No work assigned”). Chris accepted preview. | [PR #54](https://github.com/chris7berger-droid/sales-command/pull/54), merge `ac0b74b`; handoff v274 |
 | 2026-09-13 | B120 | Weekly crew texts use the Crew Schedule lead (trip lead if set, else job Lead). Confirm with office only when the board has no lead. Chris accepted preview. | [PR #53](https://github.com/chris7berger-droid/sales-command/pull/53), merge `48342cf`; handoff v273 |

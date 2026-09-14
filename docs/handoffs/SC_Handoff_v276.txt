@@ -1,0 +1,52 @@
+SC Handoff v276 — B123 Crew Schedule day/date labels — 2026-09-13
+
+SESSION SUMMARY
+Chris brought an approved mockup for Crew Schedule weekday/date labels only.
+Confirmed two targets: Weekly Crew Capacity day/date pills, and the Job /
+Mo–Sa column headings (not the week-nav Prev / range / Next bar). Built on
+polish/schedule-day-labels / PR56. After he accepted those labels he asked
+to enlarge the green free-crew and red off-crew badges ~25% as equal
+circles. He accepted that preview too. Bugbot skipped per Chris — simple
+visual work.
+
+CHANGES SHIPPED
+Capacity-strip labels (`MON 14`) in charcoal pills, thinner Barlow, both
+parts `#79CDE0`. Job/Mo–Sa headings stacked: small `MON` over larger
+semibold `09/14` in existing sand colors. Free/off badges 19px equal
+circles, 12px semibold white numbers, extra top padding so they stay off
+the pills. Scores, bars, badge values, JOB, grid, week-nav, and date
+logic unchanged.
+
+DECISIONS
+Only those two label treatments plus the later badge-size add. Trip-row
+Mo/Tu chips and day-picker modals stay as they were. Mockup light header
+and generated-image artifacts (full MONDAY, mashed WEDT16) were not
+copied — keep the live dark board header and live dates.
+
+NEW/CLOSED BACKLOG ITEMS
+B123 filed and closed. B118 / B122 / F62 not touched.
+
+VERIFICATION
+Chris accepted both Ready Vercel previews on PR56. Local Crew Schedule
+and Jobs checked for pills, stacked headings, and no badge/pill overlap
+at full width and 1100px before the badge-size add. Merge `d12cfef`.
+
+NOT TOUCHED
+Week-nav bar, scores/bars/percentages, JOB/grid/borders, trip-grid day
+chips, day-picker modals, B118, F62, weekly texts.
+
+NEXT SESSION POINTERS
+1. Read BACKLOG + this handoff. Wait for Chris.
+2. Do not reopen B122 / the crew-grid text.
+3. Do not reopen B118 / F62 unless he asks.
+
+FILES TO KNOW
+src/schedule/App.css — `.hcs-day-label` pills, `.hcs-day-avail` /
+`.hcs-day-off` circles, `.sch-brd-hdr-day` / `.sch-brd-hdr-date` stack
+src/schedule/views/Schedule.jsx — board header uses DAYS_LONG + date span
+docs/BACKLOG.md — B123 closed
+docs/handoffs/SC_Handoff_v276.txt — this record
+
+GIT STATE
+~/sales-command on main at merge `d12cfef` (PR56). This closeout commit
+on main, pushed. Feature branch polish/schedule-day-labels deleted.

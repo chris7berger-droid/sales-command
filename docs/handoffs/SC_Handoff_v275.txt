@@ -1,0 +1,43 @@
+SC Handoff v275 — B122 crew-grid texts scrapped — 2026-09-13
+
+SESSION SUMMARY
+After B121 empty-day texts shipped, Chris asked for the opened Crew
+Schedule job-row crew grid on weekly texts (first lead-only, then
+everyone; drop With:; keep other fields). Built on
+fix/crew-text-crew-grid / PR55. He could not load Vercel on phone or
+computer; a side-canvas mock of that text was shown. He rejected it:
+scratch the whole approach.
+
+CHANGES SHIPPED
+None for B122. PR55 closed unmerged. Feature branch deleted local and
+origin. main still has B120 lead + B121 skip-empty-days only.
+
+DECISIONS
+Do not put a names × Mo–Sa crew grid on weekly texts. Do not drop the
+With: coworker line as part of that. Do not rebuild B122 unless Chris
+asks with a different approach. Wait for him to name the next share
+format.
+
+NEW/CLOSED BACKLOG ITEMS
+B122 scrapped. B120 / B121 unchanged.
+
+VERIFICATION
+PR55 closed. No leftover fix/crew-text-crew-grid branch. Working tree
+on main matches origin after this closeout commit.
+
+NOT TOUCHED
+Send This Job's Schedule stub, Crew Schedule job-row UI, F62, B118.
+
+NEXT SESSION POINTERS
+1. Read BACKLOG + this handoff. Wait for Chris.
+2. Do not reopen B122 / the crew-grid text.
+3. Do not reopen B118 / B119 / F62 unless he asks.
+
+FILES TO KNOW
+src/schedule/lib/crewWeekText.js — live helper (B120 + B121 only)
+docs/BACKLOG.md — B122 scrapped
+docs/handoffs/SC_Handoff_v275.txt — this record
+
+GIT STATE
+~/sales-command on main. This closeout commit on main, pushed.
+No leftover B122 feature branch.

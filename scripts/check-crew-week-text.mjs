@@ -89,7 +89,8 @@ try {
   await page.getByRole('button',{name:'Next person →',exact:true}).click()
   assert.match(await preview.inputValue(),/^JoseJR\n/,'Next wraps from last person to first')
   await page.getByRole('combobox',{name:'Crew member',exact:true}).selectOption('No Assignments')
-  assert.equal(((await preview.inputValue()).match(/No work assigned/g)||[]).length,7)
+  assert.doesNotMatch(await preview.inputValue(), /No work assigned/)
+  assert.doesNotMatch(await preview.inputValue(), /MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY/)
   // Rapid week navigation cannot expose a stale preview or copy control.
   delayWeek='2026-09-14'
   await page.getByRole('button',{name:'Next week →',exact:true}).click()

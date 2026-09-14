@@ -148,7 +148,8 @@ try {
   delayedWeek = null
   await copy.click()
   assert.match(await page.evaluate(() => window.copiedText), /Week of 2026-09-21/)
-  assert.equal((await preview.inputValue()).match(/No work assigned/g).length, 7)
+  assert.doesNotMatch(await preview.inputValue(), /No work assigned/)
+  assert.doesNotMatch(await preview.inputValue(), /MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY/)
 
   // Existing full desktop app and its navigation still render at their own URLs.
   await page.setViewportSize({ width: 1440, height: 1000 })

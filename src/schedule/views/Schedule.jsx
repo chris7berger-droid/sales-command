@@ -1152,7 +1152,7 @@ export default function Schedule({ embedded = false } = {}) {
               <div className="sch-brd-hdr-job">Job</div>
               {dates.map((d, i) => (
                 <div key={d} className={`sch-brd-hdr${d === todayStr ? ' sch-brd-hdr-today' : ''}`}>
-                  {DAYS[i]}<br />
+                  <span className="sch-brd-hdr-day">{DAYS_LONG[i]}</span>
                   <span className="sch-brd-hdr-date">{d.split('-')[1]}/{d.split('-')[2]}</span>
                 </div>
               ))}

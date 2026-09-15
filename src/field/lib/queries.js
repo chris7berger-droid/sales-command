@@ -342,7 +342,9 @@ function shapeScheduleJob(row) {
   return {
     job_id: row.job_id,
     job_name: cl.job_name || row.job_name || "",
-    job_num: cl.display_job_number || row.job_num || "",
+    job_num: row.job_num || "",
+    job_number: cl.job_number ?? null,
+    display_job_number: cl.display_job_number || "",
     status: row.status,
     work_type: row.work_type || "",
     scheduled_start: row.scheduled_start,
@@ -356,9 +358,11 @@ function shapeScheduleJob(row) {
   };
 }
 
-export async function fetchFieldCrewBoard({ date = tod() } = {}) {
+export async function fetchFieldCrewBoard({ date, from, to } = {}) {
+  const start = from || date || tod();
+  const end = to || from || date || tod();
   const jobSelect =
-    "job_id, job_name, job_num, status, work_type, scheduled_start, scheduled_end, start_date, end_date, call_log_id, call_log:call_log_id(display_job_number, job_name, customer_name, jobsite_city, jobsite_state, jobsite_address)";
+    "job_id, job_name, job_num, status, work_type, scheduled_start, scheduled_end, start_date, end_date, call_log_id, call_log:call_log_id(job_number, display_job_number, job_name, customer_name, jobsite_city, jobsite_state, jobsite_address)";
 
   const [jobRows, crewRows, assignmentRows, statusRows, mobRows] = await Promise.all([
     fetchAllStrict("jobs", jobSelect, {
@@ -369,10 +373,10 @@ export async function fetchFieldCrewBoard({ date = tod() } = {}) {
     }),
     fetchAllStrict("crew", "name, team, phone, archived"),
     fetchAllStrict("assignments", "id, job_id, crew_name, date, mobilization_id", {
-      filters: [["eq", "date", date]],
+      filters: [["gte", "date", start], ["lte", "date", end]],
     }),
     fetchAllStrict("crew_status", "crew_name, date, status", {
-      filters: [["eq", "date", date]],
+      filters: [["gte", "date", start], ["lte", "date", end]],
     }),
     fetchAllStrict("job_mobilizations", "id, job_id, seq, label, start_date, end_date, note"),
   ]);
@@ -398,7 +402,8 @@ export async function fetchFieldCrewBoard({ date = tod() } = {}) {
   }
 
   return buildCrewCommandView({
-    date,
+    from: start,
+    to: end,
     jobs,
     allocations,
     assignments: assignmentRows,

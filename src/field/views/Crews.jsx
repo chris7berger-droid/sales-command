@@ -13,7 +13,16 @@ import FieldScreen, {
 } from "../components/FieldScreen";
 import { useAsync } from "../lib/useAsync";
 import { fetchFieldCrewBoard } from "../lib/queries";
-import { CREW_STATUS_FILTERS, filterCrewCommandRows, flipStoredCrewName } from "../lib/crewBoard";
+import {
+  CREW_STATUS_FILTERS,
+  filterCrewCommandRows,
+  flipStoredCrewName,
+  lastWeekBounds,
+  monthBounds,
+  sortCrewCommandRows,
+  summarizeCrewCommand,
+  thisWeekBounds,
+} from "../lib/crewBoard";
 
 const FILTER_INPUT = {
   padding: "7px 12px",
@@ -40,18 +49,10 @@ const FILTER_LABEL = {
 const DOT = { teal: C.green, red: C.red, muted: C.textFaint };
 const EMPTY_ROWS = [];
 const EMPTY_CREWS = [];
-const EMPTY_COUNTS = {
-  crewsOut: 0,
-  crewsTotal: 0,
-  jobsCovered: 0,
-  scheduledJobs: 0,
-  jobsUnassigned: 0,
-  crewsOff: 0,
-};
 
 function statusTone(row) {
-  if (row.kind === "unassigned") return "amber";
-  if (row.kind === "off") return "red";
+  if (row.kind === "unassigned" || row.statusKey === "no-crew") return "amber";
+  if (row.kind === "exception" || row.statusKey === "called-out" || row.statusKey === "no-show") return "red";
   const s = String(row.statusKey || "").toLowerCase();
   if (s === "in progress" || s === "ongoing") return "teal";
   if (s === "scheduled") return "amber";
@@ -59,7 +60,32 @@ function statusTone(row) {
   return "muted";
 }
 
+function ModeBtn({ on, children, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: "6px 10px",
+        borderRadius: 7,
+        border: `1.5px solid ${on ? C.teal : C.borderStrong}`,
+        background: on ? C.dark : C.linenDeep,
+        color: on ? C.teal : C.textMuted,
+        fontSize: 11,
+        fontWeight: 700,
+        cursor: "pointer",
+        fontFamily: F.display,
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 function CrewCell({ row }) {
+  if (!row.crewDisplay) return <span style={{ color: C.textFaint }}>—</span>;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
       <span
@@ -108,35 +134,157 @@ function DualLine({ primary, secondary }) {
   );
 }
 
+function dash(value) {
+  return value ? value : <span style={{ color: C.textFaint }}>—</span>;
+}
+
+function jobNumCell(r) {
+  return r.jobNum ? (
+    <b style={{ color: C.textHead, fontVariantNumeric: "tabular-nums" }}>#{r.jobNum}</b>
+  ) : (
+    <span style={{ color: C.textFaint }}>—</span>
+  );
+}
+
+function dateCell(r) {
+  return r.dateLabel || r.date || <span style={{ color: C.textFaint }}>—</span>;
+}
+
+function tableColumns({ category, showDate }) {
+  const dateCol = showDate
+    ? [{ key: "date", label: "Date", render: dateCell }]
+    : [];
+  const jobNum = { key: "jobNum", label: "Job #", render: jobNumCell };
+  const jobName = {
+    key: "jobName",
+    label: "Job Name",
+    render: (r) => <DualLine primary={r.jobName} secondary={r.workType} />,
+  };
+  const customer = { key: "customer", label: "Customer", render: (r) => dash(r.customer) };
+  const location = { key: "location", label: "Location", render: (r) => dash(r.location) };
+  const mobilization = { key: "mobilization", label: "Mobilization", render: (r) => dash(r.mobilization) };
+  const notes = { key: "notes", label: "Notes", render: (r) => dash(r.notes) };
+  const status = {
+    key: "status",
+    label: "Status",
+    render: (r) => <StatusChip tone={statusTone(r)}>{r.statusLabel}</StatusChip>,
+  };
+  const crew = { key: "crew", label: "Crew", render: (r) => <CrewCell row={r} /> };
+
+  if (category === "unassigned") {
+    return [...dateCol, jobNum, jobName, customer, location, mobilization, status, notes];
+  }
+  if (category === "exceptions") {
+    return [
+      crew,
+      ...dateCol,
+      {
+        key: "expected",
+        label: "Expected Job",
+        render: (r) =>
+          r.jobNum || r.jobName ? (
+            <DualLine primary={r.jobNum ? `#${r.jobNum}` : ""} secondary={r.jobName} />
+          ) : (
+            <span style={{ color: C.textFaint }}>—</span>
+          ),
+      },
+      {
+        key: "exception",
+        label: "Exception",
+        render: (r) => <StatusChip tone={statusTone(r)}>{r.statusLabel}</StatusChip>,
+      },
+    ];
+  }
+  return [crew, ...dateCol, jobNum, jobName, customer, location, status, mobilization, notes];
+}
+
 export default function Crews() {
   const navigate = useNavigate();
-  const [date, setDate] = useState(tod);
+  const today = tod();
+  const [dateMode, setDateMode] = useState("day");
+  const [date, setDate] = useState(today);
+  const [rangeFrom, setRangeFrom] = useState(thisWeekBounds(today).from);
+  const [rangeTo, setRangeTo] = useState(thisWeekBounds(today).to);
+  const [preset, setPreset] = useState("this-week");
   const [category, setCategory] = useState("all");
   const [crewName, setCrewName] = useState("");
   const [jobQuery, setJobQuery] = useState("");
   const [status, setStatus] = useState("");
-  const { data, loading, error, reload } = useAsync(() => fetchFieldCrewBoard({ date }), [date]);
+
+  const from = dateMode === "day" ? date : rangeFrom;
+  const to = dateMode === "day" ? date : rangeTo;
+  const range = dateMode === "range";
+  const { data, loading, error, reload } = useAsync(() => fetchFieldCrewBoard({ from, to }), [from, to]);
 
   const rows = data?.rows || EMPTY_ROWS;
-  const counts = data?.counts || EMPTY_COUNTS;
   const crews = data?.crews || EMPTY_CREWS;
+  const rosterSize = data?.rosterSize || crews.length;
 
+  const baseRows = useMemo(
+    () => filterCrewCommandRows(rows, { category: "all", crewName, jobQuery, status }),
+    [rows, crewName, jobQuery, status]
+  );
+  const counts = useMemo(() => summarizeCrewCommand(baseRows, { rosterSize }), [baseRows, rosterSize]);
   const shown = useMemo(
-    () => filterCrewCommandRows(data?.rows, { category, crewName, jobQuery, status }),
-    [data, category, crewName, jobQuery, status]
+    () =>
+      sortCrewCommandRows(filterCrewCommandRows(baseRows, { category, crewName, jobQuery, status }), {
+        range,
+        crewName,
+        category,
+      }),
+    [baseRows, category, crewName, jobQuery, status, range]
   );
 
   function setCategoryFilter(next) {
     setCategory((cur) => (cur === next ? "all" : next));
   }
 
+  function applyPreset(next) {
+    const now = tod();
+    setPreset(next);
+    if (next === "this-week") {
+      const b = thisWeekBounds(now);
+      setRangeFrom(b.from);
+      setRangeTo(b.to);
+    } else if (next === "last-week") {
+      const b = lastWeekBounds(now);
+      setRangeFrom(b.from);
+      setRangeTo(b.to);
+    } else if (next === "this-month") {
+      const b = monthBounds(now);
+      setRangeFrom(b.from);
+      setRangeTo(b.to);
+    }
+  }
+
+  function switchToRange() {
+    setDateMode("range");
+    if (preset !== "custom") applyPreset(preset === "this-week" || preset === "last-week" || preset === "this-month" ? preset : "this-week");
+  }
+
   function clearFilters() {
-    setDate(tod());
+    const now = tod();
+    setDateMode("day");
+    setDate(now);
+    const week = thisWeekBounds(now);
+    setRangeFrom(week.from);
+    setRangeTo(week.to);
+    setPreset("this-week");
     setCategory("all");
     setCrewName("");
     setJobQuery("");
     setStatus("");
   }
+
+  const showDate = range || category === "exceptions";
+  const simpleHints = dateMode === "day" && !crewName && !jobQuery && !status;
+  const columns = tableColumns({ category, showDate });
+
+  let empty = "No crews or unassigned jobs for this date.";
+  if (loading) empty = "Loading…";
+  else if (category === "unassigned") empty = "No unassigned scheduled jobs in this date range.";
+  else if (category === "exceptions") empty = "No recorded exceptions in this date range.";
+  else if (range) empty = "No crew assignments in this date range.";
 
   return (
     <FieldScreen
@@ -157,7 +305,7 @@ export default function Crews() {
             id: "out",
             label: "Crews Out",
             value: counts.crewsOut,
-            hint: `of ${counts.crewsTotal} total`,
+            hint: simpleHints ? `of ${counts.crewsTotal} total` : range ? "people" : null,
             tone: "teal",
             selected: category === "out",
             onClick: () => setCategoryFilter("out"),
@@ -166,7 +314,7 @@ export default function Crews() {
             id: "covered",
             label: "Jobs Covered",
             value: counts.jobsCovered,
-            hint: `of ${counts.scheduledJobs} scheduled`,
+            hint: simpleHints ? `of ${counts.scheduledJobs} scheduled` : range ? "jobs" : null,
             tone: "teal",
             selected: category === "covered",
             onClick: () => setCategoryFilter("covered"),
@@ -175,17 +323,19 @@ export default function Crews() {
             id: "unassigned",
             label: "Jobs Unassigned",
             value: counts.jobsUnassigned,
+            hint: range ? "jobs" : null,
             tone: "amber",
             selected: category === "unassigned",
             onClick: () => setCategoryFilter("unassigned"),
           },
           {
-            id: "off",
-            label: "Crews Off",
-            value: counts.crewsOff,
+            id: "exceptions",
+            label: "Exceptions",
+            value: counts.exceptions,
+            hint: range ? "records" : null,
             tone: "red",
-            selected: category === "off",
-            onClick: () => setCategoryFilter("off"),
+            selected: category === "exceptions",
+            onClick: () => setCategoryFilter("exceptions"),
           },
         ]}
       />
@@ -201,13 +351,66 @@ export default function Crews() {
       >
         <div style={{ display: "flex", flexDirection: "column" }}>
           <span style={FILTER_LABEL}>Date</span>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value || tod())}
-            style={{ ...FILTER_INPUT, width: 168 }}
-          />
+          <div style={{ display: "flex", gap: 6 }}>
+            <ModeBtn on={dateMode === "day"} onClick={() => setDateMode("day")}>
+              Single Day
+            </ModeBtn>
+            <ModeBtn on={dateMode === "range"} onClick={switchToRange}>
+              Date Range
+            </ModeBtn>
+          </div>
         </div>
+        {dateMode === "day" ? (
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <span style={FILTER_LABEL}>Day</span>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value || tod())}
+              style={{ ...FILTER_INPUT, width: 160 }}
+            />
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <span style={FILTER_LABEL}>Range</span>
+              <select
+                value={preset}
+                onChange={(e) => applyPreset(e.target.value)}
+                style={{ ...FILTER_INPUT, width: 140, cursor: "pointer" }}
+              >
+                <option value="this-week">This Week</option>
+                <option value="last-week">Last Week</option>
+                <option value="this-month">This Month</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <span style={FILTER_LABEL}>From</span>
+              <input
+                type="date"
+                value={rangeFrom}
+                onChange={(e) => {
+                  setPreset("custom");
+                  setRangeFrom(e.target.value || rangeFrom);
+                }}
+                style={{ ...FILTER_INPUT, width: 150 }}
+              />
+            </div>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <span style={FILTER_LABEL}>To</span>
+              <input
+                type="date"
+                value={rangeTo}
+                onChange={(e) => {
+                  setPreset("custom");
+                  setRangeTo(e.target.value || rangeTo);
+                }}
+                style={{ ...FILTER_INPUT, width: 150 }}
+              />
+            </div>
+          </>
+        )}
         <div style={{ display: "flex", flexDirection: "column" }}>
           <span style={FILTER_LABEL}>Crew</span>
           <select
@@ -237,7 +440,7 @@ export default function Crews() {
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            style={{ ...FILTER_INPUT, width: 160, cursor: "pointer" }}
+            style={{ ...FILTER_INPUT, width: 150, cursor: "pointer" }}
           >
             <option value="">All</option>
             {CREW_STATUS_FILTERS.map((s) => (
@@ -273,10 +476,10 @@ export default function Crews() {
         value={category}
         onChange={setCategory}
         options={[
-          { id: "all", label: "All", count: rows.length },
+          { id: "all", label: "All", count: baseRows.length },
           { id: "out", label: "Crews Out", count: counts.crewsOut },
           { id: "unassigned", label: "Unassigned", count: counts.jobsUnassigned },
-          { id: "off", label: "Crews Off", count: counts.crewsOff },
+          { id: "exceptions", label: "Exceptions", count: counts.exceptions },
         ]}
       />
 
@@ -288,55 +491,13 @@ export default function Crews() {
             keyField="id"
             compact
             rows={shown}
-            empty={loading ? "Loading…" : "No crews or unassigned jobs for this date."}
+            empty={empty}
             rowStyle={(r) => (r.kind === "unassigned" ? { background: C.linenCard } : null)}
-            columns={[
-              { key: "crew", label: "Crew", render: (r) => <CrewCell row={r} /> },
-              {
-                key: "jobNum",
-                label: "Job #",
-                render: (r) =>
-                  r.jobNum ? (
-                    <b style={{ color: C.textHead, fontVariantNumeric: "tabular-nums" }}>#{r.jobNum}</b>
-                  ) : (
-                    <span style={{ color: C.textFaint }}>—</span>
-                  ),
-              },
-              {
-                key: "jobName",
-                label: "Job Name",
-                render: (r) => <DualLine primary={r.jobName} secondary={r.workType} />,
-              },
-              {
-                key: "customer",
-                label: "Customer",
-                render: (r) => r.customer || <span style={{ color: C.textFaint }}>—</span>,
-              },
-              {
-                key: "location",
-                label: "Location",
-                render: (r) => r.location || <span style={{ color: C.textFaint }}>—</span>,
-              },
-              {
-                key: "status",
-                label: "Status",
-                render: (r) => <StatusChip tone={statusTone(r)}>{r.statusLabel}</StatusChip>,
-              },
-              {
-                key: "mobilization",
-                label: "Mobilization",
-                render: (r) => r.mobilization || <span style={{ color: C.textFaint }}>—</span>,
-              },
-              {
-                key: "notes",
-                label: "Notes",
-                render: (r) => r.notes || <span style={{ color: C.textFaint }}>—</span>,
-              },
-            ]}
+            columns={columns}
           />
           {!loading && (
             <div style={{ marginTop: 10, fontSize: 12.5, color: C.textFaint, fontFamily: F.body }}>
-              Showing {shown.length} crew{shown.length === 1 ? "" : "s"}/job{shown.length === 1 ? "" : "s"}
+              Showing {shown.length}
             </div>
           )}
         </>

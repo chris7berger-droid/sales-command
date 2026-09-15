@@ -1,6 +1,11 @@
 import { fetchAll } from "../../lib/supabaseHelpers";
 import { supabase } from "../../lib/supabase";
 import { tod } from "../../lib/utils";
+import {
+  effectiveEnd as scheduleEffectiveEnd,
+  effectiveStart as scheduleEffectiveStart,
+  loadMobilizationsByJobId,
+} from "../../schedule/lib/queries";
 import { jobFormStatus } from "./lateForm";
 
 // Field-web reads. All child tables (time_punches, job_crew, daily_log_entries,
@@ -9,19 +14,62 @@ import { jobFormStatus } from "./lateForm";
 // spine and links to call_log via jobs.call_log_id. Tenant scoping is handled by
 // RLS on the authenticated host client; no manual tenant filter here.
 
-const ACTIVE_FIELD_STAGES = ["Scheduled", "In Progress", "mobilized", "in_progress"];
+const ACTIVE_FIELD_STAGE_KEYS = new Set([
+  "scheduled",
+  "in progress",
+  "in_progress",
+  "mobilized",
+  "ongoing",
+  "on hold",
+  "hold",
+]);
 
-// Does a scheduled window overlap [from, to]? scheduled_end may be null
-// ("dates TBD") — then the job counts only on its start day. PostgREST can't
-// COALESCE a null end in a filter, so all date windowing is done client-side.
+function stageKey(stage) {
+  return String(stage || "").trim().toLowerCase();
+}
+
+function isoDay(value) {
+  if (!value) return null;
+  return String(value).slice(0, 10);
+}
+
+function deriveFieldWindows(job, mobsByJobId) {
+  const seqMap = mobsByJobId?.[job.job_id] || {};
+  const mobWindows = Object.values(seqMap)
+    .map((m) => {
+      const start = isoDay(m.start_date) || isoDay(m.end_date);
+      const end = isoDay(m.end_date) || start;
+      if (!start || !end) return null;
+      return { start, end };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+
+  // If a job has live mobilization rows with dates, use those as its operational
+  // windows. Otherwise, fall back to Schedule's canonical effective dates.
+  const fallbackStart = isoDay(scheduleEffectiveStart(job));
+  const fallbackEnd = isoDay(scheduleEffectiveEnd(job)) || fallbackStart;
+  const windows = mobWindows.length
+    ? mobWindows
+    : fallbackStart
+      ? [{ start: fallbackStart, end: fallbackEnd }]
+      : [];
+
+  const starts = windows.map((w) => w.start).sort();
+  const ends = windows.map((w) => w.end).sort();
+  const start = starts[0] || null;
+  const end = ends.length ? ends[ends.length - 1] : start;
+  return { windows, start, end };
+}
+
+// Does any authoritative field window overlap [from, to]? PostgREST can't
+// coalesce nullable end dates in-filter, so window checks stay client-side.
 function spansDay(job, day) {
   return overlapsWindow(job, day, day);
 }
 function overlapsWindow(job, from, to) {
-  if (!job.scheduled_start) return false;
-  const start = job.scheduled_start;
-  const end = job.scheduled_end || job.scheduled_start;
-  return start <= to && end >= from;
+  const windows = Array.isArray(job._fieldWindows) ? job._fieldWindows : [];
+  return windows.some((w) => w.start <= to && w.end >= from);
 }
 
 // Active field-stage jobs (deleted-safe). `jobs` soft-deletes two ways — a
@@ -30,18 +78,32 @@ function overlapsWindow(job, from, to) {
 // filter so Today/Load-Outs match the phone's job list (JobListScreen).
 async function fetchActiveFieldJobs(extraSelect = "") {
   const sel =
-    "job_id, job_name, job_num, call_log_id, scheduled_start, scheduled_end, deleted, call_log:call_log_id(stage, display_job_number)" +
+    "job_id, job_name, job_num, call_log_id, scheduled_start, scheduled_end, start_date, end_date, deleted, call_log:call_log_id(stage, display_job_number)" +
     (extraSelect ? ", " + extraSelect : "");
   const jobs = await fetchAll("jobs", sel, {
-    filters: [["is", "deleted_at", null], ["not", "scheduled_start", "is", null]],
+    filters: [["is", "deleted_at", null]],
     order: "scheduled_start",
   });
-  return jobs.filter(
+  const active = jobs.filter(
     (j) =>
       j.call_log_id != null &&
       j.deleted !== "Yes" &&
-      ACTIVE_FIELD_STAGES.includes(j.call_log?.stage)
+      ACTIVE_FIELD_STAGE_KEYS.has(stageKey(j.call_log?.stage))
   );
+  if (active.length === 0) return [];
+
+  const mobsByJobId = await loadMobilizationsByJobId(active, { liveOnly: true });
+  return active
+    .map((j) => {
+      const { windows, start, end } = deriveFieldWindows(j, mobsByJobId);
+      return {
+        ...j,
+        _fieldWindows: windows,
+        _fieldStart: start,
+        _fieldEnd: end,
+      };
+    })
+    .sort((a, b) => (a._fieldStart || "").localeCompare(b._fieldStart || ""));
 }
 
 // Read this tenant's field-log thresholds from tenant_config (RLS scopes the
@@ -168,7 +230,9 @@ export async function fetchLoadOutJobs({ today = tod(), windowDays = 7 } = {}) {
     filters: [["in", "job_id", clIds]],
   });
   const checkedBy = new Map();
+  const totalBy = new Map();
   for (const c of checks) {
+    totalBy.set(c.job_id, (totalBy.get(c.job_id) || 0) + 1);
     const cur = checkedBy.get(c.job_id) || 0;
     checkedBy.set(c.job_id, cur + (c.checked ? 1 : 0));
   }
@@ -179,8 +243,9 @@ export async function fetchLoadOutJobs({ today = tod(), windowDays = 7 } = {}) {
       callLogId: j.call_log_id,
       jobName: j.job_name || j.call_log?.display_job_number || `Job ${j.job_num || j.call_log_id}`,
       jobNum: j.call_log?.display_job_number || j.job_num,
-      scheduledStart: j.scheduled_start,
+      scheduledStart: j._fieldStart,
       loaded: checkedBy.get(j.call_log_id) || 0,
+      total: totalBy.get(j.call_log_id) || 0,
     })),
     today,
   };
@@ -189,40 +254,63 @@ export async function fetchLoadOutJobs({ today = tod(), windowDays = 7 } = {}) {
 // ── Plain reads for the four "later UI session" screens ─────────────────────
 // Real data, minimal shape — polished layouts come in Chris's later UI sessions.
 
+// Count job_crew rows per call_log id (job_crew.job_id → call_log.id).
+async function crewCountByCallLog(clIds) {
+  const counts = new Map();
+  if (clIds.length === 0) return counts;
+  const crew = await fetchAll("job_crew", "job_id", {
+    filters: [["in", "job_id", clIds]],
+  });
+  for (const c of crew) counts.set(c.job_id, (counts.get(c.job_id) || 0) + 1);
+  return counts;
+}
+
+function fieldJobShape(j, crewCount = 0) {
+  return {
+    jobPk: j.job_id,
+    callLogId: j.call_log_id,
+    jobName: j.job_name || j.call_log?.display_job_number || `Job ${j.call_log_id}`,
+    jobNum: j.call_log?.display_job_number || j.job_num,
+    stage: j.call_log?.stage || null,
+    scheduledStart: j._fieldStart,
+    scheduledEnd: j._fieldEnd,
+    crewCount,
+  };
+}
+
 // Jobs: every active field-stage job (the office's full field job list).
 export async function fetchFieldJobs() {
   const active = await fetchActiveFieldJobs();
+  const clIds = [...new Set(active.map((j) => j.call_log_id))];
+  const counts = await crewCountByCallLog(clIds);
   return active
-    .map((j) => ({
-      jobPk: j.job_id,
-      callLogId: j.call_log_id,
-      jobName: j.job_name || j.call_log?.display_job_number || `Job ${j.call_log_id}`,
-      jobNum: j.call_log?.display_job_number || j.job_num,
-      stage: j.call_log?.stage || null,
-      scheduledStart: j.scheduled_start,
-      scheduledEnd: j.scheduled_end,
-    }))
+    .map((j) => fieldJobShape(j, counts.get(j.call_log_id) || 0))
     .sort((a, b) => (a.scheduledStart || "").localeCompare(b.scheduledStart || ""));
 }
 
 // Crews: crew assignments across active field jobs.
+// Always { assignments, jobs } — jobs[].crewCount so Missing crew is a real list.
 export async function fetchFieldCrews() {
   const active = await fetchActiveFieldJobs();
   const clIds = [...new Set(active.map((j) => j.call_log_id))];
-  if (clIds.length === 0) return [];
+  if (clIds.length === 0) return { assignments: [], jobs: [] };
   const nameByCl = new Map(
     active.map((j) => [j.call_log_id, j.job_name || j.call_log?.display_job_number || `Job ${j.call_log_id}`])
   );
   const crew = await fetchAll("job_crew", "job_id, role, team_members(name)", {
     filters: [["in", "job_id", clIds]],
   });
-  return crew
+  const counts = new Map();
+  for (const c of crew) counts.set(c.job_id, (counts.get(c.job_id) || 0) + 1);
+  const assignments = crew
     .map((c) => ({
       member: c.team_members?.name || "—",
       role: c.role || "",
       job: nameByCl.get(c.job_id) || `Job ${c.job_id}`,
     }))
     .sort((a, b) => a.member.localeCompare(b.member));
+  const jobs = active.map((j) => fieldJobShape(j, counts.get(j.call_log_id) || 0));
+  return { assignments, jobs };
 }
 
 // Time Clock: today's punches across active field jobs.

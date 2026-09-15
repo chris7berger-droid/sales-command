@@ -1,115 +1,80 @@
 ## Status
 
-Partially Complete
+Crews correction complete — waiting on Chris preview accept. **Do not merge.**
 
-## Root Cause
+## Crews source-of-truth decision
 
-Field Command boards were reading "active" jobs through a `scheduled_start`-only model:
+Field Command → Crews is an office operational command view of **Crew Scheduler scheduled truth**.
 
-- `fetchActiveFieldJobs` filtered `jobs` with `scheduled_start IS NOT NULL`.
-- Field date-window checks (`Today`, `Load-Outs`) only used `scheduled_start/scheduled_end`.
+| Question | Source |
+|---|---|
+| Who is scheduled, on which crew/job, on which date | `assignments` (`job_id` = `jobs.job_id`, `crew_name`, `date`, `mobilization_id`) |
+| Trip / mobilization window and label | live `job_mobilizations` |
+| Job / customer / location | `jobs` + `call_log` (same flattening Crew Scheduler uses) |
+| Roster | `crew` (non-archived) |
+| Crews Off | `crew_status` for the selected date, `status !== 'available'` only |
 
-That excluded real active jobs whose operational dates live on `job_mobilizations` (or on `start_date/end_date` fallback) and caused downstream board slices to be empty/incomplete even when live field records existed.
+**Not used for this screen:** `job_crew`. There is no Schedule → `job_crew` bridge and no duplicated assignment writes.
 
-Secondary issue found during implementation: importing Schedule's large query module directly into Field's read layer created an unnecessary coupling risk. The final fix keeps Field's read model local and lightweight while still honoring established date authority.
+The board is assembled with Schedule's existing `crewWeekRows` / `crewRowInRange` helpers (`src/schedule/lib/crewScheduleRows.js`) so Field does not invent a second definition of who is on a trip that day. Unassigned rows are in-range saved trips with **zero** assignments that date — not people who happen to be free. Off is never inferred from an empty assignment day.
 
-## Data Paths Verified
+Planned/scheduled status on assigned rows is `getJobStatus(job)` (Scheduled / In Progress / On Hold / Ongoing). This pass does not manufacture On Site / Mobilizing / clock times from missing phone Field data. Mobilization shows the trip label or dated trip range. Notes show existing `job_mobilizations.note` only.
 
-### Jobs
+Date default is today (`tod()`). Changing Date re-queries that day (`fetchFieldCrewBoard({ date })`). Crew / Job / Status / category filters compose client-side on that day's command-view dataset. Clear Filters restores today + All Crews + empty job search + All status + All category.
 
-- **Data path:** `Jobs.jsx` → `fetchFieldJobs()` → `fetchActiveFieldJobs()` + `job_crew` count rollup.
-- **Was wrong:** Active jobs were dropped when `scheduled_start` was null.
-- **Changed:** Active job set now derives operational windows from live `job_mobilizations` rows (when present), otherwise falls back to effective job dates (`scheduled_*` then `start_date/end_date`).
-- **Verification:** Query path read-verified in code; lint/build pass.
+Default row order: assigned crews by **first name** ascending (`"Last, First"` flipped the same way Crew Scheduler does), then off rows (same first-name sort), then unassigned jobs by job number. Crew name is the first column. Unassigned is labeled Unassigned — no fabricated crew record.
 
-### Crews
+Summary cards are clickable filters (Crews Out / Jobs Covered / Jobs Unassigned / Crews Off) and share one `category` state with the All · Crews Out · Unassigned · Crews Off chips. Counts come from the same underlying command-view dataset.
 
-- **Data path:** `Crews.jsx` → `fetchFieldCrews()` → active jobs + `job_crew`.
-- **Was wrong:** Missing jobs in the active set suppressed associated crew coverage/missing-crew visibility.
-- **Changed:** Crew reads now inherit repaired active-job windowing and preserve PR #58 command-board UI.
-- **Verification:** Query path read-verified in code; lint/build pass.
+## Prior Field window repair (still on this branch)
 
-### Daily Logs
+Other Field boards (Jobs, Today, Time Clock, Daily Logs, Load-Outs) still use the earlier read-window repair: live `job_mobilizations` dates first, then effective job dates. Those screens were **not** changed in this Crews pass.
 
-- **Data path:** `DailyLogs.jsx` → `fetchFieldLogs()` → `daily_log_entries` filtered by active call-log IDs and date window.
-- **Was wrong:** Active-ID list could be under-scoped when upstream jobs were excluded.
-- **Changed:** Active-ID list now comes from repaired active-job derivation.
-- **Verification:** Query path read-verified in code; lint/build pass.
+## Files changed (this Crews pass)
 
-### Load-Outs
+- `src/field/lib/crewBoard.js` — command-view assembly + first-name sort + filters (reuses `crewWeekRows`)
+- `src/field/lib/crewBoard.test.mjs` — assertions for sort, unassigned vs off, filters
+- `src/field/lib/queries.js` — `fetchFieldCrewBoard({ date })` read of assignments / trips / crew / crew_status / jobs
+- `src/field/views/Crews.jsx` — approved office command layout
+- `src/field/components/FieldScreen.jsx` — optional clickable StatStrip + compact/rowStyle table (other Field screens unchanged unless they opt in)
 
-- **Data path:** `LoadOuts.jsx` → `fetchLoadOutJobs()` → active jobs in window + `job_material_checks`; modal hydration via `loadJobWithWTCs()`.
-- **Was wrong:** Near-term jobs were filtered out by `scheduled_start`-only window logic.
-- **Changed:** Near-term inclusion now uses authoritative per-job operational windows derived from live mobilization rows (fallback effective dates when no mobilization rows exist).
-- **Verification:** Query path read-verified in code; lint/build pass.
+Not changed: Schedule assignment writers, `job_crew`, Jobs / Today / Time Clock / Daily Logs / Load-Outs, phone UI.
 
-### Time Clock
+## Implementation decisions
 
-- **Data path:** `TimeClock.jsx` → `fetchFieldPunches()` → `time_punches` for active call-log IDs.
-- **Was wrong:** Upstream active-ID under-selection could hide valid punches tied to excluded jobs.
-- **Changed:** Active-ID source repaired via new job-window derivation.
-- **Verification:** Query path read-verified in code; lint/build pass.
-
-### Today
-
-- **Data path:** `Today.jsx` → `fetchTodayRows()` → active jobs that span today + `time_punches`, `daily_log_entries`, `daily_production_reports`, `job_crew`, `job_material_checks`, and `tenant_config` thresholds.
-- **Was wrong:** "Running today" jobs were determined by `scheduled_start/scheduled_end` only.
-- **Changed:** "Spans today" now evaluates against authoritative per-job operational windows (live mobilizations first, effective-date fallback).
-- **Verification:** Query path read-verified in code; lint/build pass.
-
-## Files Changed
-
-- `docs/agent-handoffs/ACTIVE.md` — loaded approved implementation handoff text.
-- `src/field/components/FieldScreen.jsx` — preserved/integrated approved command-board shared chrome from PR #58.
-- `src/field/lib/display.js` — added stage/log visual helpers used by command-board chips.
-- `src/field/lib/useAsync.js` — extracted async loader hook used across Field boards.
-- `src/field/lib/queries.js` — repaired active-job/date-window read logic to honor live mobilizations and effective-date fallback.
-- `src/field/views/Jobs.jsx` — preserved approved board treatment + live/scheduled/no-crew framing.
-- `src/field/views/Crews.jsx` — preserved approved board treatment + people/missing-crew splits.
-- `src/field/views/DailyLogs.jsx` — preserved approved board treatment + typed log chips/filters.
-- `src/field/views/LoadOuts.jsx` — preserved approved board treatment + readiness chips/modal launch.
-- `src/field/views/TimeClock.jsx` — preserved approved board treatment + punch-type chips.
-- `src/field/views/Today.jsx` — preserved approved board treatment + operational status board.
-
-## Implementation Decisions
-
-- Preserved the approved PR #58 visual direction for all six desktop Field boards rather than redesigning.
-- Repaired Field reads instead of changing authoritative writes:
-  - no new write paths,
-  - no duplicate date source,
-  - no backfill/write-to-`jobs.scheduled_start` workaround.
-- Operational date authority used in this order:
-  1. live `job_mobilizations` date windows (when present),
-  2. fallback effective job dates (`scheduled_*` then `start_date/end_date`).
-- Expanded stage matching to include active operational variants seen in existing status vocabulary (`scheduled`, `in progress` variants, `mobilized`, `ongoing`, `on hold` variants).
+- Import `crewWeekRows` from Schedule, not `schedule/lib/queries.js` (that module still balloons the bundle).
+- Crews Off labels: `sick` → Sick, `off` → Off, `noshow` → No Show (Crew Scheduler's stored values).
+- JOBS COVERED card filters to the same assigned rows as CREWS OUT (counts still differ: unique people vs unique jobs).
+- View Schedule links to `/schedule/schedule`. Refresh remains for live reload.
 
 ## Verification
 
+- `node src/field/lib/crewBoard.test.mjs` ✅
 - `npx eslint src/field` ✅
 - `npm run build` ✅
-- PR preview deployment status on PR #60: **Ready** ✅
-- Read-level trace of each Field board from UI component → query helper → source tables completed ✅
-
-## Visual Verification
-
-- Local app run attempted via dev server.
-- Login page rendered and route guards behaved as expected.
-- Full authenticated `/field/*` live-data walkthrough was blocked in this environment because no authenticated session/credentials were available to enter Field routes.
-- Vercel preview is Ready for Chris review:
+- PR #60 Vercel preview: **Ready** ✅
   - https://sales-command-git-cursor-fi-6116b8-chris7berger-droids-projects.vercel.app
+  - this-commit alias: https://sales-command-2qe3l3c5k-chris7berger-droids-projects.vercel.app
 
-## Deviations From Handoff
+## Visual verification
 
-- Could not fully complete "rendered real-data visual verification for each Field board" inside this environment due authentication/session unavailability for `/field/*`.
-- All implementation, lint/build verification, and preview creation steps were completed.
+Rendered the real Field Crews chrome (`FieldScreen`, `StatStrip`, `FilterChips`, `StatusChip`, `PlainTable`) against a fixture built by `buildCrewCommandView` from assignments + trips + `crew_status`:
 
-## Issues / Follow-up
+- Heading CREWS / subtitle Who's where. What's the plan.
+- Clickable cards: Crews Out 2 of 3 total (active state), Jobs Covered 1 of 2 scheduled, Jobs Unassigned 1, Crews Off 1
+- Crew-first table: Amy Nguyen then Chris Berger (first-name sort), Pat Diaz Sick (red, not treated as unassigned), Unassigned #10025 No Crew
+- Espresso header, teal chips, linen surfaces, no white board background; teal CTA uses black text
 
-- Chris preview walkthrough (authenticated) is still required to confirm real-data population on:
-  - `/field/today`
-  - `/field/jobs`
-  - `/field/crews`
-  - `/field/dailylogs`
-  - `/field/loadouts`
-  - `/field/timeclock`
-- If any board remains unexpectedly empty in authenticated preview, capture the specific route + expected record and trace the exact filter/relationship path from the now-shared active-job window derivation.
+The committed `Crews.jsx` also has the Date / Crew / Job / Status / Clear Filters row (not in that fixture snapshot). Authenticated `/field/crews` live-data walk is for Chris on the Ready preview — this environment has no real Supabase session.
+
+## Deviations
+
+- Did not invent mock “Crew 1 / Crew 2” grouped labels from the review mockup. Authoritative crew records are people on `crew.name`; first-name sort matches that.
+- Did not invent On Site / Mobilizing / clock-in times. Status is scheduled job status or real off/no-crew labels.
+- Did not add row kebab menus (screen is read-only).
+- Did not paginate; footer is a showing-count only.
+
+## Issues / follow-up
+
+- Chris: walk `/field/crews` on the Ready preview for a real schedule date. Do not merge until accepted.
+- Other Field boards still use `job_crew` / phone tables where that is the execution path (Today crew names, Jobs crew counts, punches, logs). Out of scope for this Crews-only correction.

@@ -2,6 +2,7 @@ import { fetchAll } from "../../lib/supabaseHelpers";
 import { supabase } from "../../lib/supabase";
 import { tod } from "../../lib/utils";
 import { jobFormStatus } from "./lateForm";
+import { buildCrewCommandView } from "./crewBoard";
 
 // Field-web reads. All child tables (time_punches, job_crew, daily_log_entries,
 // daily_production_reports, job_material_checks) anchor job_id on CALL_LOG.id
@@ -310,29 +311,100 @@ export async function fetchFieldJobs() {
     .sort((a, b) => (a.scheduledStart || "").localeCompare(b.scheduledStart || ""));
 }
 
-// Crews: crew assignments across active field jobs.
-// Always { assignments, jobs } — jobs[].crewCount so Missing crew is a real list.
-export async function fetchFieldCrews() {
-  const active = await fetchActiveFieldJobs();
-  const clIds = [...new Set(active.map((j) => j.call_log_id))];
-  if (clIds.length === 0) return { assignments: [], jobs: [] };
-  const nameByCl = new Map(
-    active.map((j) => [j.call_log_id, j.job_name || j.call_log?.display_job_number || `Job ${j.call_log_id}`])
-  );
-  const crew = await fetchAll("job_crew", "job_id, role, team_members(name)", {
-    filters: [["in", "job_id", clIds]],
+// Crews office command view: scheduled truth is Crew Scheduler (`assignments` +
+// live `job_mobilizations` + `crew` + `crew_status`), via the same crewWeekRows
+// definition the board uses. Not `job_crew`. Date-scoped — changing the date
+// must call this again, not filter a stale day client-side.
+async function fetchAllStrict(table, select, opts = {}) {
+  const { order, filters = [], pageSize = 1000 } = opts;
+  const all = [];
+  let from = 0;
+  while (true) {
+    let q = supabase.from(table).select(select);
+    if (order) {
+      const col = typeof order === "string" ? order : order.column;
+      const asc = typeof order === "string" ? true : order.ascending;
+      q = q.order(col, { ascending: asc !== false });
+    }
+    for (const [method, ...args] of filters) q = q[method](...args);
+    const { data, error } = await q.range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
+function shapeScheduleJob(row) {
+  const cl = row.call_log || {};
+  return {
+    job_id: row.job_id,
+    job_name: cl.job_name || row.job_name || "",
+    job_num: cl.display_job_number || row.job_num || "",
+    status: row.status,
+    work_type: row.work_type || "",
+    scheduled_start: row.scheduled_start,
+    scheduled_end: row.scheduled_end,
+    start_date: row.start_date,
+    end_date: row.end_date,
+    customer_name: cl.customer_name || null,
+    jobsite_city: cl.jobsite_city || null,
+    jobsite_state: cl.jobsite_state || null,
+    jobsite_address: cl.jobsite_address || null,
+  };
+}
+
+export async function fetchFieldCrewBoard({ date = tod() } = {}) {
+  const jobSelect =
+    "job_id, job_name, job_num, status, work_type, scheduled_start, scheduled_end, start_date, end_date, call_log_id, call_log:call_log_id(display_job_number, job_name, customer_name, jobsite_city, jobsite_state, jobsite_address)";
+
+  const [jobRows, crewRows, assignmentRows, statusRows, mobRows] = await Promise.all([
+    fetchAllStrict("jobs", jobSelect, {
+      filters: [
+        ["or", "deleted.is.null,deleted.eq.No"],
+        ["is", "merged_into_job_id", null],
+      ],
+    }),
+    fetchAllStrict("crew", "name, team, phone, archived"),
+    fetchAllStrict("assignments", "id, job_id, crew_name, date, mobilization_id", {
+      filters: [["eq", "date", date]],
+    }),
+    fetchAllStrict("crew_status", "crew_name, date, status", {
+      filters: [["eq", "date", date]],
+    }),
+    fetchAllStrict("job_mobilizations", "id, job_id, seq, label, start_date, end_date, note"),
+  ]);
+
+  const jobs = jobRows.map(shapeScheduleJob);
+  const allocations = {};
+  for (const row of mobRows) {
+    if (row.job_id == null || row.seq == null) continue;
+    const map = allocations[row.job_id] || (allocations[row.job_id] = {});
+    map[row.seq] = {
+      id: row.id,
+      seq: row.seq,
+      label: row.label || null,
+      start_date: row.start_date || null,
+      end_date: row.end_date || null,
+      note: row.note || null,
+    };
+  }
+  const statuses = {};
+  for (const row of statusRows) {
+    if (!row.crew_name || !row.date) continue;
+    statuses[`${row.crew_name}|${row.date}`] = row.status;
+  }
+
+  return buildCrewCommandView({
+    date,
+    jobs,
+    allocations,
+    assignments: assignmentRows,
+    crew: crewRows,
+    statuses,
   });
-  const counts = new Map();
-  for (const c of crew) counts.set(c.job_id, (counts.get(c.job_id) || 0) + 1);
-  const assignments = crew
-    .map((c) => ({
-      member: c.team_members?.name || "—",
-      role: c.role || "",
-      job: nameByCl.get(c.job_id) || `Job ${c.job_id}`,
-    }))
-    .sort((a, b) => a.member.localeCompare(b.member));
-  const jobs = active.map((j) => fieldJobShape(j, counts.get(j.call_log_id) || 0));
-  return { assignments, jobs };
 }
 
 // Time Clock: today's punches across active field jobs.

@@ -54,16 +54,26 @@ export function StatStrip({ items = [] }) {
     >
       {items.map((it) => {
         const accent = it.tone === "amber" ? C.amber : it.tone === "red" ? C.red : it.tone === "muted" ? C.textLight : C.teal;
+        const clickable = typeof it.onClick === "function";
+        const selected = !!it.selected;
+        const Tag = clickable ? "button" : "div";
         return (
-          <div
-            key={it.label}
+          <Tag
+            key={it.id || it.label}
+            type={clickable ? "button" : undefined}
+            onClick={clickable ? it.onClick : undefined}
             style={{
-              background: C.linenCard,
-              border: `1px solid ${C.borderStrong}`,
+              background: selected ? C.linen : C.linenCard,
+              border: `1.5px solid ${selected ? C.dark : C.borderStrong}`,
               borderRadius: 10,
               padding: "14px 16px",
-              borderTop: `3px solid ${accent}`,
-              boxShadow: "0 2px 8px rgba(28,24,20,0.08)",
+              borderTop: `${selected ? 4 : 3}px solid ${accent}`,
+              boxShadow: selected ? `0 0 0 1px ${C.dark}, 0 2px 8px rgba(28,24,20,0.12)` : "0 2px 8px rgba(28,24,20,0.08)",
+              textAlign: "left",
+              width: "100%",
+              cursor: clickable ? "pointer" : "default",
+              font: "inherit",
+              color: "inherit",
             }}
           >
             <div
@@ -91,7 +101,19 @@ export function StatStrip({ items = [] }) {
             >
               {it.value}
             </div>
-          </div>
+            {it.hint ? (
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: 11.5,
+                  color: C.textFaint,
+                  fontFamily: F.body,
+                }}
+              >
+                {it.hint}
+              </div>
+            ) : null}
+          </Tag>
         );
       })}
     </div>
@@ -201,8 +223,9 @@ export function EmptyNote({ children }) {
 }
 
 // columns: [{ key, label, align?, render?(row) }]. rows: array of objects.
-export function PlainTable({ columns, rows, empty = "Nothing to show.", keyField }) {
+export function PlainTable({ columns, rows, empty = "Nothing to show.", keyField, compact, rowStyle }) {
   if (!rows || rows.length === 0) return <EmptyNote>{empty}</EmptyNote>;
+  const pad = compact ? "8px 12px" : "12px 15px";
   return (
     <div
       style={{
@@ -220,7 +243,7 @@ export function PlainTable({ columns, rows, empty = "Nothing to show.", keyField
                 key={c.key}
                 style={{
                   textAlign: c.align || "left",
-                  padding: "11px 15px",
+                  padding: compact ? "9px 12px" : "11px 15px",
                   fontWeight: 700,
                   fontSize: 10.5,
                   color: "rgba(255,255,255,0.45)",
@@ -243,6 +266,7 @@ export function PlainTable({ columns, rows, empty = "Nothing to show.", keyField
               style={{
                 borderBottom: `1px solid ${C.border}`,
                 background: i % 2 === 0 ? C.linenLight : C.linen,
+                ...(rowStyle ? rowStyle(row, i) : null),
               }}
             >
               {columns.map((c) => (
@@ -250,7 +274,7 @@ export function PlainTable({ columns, rows, empty = "Nothing to show.", keyField
                   key={c.key}
                   style={{
                     textAlign: c.align || "left",
-                    padding: "12px 15px",
+                    padding: pad,
                     color: C.textBody,
                     verticalAlign: "middle",
                     fontSize: 13.5,

@@ -1,11 +1,6 @@
 import { fetchAll } from "../../lib/supabaseHelpers";
 import { supabase } from "../../lib/supabase";
 import { tod } from "../../lib/utils";
-import {
-  effectiveEnd as scheduleEffectiveEnd,
-  effectiveStart as scheduleEffectiveStart,
-  loadMobilizationsByJobId,
-} from "../../schedule/lib/queries";
 import { jobFormStatus } from "./lateForm";
 
 // Field-web reads. All child tables (time_punches, job_crew, daily_log_entries,
@@ -33,6 +28,33 @@ function isoDay(value) {
   return String(value).slice(0, 10);
 }
 
+function effectiveStart(job) {
+  return job?.scheduled_start || job?.start_date || null;
+}
+
+function effectiveEnd(job) {
+  return job?.scheduled_end || job?.end_date || null;
+}
+
+async function loadLiveMobilizationsByJobId(jobs) {
+  const out = {};
+  const jobIds = [...new Set((jobs || []).map((j) => j.job_id).filter((id) => id != null))];
+  if (jobIds.length === 0) return out;
+
+  const rows = await fetchAll("job_mobilizations", "job_id, seq, start_date, end_date", {
+    filters: [["in", "job_id", jobIds]],
+  });
+  for (const row of rows) {
+    if (row.job_id == null || row.seq == null) continue;
+    const map = out[row.job_id] || (out[row.job_id] = {});
+    map[row.seq] = {
+      start_date: row.start_date || null,
+      end_date: row.end_date || null,
+    };
+  }
+  return out;
+}
+
 function deriveFieldWindows(job, mobsByJobId) {
   const seqMap = mobsByJobId?.[job.job_id] || {};
   const mobWindows = Object.values(seqMap)
@@ -47,8 +69,8 @@ function deriveFieldWindows(job, mobsByJobId) {
 
   // If a job has live mobilization rows with dates, use those as its operational
   // windows. Otherwise, fall back to Schedule's canonical effective dates.
-  const fallbackStart = isoDay(scheduleEffectiveStart(job));
-  const fallbackEnd = isoDay(scheduleEffectiveEnd(job)) || fallbackStart;
+  const fallbackStart = isoDay(effectiveStart(job)) || isoDay(effectiveEnd(job));
+  const fallbackEnd = isoDay(effectiveEnd(job)) || fallbackStart;
   const windows = mobWindows.length
     ? mobWindows
     : fallbackStart
@@ -92,7 +114,7 @@ async function fetchActiveFieldJobs(extraSelect = "") {
   );
   if (active.length === 0) return [];
 
-  const mobsByJobId = await loadMobilizationsByJobId(active, { liveOnly: true });
+  const mobsByJobId = await loadLiveMobilizationsByJobId(active);
   return active
     .map((j) => {
       const { windows, start, end } = deriveFieldWindows(j, mobsByJobId);

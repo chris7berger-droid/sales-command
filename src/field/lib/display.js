@@ -1,6 +1,6 @@
 export function stageTone(stage) {
   const s = String(stage || "").toLowerCase();
-  if (s === "in progress" || s === "in_progress" || s === "mobilized") return "teal";
+  if (s === "in progress" || s === "in_progress" || s === "mobilized" || s === "ongoing") return "teal";
   if (s === "scheduled") return "amber";
   if (s === "on hold" || s === "hold") return "red";
   return "muted";
@@ -10,6 +10,7 @@ export function prettyStage(stage) {
   const s = String(stage);
   if (s === "in_progress") return "In Progress";
   if (s === "mobilized") return "Mobilized";
+  if (s.toLowerCase() === "ongoing") return "Ongoing";
   return s;
 }
 export function logTypeLabel(type) {

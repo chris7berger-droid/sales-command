@@ -15,7 +15,7 @@ import { prettyStage, stageTone } from "../lib/display";
 
 function isLiveStage(stage) {
   const s = String(stage || "").toLowerCase();
-  return s === "in progress" || s === "in_progress" || s === "mobilized";
+  return s === "in progress" || s === "in_progress" || s === "mobilized" || s === "ongoing";
 }
 function isScheduled(stage) {
   return String(stage || "").toLowerCase() === "scheduled";

@@ -51,6 +51,7 @@ const EMPTY_ROWS = [];
 const EMPTY_CREWS = [];
 
 function statusTone(row) {
+  if (row.statusKey === "scheduled-off") return "muted";
   if (row.kind === "unassigned" || row.statusKey === "no-crew") return "amber";
   if (row.kind === "exception" || row.statusKey === "called-out" || row.statusKey === "no-show") return "red";
   const s = String(row.statusKey || "").toLowerCase();

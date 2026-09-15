@@ -1,6 +1,7 @@
 import { supabase } from '../../lib/supabase'
 import { loadMobilizationsByJobId, loadJobs } from './queries'
 import { jobRanges, overlapsWeek, staffingForDay, staffingSummary, pickAllocField } from './allocations'
+import { crewStatusUiLabel } from './crewStatus'
 
 // B103: every export shows every active job — same as the board. Routed through
 // loadJobs so prints get the call_log-joined names and the ⚠ "Needs fixing" flag
@@ -179,7 +180,7 @@ export async function printDailyStatus() {
         }
       }
       const cell = st !== 'available'
-        ? '<span style="color:#c62828;font-weight:700">' + st + '</span>'
+        ? '<span style="color:#c62828;font-weight:700">' + crewStatusUiLabel(st) + '</span>'
         : assigned ? assigned.job_num : '<span style="color:#999">\u2014</span>'
       b += '<td>' + cell + '</td>'
     }

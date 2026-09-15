@@ -165,6 +165,38 @@ assert(misaEx.jobNum === "10023", `Misa Sep 15 expected job from assignment, got
 assert(misaEx.statusLabel === "Called Out", "Misa exception is Called Out");
 assert(!misaView.rows.some((r) => r.kind === "out" && r.crewName === "Misa"), "Misa exception is not Crews Out");
 
+const misaOffView = buildCrewCommandView({
+  date: misaDay,
+  jobs,
+  allocations,
+  assignments: [],
+  crew: [{ name: "Misa", team: "Floor", archived: false }],
+  statuses: { [`Misa|${misaDay}`]: "scheduled-off" },
+});
+const misaScheduled = misaOffView.rows.find((r) => r.kind === "exception" && r.crewName === "Misa");
+assert(misaScheduled, "Scheduled Off is an exception row");
+assert(misaScheduled.statusLabel === "Scheduled Off", `Scheduled Off label, got ${misaScheduled.statusLabel}`);
+assert(misaScheduled.statusKey === "scheduled-off", "Scheduled Off keeps its own status key");
+assert(!misaScheduled.jobNum && !misaScheduled.jobName, "Scheduled Off does not invent an expected job");
+assert(filterCrewCommandRows(misaOffView.rows, { status: "scheduled-off" }).length === 1, "scheduled-off filter");
+assert(filterCrewCommandRows(misaOffView.rows, { status: "called-out" }).length === 0, "scheduled-off is not Called Out");
+
+const misaOffAssigned = buildCrewCommandView({
+  date: misaDay,
+  jobs,
+  allocations,
+  assignments: [
+    { id: "misa-off-a", job_id: 1, crew_name: "Misa", date: misaDay, mobilization_id: "trip-1" },
+  ],
+  crew: [{ name: "Misa", team: "Floor", archived: false }],
+  statuses: { [`Misa|${misaDay}`]: "scheduled-off" },
+});
+assert(
+  misaOffAssigned.rows.find((r) => r.kind === "exception" && r.crewName === "Misa")?.jobNum === "10023",
+  "Scheduled Off still shows expected job when an assignment exists"
+);
+assert(!misaOffAssigned.rows.some((r) => r.kind === "out" && r.crewName === "Misa"), "Scheduled Off is not Crews Out");
+
 // Adam Little Sep 7 — roster is Last, First; assignment still wins over Called Out.
 const adamDay = "2026-09-07";
 const adamJobs = [

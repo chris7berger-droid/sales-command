@@ -1,126 +1,86 @@
 ## Status
 
-Expected Job on Exceptions QA complete — waiting on Chris preview accept. **Do not merge.**
+Scheduled Off model/UI correction complete — waiting on Chris preview accept. **Do not merge.**
 
-## Crews source-of-truth implementation
+No production `crew_status` rows were migrated.
 
-Unchanged from the prior pass: Field Command → Crews is a **read-only** office view of Crew Scheduler planned truth.
+## Summary
 
-| Question | Source |
-|---|---|
-| Who is scheduled, on which job, on which date | `assignments` |
-| Trip / mobilization | live `job_mobilizations` |
-| Job / customer / site | `jobs` + `call_log` |
-| Roster | `crew` (non-archived) |
-| Exceptions | `crew_status` for dates in the selected window, `status !== 'available'` only |
+Crew Scheduler had no Scheduled Off type. The **O** control stored `off`, which Daily already treated as **Call In**, while the Crew Schedule legend said **Off**. Field mapped both `sick` and `off` to **Called Out**. That is why a planned day off (Misa) could appear as Called Out.
 
-Still unused: `job_crew`. No Schedule writer changes. No duplicate assignment table.
+This pass adds a distinct stored status `scheduled-off`, maps it to **Scheduled Off** in Field Crews, and relabels Call In so **O/Off** is no longer the Call In control.
 
-Out / Unassigned rows still use Schedule’s `crewWeekRows` / `crewRowInRange`. Expected Job on Exceptions is indexed from raw `assignments` × `jobs` for the person/date. Date changes re-query `assignments` and `crew_status` for `[from, to]`.
+Existing `off` rows are left unchanged (Call In / Field **Called Out**). Remapping them to Scheduled Off would be an ambiguous data migration.
 
-## Single-day behavior
+## Root cause
 
-- Default: Single Day → today.
-- Table is **crew-first**. Assigned people sort by first name ascending (`"Last, First"` flipped).
-- JOB # is the bare display number (`call_log.job_number`, else the token before `" - "` in `display_job_number`). JOB NAME is `job_name` with `work_type` as secondary. The composite `"10079 - Demo VCT - Carpet"` is no longer stuffed into JOB #.
-- Cards / chips filter immediately. Clear Filters restores Single Day, today, All Crews, empty job search, All status, All category.
+- Data model: `crew_status.status` had only `sick` / `off` / `noshow`. Available = no row.
+- UI vocabulary: Crew Schedule legend **Off** wrote Call In (`off`).
+- Field mapping: `sick` and `off` both displayed **Called Out**.
 
-## Date-range behavior
+Missing assignment is still not treated as Scheduled Off.
 
-- Modes: Single Day | Date Range.
-- Range presets: This Week (Mon–Sun), Last Week, This Month, Custom (native from/to date inputs).
-- Range table includes DATE. Daily assignment rows are not collapsed.
-- With a specific crew selected, rows sort chronologically so “where was Adam this week?” is one scan.
-- Range + job search and range + Exceptions compose on the same dataset.
+## Model
 
-## Summary-card count semantics
-
-Counts are computed **after** Crew / Job / Status filters, **before** the category card/chip, from the same command-view rows.
-
-| Card | Count |
-|---|---|
-| CREWS OUT | distinct people with ≥1 assignment in the window (not assignment-days) |
-| JOBS COVERED | distinct jobs with ≥1 assignment in the window |
-| JOBS UNASSIGNED | distinct jobs with ≥1 in-window coverage day and no assignment that day |
-| EXCEPTIONS | recorded `crew_status` rows in the window (person-days), not distinct people |
-
-A job can appear in both COVERED and UNASSIGNED in range mode if it was staffed some days and not others. CREWS OUT of 1 person with 4 daily rows stays **1**.
-
-Single-day unfiltered hints remain `of N total` (roster) and `of N scheduled` (covered + unassigned). Range cards drop those hints so the number is not mistaken for assignment-days.
-
-## Adaptive Unassigned presentation
-
-Unassigned card/chip switches the same screen to **job-first**:
-
-JOB # · JOB NAME · CUSTOMER · LOCATION · MOBILIZATION · STATUS (No Crew, amber) · NOTES
-
-No fake “Unassigned” crew name. ALL / Crews Out stay crew-first; unassigned rows in ALL show “—” in Crew.
-
-## Supported exception sources / types
-
-Crew Scheduler `crew_status.status` is the only authoritative exception source today (`crew_name` + `date`, default available = no row).
-
-| Stored value | Scheduler UI | Field Crews label |
+| Stored `crew_status.status` | Crew Scheduler | Field Crews |
 |---|---|---|
+| *(no row)* | Available | not an exception |
 | `sick` | Sick (S) | **Called Out** |
-| `off` | Call In (O / CALL) | **Called Out** |
-| `noshow` | No Show (N / N/S) | **No Show** |
+| `off` | Call In (C) | **Called Out** |
+| `scheduled-off` | Scheduled Off (Off) | **Scheduled Off** |
+| `noshow` | No Show (N) | **No Show** |
 
-Exceptions view: Crew, Date, Expected Job, Exception. No time-of-day column — `crew_status` has a date only.
+Available remains “delete the row.” No punches. No invented jobs.
 
-Expected Job is the Crew Scheduler `assignments` row for that person/date. It is **not** taken from the `crewWeekRows` board projection. Called Out / No Show must not blank a scheduled job.
+## Data migration
 
-- If an `assignments` row exists and the job can be resolved, show that job.
-- If no assignment exists for that person/date, Expected Job stays blank. Do not invent from punches or first-name guesses.
-- Name keys accept stored `"Last, First"` and display `"First Last"`. Dates are normalized to `YYYY-MM-DD` so an ISO timestamp on the same calendar day still matches.
-- Jobs referenced by an assignment but excluded from the merged/deleted jobs list are fetched by `job_id` so the real job number can still show.
+**Not performed.** Existing `off` rows stay Call In. Misa on Sep 15 will keep showing **Called Out** until an operator marks that day **Scheduled Off** (writes `scheduled-off`). This environment still cannot read the live row.
 
-If a person is both assigned and marked unavailable, they count as an exception (not Crews Out). The job still counts as covered because an assignment exists.
-
-## Observed people (Misa Sep 15, Adam Little Sep 7)
-
-This VM has no production Supabase credentials (`VITE_SUPABASE_URL` is localhost mock), so live `assignments` rows for those two people/dates could not be queried here.
-
-Code-path result:
-
-| Person | Date | If an `assignments` row exists | If none exists |
-|---|---|---|---|
-| Misa | 2026-09-15 | Expected Job shows that job (including timestamp dates) | blank is correct |
-| Adam Little (`Little, Adam`) | 2026-09-07 | Expected Job shows that job | blank is correct |
-
-The previous read could drop a real assignment: board `a.date <= end` fails for ISO timestamps on the selected day, then Expected Job looked up `name|YYYY-MM-DD` against the missing board key. That read is corrected. Authenticated confirmation of whether those two live rows exist is on the preview.
-
-## Unsupported / deferred exception types
-
-| Preferred label | Why not implemented |
-|---|---|
-| Left Early | No stored exception type. Time punches exist on the phone path; there is **no** existing rule that “clock-out before planned end = Left Early.” Do not infer it. |
-| Scheduled Off | No distinct PTO/day-off type. Scheduler `off` is Call In, not a scheduled day off. |
-| Late / Sent Home / Reassigned | No records. |
-
-Do not treat “no punch” as No Show.
+No CHECK constraint for `crew_status.status` exists in this repo. YESv2 import already writes the sheet `Status` string as-is. If production rejects `scheduled-off` on upsert, stop and add an **additive** allowed-value (not a remap of `off`).
 
 ## Files changed (this pass)
 
-- `src/field/lib/crewBoard.js` — Expected Job from raw `assignments` (date normalize, Last/First name keys); board projection no longer required for that cell
-- `src/field/lib/crewBoard.test.mjs` — Misa Sep 15 timestamp assignment; Adam Little Sep 7; blank when no assignment / unknown job
-- `src/field/lib/queries.js` — fetch jobs referenced by assignments but omitted from the merged/deleted jobs list; normalize `crew_status.date`
+- `src/schedule/lib/crewStatus.js` — stored values + UI labels
+- `src/schedule/lib/crewStatus.test.mjs`
+- `src/schedule/views/Schedule.jsx` — C = Call In (`off`); Off = Scheduled Off (`scheduled-off`); legend/modal/week-popup labels
+- `src/schedule/App.css` — `sch-cdot-soff`, wider Off button
+- `src/schedule/views/Daily.jsx` — Scheduled Off section; empty cell legend **Not assigned** (was **Off**)
+- `src/schedule/lib/exports.js` — print uses UI labels
+- `src/schedule/components/StatsBar.jsx` / `HomeCapacityStrip.jsx` — Out detail uses UI labels
+- `src/field/lib/crewBoard.js` — Scheduled Off exception label/filter/key
+- `src/field/lib/crewBoard.test.mjs`
+- `src/field/views/Crews.jsx` — muted chip for Scheduled Off (Called Out / No Show stay red)
 
-Not changed: Crews layout/chrome, other Field screens, phone UI, Crew Scheduler writes.
+Not changed: other Field screens, phone UI, assignment writes, existing `crew_status` rows.
+
+## Implementation decisions
+
+- New stored value `scheduled-off` rather than reusing `off`.
+- Call In keeps stored `off` so historical Call In data is not rewritten.
+- Crew Schedule **C** matches Daily’s Call In letter; **Off** writes the new type.
+- Field still collapses Sick + Call In to Called Out (approved earlier). Only Scheduled Off is split out.
+- Scheduled Off still counts as out / exception (not available to assign). Expected Job still comes from `assignments` when one exists.
+- No inference from a blank assignment.
 
 ## Verification
 
+- `node src/schedule/lib/crewStatus.test.mjs` ✅
 - `node src/field/lib/crewBoard.test.mjs` ✅
-- `npx eslint src/field` ✅
+- `npx eslint src/field src/schedule/lib/crewStatus.js src/schedule/views/Daily.jsx src/schedule/lib/exports.js` ✅
 - `npm run build` ✅ (this pass)
-- No live assignment query for Misa/Adam from this environment (mock Supabase only)
-- PR #60 Vercel preview — recheck Exceptions after this commit
-  - https://sales-command-git-cursor-fi-6116b8-chris7berger-droids-projects.vercel.app
+- Pre-existing eslint noise in `Schedule.jsx` / `StatsBar.jsx` / `HomeCapacityStrip.jsx` (unused vars / hooks) not cleaned up
 
-Authenticated `/field/crews` live-data walk is for Chris on that preview.
+This VM has mock Supabase only. Live Misa/Adam rows and the new Off control on Crew Schedule must be checked on the preview.
 
-## Deviations
+## Visual verification
 
-- This Week is **Monday–Sunday** so Sunday assignments are not dropped. Crew Scheduler’s board week is Mon–Sat; Sunday work is a known backlog item (F60).
-- Scheduler `off` (Call In) and `sick` both display as Called Out. There is no separate Scheduled Off type to show.
-- Unassigned in ALL still appears as rows with “—” under Crew rather than hiding them until the Unassigned filter is used — same command dataset, no fake crew name.
+Unit tests cover Field labels: `scheduled-off` → Scheduled Off; `sick`/`off` → Called Out; no assignment → blank Expected Job. Authenticated Crew Schedule (C / Off buttons, legend) and Field Exceptions chips are for Chris on the preview.
+
+## Deviations From Handoff
+
+None.
+
+## Issues / Follow-up
+
+- Existing `off` person-days (including Misa if her Sep 15 row is `off`) still display as Call In / Called Out until marked Scheduled Off in Crew Scheduler.
+- If a production CHECK rejects `scheduled-off`, do not remap `off`; add the new value to the constraint in `command-suite-db`.

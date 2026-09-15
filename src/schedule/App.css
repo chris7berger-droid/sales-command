@@ -954,6 +954,7 @@
 }
 
 .schedule-root .sch-sbtn:hover { background: var(--danger); color: #fff; }
+.schedule-root .sch-sbtn-wide { width: auto; padding: 0 3px; font-size: 7px; letter-spacing: 0.02em; }
 
 .schedule-root .sch-crew-days-wrap { padding: 0; width: 125px; flex: 0 0 125px; margin-left: auto; }
 .schedule-root .sch-chip { flex-wrap: nowrap; }
@@ -992,6 +993,7 @@
 .schedule-root .sch-cdot-off { background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(28, 24, 20, 0.14); }
 .schedule-root .sch-cdot-sick { background: var(--danger); }
 .schedule-root .sch-cdot-call { background: #e65100; }
+.schedule-root .sch-cdot-soff { background: var(--sand-dark); }
 
 .schedule-root .sch-chip-status {
   font-size: 9px;

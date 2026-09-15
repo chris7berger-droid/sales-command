@@ -5,12 +5,14 @@ import { tripRange } from "../../schedule/lib/trips.js";
 // Field Crews command-view helpers. Scheduled truth is Crew Scheduler:
 // crewWeekRows(jobs, live job_mobilizations, assignments, from, to).
 // Exceptions come only from crew_status !== 'available' — never inferred
-// from a missing assignment or a missing punch.
+// from a missing assignment or a missing punch. scheduled-off is a stored
+// type, distinct from off (Call In).
 
 export const EXCEPTION_LABELS = {
   sick: "Called Out",
   off: "Called Out",
   noshow: "No Show",
+  "scheduled-off": "Scheduled Off",
 };
 
 export const CREW_STATUS_FILTERS = [
@@ -20,6 +22,7 @@ export const CREW_STATUS_FILTERS = [
   { value: "Ongoing", label: "Ongoing" },
   { value: "no-crew", label: "No Crew" },
   { value: "called-out", label: "Called Out" },
+  { value: "scheduled-off", label: "Scheduled Off" },
   { value: "no-show", label: "No Show" },
 ];
 
@@ -205,6 +208,7 @@ function statusOf(name, date, statuses) {
 function exceptionStatusKey(raw) {
   if (raw === "noshow") return "no-show";
   if (raw === "sick" || raw === "off") return "called-out";
+  if (raw === "scheduled-off") return "scheduled-off";
   return raw;
 }
 
@@ -317,7 +321,7 @@ export function buildCrewCommandView({ date, from, to, jobs, allocations, assign
         trip: null,
         statusKey: exceptionStatusKey(raw),
         statusLabel: EXCEPTION_LABELS[raw] || raw,
-        dot: "red",
+        dot: raw === "scheduled-off" ? "muted" : "red",
         extra: { rawStatus: raw },
       }));
     }

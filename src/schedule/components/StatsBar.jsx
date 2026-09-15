@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
+import { crewStatusUiLabel } from '../lib/crewStatus'
 
 const DAYS_LONG = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -152,7 +153,7 @@ export default function StatsBar() {
               ))}
               <div className="sch-dd-section-hdr" style={{ color: 'var(--danger)' }}>Out ({dayDetail.out.length})</div>
               {dayDetail.out.map(c => (
-                <div key={c.name} className="sch-dd-row">{'\u2022'} {flipName(c.name)} <span className="sch-dd-status">({c.status})</span></div>
+                <div key={c.name} className="sch-dd-row">{'\u2022'} {flipName(c.name)} <span className="sch-dd-status">({crewStatusUiLabel(c.status)})</span></div>
               ))}
               <div className="sch-modal-actions">
                 <button className="sch-btn" onClick={() => setDayDetailDate(null)}>CLOSE</button>

@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { loadJobs, loadMobilizationsByJobId } from '../lib/queries'
 import { jobRanges, overlapsWeek, staffingForDay, staffingSummary } from '../lib/allocations'
+import { CREW_STATUS_SCHEDULED_OFF } from '../lib/crewStatus'
 
 /* ── Daily view — faithful port of the Apps Script rDaily() (Schedule Commander v2).
    Job cards with a crew × day check grid, gap row, status sections, and legend.
@@ -188,20 +189,22 @@ export default function Daily() {
   const noCrewJobs = wkJobs.filter(j => wkAsgnUnique(j).length === 0)
 
   /* status sections */
-  const sickList = [], callList = [], nsList = [], availList = []
+  const sickList = [], callList = [], nsList = [], scheduledOffList = [], availList = []
   crew.forEach(c => {
     const cn = c.name
-    let hasSick = false, hasCall = false, hasNS = false
+    let hasSick = false, hasCall = false, hasNS = false, hasScheduledOff = false
     for (let di = 0; di < 6; di++) {
       const st = getCSt(cn, dates[di])
       if (st === 'sick') hasSick = true
       if (st === 'off') hasCall = true
       if (st === 'noshow') hasNS = true
+      if (st === CREW_STATUS_SCHEDULED_OFF) hasScheduledOff = true
     }
     if (hasSick) sickList.push(cn)
     if (hasCall) callList.push(cn)
     if (hasNS) nsList.push(cn)
-    if (!assignedNames[cn] && !hasSick && !hasCall && !hasNS) availList.push(cn)
+    if (hasScheduledOff) scheduledOffList.push(cn)
+    if (!assignedNames[cn] && !hasSick && !hasCall && !hasNS && !hasScheduledOff) availList.push(cn)
   })
 
   /* ── renderers ── */
@@ -212,6 +215,7 @@ export default function Daily() {
     const st = getCSt(cn, ds)
     if (st === 'sick') return <div className="dly-cell" key={ds}><div className="dly-d dly-sick">S</div></div>
     if (st === 'off') return <div className="dly-cell" key={ds}><div className="dly-d dly-call">C</div></div>
+    if (st === CREW_STATUS_SCHEDULED_OFF) return <div className="dly-cell" key={ds}><div className="dly-d dly-soff">Off</div></div>
     if (st === 'noshow') return <div className="dly-cell" key={ds}><div className="dly-d dly-noshow">N</div></div>
     if (dbDays.indexOf(ds) >= 0) return <div className="dly-cell" key={ds}><div className="dly-d dly-2x">2X</div></div>
     return <div className="dly-cell" key={ds}><div className="dly-d dly-on">✓</div></div>
@@ -292,8 +296,8 @@ export default function Daily() {
 
   function statusCard(title, dotColor, list, stKey) {
     if (!list.length) return null
-    const letter = stKey === 'sick' ? 'S' : stKey === 'off' ? 'C' : 'N'
-    const dClass = stKey === 'sick' ? 'dly-sick' : stKey === 'off' ? 'dly-call' : 'dly-noshow'
+    const letter = stKey === 'sick' ? 'S' : stKey === 'off' ? 'C' : stKey === CREW_STATUS_SCHEDULED_OFF ? 'Off' : 'N'
+    const dClass = stKey === 'sick' ? 'dly-sick' : stKey === 'off' ? 'dly-call' : stKey === CREW_STATUS_SCHEDULED_OFF ? 'dly-soff' : 'dly-noshow'
     return (
       <div className="dly-status" key={title}>
         <div className="dly-status-hdr"><span className="dly-status-dot" style={{ background: dotColor }} />{title}</div>
@@ -350,6 +354,7 @@ export default function Daily() {
       {/* Status sections */}
       {statusCard('Sick', 'var(--red)', sickList, 'sick')}
       {statusCard('Call In', 'var(--orn)', callList, 'off')}
+      {statusCard('Scheduled Off', 'var(--dim)', scheduledOffList, CREW_STATUS_SCHEDULED_OFF)}
       {statusCard('No Show', 'var(--orn)', nsList, 'noshow')}
       {availList.length > 0 && (
         <div className="dly-status">
@@ -372,8 +377,9 @@ export default function Daily() {
         <div className="dly-leg"><div className="dly-d dly-on dly-d-lg">✓</div> On job</div>
         <div className="dly-leg"><div className="dly-d dly-sick dly-d-lg">S</div> Sick</div>
         <div className="dly-leg"><div className="dly-d dly-call dly-d-lg">C</div> Call-in</div>
+        <div className="dly-leg"><div className="dly-d dly-soff dly-d-lg">Off</div> Scheduled off</div>
         <div className="dly-leg"><div className="dly-d dly-noshow dly-d-lg">N</div> No show</div>
-        <div className="dly-leg"><div className="dly-d dly-empty dly-d-lg">—</div> Off</div>
+        <div className="dly-leg"><div className="dly-d dly-empty dly-d-lg">—</div> Not assigned</div>
         <div className="dly-leg"><span className="dly-gap-legend">⚠ 2/3</span> Gap</div>
       </div>
      </div>
@@ -443,6 +449,7 @@ function DailyStyle() {
       .dly-on { background:#eaf7ef; color:var(--grn); border-color:#c8ecd0; }
       .dly-sick { background:#fde8e5; color:var(--red); border-color:#f5c6c0; }
       .dly-call { background:#fef3c7; color:var(--orn); border-color:#f0d88a; }
+      .dly-soff { background:#ece7df; color:var(--dim); border-color:#d4cbbd; }
       .dly-noshow { background:#fee2e2; color:var(--red); border-color:#f5c6c0; }
       .dly-empty { background:var(--surface); color:var(--dim); border:1px dashed var(--brdl); }
       .dly-2x { background:var(--neon); color:#000; border-color:#2be012; font-weight:700; }

@@ -8,6 +8,7 @@ import { useToast } from '../lib/toast'
 import { jobRanges, inRange, staffingSummary } from '../lib/allocations'
 import { tripRange } from '../lib/trips'
 import { crewWeekRows, crewCardRows, crewRowInRange, crewRowStaffing, crewRowNames } from '../lib/crewScheduleRows'
+import { crewStatusShortLabel, crewStatusUiLabel, isCrewStatusOut } from '../lib/crewStatus'
 import ScheduleTripDetails from '../components/ScheduleTripDetails'
 import CrewWeekCapacity from '../components/CrewWeekCapacity'
 
@@ -374,7 +375,7 @@ export default function Schedule({ embedded = false } = {}) {
       let assigned = 0
       for (const c of crew) {
         const st = getCSt(c.name, d)
-        if (st !== 'available') {
+        if (isCrewStatusOut(st)) {
           out++
         } else {
           if (wkAssignedNames[c.name]) {
@@ -615,7 +616,7 @@ export default function Schedule({ embedded = false } = {}) {
     const out = []
     for (const c of crew) {
       const st = getCSt(c.name, ds)
-      if (st !== 'available') {
+      if (isCrewStatusOut(st)) {
         out.push({ name: c.name, status: st })
       } else {
         const crewAsgns = assignments.filter(a => a.crew_name === c.name && a.date === ds)
@@ -1011,20 +1012,23 @@ export default function Schedule({ embedded = false } = {}) {
 
   // Crew chip for pool
   function renderCrewChip(c) {
-    const anyOut = dates.some(d => getCSt(c.name, d) !== 'available')
-    const allOut = dates.every(d => getCSt(c.name, d) !== 'available')
+    const anyOut = dates.some(d => isCrewStatusOut(getCSt(c.name, d)))
+    const allOut = dates.every(d => isCrewStatusOut(getCSt(c.name, d)))
     const out = allOut && anyOut
     let worstSt = 'available'
     for (const d of dates) {
       const st = getCSt(c.name, d)
-      if (st !== 'available') worstSt = st
+      if (isCrewStatusOut(st)) worstSt = st
     }
     const asg = !!wkAssignedNames[c.name]
     const db = !out && asg && isDoubleBooked(c.name)
 
     let dotCls = 'sch-dot '
     if (out) {
-      dotCls += worstSt === 'sick' ? 'sch-dot-si' : worstSt === 'off' ? 'sch-dot-of' : 'sch-dot-no'
+      dotCls += worstSt === 'sick' ? 'sch-dot-si'
+        : worstSt === 'scheduled-off' ? 'sch-dot-of'
+        : worstSt === 'off' ? 'sch-dot-no'
+        : 'sch-dot-no'
     } else if (asg) {
       dotCls += 'sch-dot-as'
     } else if (anyOut) {
@@ -1053,6 +1057,7 @@ export default function Schedule({ embedded = false } = {}) {
                     const daySt = getCSt(c.name, ds)
                     const onDay = jm.dates.includes(ds)
                     if (daySt === 'sick') return <div key={ds} className="sch-cdot sch-cdot-sick" />
+                    if (daySt === 'scheduled-off') return <div key={ds} className="sch-cdot sch-cdot-soff" />
                     if (daySt === 'off' || daySt === 'noshow') return <div key={ds} className="sch-cdot sch-cdot-call" />
                     if (onDay) return <div key={ds} className="sch-cdot sch-cdot-on" style={{ background: jco }} />
                     return <div key={ds} className="sch-cdot sch-cdot-off" />
@@ -1064,7 +1069,7 @@ export default function Schedule({ embedded = false } = {}) {
         </div>
       )
     } else if (out) {
-      detail = <div className="sch-chip-status">{worstSt}</div>
+      detail = <div className="sch-chip-status">{crewStatusUiLabel(worstSt)}</div>
     }
 
     return (
@@ -1081,9 +1086,10 @@ export default function Schedule({ embedded = false } = {}) {
         {db && <span className="sch-db-tag">2X</span>}
         {!out && (
           <div className="sch-sbtns">
-            <button className="sch-sbtn" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'sick') }}>S</button>
-            <button className="sch-sbtn" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'off') }}>O</button>
-            <button className="sch-sbtn" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'noshow') }}>N</button>
+            <button className="sch-sbtn" title="Sick" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'sick') }}>S</button>
+            <button className="sch-sbtn" title="Call In" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'off') }}>C</button>
+            <button className="sch-sbtn sch-sbtn-wide" title="Scheduled Off" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'scheduled-off') }}>Off</button>
+            <button className="sch-sbtn" title="No Show" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'noshow') }}>N</button>
           </div>
         )}
         {detail}
@@ -1108,7 +1114,8 @@ export default function Schedule({ embedded = false } = {}) {
             <span className="sch-legend-item"><span className="sch-dot sch-dot-av" />Free</span>
             <span className="sch-legend-item"><span className="sch-dot sch-dot-as" />Booked</span>
             <span className="sch-legend-item"><span className="sch-dot sch-dot-si" />Sick</span>
-            <span className="sch-legend-item"><span className="sch-dot sch-dot-of" />Off</span>
+            <span className="sch-legend-item"><span className="sch-dot sch-dot-no" />Call In</span>
+            <span className="sch-legend-item"><span className="sch-dot sch-dot-of" />Scheduled Off</span>
           </div>
           {crewByTeam.teamKeys.map(tk => (
             <div key={tk}>
@@ -1184,7 +1191,7 @@ export default function Schedule({ embedded = false } = {}) {
         <div className="sch-modal-overlay" onClick={() => setStatusModal(null)}>
           <div className="sch-modal" onClick={e => e.stopPropagation()}>
             <div className="sch-modal-title">
-              {flipName(statusModal.name)} — {statusModal.status.toUpperCase()}
+              {flipName(statusModal.name)} — {crewStatusUiLabel(statusModal.status)}
             </div>
             <div className="sch-modal-label">Select days:</div>
             <div className="sch-modal-days">
@@ -1242,9 +1249,9 @@ export default function Schedule({ embedded = false } = {}) {
                     return j ? `${j.job_num}${String(a.job_id) === String(assignModal.jobId) ? ' (another trip)' : ''}` : `Job ${a.job_id}`
                   })
                 const dayStatus = getCSt(assignModal.name, ds)
-                const isOut = dayStatus !== 'available'
+                const isOut = isCrewStatusOut(dayStatus)
                 const hasConflict = conflictJobs.length > 0 || isOut
-                const conflictLabel = isOut ? dayStatus : conflictJobs.join(', ')
+                const conflictLabel = isOut ? crewStatusUiLabel(dayStatus) : conflictJobs.join(', ')
                 return (
                   <div
                     key={ds}
@@ -1300,8 +1307,8 @@ export default function Schedule({ embedded = false } = {}) {
                 <div style={{ fontSize: 9, color: 'var(--sand-dark)', fontWeight: 600, padding: '6px 8px 6px 0' }}>STATUS</div>
                 {dates.map(ds => {
                   const st = getCSt(crewWeekName, ds)
-                  const lbl = st === 'sick' ? 'SICK' : st === 'off' ? 'CALL' : st === 'noshow' ? 'N/S' : '\u2713'
-                  const sty = st === 'available' ? { color: 'var(--command-green)' } : { color: 'var(--danger)', fontWeight: 700 }
+                  const lbl = crewStatusShortLabel(st)
+                  const sty = st === 'available' ? { color: 'var(--command-green)' } : st === 'scheduled-off' ? { color: 'var(--sand-dark)', fontWeight: 700 } : { color: 'var(--danger)', fontWeight: 700 }
                   return <div key={ds} style={{ textAlign: 'center', padding: '4px 2px', fontSize: 10, ...sty }}>{lbl}</div>
                 })}
                 {jobIds.length > 0 ? jobIds.map(jid => {

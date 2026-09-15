@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useToolbarActions } from '../lib/toolbar'
+import { crewStatusUiLabel } from '../lib/crewStatus'
 
 const DAYS_LONG = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
@@ -115,7 +116,7 @@ export default function HomeCapacityStrip({ data, weekLabel, badges, summaryNote
               ))}
               <div className="sch-dd-section-hdr" style={{ color: 'var(--danger)' }}>Out ({det.out.length})</div>
               {det.out.map(c => (
-                <div key={c.name} className="sch-dd-row">{'•'} {flipName(c.name)} <span className="sch-dd-status">({c.status})</span></div>
+                <div key={c.name} className="sch-dd-row">{'•'} {flipName(c.name)} <span className="sch-dd-status">({crewStatusUiLabel(c.status)})</span></div>
               ))}
               <div className="sch-modal-actions">
                 <button className="sch-btn" onClick={() => setDetailDay(null)}>CLOSE</button>

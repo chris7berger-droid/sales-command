@@ -1978,6 +1978,29 @@
   margin: 0 0 10px;
 }
 
+.schedule-root .sch-soff-ranges {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(28, 24, 20, 0.14);
+}
+
+.schedule-root .sch-soff-range {
+  margin-bottom: 10px;
+}
+
+.schedule-root .sch-soff-range-dates {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--sand-dark);
+  margin-bottom: 6px;
+}
+
+.schedule-root .sch-soff-range-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 /* Day detail modal */
 .schedule-root .sch-modal-detail {
   min-width: 360px;

@@ -8,7 +8,7 @@ import { useToast } from '../lib/toast'
 import { jobRanges, inRange, staffingSummary } from '../lib/allocations'
 import { tripRange } from '../lib/trips'
 import { crewWeekRows, crewCardRows, crewRowInRange, crewRowStaffing, crewRowNames } from '../lib/crewScheduleRows'
-import { crewStatusShortLabel, crewStatusUiLabel, isCrewStatusOut, CREW_STATUS_SCHEDULED_OFF, crewStatusDateKey, eachInclusiveDay, planScheduledOff } from '../lib/crewStatus'
+import { crewStatusShortLabel, crewStatusUiLabel, isCrewStatusOut, CREW_STATUS_SCHEDULED_OFF, compactStatusDot, crewStatusDateKey, eachInclusiveDay, planScheduledOff, groupContiguousDays, formatScheduledOffRange } from '../lib/crewStatus'
 import ScheduleTripDetails from '../components/ScheduleTripDetails'
 import CrewWeekCapacity from '../components/CrewWeekCapacity'
 import ScheduledOffModal from '../components/ScheduledOffModal'
@@ -252,7 +252,8 @@ export default function Schedule({ embedded = false } = {}) {
     setAssignments(asgnRes.data)
     const csMap = {}
     for (const c of csRes.data) {
-      csMap[c.crew_name + '|' + c.date] = c.status
+      const day = crewStatusDateKey(c.date)
+      if (day) csMap[c.crew_name + '|' + day] = c.status
     }
     setCrewStatus(csMap)
     setLoadedWeek(requestedWeek)
@@ -568,10 +569,34 @@ export default function Schedule({ embedded = false } = {}) {
   // Status day-picker modal: { name, status, selectedDays: [] }
   const [statusModal, setStatusModal] = useState(null)
   const [scheduledOffModal, setScheduledOffModal] = useState(null)
+  const [removeSoff, setRemoveSoff] = useState(null)
+  const [soffRanges, setSoffRanges] = useState([])
+
+  useEffect(() => {
+    if (!crewWeekName) {
+      setSoffRanges([])
+      return
+    }
+    let stale = false
+    supabase.from('crew_status')
+      .select('date, status')
+      .eq('crew_name', crewWeekName)
+      .eq('status', CREW_STATUS_SCHEDULED_OFF)
+      .then(({ data, error }) => {
+        if (stale) return
+        if (error) {
+          setSoffRanges([])
+          return
+        }
+        const days = (data || []).map(row => crewStatusDateKey(row.date)).filter(Boolean)
+        setSoffRanges(groupContiguousDays(days))
+      })
+    return () => { stale = true }
+  }, [crewWeekName, crewStatus])
 
   function openStatusModal(name, status) {
     if (status === CREW_STATUS_SCHEDULED_OFF) {
-      setScheduledOffModal({ name, phase: 'edit', error: '', busy: false, plan: null })
+      setScheduledOffModal({ name, phase: 'edit', error: '', busy: false, plan: null, initialFrom: todayStr, initialTo: todayStr, originalDays: [] })
       return
     }
     const existing = dates.filter(ds => getCSt(name, ds) === status)
@@ -586,9 +611,10 @@ export default function Schedule({ embedded = false } = {}) {
       return
     }
     const name = scheduledOffModal.name
+    const originalDays = scheduledOffModal.originalDays || []
     setScheduledOffModal(prev => prev && { ...prev, busy: true, error: '' })
-    const start = parsed.days[0]
-    const end = parsed.days[parsed.days.length - 1]
+    const start = [parsed.days[0], ...originalDays].filter(Boolean).sort()[0]
+    const end = [parsed.days[parsed.days.length - 1], ...originalDays].filter(Boolean).sort().at(-1)
     const [stRes, asgnRes] = await Promise.all([
       supabase.from('crew_status').select('crew_name, date, status').eq('crew_name', name).gte('date', start).lte('date', end),
       supabase.from('assignments').select('id, job_id, crew_name, date').eq('crew_name', name).gte('date', start).lte('date', end),
@@ -606,35 +632,51 @@ export default function Schedule({ embedded = false } = {}) {
     const jobsById = new Map(jobs.map(j => [String(j.job_id), j]))
     const plan = planScheduledOff({
       days: parsed.days,
+      originalDays,
       existingStatusByDate,
       assignments: asgnRes.data || [],
       jobsById,
     })
     if (!plan.canWrite && plan.statusConflicts.length === 0) {
-      toast('Already scheduled off for those dates.')
+      toast(originalDays.length ? 'No changes.' : 'Already scheduled off for those dates.')
       setScheduledOffModal(null)
       return
     }
     if (!plan.needsConfirm && plan.canWrite) {
-      await writeScheduledOff(name, plan.writeDays)
+      await writeScheduledOff(name, plan.writeDays, plan.removeDays)
       return
     }
     setScheduledOffModal(prev => prev && { ...prev, busy: false, phase: 'confirm', plan })
   }
 
-  async function writeScheduledOff(name, writeDays) {
-    if (!writeDays.length) {
+  async function writeScheduledOff(name, writeDays, removeDays = []) {
+    if (!writeDays.length && !removeDays.length) {
       setScheduledOffModal(null)
       return
     }
     setScheduledOffModal(prev => prev && { ...prev, busy: true, error: '' })
-    const rows = writeDays.map(date => ({ crew_name: name, status: CREW_STATUS_SCHEDULED_OFF, date }))
-    const { error: writeError } = await supabase.from('crew_status').upsert(rows, { onConflict: 'crew_name,date' })
-    if (writeError) {
-      const msg = writeError.message || 'Could not save Scheduled Off.'
-      setScheduledOffModal(prev => prev && { ...prev, busy: false, error: msg })
-      toast(msg, 'err')
-      return
+    if (writeDays.length) {
+      const rows = writeDays.map(date => ({ crew_name: name, status: CREW_STATUS_SCHEDULED_OFF, date }))
+      const { error: writeError } = await supabase.from('crew_status').upsert(rows, { onConflict: 'crew_name,date' })
+      if (writeError) {
+        const msg = writeError.message || 'Could not save Scheduled Off.'
+        setScheduledOffModal(prev => prev && { ...prev, busy: false, error: msg })
+        toast(msg, 'err')
+        return
+      }
+    }
+    if (removeDays.length) {
+      const { error: delError } = await supabase.from('crew_status')
+        .delete()
+        .eq('crew_name', name)
+        .eq('status', CREW_STATUS_SCHEDULED_OFF)
+        .in('date', removeDays)
+      if (delError) {
+        const msg = delError.message || 'Could not update Scheduled Off.'
+        setScheduledOffModal(prev => prev && { ...prev, busy: false, error: msg })
+        toast(msg, 'err')
+        return
+      }
     }
     setScheduledOffModal(null)
     toast('Scheduled Off saved.')
@@ -643,7 +685,39 @@ export default function Schedule({ embedded = false } = {}) {
 
   function confirmScheduledOff() {
     if (!scheduledOffModal?.plan?.canWrite) return
-    writeScheduledOff(scheduledOffModal.name, scheduledOffModal.plan.writeDays)
+    writeScheduledOff(scheduledOffModal.name, scheduledOffModal.plan.writeDays, scheduledOffModal.plan.removeDays || [])
+  }
+
+  function openEditScheduledOff(name, range) {
+    setScheduledOffModal({
+      name,
+      phase: 'edit',
+      error: '',
+      busy: false,
+      plan: null,
+      initialFrom: range.from,
+      initialTo: range.to,
+      originalDays: range.days,
+    })
+  }
+
+  async function confirmRemoveScheduledOff() {
+    if (!removeSoff?.days?.length || removeSoff.busy) return
+    setRemoveSoff(prev => prev && { ...prev, busy: true, error: '' })
+    const { error: delError } = await supabase.from('crew_status')
+      .delete()
+      .eq('crew_name', removeSoff.name)
+      .eq('status', CREW_STATUS_SCHEDULED_OFF)
+      .in('date', removeSoff.days)
+    if (delError) {
+      const msg = delError.message || 'Could not remove Scheduled Off.'
+      setRemoveSoff(prev => prev && { ...prev, busy: false, error: msg })
+      toast(msg, 'err')
+      return
+    }
+    setRemoveSoff(null)
+    toast('Scheduled Off removed.')
+    loadWeekData()
   }
 
   function toggleStatusDay(ds) {
@@ -1106,12 +1180,25 @@ export default function Schedule({ embedded = false } = {}) {
     } else if (asg) {
       dotCls += 'sch-dot-as'
     } else if (anyOut) {
-      dotCls += 'sch-dot-no'
+      dotCls += worstSt === 'scheduled-off' ? 'sch-dot-of' : 'sch-dot-no'
     } else {
       dotCls += 'sch-dot-av'
     }
 
-    // Crew day dots for assigned crew
+    function renderCompactDots(jobDates, jco) {
+      return dates.map(ds => {
+        const kind = compactStatusDot(getCSt(c.name, ds))
+        if (kind === 'sick') return <div key={ds} className="sch-cdot sch-cdot-sick" />
+        if (kind === 'soff') return <div key={ds} className="sch-cdot sch-cdot-soff" />
+        if (kind === 'call') return <div key={ds} className="sch-cdot sch-cdot-call" />
+        if (jobDates?.includes(ds)) return <div key={ds} className="sch-cdot sch-cdot-on" style={{ background: jco }} />
+        return <div key={ds} className="sch-cdot sch-cdot-off" />
+      })
+    }
+
+    const weekSoff = dates.some(ds => getCSt(c.name, ds) === CREW_STATUS_SCHEDULED_OFF)
+
+    // Crew day dots for assigned crew, or unassigned crew with Scheduled Off this week
     let detail = null
     if (asg) {
       const cardRows = crewCardRows(boardRows, c.name)
@@ -1127,19 +1214,24 @@ export default function Schedule({ embedded = false } = {}) {
               <div key={jm.key} className="sch-crew-days" title={`${jm.job.job_num} · ${jm.trip.label || 'Trip'} · ${tripRange(jm.trip)}${jm.issue ? ' — ' + jm.issue : ''}`}>
                 <div className="sch-crew-days-lbl">{jm.issue ? '⚠ ' : ''}{String(jm.job.job_num || '').split(/\s+[—–-]\s+/)[0]}</div>
                 <div className="sch-crew-dots">
-                  {dates.map(ds => {
-                    const daySt = getCSt(c.name, ds)
-                    const onDay = jm.dates.includes(ds)
-                    if (daySt === 'sick') return <div key={ds} className="sch-cdot sch-cdot-sick" />
-                    if (daySt === 'scheduled-off') return <div key={ds} className="sch-cdot sch-cdot-soff" />
-                    if (daySt === 'off' || daySt === 'noshow') return <div key={ds} className="sch-cdot sch-cdot-call" />
-                    if (onDay) return <div key={ds} className="sch-cdot sch-cdot-on" style={{ background: jco }} />
-                    return <div key={ds} className="sch-cdot sch-cdot-off" />
-                  })}
+                  {renderCompactDots(jm.dates, jco)}
                 </div>
               </div>
             )
           })}
+        </div>
+      )
+    } else if (weekSoff) {
+      detail = (
+        <div className="sch-crew-days-wrap">
+          <div className="sch-crew-days-heading" aria-hidden="true">
+            <span className="sch-crew-days-lbl" />
+            <div className="sch-crew-dots">{DAYS_LONG.map(day => <span className="sch-crew-day-letter" key={day} title={day}>{day[0]}</span>)}</div>
+          </div>
+          <div className="sch-crew-days">
+            <div className="sch-crew-days-lbl" />
+            <div className="sch-crew-dots">{renderCompactDots(null, null)}</div>
+          </div>
         </div>
       )
     } else if (out) {
@@ -1262,20 +1354,6 @@ export default function Schedule({ embedded = false } = {}) {
         </div>
       </div>
 
-      {scheduledOffModal && (
-        <ScheduledOffModal
-          name={scheduledOffModal.name}
-          today={todayStr}
-          phase={scheduledOffModal.phase}
-          plan={scheduledOffModal.plan}
-          error={scheduledOffModal.error}
-          busy={scheduledOffModal.busy}
-          onCancel={() => { if (!scheduledOffModal.busy) setScheduledOffModal(null) }}
-          onReview={reviewScheduledOff}
-          onConfirm={confirmScheduledOff}
-        />
-      )}
-
       {/* Status day-picker modal */}
       {statusModal && (
         <div className="sch-modal-overlay" onClick={() => setStatusModal(null)}>
@@ -1372,9 +1450,10 @@ export default function Schedule({ embedded = false } = {}) {
         if (!c) return null
         const crewAsgns = {}
         for (const a of assignments) {
-          if (a.crew_name === crewWeekName && dates.includes(a.date)) {
+          const day = crewStatusDateKey(a.date)
+          if (a.crew_name === crewWeekName && dates.includes(day)) {
             if (!crewAsgns[a.job_id]) crewAsgns[a.job_id] = []
-            if (!crewAsgns[a.job_id].includes(a.date)) crewAsgns[a.job_id].push(a.date)
+            if (!crewAsgns[a.job_id].includes(day)) crewAsgns[a.job_id].push(day)
           }
         }
         const jobIds = Object.keys(crewAsgns)
@@ -1428,6 +1507,20 @@ export default function Schedule({ embedded = false } = {}) {
                   </>
                 )}
               </div>
+              {soffRanges.length > 0 && (
+                <div className="sch-soff-ranges">
+                  <div className="sch-modal-label">Scheduled Off</div>
+                  {soffRanges.map(range => (
+                    <div key={`${range.from}|${range.to}`} className="sch-soff-range">
+                      <div className="sch-soff-range-dates">{formatScheduledOffRange(range.from, range.to)}</div>
+                      <div className="sch-soff-range-actions">
+                        <button type="button" className="sch-btn" onClick={() => openEditScheduledOff(crewWeekName, range)}>Edit Dates</button>
+                        <button type="button" className="sch-btn" onClick={() => setRemoveSoff({ name: crewWeekName, from: range.from, to: range.to, days: range.days, busy: false, error: '' })}>Remove Scheduled Off</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="sch-modal-actions">
                 <button className="sch-btn" onClick={() => setCrewWeekName(null)}>Close</button>
               </div>
@@ -1435,6 +1528,40 @@ export default function Schedule({ embedded = false } = {}) {
           </div>
         )
       })()}
+
+      {scheduledOffModal && (
+        <ScheduledOffModal
+          key={`${scheduledOffModal.name}|${scheduledOffModal.initialFrom || ''}|${scheduledOffModal.initialTo || ''}|${(scheduledOffModal.originalDays || []).join(',')}`}
+          name={scheduledOffModal.name}
+          today={todayStr}
+          initialFrom={scheduledOffModal.initialFrom}
+          initialTo={scheduledOffModal.initialTo}
+          phase={scheduledOffModal.phase}
+          plan={scheduledOffModal.plan}
+          error={scheduledOffModal.error}
+          busy={scheduledOffModal.busy}
+          onCancel={() => { if (!scheduledOffModal.busy) setScheduledOffModal(null) }}
+          onReview={reviewScheduledOff}
+          onConfirm={confirmScheduledOff}
+        />
+      )}
+
+      {removeSoff && (
+        <div className="sch-modal-overlay" onClick={() => { if (!removeSoff.busy) setRemoveSoff(null) }}>
+          <div className="sch-modal sch-modal-soff" onClick={e => e.stopPropagation()}>
+            <div className="sch-modal-title">Remove {flipName(removeSoff.name).toUpperCase()}&apos;s Scheduled Off</div>
+            <p className="sch-soff-note">{formatScheduledOffRange(removeSoff.from, removeSoff.to)}?</p>
+            <p className="sch-soff-note">This deletes only Scheduled Off for this range. Job assignments and other statuses stay unchanged.</p>
+            {removeSoff.error ? <div className="sch-soff-error" role="alert">{removeSoff.error}</div> : null}
+            <div className="sch-modal-actions sch-soff-actions">
+              <button type="button" className="sch-btn" disabled={removeSoff.busy} onClick={() => setRemoveSoff(null)}>Cancel</button>
+              <button type="button" className="sch-btn" disabled={removeSoff.busy} onClick={confirmRemoveScheduledOff}>
+                {removeSoff.busy ? 'Removing…' : 'Remove Scheduled Off'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
     </>
   )

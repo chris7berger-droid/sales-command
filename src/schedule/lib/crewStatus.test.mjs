@@ -2,9 +2,12 @@ import {
   CREW_STATUS_CALL_IN,
   CREW_STATUS_NO_SHOW,
   CREW_STATUS_SCHEDULED_OFF,
+  compactStatusDot,
   crewStatusShortLabel,
   crewStatusUiLabel,
   eachInclusiveDay,
+  formatScheduledOffRange,
+  groupContiguousDays,
   isCrewStatusOut,
   nextWeekMonSat,
   planScheduledOff,
@@ -86,5 +89,76 @@ const assignOnly = planScheduledOff({
 assert(assignOnly.writeDays.join(",") === "2026-10-12,2026-10-13", "assignment conflict still writes scheduled-off");
 assert(assignOnly.needsConfirm && assignOnly.assignmentConflicts[0].label.includes("Demo VCT"), "assignment warning includes job name");
 assert(assignOnly.statusConflicts.length === 0, "assignments are not treated as status overwrites");
+assert((planned.removeDays || []).length === 0, "create plan has no removals");
+
+assert(compactStatusDot("scheduled-off") === "soff", "scheduled-off uses gray soff dot");
+assert(compactStatusDot("off") !== "soff", "legacy off is not Scheduled Off");
+assert(compactStatusDot("sick") === "sick", "sick keeps its own dot");
+
+const octWeek = ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"];
+const octStatus = Object.fromEntries(days.days.map((d) => [d, "scheduled-off"]));
+assert(octWeek.map((d) => compactStatusDot(octStatus[d] || "")).join(",") === "soff,soff,soff,soff,soff,", "Oct 12–16 gray Mon–Fri; Sat 17 unaffected");
+
+const grouped = groupContiguousDays([...days.days, "2026-10-19"]);
+assert(grouped.length === 2, "gap splits ranges");
+assert(grouped[0].from === "2026-10-12" && grouped[0].to === "2026-10-16", "Oct 12–16 is one contiguous range");
+assert(formatScheduledOffRange("2026-10-12", "2026-10-16") === "Oct 12 – Oct 16, 2026", `range label ${formatScheduledOffRange("2026-10-12", "2026-10-16")}`);
+assert(formatScheduledOffRange("2026-10-12", "2026-10-12") === "Oct 12, 2026", "single-day range label");
+
+const existingForEdit = {
+  "2026-10-12": "scheduled-off",
+  "2026-10-13": "scheduled-off",
+  "2026-10-14": "scheduled-off",
+  "2026-10-15": "scheduled-off",
+  "2026-10-16": "scheduled-off",
+};
+const shrunk = planScheduledOff({
+  days: ["2026-10-12", "2026-10-13", "2026-10-14"],
+  originalDays: days.days,
+  existingStatusByDate: existingForEdit,
+});
+assert(shrunk.writeDays.length === 0, "shrink does not rewrite remaining days");
+assert(shrunk.removeDays.join(",") === "2026-10-15,2026-10-16", "shrink removes only days that left the range");
+assert(shrunk.canWrite && !shrunk.needsConfirm, "shrink with no new conflicts saves without extra confirm");
+
+const expandIntoSick = planScheduledOff({
+  days: ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"],
+  originalDays: ["2026-10-12", "2026-10-13", "2026-10-14"],
+  existingStatusByDate: {
+    "2026-10-12": "scheduled-off",
+    "2026-10-13": "scheduled-off",
+    "2026-10-14": "scheduled-off",
+    "2026-10-15": "sick",
+  },
+});
+assert(!expandIntoSick.writeDays.includes("2026-10-15"), "edit does not overwrite sick");
+assert(expandIntoSick.statusConflicts[0].status === "sick", "expanding into sick surfaces a conflict");
+assert(expandIntoSick.removeDays.length === 0, "failed expand does not remove the original range");
+
+const editAssign = planScheduledOff({
+  days: days.days,
+  originalDays: ["2026-10-12"],
+  existingStatusByDate: { "2026-10-12": "scheduled-off" },
+  assignments: [{ job_id: 40, date: "2026-10-16" }],
+  jobsById,
+});
+assert(editAssign.needsConfirm && editAssign.assignmentConflicts[0].date === "2026-10-16", "edit still warns on assignments in the new range");
+
+const otherRangeSafe = planScheduledOff({
+  days: ["2026-10-12", "2026-10-13", "2026-10-14"],
+  originalDays: days.days,
+  existingStatusByDate: {
+    ...existingForEdit,
+    "2026-10-19": "scheduled-off",
+  },
+});
+assert(!otherRangeSafe.removeDays.includes("2026-10-19"), "edit does not remove a separate Scheduled Off range");
+
+const leaveOffAlone = planScheduledOff({
+  days: ["2026-10-12"],
+  originalDays: ["2026-10-12", "2026-10-13"],
+  existingStatusByDate: { "2026-10-12": "scheduled-off", "2026-10-13": "off" },
+});
+assert(!leaveOffAlone.removeDays.includes("2026-10-13"), "edit does not delete a legacy off row");
 
 console.log("crewStatus assertions passed");

@@ -17,6 +17,8 @@ function flipName(n) {
 export default function ScheduledOffModal({
   name,
   today,
+  initialFrom,
+  initialTo,
   phase = "edit",
   plan = null,
   error = "",
@@ -25,8 +27,8 @@ export default function ScheduledOffModal({
   onReview,
   onConfirm,
 }) {
-  const [from, setFrom] = useState(today);
-  const [to, setTo] = useState(today);
+  const [from, setFrom] = useState(crewStatusDateKey(initialFrom) || today);
+  const [to, setTo] = useState(crewStatusDateKey(initialTo) || crewStatusDateKey(initialFrom) || today);
 
   function setRange(nextFrom, nextTo) {
     const a = crewStatusDateKey(nextFrom);
@@ -109,9 +111,18 @@ export default function ScheduledOffModal({
             ) : null}
             {plan?.canWrite ? (
               <p className="sch-soff-note">
-                {plan.writeDays.length === 1
-                  ? `Will mark 1 day as ${crewStatusUiLabel(CREW_STATUS_SCHEDULED_OFF)}.`
-                  : `Will mark ${plan.writeDays.length} days as ${crewStatusUiLabel(CREW_STATUS_SCHEDULED_OFF)}.`}
+                {[
+                  plan.writeDays.length === 1
+                    ? `Will mark 1 day as ${crewStatusUiLabel(CREW_STATUS_SCHEDULED_OFF)}.`
+                    : plan.writeDays.length > 1
+                      ? `Will mark ${plan.writeDays.length} days as ${crewStatusUiLabel(CREW_STATUS_SCHEDULED_OFF)}.`
+                      : null,
+                  plan.removeDays?.length === 1
+                    ? "Will remove 1 Scheduled Off day that is no longer in this range."
+                    : plan.removeDays?.length > 1
+                      ? `Will remove ${plan.removeDays.length} Scheduled Off days that are no longer in this range.`
+                      : null,
+                ].filter(Boolean).join(" ")}
               </p>
             ) : (
               <p className="sch-soff-error">No days in this range can be marked Scheduled Off without overwriting another status.</p>

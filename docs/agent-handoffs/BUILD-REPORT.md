@@ -1,58 +1,74 @@
 ## Status
 
-Scheduled Off date-range workflow complete — waiting on Chris preview accept. **Do not merge.**
+Scheduled Off lifecycle (create → see → edit → remove) complete — waiting on Chris preview accept. **Do not merge.**
 
-No production `crew_status` rows were migrated. No `assignments` rows are deleted or moved by this flow.
+No production `crew_status` rows were migrated. No `assignments` rows are deleted or moved.
 
 ## Summary
 
-Scheduled Off is planned availability. The office must be able to mark a crew member off for any future date or date range without first navigating Crew Scheduler to that week.
+Scheduled Off is planned availability. The office can:
 
-The previous pass added stored `scheduled-off` but still used the visible-week day picker, so Oct 12–16 could not be entered while viewing Sep 14–19.
+1. **Create** a future FROM/TO range without navigating to that week.
+2. **See** gray Mon–Sat compact dots on that week from stored `scheduled-off` rows.
+3. **Edit** a contiguous range from the crew detail view.
+4. **Remove** that range after confirmation.
 
-This pass gives Scheduled Off its own FROM/TO modal. Sick, Call In, and No Show keep the existing week day-picker.
+Sick, Call In, and No Show keep the existing week day-picker. Legacy `off` is not treated as Scheduled Off.
 
-## Interaction
+## Compact indicators
 
-- Chip **Off** opens `ADAM LITTLE — SCHEDULED OFF` (display name, uppercase).
-- FROM and TO are native date inputs. Defaults: both = today (one-day is one click).
-- Presets: Today, Tomorrow, This Week (Mon–Sat), Next Week (Mon–Sat).
-- Custom range is not clamped to the displayed week. Inclusive FROM→TO. TO cannot precede FROM.
-- Primary **Schedule Off** (renders as SCHEDULE OFF). Secondary **Cancel**.
-- Sick / Call In / No Show still open the Mon–Sat day picker for the week on screen.
+Crew chips render M/T/W/T/F/S dots for:
 
-## Storage
+- assigned crew (existing job rows), and
+- unassigned crew who have `scheduled-off` on any day this week.
 
-Canonical stored value remains `scheduled-off`.
+`scheduled-off` uses legend gray (`sch-cdot-soff` / `sch-dot-of`). Legacy `off` stays the Call In orange dot. Empty days stay the faint unused dot.
 
-One `crew_status` row per person/date in the inclusive range (`UNIQUE(crew_name, date)` upsert). Available stays “no row.” Legacy `off` rows are not rewritten.
+Example: Adam Little `scheduled-off` Oct 12–16 while viewing that week → gray Mon–Fri. Sat Oct 17 is unchanged.
 
-This Week / Next Week presets follow Crew Scheduler’s Mon–Sat week. A custom range may include Sunday (no new Sunday skip was invented). Sunday still does not appear on the Mon–Sat board (F60).
+`crew_status.date` keys are normalized to `YYYY-MM-DD` so timestamp-shaped values still match the week dates.
 
-## Conflict behavior
+## Crew detail
 
-Before write, the modal loads `crew_status` and `assignments` for the selected person and date range (not the visible week).
+The existing crew week popup still shows the week STATUS grid.
 
-| Existing row on a day in range | Write |
-|---|---|
-| no row / `available` | upsert `scheduled-off` |
-| already `scheduled-off` | leave as-is |
-| `sick` / `off` (Call In) / `noshow` / other | do **not** overwrite; list the days |
+It also loads that person’s `scheduled-off` rows (not `off` / `sick` / `noshow`) and groups contiguous calendar days:
 
-If any day in the range has an `assignments` row:
+```
+SCHEDULED OFF
+Oct 12 – Oct 16, 2026
+EDIT DATES
+REMOVE SCHEDULED OFF
+```
 
-- Do not delete, move, or reassign it.
-- Show: “{Name} has existing job assignments during this Scheduled Off period.” plus date + job number/name.
-- Explain that Scheduled Off records planned unavailability; existing assignments stay and may need coverage.
-- User may Cancel or Confirm Scheduled Off.
+Separate gaps are separate ranges, each with its own Edit / Remove.
 
-If there are no assignment conflicts and no blocking status conflicts, Schedule Off writes immediately.
+## Edit Dates
 
-Cancel closes the modal with no writes.
+Opens the existing FROM/TO modal with that range pre-filled.
 
-`assignments` = planned work. `crew_status.status = scheduled-off` = planned unavailability. They may coexist; that is a real conflict, not auto-resolved.
+Save updates **only** `scheduled-off` rows belonging to that range:
 
-## Model (unchanged)
+- days added: upsert `scheduled-off` (unless another explicit status is already there)
+- days removed from the range: delete `status = scheduled-off` only
+- other Scheduled Off ranges, `sick`, `off`, `noshow`, and `assignments` are untouched
+
+Expanding onto Sick / Call In / No Show still surfaces a conflict and does not overwrite. Assignments in the new range still warn; they are not deleted or moved.
+
+Example: Oct 12–16 edited to Oct 12–14 → Oct 12–14 remain `scheduled-off`; Oct 15–16 `scheduled-off` rows are deleted.
+
+## Remove Scheduled Off
+
+Confirmation:
+
+```
+Remove Adam Little's Scheduled Off
+Oct 12 – Oct 16, 2026?
+```
+
+Confirm deletes only `crew_status` rows with `status = scheduled-off` for that person and those dates. Cancel writes nothing.
+
+## Storage (unchanged)
 
 | Stored `crew_status.status` | Crew Scheduler | Field Crews |
 |---|---|---|
@@ -62,31 +78,32 @@ Cancel closes the modal with no writes.
 | `scheduled-off` | Scheduled Off (Off) | **Scheduled Off** |
 | `noshow` | No Show (N) | **No Show** |
 
+Not inferred from a missing assignment, punch, or phone activity.
+
 ## Files changed (this pass)
 
-- `src/schedule/lib/crewStatus.js` — range helpers + `planScheduledOff`
-- `src/schedule/lib/crewStatus.test.mjs` — inclusive range, week presets, status/assignment conflicts
-- `src/schedule/components/ScheduledOffModal.jsx` — FROM/TO modal + confirm warning
-- `src/schedule/views/Schedule.jsx` — Off opens range modal; S/C/N unchanged; write only `writeDays`
-- `src/schedule/App.css` — Scheduled Off modal styles
+- `src/schedule/lib/crewStatus.js` — contiguous ranges, labels, edit add/remove plan, compact-dot kind
+- `src/schedule/lib/crewStatus.test.mjs`
+- `src/schedule/components/ScheduledOffModal.jsx` — pre-filled FROM/TO; edit remove-day note
+- `src/schedule/views/Schedule.jsx` — gray week dots, detail ranges, edit/remove writers
+- `src/schedule/App.css` — detail range actions
 - `docs/agent-handoffs/BUILD-REPORT.md`
-- `docs/BACKLOG.md` — F56 note
+- `docs/BACKLOG.md`
 
-Not changed: Field Command (mapping already compatible), Sick / Call In / No Show pickers, assignment writers, legacy `off` rows, PTO table, Left Early.
+Not changed: Field Command, Sick / Call In / No Show pickers, assignment writers, leftover `off` rows.
 
 ## Verification
 
-- `node src/schedule/lib/crewStatus.test.mjs` ✅
-- `node src/field/lib/crewBoard.test.mjs` ✅ (unchanged this pass)
+- `node src/schedule/lib/crewStatus.test.mjs` ✅ (Oct 12–16 gray Mon–Fri / Sat empty; shrink deletes 15–16; sick not overwritten; assignment warning; legacy `off` not deleted)
 - `npx eslint src/schedule/lib/crewStatus.js src/schedule/components/ScheduledOffModal.jsx` ✅
 - `npm run build` ✅
 - Pre-existing unused-var eslint on `Schedule.jsx` not cleaned up
 
-This VM has mock Supabase (`localhost`). Authenticated Crew Scheduler walk (Off → Oct range while viewing Sep, conflict warning, Cancel vs Confirm) is for Chris on the preview.
+This VM has mock Supabase. Authenticated create → navigate to week → gray dots → detail range → edit → remove is for Chris on the preview.
 
 ## Visual verification
 
-Layout/CSS reviewed against existing Crew Scheduler modal language (sand card, uppercase title, `sch-btn`). Live click-through requires preview login.
+CSS reuses Crew Scheduler modal/button language. Live click-through requires preview login.
 
 ## Deviations From Handoff
 
@@ -96,4 +113,4 @@ None.
 
 - Existing `off` person-days still display as Call In / Called Out until marked Scheduled Off.
 - If a production CHECK rejects `scheduled-off`, add that value additively in `command-suite-db`. Do not remap `off`.
-- Coexistence of assignment + `scheduled-off` is left for Field Command to surface operationally later. Not in this pass.
+- Assignment + `scheduled-off` coexistence is still a real conflict; this pass does not auto-reassign.

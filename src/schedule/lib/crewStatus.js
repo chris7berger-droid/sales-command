@@ -101,14 +101,59 @@ function shortDateLabel(iso) {
   return new Date(`${day}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+export function compactStatusDot(status) {
+  if (status === CREW_STATUS_SCHEDULED_OFF) return "soff";
+  if (status === CREW_STATUS_SICK) return "sick";
+  if (status === CREW_STATUS_CALL_IN || status === CREW_STATUS_NO_SHOW) return "call";
+  return null;
+}
+
+export function groupContiguousDays(days) {
+  const sorted = [...new Set((days || []).map(crewStatusDateKey).filter(Boolean))].sort();
+  const ranges = [];
+  for (const day of sorted) {
+    const last = ranges[ranges.length - 1];
+    if (last && addDaysIso(last.to, 1) === day) {
+      last.to = day;
+      last.days.push(day);
+    } else {
+      ranges.push({ from: day, to: day, days: [day] });
+    }
+  }
+  return ranges;
+}
+
+export function formatScheduledOffRange(from, to) {
+  const start = crewStatusDateKey(from);
+  const end = crewStatusDateKey(to) || start;
+  if (!start) return "";
+  const a = new Date(`${start}T00:00:00`);
+  const b = new Date(`${end}T00:00:00`);
+  const day = { month: "short", day: "numeric" };
+  const withYear = { ...day, year: "numeric" };
+  if (start === end) return a.toLocaleDateString("en-US", withYear);
+  if (a.getFullYear() === b.getFullYear()) {
+    return `${a.toLocaleDateString("en-US", day)} – ${b.toLocaleDateString("en-US", withYear)}`;
+  }
+  return `${a.toLocaleDateString("en-US", withYear)} – ${b.toLocaleDateString("en-US", withYear)}`;
+}
+
 // Plan writes for a Scheduled Off range. Does not mutate assignments.
 // Dates already scheduled-off are left as-is. Sick / Call In / No Show are
 // never overwritten.
-export function planScheduledOff({ days, existingStatusByDate = {}, assignments = [], jobsById = new Map() }) {
+export function planScheduledOff({
+  days,
+  originalDays = [],
+  existingStatusByDate = {},
+  assignments = [],
+  jobsById = new Map(),
+}) {
   const writeDays = [];
   const alreadyOff = [];
   const statusConflicts = [];
-  for (const day of days || []) {
+  const newDays = days || [];
+  const newSet = new Set(newDays);
+  for (const day of newDays) {
     const st = existingStatusByDate[day];
     if (!st || st === "available") writeDays.push(day);
     else if (st === CREW_STATUS_SCHEDULED_OFF) alreadyOff.push(day);
@@ -122,11 +167,15 @@ export function planScheduledOff({ days, existingStatusByDate = {}, assignments 
     }
   }
 
+  const removeDays = (originalDays || []).filter((day) => (
+    !newSet.has(day) && existingStatusByDate[day] === CREW_STATUS_SCHEDULED_OFF
+  ));
+
   const assignmentConflicts = [];
   const seen = new Set();
   for (const a of assignments) {
     const day = crewStatusDateKey(a.date);
-    if (!day || !(days || []).includes(day)) continue;
+    if (!day || !newSet.has(day)) continue;
     const key = `${day}|${a.job_id}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -140,12 +189,17 @@ export function planScheduledOff({ days, existingStatusByDate = {}, assignments 
   }
   assignmentConflicts.sort((a, b) => a.date.localeCompare(b.date) || String(a.label).localeCompare(String(b.label)));
 
+  const canWrite = writeDays.length > 0 || removeDays.length > 0;
   return {
     writeDays,
+    removeDays,
     alreadyOff,
     statusConflicts,
     assignmentConflicts,
-    canWrite: writeDays.length > 0,
-    needsConfirm: writeDays.length > 0 && (statusConflicts.length > 0 || assignmentConflicts.length > 0),
+    canWrite,
+    needsConfirm: canWrite && (
+      assignmentConflicts.length > 0
+      || (writeDays.length > 0 && statusConflicts.length > 0)
+    ),
   };
 }

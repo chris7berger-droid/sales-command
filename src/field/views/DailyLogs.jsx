@@ -1,37 +1,75 @@
-import { C } from "../../lib/tokens";
 import { fmtD } from "../../lib/utils";
-import FieldScreen, { PlainTable, RefreshBtn, useAsync } from "../components/FieldScreen";
+import { useAsync } from "../components/FieldScreen";
+import {
+  FieldOfficeScreen,
+  FieldOfficeTable,
+  FieldOfficeError,
+  LogTypeBadge,
+  recordCount,
+} from "../components/FieldOfficeList";
 import { fetchFieldLogs } from "../lib/queries";
 
-const fmtWhen = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return `${fmtD(d.toLocaleDateString("en-CA"))} ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-};
+function WhenCell({ at }) {
+  if (!at) return <span className="field-office-dash">—</span>;
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return <span className="field-office-dash">—</span>;
+  return (
+    <>
+      <div className="field-office-when-date">{fmtD(d.toLocaleDateString("en-CA"))}</div>
+      <div className="field-office-when-time">
+        {d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+      </div>
+    </>
+  );
+}
 
 export default function DailyLogs() {
   const { data: rows, loading, error, reload } = useAsync(() => fetchFieldLogs({ days: 7 }), []);
+  const loaded = Array.isArray(rows);
   return (
-    <FieldScreen
+    <FieldOfficeScreen
       title="Daily Logs"
       subtitle="Start-of-day, mid-day, and end-of-day entries — last 7 days"
-      right={<RefreshBtn onClick={reload} loading={loading} />}
+      count={!error && loaded ? recordCount(rows.length, "entry", "entries") : null}
+      loading={loading}
+      onRefresh={reload}
     >
       {error ? (
-        <div style={{ padding: "12px 16px", borderRadius: 8, background: "#3a1c1c", color: "#ef6b6b", fontSize: 13 }}>{error}</div>
+        <FieldOfficeError>{error}</FieldOfficeError>
       ) : (
-        <PlainTable
+        <FieldOfficeTable
+          loaded={loaded}
+          loading={loading}
           rows={rows || []}
-          empty={loading ? "Loading…" : "No log entries in the last 7 days."}
+          empty="No log entries in the last 7 days."
           columns={[
-            { key: "at", label: "When", render: (r) => fmtWhen(r.at) },
-            { key: "job", label: "Job" },
-            { key: "type", label: "Type", render: (r) => <b style={{ color: C.textHead }}>{r.type || "—"}</b> },
-            { key: "notes", label: "Notes", render: (r) => r.notes || <span style={{ color: C.textFaint }}>—</span> },
+            {
+              key: "at",
+              label: "When",
+              width: "minmax(120px, 0.9fr)",
+              render: (r) => <WhenCell at={r.at} />,
+            },
+            {
+              key: "job",
+              label: "Job",
+              width: "minmax(160px, 1.3fr)",
+            },
+            {
+              key: "type",
+              label: "Type",
+              width: "minmax(76px, 0.55fr)",
+              render: (r) => <LogTypeBadge type={r.type} />,
+            },
+            {
+              key: "notes",
+              label: "Notes",
+              width: "minmax(200px, 2fr)",
+              render: (r) =>
+                r.notes ? <div className="field-office-notes">{r.notes}</div> : <span className="field-office-dash">—</span>,
+            },
           ]}
         />
       )}
-    </FieldScreen>
+    </FieldOfficeScreen>
   );
 }

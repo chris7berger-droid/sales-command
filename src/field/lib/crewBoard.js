@@ -136,8 +136,70 @@ function mobilizationLabel(trip) {
   return "";
 }
 
+// PostgREST may return date as YYYY-MM-DD or an ISO timestamp. Board projection
+// compares with `a.date <= end`; a timestamp on the same calendar day fails
+// that string compare and never lands on a row. Expected Job then looks up
+// `name|YYYY-MM-DD` and misses. Normalize before any person/day key.
+export function dateKey(value) {
+  if (value == null || value === "") return "";
+  const m = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : "";
+}
+
+function nameKeys(stored) {
+  const raw = String(stored || "").trim();
+  if (!raw) return [];
+  const keys = new Set([raw]);
+  const flipped = flipStoredCrewName(raw).trim();
+  if (flipped) keys.add(flipped);
+  return [...keys];
+}
+
+function putExpected(map, crewName, day, job) {
+  if (!job || !day) return;
+  for (const name of nameKeys(crewName)) map.set(`${name}|${day}`, job);
+}
+
+function lookupExpected(map, crewName, day) {
+  for (const name of nameKeys(crewName)) {
+    const hit = map.get(`${name}|${day}`);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function isResolvedJob(job) {
+  if (!job || job.job_id == null) return false;
+  const num = jobNumberOnly(job);
+  if (num && !num.startsWith("Unavailable job") && num !== "Unlinked allocation") return true;
+  return !!(job.job_name && String(job.job_name).trim());
+}
+
+function normalizeAssignments(rows, start, end) {
+  return (rows || [])
+    .map((a) => ({ ...a, date: dateKey(a.date) }))
+    .filter((a) => a.crew_name && a.date && a.date >= start && a.date <= end);
+}
+
+function normalizeStatuses(statuses) {
+  const out = {};
+  for (const [key, status] of Object.entries(statuses || {})) {
+    const split = String(key).lastIndexOf("|");
+    if (split < 0) continue;
+    const name = key.slice(0, split);
+    const day = dateKey(key.slice(split + 1));
+    if (!name || !day) continue;
+    for (const n of nameKeys(name)) out[`${n}|${day}`] = status;
+  }
+  return out;
+}
+
 function statusOf(name, date, statuses) {
-  return statuses?.[`${name}|${date}`] || "available";
+  for (const n of nameKeys(name)) {
+    const s = statuses?.[`${n}|${date}`];
+    if (s) return s;
+  }
+  return "available";
 }
 
 function exceptionStatusKey(raw) {
@@ -175,18 +237,30 @@ export function buildCrewCommandView({ date, from, to, jobs, allocations, assign
   const dates = eachDay(start, end);
   const roster = (crew || []).filter((c) => c?.name && !c.archived);
   const teamByName = new Map(roster.map((c) => [c.name, c.team || ""]));
-  const board = crewWeekRows(jobs, allocations, assignments, start, end);
+  const jobsById = new Map((jobs || []).map((j) => [String(j.job_id), j]));
+  const weekAssignments = normalizeAssignments(assignments, start, end);
+  const statusMap = normalizeStatuses(statuses);
+  const board = crewWeekRows(jobs, allocations, weekAssignments, start, end);
 
   const assignedMap = new Map();
   const expectedJob = new Map();
   const assignedJobDays = new Set();
 
+  // Expected Job is the assignments row for that person/date — not the board
+  // projection. An exception must not hide a scheduled job; a missing assignment
+  // must stay blank (never invent from punches or first-name guesses).
+  for (const a of weekAssignments) {
+    const job = jobsById.get(String(a.job_id));
+    if (isResolvedJob(job)) putExpected(expectedJob, a.crew_name, a.date, job);
+    if (a.job_id != null) assignedJobDays.add(`${a.job_id}|${a.date}`);
+  }
+
   for (const row of board) {
     for (const a of row.assignments || []) {
       if (!a.crew_name || !a.date || a.date < start || a.date > end) continue;
-      expectedJob.set(`${a.crew_name}|${a.date}`, row.job);
+      if (isResolvedJob(row.job)) putExpected(expectedJob, a.crew_name, a.date, row.job);
       assignedJobDays.add(`${row.job.job_id}|${a.date}`);
-      if (statusOf(a.crew_name, a.date, statuses) !== "available") continue;
+      if (statusOf(a.crew_name, a.date, statusMap) !== "available") continue;
       const key = `${a.crew_name}|${row.job.job_id}|${a.date}`;
       if (assignedMap.has(key)) continue;
       const jobStatus = getJobStatus(row.job);
@@ -230,9 +304,9 @@ export function buildCrewCommandView({ date, from, to, jobs, allocations, assign
   const exceptionRows = [];
   for (const day of dates) {
     for (const person of roster) {
-      const raw = statusOf(person.name, day, statuses);
+      const raw = statusOf(person.name, day, statusMap);
       if (raw === "available") continue;
-      const job = expectedJob.get(`${person.name}|${day}`) || null;
+      const job = lookupExpected(expectedJob, person.name, day);
       exceptionRows.push(makeRow({
         id: `exception:${person.name}|${day}`,
         kind: "exception",

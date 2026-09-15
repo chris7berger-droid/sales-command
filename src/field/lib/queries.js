@@ -312,9 +312,10 @@ export async function fetchFieldJobs() {
 }
 
 // Crews office command view: scheduled truth is Crew Scheduler (`assignments` +
-// live `job_mobilizations` + `crew` + `crew_status`), via the same crewWeekRows
-// definition the board uses. Not `job_crew`. Date-scoped — changing the date
-// must call this again, not filter a stale day client-side.
+// live `job_mobilizations` + `crew` + `crew_status`). Expected Job on an
+// exception is the assignments row for that person/date, not the board
+// projection. Not `job_crew`. Date-scoped — changing the date must call this
+// again, not filter a stale day client-side.
 async function fetchAllStrict(table, select, opts = {}) {
   const { order, filters = [], pageSize = 1000 } = opts;
   const all = [];
@@ -382,6 +383,25 @@ export async function fetchFieldCrewBoard({ date, from, to } = {}) {
   ]);
 
   const jobs = jobRows.map(shapeScheduleJob);
+  const known = new Set(jobs.map((j) => String(j.job_id)));
+  const missingIds = [
+    ...new Set(
+      (assignmentRows || [])
+        .map((a) => a.job_id)
+        .filter((id) => id != null && !known.has(String(id)))
+    ),
+  ];
+  if (missingIds.length) {
+    const extra = await fetchAllStrict("jobs", jobSelect, {
+      filters: [["in", "job_id", missingIds]],
+    });
+    for (const row of extra) {
+      if (known.has(String(row.job_id))) continue;
+      jobs.push(shapeScheduleJob(row));
+      known.add(String(row.job_id));
+    }
+  }
+
   const allocations = {};
   for (const row of mobRows) {
     if (row.job_id == null || row.seq == null) continue;
@@ -398,7 +418,9 @@ export async function fetchFieldCrewBoard({ date, from, to } = {}) {
   const statuses = {};
   for (const row of statusRows) {
     if (!row.crew_name || !row.date) continue;
-    statuses[`${row.crew_name}|${row.date}`] = row.status;
+    const day = String(row.date).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    statuses[`${row.crew_name}|${day}`] = row.status;
   }
 
   return buildCrewCommandView({

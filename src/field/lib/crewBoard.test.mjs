@@ -146,4 +146,98 @@ assert(noshowExpected.jobNum === "10025", `expected job on exception day, got ${
 const week = thisWeekBounds("2026-09-15");
 assert(week.from === "2026-09-14" && week.to === "2026-09-20", `this week Mon-Sun ${week.from}..${week.to}`);
 
+// Called Out with a real assignment must keep Expected Job even when the
+// assignment date is a timestamp (board `date <= end` would drop it).
+const misaDay = "2026-09-15";
+const misaView = buildCrewCommandView({
+  date: misaDay,
+  jobs,
+  allocations,
+  assignments: [
+    { id: "misa-a", job_id: 1, crew_name: "Misa", date: "2026-09-15T00:00:00", mobilization_id: "trip-1" },
+  ],
+  crew: [...crew, { name: "Misa", team: "Floor", archived: false }],
+  statuses: { [`Misa|${misaDay}`]: "sick" },
+});
+const misaEx = misaView.rows.find((r) => r.kind === "exception" && r.crewName === "Misa");
+assert(misaEx, "Misa Called Out row exists");
+assert(misaEx.jobNum === "10023", `Misa Sep 15 expected job from assignment, got ${misaEx.jobNum}`);
+assert(misaEx.statusLabel === "Called Out", "Misa exception is Called Out");
+assert(!misaView.rows.some((r) => r.kind === "out" && r.crewName === "Misa"), "Misa exception is not Crews Out");
+
+// Adam Little Sep 7 — roster is Last, First; assignment still wins over Called Out.
+const adamDay = "2026-09-07";
+const adamJobs = [
+  {
+    job_id: 40,
+    job_number: 10079,
+    display_job_number: "10079 - Demo VCT - Carpet",
+    job_name: "Demo VCT - Carpet",
+    status: "In Progress",
+    scheduled_start: "2026-09-07",
+    scheduled_end: "2026-09-12",
+  },
+];
+const adamView = buildCrewCommandView({
+  date: adamDay,
+  jobs: adamJobs,
+  allocations: {
+    40: { 1: { id: "trip-adam", seq: 1, label: "Trip 1", start_date: "2026-09-07", end_date: "2026-09-12" } },
+  },
+  assignments: [
+    { id: "adam-a", job_id: 40, crew_name: "Little, Adam", date: adamDay, mobilization_id: "trip-adam" },
+  ],
+  crew: [{ name: "Little, Adam", team: "Floor", archived: false }],
+  statuses: { [`Little, Adam|${adamDay}`]: "off" },
+});
+const adamEx = adamView.rows.find((r) => r.kind === "exception" && r.crewName === "Little, Adam");
+assert(adamEx, "Adam Little Called Out row exists");
+assert(adamEx.jobNum === "10079", `Adam Sep 7 expected job from assignment, got ${adamEx.jobNum}`);
+assert(adamEx.crewDisplay === "Adam Little", "Adam display name flipped");
+
+const adamFlipView = buildCrewCommandView({
+  date: adamDay,
+  jobs: adamJobs,
+  allocations: {
+    40: { 1: { id: "trip-adam", seq: 1, label: "Trip 1", start_date: "2026-09-07", end_date: "2026-09-12" } },
+  },
+  assignments: [
+    { id: "adam-flip", job_id: 40, crew_name: "Adam Little", date: adamDay, mobilization_id: "trip-adam" },
+  ],
+  crew: [{ name: "Little, Adam", team: "Floor", archived: false }],
+  statuses: { [`Little, Adam|${adamDay}`]: "sick" },
+});
+assert(
+  adamFlipView.rows.find((r) => r.kind === "exception" && r.crewName === "Little, Adam")?.jobNum === "10079",
+  "expected job matches Last, First roster to First Last assignment"
+);
+
+const noJobView = buildCrewCommandView({
+  date: misaDay,
+  jobs: [],
+  allocations: {},
+  assignments: [
+    { id: "orphan-a", job_id: 99, crew_name: "Misa", date: misaDay, mobilization_id: null },
+  ],
+  crew: [{ name: "Misa", team: "Floor", archived: false }],
+  statuses: { [`Misa|${misaDay}`]: "sick" },
+});
+assert(
+  !noJobView.rows.find((r) => r.kind === "exception" && r.crewName === "Misa")?.jobNum,
+  "assignment to an unknown job does not invent an expected job label"
+);
+
+// No assignment for the exception day → Expected Job stays blank. Do not invent.
+const blankView = buildCrewCommandView({
+  date: misaDay,
+  jobs,
+  allocations,
+  assignments: [],
+  crew: [{ name: "Misa", team: "Floor", archived: false }],
+  statuses: { [`Misa|${misaDay}`]: "sick" },
+});
+const blankEx = blankView.rows.find((r) => r.kind === "exception" && r.crewName === "Misa");
+assert(blankEx, "exception without assignment still listed");
+assert(!blankEx.jobNum && !blankEx.jobName, "no assignment → blank expected job");
+
 console.log("crewBoard assertions passed");

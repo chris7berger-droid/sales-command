@@ -1,6 +1,6 @@
 ## Status
 
-Crews correction pass complete — waiting on Chris preview accept. **Do not merge.**
+Expected Job on Exceptions QA complete — waiting on Chris preview accept. **Do not merge.**
 
 ## Crews source-of-truth implementation
 
@@ -16,7 +16,7 @@ Unchanged from the prior pass: Field Command → Crews is a **read-only** office
 
 Still unused: `job_crew`. No Schedule writer changes. No duplicate assignment table.
 
-Rows are still assembled with Schedule’s `crewWeekRows` / `crewRowInRange`. Date changes re-query `assignments` and `crew_status` for `[from, to]`.
+Out / Unassigned rows still use Schedule’s `crewWeekRows` / `crewRowInRange`. Expected Job on Exceptions is indexed from raw `assignments` × `jobs` for the person/date. Date changes re-query `assignments` and `crew_status` for `[from, to]`.
 
 ## Single-day behavior
 
@@ -66,9 +66,29 @@ Crew Scheduler `crew_status.status` is the only authoritative exception source t
 | `off` | Call In (O / CALL) | **Called Out** |
 | `noshow` | No Show (N / N/S) | **No Show** |
 
-Exceptions view: Crew, Date, Expected Job (assignment that day if one exists), Exception. No time-of-day column — `crew_status` has a date only.
+Exceptions view: Crew, Date, Expected Job, Exception. No time-of-day column — `crew_status` has a date only.
+
+Expected Job is the Crew Scheduler `assignments` row for that person/date. It is **not** taken from the `crewWeekRows` board projection. Called Out / No Show must not blank a scheduled job.
+
+- If an `assignments` row exists and the job can be resolved, show that job.
+- If no assignment exists for that person/date, Expected Job stays blank. Do not invent from punches or first-name guesses.
+- Name keys accept stored `"Last, First"` and display `"First Last"`. Dates are normalized to `YYYY-MM-DD` so an ISO timestamp on the same calendar day still matches.
+- Jobs referenced by an assignment but excluded from the merged/deleted jobs list are fetched by `job_id` so the real job number can still show.
 
 If a person is both assigned and marked unavailable, they count as an exception (not Crews Out). The job still counts as covered because an assignment exists.
+
+## Observed people (Misa Sep 15, Adam Little Sep 7)
+
+This VM has no production Supabase credentials (`VITE_SUPABASE_URL` is localhost mock), so live `assignments` rows for those two people/dates could not be queried here.
+
+Code-path result:
+
+| Person | Date | If an `assignments` row exists | If none exists |
+|---|---|---|---|
+| Misa | 2026-09-15 | Expected Job shows that job (including timestamp dates) | blank is correct |
+| Adam Little (`Little, Adam`) | 2026-09-07 | Expected Job shows that job | blank is correct |
+
+The previous read could drop a real assignment: board `a.date <= end` fails for ISO timestamps on the selected day, then Expected Job looked up `name|YYYY-MM-DD` against the missing board key. That read is corrected. Authenticated confirmation of whether those two live rows exist is on the preview.
 
 ## Unsupported / deferred exception types
 
@@ -82,23 +102,22 @@ Do not treat “no punch” as No Show.
 
 ## Files changed (this pass)
 
-- `src/field/lib/crewBoard.js` — job-number split, date-range rows, exceptions mapping, distinct counts, sort
-- `src/field/lib/crewBoard.test.mjs`
-- `src/field/lib/queries.js` — `fetchFieldCrewBoard({ from, to })`, `call_log.job_number`
-- `src/field/views/Crews.jsx` — date mode UI, adaptive columns, Exceptions card/chip
+- `src/field/lib/crewBoard.js` — Expected Job from raw `assignments` (date normalize, Last/First name keys); board projection no longer required for that cell
+- `src/field/lib/crewBoard.test.mjs` — Misa Sep 15 timestamp assignment; Adam Little Sep 7; blank when no assignment / unknown job
+- `src/field/lib/queries.js` — fetch jobs referenced by assignments but omitted from the merged/deleted jobs list; normalize `crew_status.date`
 
-Not changed: other Field screens, phone UI, Crew Scheduler writes.
+Not changed: Crews layout/chrome, other Field screens, phone UI, Crew Scheduler writes.
 
 ## Verification
 
 - `node src/field/lib/crewBoard.test.mjs` ✅
 - `npx eslint src/field` ✅
-- `npm run build` ✅
-- Rendered Field chrome + command tables for: single-day crew-first (JOB # `#10079` / JOB NAME `Demo VCT - Carpet`), Exceptions (Called Out), date-range Adam chronological (Sep 14–17, `#10079` then `#10226`)
-- PR #60 Vercel preview **Ready** ✅
+- `npm run build` ✅ (this pass)
+- No live assignment query for Misa/Adam from this environment (mock Supabase only)
+- PR #60 Vercel preview — recheck Exceptions after this commit
   - https://sales-command-git-cursor-fi-6116b8-chris7berger-droids-projects.vercel.app
 
-Authenticated `/field/crews` live-data walk is for Chris on that preview (this environment has no real Supabase session). Date-mode controls exist on the committed screen (Single Day / Date Range + presets).
+Authenticated `/field/crews` live-data walk is for Chris on that preview.
 
 ## Deviations
 

@@ -1,0 +1,148 @@
+---
+description: Implement approved ChatGPT product/UI handoffs autonomously while preserving scope and requiring Chris approval before UI merge
+alwaysApply: true
+---
+
+# Approved handoff workflow
+
+When `docs/agent-handoffs/ACTIVE.md` contains an approved handoff, treat it as the authoritative product and design specification for that work.
+
+## Roles
+
+Chris is the product owner and final approver.
+
+The handoff defines WHAT should be built: product intent, UI direction, scope, constraints, protected behavior, and acceptance criteria.
+
+Cursor is the implementation engineer and determines HOW to implement it correctly within the existing codebase.
+
+Do not require Chris to identify files, components, functions, CSS classes, queries, or architecture that can be determined by inspecting the repository.
+
+## Approved handoff overrides routine confirmation
+
+When Chris explicitly tells you to implement, continue, finish, fix, or work from an approved ACTIVE.md handoff, that instruction is authorization to perform routine implementation work.
+
+For that approved scope, do not repeatedly stop for confirmation before ordinary edits or technical decisions.
+
+This approved-handoff authorization overrides the routine pre-edit confirmation requirement in `confirm-intent.mdc` for work clearly covered by ACTIVE.md.
+
+`confirm-intent.mdc` still applies when:
+- product intent is genuinely ambiguous,
+- the requested change is outside ACTIVE.md,
+- two materially different product outcomes are possible,
+- or proceeding would change protected/out-of-scope behavior.
+
+## Before coding
+
+1. Read `docs/agent-handoffs/ACTIVE.md` completely.
+2. Inspect referenced screenshots, mockups, and assets.
+3. Inspect the relevant existing implementation.
+4. Find existing components, patterns, styles, utilities, data flows, and architecture that should be reused.
+5. Read relevant repository documentation and rules.
+6. Understand the existing implementation before changing it.
+
+Do not create parallel architecture when an established project pattern can reasonably be extended.
+
+## Scope
+
+Respect everything marked:
+- In Scope
+- Out of Scope
+- Do Not Change
+- Preserve
+- Approved
+- Acceptance Criteria
+
+Do not opportunistically redesign, refactor, rename, or modify unrelated systems.
+
+Preserve working behavior unless the handoff explicitly requires changing it.
+
+## UI work
+
+Approved mockups and visual requirements define the intended result.
+
+Do not independently redesign approved product decisions.
+
+Reuse the application's existing design language, components, spacing, typography, colors/tokens, and interaction patterns where appropriate.
+
+Implementation is not complete merely because the code compiles.
+
+When tooling permits:
+
+1. Run the application.
+2. Navigate to the changed UI.
+3. Inspect the rendered result.
+4. Compare it with the approved handoff and references.
+5. Correct obvious discrepancies.
+6. Check relevant responsive behavior.
+7. Check adjacent UI for regressions.
+
+## Testing
+
+Run relevant available checks for the changed area.
+
+Fix failures caused by your changes.
+
+If a pre-existing failure prevents verification, document it rather than hiding it.
+
+## Existing services
+
+Use the project's established GitHub, Supabase, Vercel, and other configured infrastructure when required by the approved work.
+
+Inspect existing configuration before creating anything new.
+
+Never expose or commit secrets.
+
+Do not create duplicate infrastructure because existing configuration was not investigated.
+
+## Autonomy
+
+For an approved handoff, default to:
+
+Investigate → understand → implement → run → test → visually verify → correct → report.
+
+Resolve ordinary technical questions through repository investigation.
+
+Ask Chris only when a genuine product decision, authorization boundary, destructive action, or unresolved ambiguity requires him.
+
+## Build report
+
+After implementation, update:
+
+`docs/agent-handoffs/BUILD-REPORT.md`
+
+Include:
+- Status
+- Summary
+- Files Changed
+- Important Implementation Decisions
+- Verification Performed
+- Visual Verification
+- Deviations From Handoff
+- Issues / Follow-up
+
+If there were no deviations, explicitly write `None.`
+
+## Merge safety
+
+Implementation authorization is NOT merge approval.
+
+For application/UI changes, preserve the existing `session-wrap.mdc` requirement:
+
+Vercel preview must be Ready and Chris must personally accept the result before merging to main.
+
+Do not interpret an approved ACTIVE.md handoff as permission to merge the finished application change.
+
+## Completion standard
+
+A build is ready for Chris review when:
+
+1. The approved scope is implemented.
+2. Acceptance criteria are satisfied as far as can be verified.
+3. Relevant tests/checks have been run.
+4. UI changes have been visually inspected when possible.
+5. Obvious implementation regressions have been corrected.
+6. BUILD-REPORT.md accurately describes the result.
+
+At that point, present the result for Chris review.
+
+For app/UI work, do not merge to main until the existing preview-and-accept workflow is satisfied.

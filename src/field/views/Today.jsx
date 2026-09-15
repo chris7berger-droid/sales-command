@@ -1,53 +1,59 @@
-import { useEffect, useState, useCallback } from "react";
 import { C, F } from "../../lib/tokens";
-import { fmtD } from "../../lib/utils";
-import FieldScreen from "../components/FieldScreen";
+import FieldScreen, {
+  StatStrip,
+  ErrorNote,
+  EmptyNote,
+  RefreshBtn,
+} from "../components/FieldScreen";
+import { useAsync } from "../lib/useAsync";
 import { fetchTodayRows } from "../lib/queries";
+
+function needsLook(r) {
+  const due = [r.sod, r.mod, r.eod, r.prt].some((f) => f?.status === "due");
+  const lo = r.loadout;
+  const shortLoad = lo && lo.total > 0 && lo.checked < lo.total;
+  return due || shortLoad;
+}
 
 // The at-a-glance list: one row per job going today —
 // Job · Crew · Hrs · SOD · MOD · EOD · PRT · Load-out.
 // Late "!" reuses the phone's rule (src/field/lib/lateForm.js) so desk + phone
 // flag the same jobs. View-only.
 export default function Today() {
-  const [state, setState] = useState({ loading: true, error: null, rows: [], today: "" });
-
-  const load = useCallback(async () => {
-    setState((s) => ({ ...s, loading: true, error: null }));
-    try {
-      const { rows, today } = await fetchTodayRows();
-      setState({ loading: false, error: null, rows, today });
-    } catch (e) {
-      setState({ loading: false, error: e?.message || "Failed to load", rows: [], today: "" });
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const { loading, error, rows, today } = state;
+  const { data, loading, error, reload } = useAsync(fetchTodayRows, []);
+  const rows = data?.rows || [];
+  const look = rows.filter(needsLook);
 
   return (
     <FieldScreen
       title="Today"
-      subtitle={today ? fmtD(today) : "Every job running today, at a glance"}
-      right={
-        <button onClick={load} disabled={loading} style={btnStyle}>
-          {loading ? "…" : "↻ Refresh"}
-        </button>
-      }
+      subtitle="Is today under control"
+      right={<RefreshBtn onClick={reload} loading={loading} />}
     >
-      {error && <Banner>{error}</Banner>}
+      <StatStrip
+        items={[
+          { label: "Running", value: rows.length, tone: "teal" },
+          { label: "Need a look", value: look.length, tone: "red" },
+        ]}
+      />
+      {error && <ErrorNote>{error}</ErrorNote>}
 
       {!error && !loading && rows.length === 0 && (
-        <div style={emptyStyle}>No jobs scheduled for today.</div>
+        <EmptyNote>No jobs scheduled for today.</EmptyNote>
       )}
 
       {rows.length > 0 && (
-        <div style={{ overflowX: "auto" }}>
+        <div
+          style={{
+            overflowX: "auto",
+            borderRadius: 10,
+            border: `1px solid ${C.borderStrong}`,
+            boxShadow: "0 2px 10px rgba(28,24,20,0.08)",
+          }}
+        >
           <table style={tableStyle}>
             <thead>
-              <tr>
+              <tr style={{ background: C.dark }}>
                 <Th style={{ textAlign: "left" }}>Job</Th>
                 <Th style={{ textAlign: "left" }}>Crew</Th>
                 <Th>Hrs</Th>
@@ -59,8 +65,14 @@ export default function Today() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.jobId} style={{ borderTop: `1px solid ${C.border}` }}>
+              {rows.map((r, i) => (
+                <tr
+                  key={r.jobId}
+                  style={{
+                    borderBottom: `1px solid ${C.border}`,
+                    background: i % 2 === 0 ? C.linenLight : C.linen,
+                  }}
+                >
                   <Td style={{ textAlign: "left" }}>
                     <div style={{ fontWeight: 700, color: C.textHead }}>{r.jobName}</div>
                     {r.jobNum != null && (
@@ -89,7 +101,7 @@ export default function Today() {
 }
 
 // ── status cells ───────────────────────────────────────────────────────
-const LEVEL_COLOR = { amber: "#e0a92e", red: "#ef6b6b" };
+const LEVEL_COLOR = { amber: C.amber, red: C.red };
 
 function FormCell({ f }) {
   if (!f) return <Faint />;
@@ -152,20 +164,20 @@ function Legend() {
   );
 }
 
-// ── table primitives ───────────────────────────────────────────────────
 function Th({ children, style }) {
   return (
     <th
       style={{
         textAlign: "center",
-        padding: "8px 12px",
-        fontSize: 11,
-        fontWeight: 800,
-        letterSpacing: "0.06em",
+        padding: "11px 15px",
+        fontSize: 10.5,
+        fontWeight: 700,
+        letterSpacing: "0.1em",
         textTransform: "uppercase",
-        color: C.textMuted,
+        color: "rgba(255,255,255,0.45)",
         fontFamily: F.ui,
         whiteSpace: "nowrap",
+        borderBottom: `1px solid ${C.darkBorder}`,
         ...style,
       }}
     >
@@ -175,43 +187,15 @@ function Th({ children, style }) {
 }
 function Td({ children, style }) {
   return (
-    <td style={{ textAlign: "center", padding: "10px 12px", fontSize: 13.5, fontFamily: F.ui, verticalAlign: "middle", ...style }}>
+    <td style={{ textAlign: "center", padding: "12px 15px", fontSize: 13.5, fontFamily: F.ui, verticalAlign: "middle", ...style }}>
       {children}
     </td>
-  );
-}
-function Banner({ children }) {
-  return (
-    <div style={{ padding: "12px 16px", borderRadius: 8, background: "#3a1c1c", color: "#ef6b6b", fontSize: 13, marginBottom: 14 }}>
-      {children}
-    </div>
   );
 }
 
 const tableStyle = {
   width: "100%",
   borderCollapse: "collapse",
-  background: C.linenCard,
-  borderRadius: 10,
-  overflow: "hidden",
-};
-const emptyStyle = {
-  border: `1px dashed ${C.borderStrong}`,
-  borderRadius: 10,
-  background: C.linenCard,
-  padding: "40px 24px",
-  textAlign: "center",
-  color: C.textLight,
-  fontSize: 14,
-};
-const btnStyle = {
-  background: C.dark,
-  color: C.teal,
-  border: "none",
-  borderRadius: 6,
-  padding: "7px 14px",
   fontSize: 13,
-  fontWeight: 700,
   fontFamily: F.ui,
-  cursor: "pointer",
 };

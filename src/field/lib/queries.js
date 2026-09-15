@@ -168,7 +168,9 @@ export async function fetchLoadOutJobs({ today = tod(), windowDays = 7 } = {}) {
     filters: [["in", "job_id", clIds]],
   });
   const checkedBy = new Map();
+  const totalBy = new Map();
   for (const c of checks) {
+    totalBy.set(c.job_id, (totalBy.get(c.job_id) || 0) + 1);
     const cur = checkedBy.get(c.job_id) || 0;
     checkedBy.set(c.job_id, cur + (c.checked ? 1 : 0));
   }
@@ -181,6 +183,7 @@ export async function fetchLoadOutJobs({ today = tod(), windowDays = 7 } = {}) {
       jobNum: j.call_log?.display_job_number || j.job_num,
       scheduledStart: j.scheduled_start,
       loaded: checkedBy.get(j.call_log_id) || 0,
+      total: totalBy.get(j.call_log_id) || 0,
     })),
     today,
   };
@@ -189,40 +192,63 @@ export async function fetchLoadOutJobs({ today = tod(), windowDays = 7 } = {}) {
 // ── Plain reads for the four "later UI session" screens ─────────────────────
 // Real data, minimal shape — polished layouts come in Chris's later UI sessions.
 
+// Count job_crew rows per call_log id (job_crew.job_id → call_log.id).
+async function crewCountByCallLog(clIds) {
+  const counts = new Map();
+  if (clIds.length === 0) return counts;
+  const crew = await fetchAll("job_crew", "job_id", {
+    filters: [["in", "job_id", clIds]],
+  });
+  for (const c of crew) counts.set(c.job_id, (counts.get(c.job_id) || 0) + 1);
+  return counts;
+}
+
+function fieldJobShape(j, crewCount = 0) {
+  return {
+    jobPk: j.job_id,
+    callLogId: j.call_log_id,
+    jobName: j.job_name || j.call_log?.display_job_number || `Job ${j.call_log_id}`,
+    jobNum: j.call_log?.display_job_number || j.job_num,
+    stage: j.call_log?.stage || null,
+    scheduledStart: j.scheduled_start,
+    scheduledEnd: j.scheduled_end,
+    crewCount,
+  };
+}
+
 // Jobs: every active field-stage job (the office's full field job list).
 export async function fetchFieldJobs() {
   const active = await fetchActiveFieldJobs();
+  const clIds = [...new Set(active.map((j) => j.call_log_id))];
+  const counts = await crewCountByCallLog(clIds);
   return active
-    .map((j) => ({
-      jobPk: j.job_id,
-      callLogId: j.call_log_id,
-      jobName: j.job_name || j.call_log?.display_job_number || `Job ${j.call_log_id}`,
-      jobNum: j.call_log?.display_job_number || j.job_num,
-      stage: j.call_log?.stage || null,
-      scheduledStart: j.scheduled_start,
-      scheduledEnd: j.scheduled_end,
-    }))
+    .map((j) => fieldJobShape(j, counts.get(j.call_log_id) || 0))
     .sort((a, b) => (a.scheduledStart || "").localeCompare(b.scheduledStart || ""));
 }
 
 // Crews: crew assignments across active field jobs.
+// Always { assignments, jobs } — jobs[].crewCount so Missing crew is a real list.
 export async function fetchFieldCrews() {
   const active = await fetchActiveFieldJobs();
   const clIds = [...new Set(active.map((j) => j.call_log_id))];
-  if (clIds.length === 0) return [];
+  if (clIds.length === 0) return { assignments: [], jobs: [] };
   const nameByCl = new Map(
     active.map((j) => [j.call_log_id, j.job_name || j.call_log?.display_job_number || `Job ${j.call_log_id}`])
   );
   const crew = await fetchAll("job_crew", "job_id, role, team_members(name)", {
     filters: [["in", "job_id", clIds]],
   });
-  return crew
+  const counts = new Map();
+  for (const c of crew) counts.set(c.job_id, (counts.get(c.job_id) || 0) + 1);
+  const assignments = crew
     .map((c) => ({
       member: c.team_members?.name || "—",
       role: c.role || "",
       job: nameByCl.get(c.job_id) || `Job ${c.job_id}`,
     }))
     .sort((a, b) => a.member.localeCompare(b.member));
+  const jobs = active.map((j) => fieldJobShape(j, counts.get(j.call_log_id) || 0));
+  return { assignments, jobs };
 }
 
 // Time Clock: today's punches across active field jobs.

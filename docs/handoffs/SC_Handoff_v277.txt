@@ -1,0 +1,75 @@
+SC Handoff v277 — Field office restyle (command boards) — 2026-09-14
+Repo: chris7berger-droid/subcon-command   Branch: cursor/field-office-restyle-3e1e
+=======================================================================
+PREVIEW ONLY — not merged. Waiting on Ready Vercel preview + Chris accept.
+
+SESSION SUMMARY
+---------------
+Field office lists restyled as command boards (espresso header, teal, sand,
+Barlow) to match Sales/Schedule. Not spreadsheets. Scope locked to src/field
+plus this handoff. Sales, Schedule (except existing LoadOutModal import), AR,
+Command Suite DB, and the phone app were not touched.
+
+CHANGES SHIPPED (this branch)
+-----------------------------
+- Shared chrome: FieldScreen title/subtitle, StatStrip, FilterChips (CallLog
+  dark+teal), StatusChip (teal/amber/red/muted), ErrorNote (linen + C.red, not
+  #3a1c1c), EmptyNote dashed well, PlainTable C.dark header + zebra linen,
+  RefreshBtn = Btn v="dark" sz="sm" "Refresh".
+- display.js: stageTone / prettyStage / logTypeLabel / logTypeTone.
+- useAsync extracted to src/field/lib/useAsync.js.
+- fetchLoadOutJobs adds `total` (count of job_material_checks per job).
+- fetchFieldJobs adds crewCount from job_crew (job_id → call_log.id).
+- fetchFieldCrews returns { assignments, jobs } with jobs[].crewCount.
+- Jobs: Live / Scheduled / No crew. Live = In Progress|in_progress|mobilized
+  AND has crew.
+- Crews: People out / Jobs covered / Missing crew. People vs Missing chips.
+- Daily Logs: Today / Start / Mid / End. Type = StatusChip.
+- Load-Outs: Ready / Short / Not loaded / No list chips; "N of M loaded";
+  teal Btn "Load-out"; modal still inside .schedule-root.
+- Time Clock: Punches / Clock in / Clock out + punch-type chips.
+- Today: "Is today under control"; Running / Need a look (due SOD/MOD/EOD/PRT
+  or incomplete load-out); SOD/MOD/EOD/PRT/Load-out cells + legend kept;
+  dark table header.
+
+DECISIONS
+---------
+- job_crew cannot PostgREST-embed off jobs.job_id (FK is call_log.id) — counts
+  are aggregated from the existing job_crew read.
+- Teal CTAs use Btn v="teal" (black text). No white backgrounds.
+- F56 (read-layer alignment) is NOT this slice and stays open.
+
+NEW/CLOSED BACKLOG ITEMS
+------------------------
+None filed. BACKLOG.md not edited (scope lock). F56 untouched.
+
+VERIFICATION
+------------
+- npx eslint src/field — clean
+- npm run build — green
+- No authenticated Field preview walk yet (this PR). Vercel preview + Chris
+  accept before merge.
+
+NOT TOUCHED
+-----------
+Sales, Schedule (except LoadOutModal import already in Field), AR, DB,
+phone app, FieldLayout routes, lateForm.js, fetchTodayRows / punches / logs
+read shapes (aside from the three query extras above).
+
+NEXT SESSION POINTERS
+---------------------
+1. Walk /field/today, jobs, crews, dailylogs, loadouts, timeclock on the
+   Ready preview. Accept or send pixel notes.
+2. Do not merge without Chris accept.
+3. Do not pick up F56 unless asked.
+
+FILES TO KNOW
+-------------
+src/field/components/FieldScreen.jsx
+src/field/lib/{display.js,useAsync.js,queries.js}
+src/field/views/{Jobs,Crews,DailyLogs,LoadOuts,TimeClock,Today}.jsx
+
+GIT STATE
+---------
+Feature branch cursor/field-office-restyle-3e1e. PR open for preview.
+Do not merge until Chris accepts the Ready preview.

@@ -1,6 +1,7 @@
 import { buildJobTrips } from './trips.js'
 import { pickAllocField } from './allocations.js'
 import { fmtD, getMonday } from './weeks.js'
+import { CREW_STATUS_SCHEDULED_OFF, crewStatusDateKey } from './crewStatus.js'
 
 export const DEFAULT_CREW_START = 'Meet at the shop at 6:30 AM'
 
@@ -100,4 +101,81 @@ export function buildCrewWeekText({ name, dates, jobs, allocations, assignments,
   return { text: lines.join('\n').trim(), warnings: [...warnings],
     days: scheduled.map(([date, entries]) => ({ date, entries })),
   }
+}
+
+const COMPACT_WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+
+// Remaining Midweek Update days: local today through Friday of the week that
+// contains today. Saturday/Sunday yield no remaining days. Independent of the
+// weekly-send Monday–Sunday window.
+export function crewMidweekDates(today) {
+  const day = String(today || '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return []
+  return crewWeekDates(day).slice(0, 5).filter(date => date >= day)
+}
+
+export function crewCompactDayLabel(date) {
+  const dt = new Date(`${date}T12:00:00`)
+  if (Number.isNaN(dt.getTime())) return ''
+  return `${COMPACT_WEEKDAYS[dt.getDay()]} ${dt.getMonth() + 1}/${dt.getDate()}`
+}
+
+function jobCompactLabel(job) {
+  const num = String(job?.job_num || '').replace(/^⚠\s*/, '').trim()
+  return num ? `JOB #${num}` : 'Unnamed job'
+}
+
+function compactAssignmentLine(date, job, coworkers) {
+  const line = `${crewCompactDayLabel(date)} — ${job ? jobCompactLabel(job) : 'Job details unavailable'}`
+  return coworkers.length ? `${line} — with ${coworkers.map(crewDisplayName).join(', ')}` : line
+}
+
+// Read-only compact text for remaining Mon–Fri days. Does not write assignments
+// or crew_status. Only stored scheduled-off becomes (OFF — MAY CHANGE).
+export function buildCrewMidweekText({ name, dates, jobs = [], allocations = {}, assignments = [], statuses = [] }) {
+  const remaining = new Set(dates || [])
+  const jobMap = new Map(jobs.map(job => [String(job.job_id), job]))
+  const weekAssignments = assignments.filter(a => remaining.has(a.date))
+  const linesByDate = new Map((dates || []).map(date => [date, []]))
+  const myJobIds = new Set(weekAssignments.filter(a => a.crew_name === name).map(a => String(a.job_id)))
+  for (const id of myJobIds) {
+    const job = jobMap.get(id)
+    if (!job) {
+      for (const date of new Set(weekAssignments.filter(a => String(a.job_id) === id && a.crew_name === name).map(a => a.date))) {
+        linesByDate.get(date)?.push(compactAssignmentLine(date, null, []))
+      }
+      continue
+    }
+    const jobAssignments = weekAssignments.filter(a => String(a.job_id) === id)
+    const trips = buildJobTrips(Object.values(allocations[id] || {}), jobAssignments, job)
+    for (const trip of trips) {
+      const myDates = [...new Set(trip.assignments.filter(a => a.crew_name === name).map(a => a.date))].sort()
+      for (const date of myDates) {
+        if (!remaining.has(date)) continue
+        const coworkers = trip.legacy ? [] : [...new Set(trip.assignments
+          .filter(a => a.date === date && a.crew_name !== name).map(a => a.crew_name))].sort()
+        linesByDate.get(date)?.push(compactAssignmentLine(date, job, coworkers))
+      }
+    }
+  }
+  const offDates = new Set()
+  for (const row of statuses) {
+    if (row.crew_name !== name || row.status !== CREW_STATUS_SCHEDULED_OFF) continue
+    const date = crewStatusDateKey(row.date)
+    if (remaining.has(date)) offDates.add(date)
+  }
+  const body = []
+  for (const date of dates || []) {
+    const assignmentLines = linesByDate.get(date) || []
+    if (assignmentLines.length) body.push(...assignmentLines)
+    else if (offDates.has(date)) body.push(`${crewCompactDayLabel(date)} — (OFF — MAY CHANGE)`)
+  }
+  const text = [
+    'UPDATED CREW SCHEDULE — ABBREVIATED',
+    crewDisplayName(name),
+    'Current schedule from today forward. Schedule may change as jobs shift.',
+    '',
+    ...body,
+  ].join('\n').trim()
+  return { text, days: body, warnings: [] }
 }

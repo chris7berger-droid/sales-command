@@ -17,6 +17,13 @@ const assignments = [{ id: 1, job_id: 1, date: '2026-09-11', crew_name: 'JoseJR'
   { id: 2, job_id: 1, date: '2026-09-11', crew_name: 'Kurtis Zomparelli', mobilization_id: 'burnish' },
   { id: 3, job_id: 1, date: '2026-09-11', crew_name: 'Wrong Coworker', mobilization_id: 'seal' },
   { id: 4, job_id: 1, date: '2026-09-13', crew_name: 'JoseJR', mobilization_id: 'burnish' }]
+const statuses = [
+  { crew_name: 'JoseJR', date: '2026-09-08', status: 'sick' },
+  { crew_name: 'JoseJR', date: '2026-09-09', status: 'off' },
+  { crew_name: 'JoseJR', date: '2026-09-10', status: 'scheduled-off' },
+  { crew_name: 'JoseJR', date: '2026-09-11', status: 'scheduled-off' },
+  { crew_name: 'JoseJR', date: '2026-09-12', status: 'noshow' },
+]
 let signedIn = false, allowedApps = ['sales', 'schedule'], failTable = null, delayedWeek = null
 const pending = [], errors = [], writes = [], reads = []
 const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 })
@@ -29,6 +36,13 @@ if (existsSync(cookieFile)) {
   await context.addCookies(cookies)
 }
 await context.addInitScript(() => {
+  const Frozen = class extends Date {
+    constructor(...args) { args.length ? super(...args) : super('2026-09-08T15:00:00') }
+    static now() { return new Date('2026-09-08T15:00:00').getTime() }
+  }
+  Frozen.parse = Date.parse
+  Frozen.UTC = Date.UTC
+  window.Date = Frozen
   Object.defineProperty(navigator, 'share', { configurable: true, value: async data => {
     window.sharedText = data.text
     if (window.shareFailure) throw new DOMException('fixture', window.shareFailure)
@@ -60,7 +74,12 @@ await context.route('**/*', async route => {
   const end = url.searchParams.getAll('date').find(v => v.startsWith('lte.'))?.slice(4)
   if (table === 'assignments' && week === delayedWeek) await new Promise(resolve => pending.push(resolve))
   if (table === failTable) return send({ message: 'Fixture unavailable' }, 400)
-  const db = { jobs, crew, job_mobilizations: trips, assignments: assignments.filter(a => (!week || a.date >= week) && (!end || a.date <= end)) }
+  const inRange = row => {
+    const d = String(row.date).slice(0, 10)
+    return (!week || d >= week) && (!end || d <= end)
+  }
+  const db = { jobs, crew, job_mobilizations: trips, assignments: assignments.filter(inRange),
+    crew_status: statuses.filter(inRange) }
   const rows = db[table] || []
   return send(single ? rows[0] || null : rows)
 })
@@ -95,11 +114,30 @@ try {
   assert.match(text, /Start: Meet at the shop at 6:30 AM/)
   assert.match(text, /SUNDAY, SEP 13[\s\S]*Start: Delayed start 9:00 AM/)
   assert.doesNotMatch(text, /Wrong Lead|Wrong Coworker|PRIVATE OFFICE/)
-  assert.equal(await page.locator('.cp-day').count(), 7)
+  assert.equal(await page.locator('.cp-day').count(), 2, 'Weekly preview lists only assigned days')
   await copy.click()
   assert.equal(await page.evaluate(() => window.copiedText), text)
   await page.getByRole('button', { name: 'Share week', exact: true }).click()
   assert.equal(await page.evaluate(() => window.sharedText), text, 'Share receives exact reviewed week')
+  await page.getByRole('button', { name: 'Midweek Update', exact: true }).click()
+  await page.getByRole('button', { name: 'Copy update', exact: true }).waitFor()
+  assert.equal(await page.getByLabel('Week of').count(), 0, 'Week navigation hidden in midweek')
+  const midweekText = await preview.inputValue()
+  assert.match(midweekText, /^UPDATED CREW SCHEDULE — ABBREVIATED\nJoseJR\nCurrent schedule from today forward/)
+  assert.match(midweekText, /THU 9\/10 — \(OFF — MAY CHANGE\)/)
+  assert.match(midweekText, /FRI 9\/11 — JOB #6618 — with Kurtis Zomparelli/)
+  assert.doesNotMatch(midweekText, /SUNDAY, SEP 13|SUN 9\/13|SAT 9\/12|Week of|TUE 9\/8|WED 9\/9/)
+  assert.doesNotMatch(midweekText, /FRI 9\/11 — \(OFF/)
+  assert.doesNotMatch(midweekText, /Wrong Coworker|PRIVATE OFFICE|No work assigned/)
+  await page.getByRole('button', { name: 'Copy update', exact: true }).click()
+  assert.equal(await page.evaluate(() => window.copiedText), midweekText, 'Copy receives compact midweek text')
+  await page.getByRole('button', { name: 'Share update', exact: true }).click()
+  assert.equal(await page.evaluate(() => window.sharedText), midweekText, 'Share receives compact midweek text')
+  await page.getByRole('button', { name: 'Weekly send', exact: true }).click()
+  await copy.waitFor()
+  assert.match(await preview.inputValue(), /^JoseJR\n/)
+  assert.match(await preview.inputValue(), /SUNDAY, SEP 13[\s\S]*Start: Delayed start 9:00 AM/)
+  assert.equal(await preview.inputValue(), text, 'Weekly text unchanged after midweek mode')
   for (const width of [390, 360, 430]) {
     await page.setViewportSize({ width, height: 844 })
     await fits()
@@ -150,6 +188,14 @@ try {
   assert.match(await page.evaluate(() => window.copiedText), /Week of 2026-09-21/)
   assert.doesNotMatch(await preview.inputValue(), /No work assigned/)
   assert.doesNotMatch(await preview.inputValue(), /MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY/)
+  await page.getByRole('combobox').selectOption('JoseJR')
+  await page.getByRole('button', { name: 'Midweek Update', exact: true }).click()
+  await page.getByRole('button', { name: 'Copy update', exact: true }).waitFor()
+  const midweekIgnoresWeekNav = await preview.inputValue()
+  assert.match(midweekIgnoresWeekNav, /FRI 9\/11 — JOB #6618/)
+  assert.doesNotMatch(midweekIgnoresWeekNav, /Week of 2026-09-21/)
+  await page.getByRole('button', { name: 'Weekly send', exact: true }).click()
+  await copy.waitFor()
 
   // Existing full desktop app and its navigation still render at their own URLs.
   await page.setViewportSize({ width: 1440, height: 1000 })

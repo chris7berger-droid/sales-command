@@ -3,17 +3,20 @@ import { useSearchParams } from 'react-router-dom'
 import { C, F } from '../../lib/tokens'
 import { loadAllRows, loadJobs, loadMobilizationsByJobId } from '../lib/queries'
 import { fmtD } from '../lib/weeks'
-import { buildCrewWeekText, crewDateLabel, crewDisplayName, crewWeekDates, DEFAULT_CREW_START } from '../lib/crewWeekText'
+import { buildCrewMidweekText, buildCrewWeekText, crewCompactDayLabel, crewDateLabel, crewDisplayName, crewMidweekDates, crewWeekDates, DEFAULT_CREW_START } from '../lib/crewWeekText'
 
 // A separate, authenticated phone route. No ScheduleLayout or desktop shell.
 export default function CrewPhone() {
   const [params, setParams] = useSearchParams()
+  const mode = params.get('mode') === 'midweek' ? 'midweek' : 'weekly'
+  const today = fmtD(new Date())
   const requested = params.get('week') || ''
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(requested) &&
     requested >= '1900-01-01' && requested <= '2100-12-31' &&
     fmtD(new Date(`${requested}T12:00:00`)) === requested
-  const week = crewWeekDates(validDate ? requested : fmtD(new Date()))[0]
+  const week = crewWeekDates(mode === 'midweek' ? today : (validDate ? requested : today))[0]
   const dates = useMemo(() => crewWeekDates(week), [week])
+  const midweekDates = useMemo(() => crewMidweekDates(today), [today])
   const [snapshot, setSnapshot] = useState(null)
   const [error, setError] = useState('')
   const [refresh, setRefresh] = useState(0)
@@ -30,24 +33,32 @@ export default function CrewPhone() {
       setError('')
       setSnapshot(null)
       try {
-        const [jobRes, crewRes, assignmentRes] = await Promise.all([
+        const statusRead = mode === 'midweek'
+          ? loadAllRows('crew_status', 'crew_name, date, status', {
+            orderBy: 'date', filterFn: q => q.gte('date', dates[0]).lte('date', dates.at(-1)),
+          })
+          : Promise.resolve({ data: [], error: null })
+        const [jobRes, crewRes, assignmentRes, statusRes] = await Promise.all([
           loadJobs(),
           loadAllRows('crew', 'name, archived', { orderBy: 'name' }),
           loadAllRows('assignments', 'id, job_id, mobilization_id, crew_name, date', {
             orderBy: 'id', filterFn: q => q.gte('date', dates[0]).lte('date', dates.at(-1)),
           }),
+          statusRead,
         ])
-        if (jobRes.error || crewRes.error || assignmentRes.error) throw jobRes.error || crewRes.error || assignmentRes.error
+        if (jobRes.error || crewRes.error || assignmentRes.error || statusRes.error) {
+          throw jobRes.error || crewRes.error || assignmentRes.error || statusRes.error
+        }
         const allocations = await loadMobilizationsByJobId(jobRes.data, { liveOnly: true, throwOnError: true })
-        if (!cancelled) setSnapshot({ week, refresh, jobs: jobRes.data, crew: crewRes.data,
-          assignments: assignmentRes.data, allocations, updatedAt: new Date() })
+        if (!cancelled) setSnapshot({ week, refresh, mode, jobs: jobRes.data, crew: crewRes.data,
+          assignments: assignmentRes.data, statuses: statusRes.data, allocations, updatedAt: new Date() })
       } catch (err) {
         if (!cancelled) setError(err.message || 'Please try again.')
       }
     }
     load()
     return () => { cancelled = true }
-  }, [week, dates, refresh])
+  }, [week, dates, refresh, mode])
 
   useEffect(() => {
     const reload = () => { if (document.visibilityState === 'visible') setRefresh(n => n + 1) }
@@ -59,20 +70,41 @@ export default function CrewPhone() {
     }
   }, [])
 
-  const ready = snapshot?.week === week && snapshot?.refresh === refresh && !error
+  const ready = snapshot?.week === week && snapshot?.refresh === refresh && snapshot?.mode === mode && !error
   const names = useMemo(() => snapshot ? [...new Set([
     ...snapshot.crew.filter(c => !c.archived).map(c => c.name),
     ...snapshot.assignments.map(a => a.crew_name),
   ].filter(Boolean))].sort((a, b) => crewDisplayName(a).localeCompare(crewDisplayName(b))) : [], [snapshot])
   const name = names.includes(selected) ? selected : names[0] || ''
-  const message = useMemo(() => ready && name ? buildCrewWeekText({ ...snapshot, name, dates, defaultStart }) : null,
-    [ready, snapshot, name, dates, defaultStart])
+  const message = useMemo(() => {
+    if (!ready || !name) return null
+    if (mode === 'midweek') {
+      return buildCrewMidweekText({ ...snapshot, name, dates: midweekDates, statuses: snapshot.statuses || [] })
+    }
+    return buildCrewWeekText({ ...snapshot, name, dates, defaultStart })
+  }, [ready, snapshot, name, dates, defaultStart, mode, midweekDates])
   const displayName = crewDisplayName(name)
   const canShare = typeof navigator.share === 'function'
 
   function choose(value) { setSelected(value); setFeedback(null); setShowText(false) }
   function movePerson(offset) { choose(names[(names.indexOf(name) + offset + names.length) % names.length]) }
-  function changeWeek(value) { setParams({ week: value }); setFeedback(null); setShowText(false) }
+  function changeWeek(value) {
+    if (mode === 'midweek') return
+    const next = { week: value }
+    setParams(next)
+    setFeedback(null)
+    setShowText(false)
+  }
+  function setMode(next) {
+    if (sharing) return
+    const nextParams = {}
+    if (next === 'midweek') nextParams.mode = 'midweek'
+    if (requested) nextParams.week = requested
+    else if (next === 'weekly') nextParams.week = week
+    setParams(nextParams)
+    setFeedback(null)
+    setShowText(false)
+  }
   function moveWeek(offset) {
     const date = new Date(`${week}T12:00:00`)
     date.setDate(date.getDate() + offset * 7)
@@ -83,7 +115,9 @@ export default function CrewPhone() {
     const text = message.text
     try {
       await navigator.clipboard.writeText(text)
-      setFeedback({ text, note: `Copied ${displayName}’s week. Paste it into Messages.` })
+      setFeedback({ text, note: mode === 'midweek'
+        ? `Copied ${displayName}’s update. Paste it into Messages.`
+        : `Copied ${displayName}’s week. Paste it into Messages.` })
     } catch {
       setShowText(true)
       setFeedback({ text, note: 'Select and copy the text below, then paste it into Messages.' })
@@ -112,16 +146,28 @@ export default function CrewPhone() {
     <main className="crew-phone">
       <header className="cp-header">
         <span className="cp-brand">SUBCON COMMAND</span>
-        <h1>Weekly crew texts</h1>
-        <p>Choose a person. Share their week from your phone.</p>
+        <h1>{mode === 'midweek' ? 'Midweek Update' : 'Weekly crew texts'}</h1>
+        <p>{mode === 'midweek'
+          ? 'Choose a person. Share remaining days through Friday from your phone.'
+          : 'Choose a person. Share their week from your phone.'}</p>
       </header>
       <section className="cp-picker" aria-label="Choose schedule">
-        <div className="cp-week">
+        <div className="cp-mode" role="group" aria-label="Message type">
+          <button type="button" aria-pressed={mode === 'weekly'} disabled={sharing}
+            className={mode === 'weekly' ? 'cp-mode-on' : ''} onClick={() => setMode('weekly')}>Weekly send</button>
+          <button type="button" aria-pressed={mode === 'midweek'} disabled={sharing}
+            className={mode === 'midweek' ? 'cp-mode-on' : ''} onClick={() => setMode('midweek')}>Midweek Update</button>
+        </div>
+        {mode === 'weekly' ? <div className="cp-week">
           <button aria-label="Previous week" disabled={sharing} onClick={() => moveWeek(-1)}>←</button>
           <label>Week of<input aria-label="Week of" type="date" min="1900-01-01" max="2100-12-31" value={week}
             disabled={sharing} onChange={e => { if (e.target.value) changeWeek(e.target.value) }} /></label>
           <button aria-label="Next week" disabled={sharing} onClick={() => moveWeek(1)}>→</button>
-        </div>
+        </div> : <p className="cp-midweek-range">
+          {midweekDates.length
+            ? `${crewCompactDayLabel(midweekDates[0])} – ${crewCompactDayLabel(midweekDates.at(-1))} · today through Friday`
+            : 'No remaining weekdays through Friday'}
+        </p>}
         {ready && names.length > 0 && <>
           <label>Crew member<select value={name} disabled={sharing} onChange={e => choose(e.target.value)}>
             {names.map(n => <option key={n} value={n}>{crewDisplayName(n)}</option>)}
@@ -130,11 +176,11 @@ export default function CrewPhone() {
             <button disabled={sharing} onClick={() => movePerson(-1)}>← Previous person</button>
             <button disabled={sharing} onClick={() => movePerson(1)}>Next person →</button>
           </div>
-          <details className="cp-start">
+          {mode === 'weekly' && <details className="cp-start">
             <summary>Start / meeting instructions</summary>
             <label>Usual start<input value={defaultStart} disabled={sharing} onChange={e => { setDefaultStart(e.target.value); setFeedback(null) }} /></label>
             <p>Default: 6:30 AM at the shop. Saved delayed starts override this on their assigned days.</p>
-          </details>
+          </details>}
         </>}
       </section>
 
@@ -143,14 +189,14 @@ export default function CrewPhone() {
         <button onClick={() => setRefresh(n => n + 1)}>Retry</button>
       </section> : !ready ? <p className="cp-loading" role="status">Loading weekly schedules…</p> : !names.length ?
         <p className="cp-loading">No crew found.</p> : message && <>
-          <div className="cp-section-title"><h2>{displayName}’s week</h2>
+          <div className="cp-section-title"><h2>{displayName}’s {mode === 'midweek' ? 'update' : 'week'}</h2>
             <button disabled={sharing} onClick={() => setRefresh(n => n + 1)}>Refresh</button>
           </div>
-          <p className="cp-updated">Updated {snapshot.updatedAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · Monday–Sunday</p>
-          {message.warnings.length > 0 && <section className="cp-notice" aria-label="Check before sharing">
+          <p className="cp-updated">Updated {snapshot.updatedAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · {mode === 'midweek' ? 'Today through Friday' : 'Monday–Sunday'}</p>
+          {message.warnings?.length > 0 && <section className="cp-notice" aria-label="Check before sharing">
             <h2>Check before sharing</h2><ul>{message.warnings.map(w => <li key={w}>{w}</li>)}</ul>
           </section>}
-          <div className="cp-days">
+          {mode === 'weekly' ? <div className="cp-days">
             {message.days.map(day => <section className="cp-day" key={day.date}>
               <h3>{crewDateLabel(day.date)}</h3>
               {day.entries.length > 1 && <p className="cp-multiple">Multiple assignments — confirm order/start times with office.</p>}
@@ -159,7 +205,10 @@ export default function CrewPhone() {
                 return <article key={index}><h4>{title}</h4><p>{lines.join('\n')}</p></article>
               })}
             </section>)}
-          </div>
+          </div> : <section className="cp-midweek-days" aria-label="Midweek update preview">
+            {message.days.length ? message.days.map((line, index) => <p key={`${line}-${index}`}>{line}</p>) :
+              <p>No remaining assignments or scheduled-off days through Friday.</p>}
+          </section>}
           <details className="cp-exact" open={showText} onToggle={e => setShowText(e.currentTarget.open)}>
             <summary>Full text to share</summary>
             <textarea ref={textRef} aria-label="Full text to share" readOnly value={message.text} />
@@ -169,10 +218,10 @@ export default function CrewPhone() {
       <footer className="cp-actions">
         <div>
           <p className="cp-feedback" role="status">{feedback?.text === message?.text ? feedback?.note :
-            message ? `Send ${displayName}’s week` : 'Choose a loaded schedule to share.'}</p>
+            message ? `Send ${displayName}’s ${mode === 'midweek' ? 'update' : 'week'}` : 'Choose a loaded schedule to share.'}</p>
           <div className="cp-action-buttons">
-            {canShare && <button className="cp-primary" disabled={!message || sharing} onClick={share}>{sharing ? 'Sharing…' : 'Share week'}</button>}
-            <button className={canShare ? '' : 'cp-primary'} disabled={!message || sharing} onClick={copy}>Copy week</button>
+            {canShare && <button className="cp-primary" disabled={!message || sharing} onClick={share}>{sharing ? 'Sharing…' : (mode === 'midweek' ? 'Share update' : 'Share week')}</button>}
+            <button className={canShare ? '' : 'cp-primary'} disabled={!message || sharing} onClick={copy}>{mode === 'midweek' ? 'Copy update' : 'Copy week'}</button>
           </div>
         </div>
       </footer>
@@ -190,6 +239,12 @@ export default function CrewPhone() {
         .cp-header { margin-bottom: 22px; }
         .cp-header p { color: ${C.textMuted}; font-size: 16px; }
         .cp-picker { background: ${C.linenCard}; border: 1px solid ${C.borderStrong}; border-radius: 12px; padding: 14px; }
+        .cp-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+        .crew-phone .cp-mode-on { background: ${C.teal}; color: ${C.dark}; border-color: ${C.teal}; }
+        .cp-midweek-range { margin: 0 0 14px; color: ${C.textMuted}; font-size: 14px; }
+        .cp-midweek-days { background: ${C.linenCard}; border: 1px solid ${C.borderStrong}; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+        .cp-midweek-days p { margin: 0 0 8px; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
+        .cp-midweek-days p:last-child { margin-bottom: 0; }
         .crew-phone label { display: block; min-width: 0; font-size: 13px; font-weight: 600; }
         .crew-phone input, .crew-phone select, .crew-phone textarea { display: block; width: 100%; min-width: 0; min-height: 48px; margin-top: 6px; padding: 11px; border: 1px solid ${C.borderStrong}; border-radius: 8px; background: ${C.linenDeep}; color: ${C.textHead}; font: 400 16px ${F.body}; -webkit-appearance: none; }
         .crew-phone select { appearance: auto; }

@@ -1,0 +1,80 @@
+SC Handoff v277 — Field Crews + Scheduled Off (PR60) — 2026-09-15
+
+SESSION SUMMARY
+This session shipped two accepted slices on PR60, then wrapped after
+Chris accepted the Ready Vercel preview. Earlier in the same agent run:
+ChatGPT-to-Cursor handoff workflow landed on main as PR59 (`a6252db`).
+Then Field Command live-data repair, Crews corrections (assignments SoT,
+JOB # split, Exceptions, Expected Job), and Crew Scheduler Scheduled Off
+(stored type, date-range create, compact see, edit/remove).
+
+CHANGES SHIPPED
+Field Command → Crews is a read-only office view of Crew Scheduler
+`assignments` + live `job_mobilizations` + `crew` / `crew_status`. No
+`job_crew` bridge. JOB # is the display number. Unassigned is job-first.
+Exceptions from stored `crew_status` only (not missing punches).
+Expected Job on an exception comes from the raw `assignments` row.
+
+Scheduled Off:
+- Canonical store `scheduled-off`. Legacy `off` stays Call In / Field
+  Called Out. No production remap.
+- Create: Off opens FROM/TO, independent of the visible week.
+- See: compact M/T/W/T/F/S dots use legend gray for `scheduled-off`.
+  Legacy `off` is not Scheduled Off. Sat outside the range stays empty.
+- Edit: crew detail groups contiguous ranges; Edit Dates rewrites only
+  that range’s `scheduled-off` rows.
+- Remove: confirm, then delete only `status = scheduled-off` for that
+  person and range.
+- Assignments are never deleted/moved. Sick / Call In / No Show keep
+  the week day-picker. Status conflicts are not silently overwritten.
+
+DECISIONS
+`scheduled-off` is a new stored value; do not reuse or migrate `off`.
+Assignment + scheduled-off may coexist; that is a real conflict, not
+auto-resolved. Custom date ranges may include Sunday; This Week / Next
+Week presets stay Mon–Sat. Available remains no row. Do not infer
+Scheduled Off from a missing assignment or punch.
+
+NEW/CLOSED BACKLOG ITEMS
+F56 stays In Progress: PR60 merge shipped Crews + Scheduled Off and the
+#1 date-window read fix. Remaining original polish #2 (log created_at
+window), #3 (Today useAsync), #4 (PlainTable keys). No new IDs filed.
+B118 / F60 / F62 not touched.
+
+VERIFICATION
+`node src/schedule/lib/crewStatus.test.mjs` and
+`node src/field/lib/crewBoard.test.mjs` passed. Focused eslint on
+crewStatus + ScheduledOffModal passed. `npm run build` passed.
+One Bugbot pass on wrap: no slice-breaking findings.
+Chris accepted the Ready Vercel preview for this slice.
+Merge is fast-forward `a6252db..3bc81ac` (PR60).
+
+NOT TOUCHED
+Field phone UI. Other Field screens beyond Crews mapping. Assignment
+reassignment automation. PTO/payroll/time-clock. Left Early. Sunday
+scheduling (F60). B118 eleven remaining Sales-link exceptions.
+
+NEXT SESSION POINTERS
+1. Start on main. Read BACKLOG + this handoff. Wait for Chris.
+2. Do not remap existing `off` rows to Scheduled Off.
+3. Do not infer Scheduled Off from a blank assignment.
+4. F56 leftover #2–#4 only if Chris asks; they were latent polish.
+5. If production CHECK rejects `scheduled-off`, add the value
+   additively in command-suite-db — do not remap `off`.
+
+FILES TO KNOW
+src/schedule/lib/crewStatus.js — stored values, range plan, grouping
+src/schedule/components/ScheduledOffModal.jsx — FROM/TO + confirm
+src/schedule/views/Schedule.jsx — Off modal, compact dots, edit/remove
+src/field/lib/crewBoard.js — Crews board + scheduled-off exception
+src/field/views/Crews.jsx — office Crews command view
+docs/agent-handoffs/BUILD-REPORT.md — slice implementation notes
+docs/BACKLOG.md — F56 still open for leftover polish
+docs/handoffs/SC_Handoff_v277.txt — this record
+
+GIT STATE
+On main at `3bc81ac` (PR60 fast-forward merge), matching origin/main.
+Feature branch cursor/field-command-live-data-repair-4701 deleted local
+and remote. Leftover local checkout of the already-merged ChatGPT
+workflow branch also removed. This closeout commit on main, pushed.
+Next session starts on main with a clean tree.

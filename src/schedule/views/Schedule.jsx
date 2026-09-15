@@ -8,9 +8,10 @@ import { useToast } from '../lib/toast'
 import { jobRanges, inRange, staffingSummary } from '../lib/allocations'
 import { tripRange } from '../lib/trips'
 import { crewWeekRows, crewCardRows, crewRowInRange, crewRowStaffing, crewRowNames } from '../lib/crewScheduleRows'
-import { crewStatusShortLabel, crewStatusUiLabel, isCrewStatusOut } from '../lib/crewStatus'
+import { crewStatusShortLabel, crewStatusUiLabel, isCrewStatusOut, CREW_STATUS_SCHEDULED_OFF, crewStatusDateKey, eachInclusiveDay, planScheduledOff } from '../lib/crewStatus'
 import ScheduleTripDetails from '../components/ScheduleTripDetails'
 import CrewWeekCapacity from '../components/CrewWeekCapacity'
+import ScheduledOffModal from '../components/ScheduledOffModal'
 
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const DAYS_LONG = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -566,10 +567,83 @@ export default function Schedule({ embedded = false } = {}) {
 
   // Status day-picker modal: { name, status, selectedDays: [] }
   const [statusModal, setStatusModal] = useState(null)
+  const [scheduledOffModal, setScheduledOffModal] = useState(null)
 
   function openStatusModal(name, status) {
+    if (status === CREW_STATUS_SCHEDULED_OFF) {
+      setScheduledOffModal({ name, phase: 'edit', error: '', busy: false, plan: null })
+      return
+    }
     const existing = dates.filter(ds => getCSt(name, ds) === status)
     setStatusModal({ name, status, selectedDays: existing, originalDays: existing })
+  }
+
+  async function reviewScheduledOff(from, to) {
+    if (!scheduledOffModal?.name) return
+    const parsed = eachInclusiveDay(from, to)
+    if (parsed.error) {
+      setScheduledOffModal(prev => prev && { ...prev, error: parsed.error, phase: 'edit', busy: false })
+      return
+    }
+    const name = scheduledOffModal.name
+    setScheduledOffModal(prev => prev && { ...prev, busy: true, error: '' })
+    const start = parsed.days[0]
+    const end = parsed.days[parsed.days.length - 1]
+    const [stRes, asgnRes] = await Promise.all([
+      supabase.from('crew_status').select('crew_name, date, status').eq('crew_name', name).gte('date', start).lte('date', end),
+      supabase.from('assignments').select('id, job_id, crew_name, date').eq('crew_name', name).gte('date', start).lte('date', end),
+    ])
+    if (stRes.error || asgnRes.error) {
+      const msg = (stRes.error || asgnRes.error).message || 'Could not check Scheduled Off.'
+      setScheduledOffModal(prev => prev && { ...prev, busy: false, error: msg })
+      return
+    }
+    const existingStatusByDate = {}
+    for (const row of stRes.data || []) {
+      const day = crewStatusDateKey(row.date)
+      if (day) existingStatusByDate[day] = row.status
+    }
+    const jobsById = new Map(jobs.map(j => [String(j.job_id), j]))
+    const plan = planScheduledOff({
+      days: parsed.days,
+      existingStatusByDate,
+      assignments: asgnRes.data || [],
+      jobsById,
+    })
+    if (!plan.canWrite && plan.statusConflicts.length === 0) {
+      toast('Already scheduled off for those dates.')
+      setScheduledOffModal(null)
+      return
+    }
+    if (!plan.needsConfirm && plan.canWrite) {
+      await writeScheduledOff(name, plan.writeDays)
+      return
+    }
+    setScheduledOffModal(prev => prev && { ...prev, busy: false, phase: 'confirm', plan })
+  }
+
+  async function writeScheduledOff(name, writeDays) {
+    if (!writeDays.length) {
+      setScheduledOffModal(null)
+      return
+    }
+    setScheduledOffModal(prev => prev && { ...prev, busy: true, error: '' })
+    const rows = writeDays.map(date => ({ crew_name: name, status: CREW_STATUS_SCHEDULED_OFF, date }))
+    const { error: writeError } = await supabase.from('crew_status').upsert(rows, { onConflict: 'crew_name,date' })
+    if (writeError) {
+      const msg = writeError.message || 'Could not save Scheduled Off.'
+      setScheduledOffModal(prev => prev && { ...prev, busy: false, error: msg })
+      toast(msg, 'err')
+      return
+    }
+    setScheduledOffModal(null)
+    toast('Scheduled Off saved.')
+    loadWeekData()
+  }
+
+  function confirmScheduledOff() {
+    if (!scheduledOffModal?.plan?.canWrite) return
+    writeScheduledOff(scheduledOffModal.name, scheduledOffModal.plan.writeDays)
   }
 
   function toggleStatusDay(ds) {
@@ -1084,14 +1158,16 @@ export default function Schedule({ embedded = false } = {}) {
         <span className={dotCls} />
         <span className="sch-chip-name">{flipName(c.name)}</span>
         {db && <span className="sch-db-tag">2X</span>}
-        {!out && (
-          <div className="sch-sbtns">
-            <button className="sch-sbtn" title="Sick" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'sick') }}>S</button>
-            <button className="sch-sbtn" title="Call In" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'off') }}>C</button>
-            <button className="sch-sbtn sch-sbtn-wide" title="Scheduled Off" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'scheduled-off') }}>Off</button>
-            <button className="sch-sbtn" title="No Show" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'noshow') }}>N</button>
-          </div>
-        )}
+        <div className="sch-sbtns">
+          {!out && (
+            <>
+              <button className="sch-sbtn" title="Sick" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'sick') }}>S</button>
+              <button className="sch-sbtn" title="Call In" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'off') }}>C</button>
+              <button className="sch-sbtn" title="No Show" onClick={e => { e.stopPropagation(); openStatusModal(c.name, 'noshow') }}>N</button>
+            </>
+          )}
+          <button className="sch-sbtn sch-sbtn-wide" title="Scheduled Off" onClick={e => { e.stopPropagation(); openStatusModal(c.name, CREW_STATUS_SCHEDULED_OFF) }}>Off</button>
+        </div>
         {detail}
       </div>
     )
@@ -1185,6 +1261,20 @@ export default function Schedule({ embedded = false } = {}) {
           </div>}
         </div>
       </div>
+
+      {scheduledOffModal && (
+        <ScheduledOffModal
+          name={scheduledOffModal.name}
+          today={todayStr}
+          phase={scheduledOffModal.phase}
+          plan={scheduledOffModal.plan}
+          error={scheduledOffModal.error}
+          busy={scheduledOffModal.busy}
+          onCancel={() => { if (!scheduledOffModal.busy) setScheduledOffModal(null) }}
+          onReview={reviewScheduledOff}
+          onConfirm={confirmScheduledOff}
+        />
+      )}
 
       {/* Status day-picker modal */}
       {statusModal && (

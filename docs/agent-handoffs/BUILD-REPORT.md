@@ -1,26 +1,58 @@
 ## Status
 
-Scheduled Off model/UI correction complete — waiting on Chris preview accept. **Do not merge.**
+Scheduled Off date-range workflow complete — waiting on Chris preview accept. **Do not merge.**
 
-No production `crew_status` rows were migrated.
+No production `crew_status` rows were migrated. No `assignments` rows are deleted or moved by this flow.
 
 ## Summary
 
-Crew Scheduler had no Scheduled Off type. The **O** control stored `off`, which Daily already treated as **Call In**, while the Crew Schedule legend said **Off**. Field mapped both `sick` and `off` to **Called Out**. That is why a planned day off (Misa) could appear as Called Out.
+Scheduled Off is planned availability. The office must be able to mark a crew member off for any future date or date range without first navigating Crew Scheduler to that week.
 
-This pass adds a distinct stored status `scheduled-off`, maps it to **Scheduled Off** in Field Crews, and relabels Call In so **O/Off** is no longer the Call In control.
+The previous pass added stored `scheduled-off` but still used the visible-week day picker, so Oct 12–16 could not be entered while viewing Sep 14–19.
 
-Existing `off` rows are left unchanged (Call In / Field **Called Out**). Remapping them to Scheduled Off would be an ambiguous data migration.
+This pass gives Scheduled Off its own FROM/TO modal. Sick, Call In, and No Show keep the existing week day-picker.
 
-## Root cause
+## Interaction
 
-- Data model: `crew_status.status` had only `sick` / `off` / `noshow`. Available = no row.
-- UI vocabulary: Crew Schedule legend **Off** wrote Call In (`off`).
-- Field mapping: `sick` and `off` both displayed **Called Out**.
+- Chip **Off** opens `ADAM LITTLE — SCHEDULED OFF` (display name, uppercase).
+- FROM and TO are native date inputs. Defaults: both = today (one-day is one click).
+- Presets: Today, Tomorrow, This Week (Mon–Sat), Next Week (Mon–Sat).
+- Custom range is not clamped to the displayed week. Inclusive FROM→TO. TO cannot precede FROM.
+- Primary **Schedule Off** (renders as SCHEDULE OFF). Secondary **Cancel**.
+- Sick / Call In / No Show still open the Mon–Sat day picker for the week on screen.
 
-Missing assignment is still not treated as Scheduled Off.
+## Storage
 
-## Model
+Canonical stored value remains `scheduled-off`.
+
+One `crew_status` row per person/date in the inclusive range (`UNIQUE(crew_name, date)` upsert). Available stays “no row.” Legacy `off` rows are not rewritten.
+
+This Week / Next Week presets follow Crew Scheduler’s Mon–Sat week. A custom range may include Sunday (no new Sunday skip was invented). Sunday still does not appear on the Mon–Sat board (F60).
+
+## Conflict behavior
+
+Before write, the modal loads `crew_status` and `assignments` for the selected person and date range (not the visible week).
+
+| Existing row on a day in range | Write |
+|---|---|
+| no row / `available` | upsert `scheduled-off` |
+| already `scheduled-off` | leave as-is |
+| `sick` / `off` (Call In) / `noshow` / other | do **not** overwrite; list the days |
+
+If any day in the range has an `assignments` row:
+
+- Do not delete, move, or reassign it.
+- Show: “{Name} has existing job assignments during this Scheduled Off period.” plus date + job number/name.
+- Explain that Scheduled Off records planned unavailability; existing assignments stay and may need coverage.
+- User may Cancel or Confirm Scheduled Off.
+
+If there are no assignment conflicts and no blocking status conflicts, Schedule Off writes immediately.
+
+Cancel closes the modal with no writes.
+
+`assignments` = planned work. `crew_status.status = scheduled-off` = planned unavailability. They may coexist; that is a real conflict, not auto-resolved.
+
+## Model (unchanged)
 
 | Stored `crew_status.status` | Crew Scheduler | Field Crews |
 |---|---|---|
@@ -30,51 +62,31 @@ Missing assignment is still not treated as Scheduled Off.
 | `scheduled-off` | Scheduled Off (Off) | **Scheduled Off** |
 | `noshow` | No Show (N) | **No Show** |
 
-Available remains “delete the row.” No punches. No invented jobs.
-
-## Data migration
-
-**Not performed.** Existing `off` rows stay Call In. Misa on Sep 15 will keep showing **Called Out** until an operator marks that day **Scheduled Off** (writes `scheduled-off`). This environment still cannot read the live row.
-
-No CHECK constraint for `crew_status.status` exists in this repo. YESv2 import already writes the sheet `Status` string as-is. If production rejects `scheduled-off` on upsert, stop and add an **additive** allowed-value (not a remap of `off`).
-
 ## Files changed (this pass)
 
-- `src/schedule/lib/crewStatus.js` — stored values + UI labels
-- `src/schedule/lib/crewStatus.test.mjs`
-- `src/schedule/views/Schedule.jsx` — C = Call In (`off`); Off = Scheduled Off (`scheduled-off`); legend/modal/week-popup labels
-- `src/schedule/App.css` — `sch-cdot-soff`, wider Off button
-- `src/schedule/views/Daily.jsx` — Scheduled Off section; empty cell legend **Not assigned** (was **Off**)
-- `src/schedule/lib/exports.js` — print uses UI labels
-- `src/schedule/components/StatsBar.jsx` / `HomeCapacityStrip.jsx` — Out detail uses UI labels
-- `src/field/lib/crewBoard.js` — Scheduled Off exception label/filter/key
-- `src/field/lib/crewBoard.test.mjs`
-- `src/field/views/Crews.jsx` — muted chip for Scheduled Off (Called Out / No Show stay red)
+- `src/schedule/lib/crewStatus.js` — range helpers + `planScheduledOff`
+- `src/schedule/lib/crewStatus.test.mjs` — inclusive range, week presets, status/assignment conflicts
+- `src/schedule/components/ScheduledOffModal.jsx` — FROM/TO modal + confirm warning
+- `src/schedule/views/Schedule.jsx` — Off opens range modal; S/C/N unchanged; write only `writeDays`
+- `src/schedule/App.css` — Scheduled Off modal styles
+- `docs/agent-handoffs/BUILD-REPORT.md`
+- `docs/BACKLOG.md` — F56 note
 
-Not changed: other Field screens, phone UI, assignment writes, existing `crew_status` rows.
-
-## Implementation decisions
-
-- New stored value `scheduled-off` rather than reusing `off`.
-- Call In keeps stored `off` so historical Call In data is not rewritten.
-- Crew Schedule **C** matches Daily’s Call In letter; **Off** writes the new type.
-- Field still collapses Sick + Call In to Called Out (approved earlier). Only Scheduled Off is split out.
-- Scheduled Off still counts as out / exception (not available to assign). Expected Job still comes from `assignments` when one exists.
-- No inference from a blank assignment.
+Not changed: Field Command (mapping already compatible), Sick / Call In / No Show pickers, assignment writers, legacy `off` rows, PTO table, Left Early.
 
 ## Verification
 
 - `node src/schedule/lib/crewStatus.test.mjs` ✅
-- `node src/field/lib/crewBoard.test.mjs` ✅
-- `npx eslint src/field src/schedule/lib/crewStatus.js src/schedule/views/Daily.jsx src/schedule/lib/exports.js` ✅
-- `npm run build` ✅ (this pass)
-- Pre-existing eslint noise in `Schedule.jsx` / `StatsBar.jsx` / `HomeCapacityStrip.jsx` (unused vars / hooks) not cleaned up
+- `node src/field/lib/crewBoard.test.mjs` ✅ (unchanged this pass)
+- `npx eslint src/schedule/lib/crewStatus.js src/schedule/components/ScheduledOffModal.jsx` ✅
+- `npm run build` ✅
+- Pre-existing unused-var eslint on `Schedule.jsx` not cleaned up
 
-This VM has mock Supabase only. Live Misa/Adam rows and the new Off control on Crew Schedule must be checked on the preview.
+This VM has mock Supabase (`localhost`). Authenticated Crew Scheduler walk (Off → Oct range while viewing Sep, conflict warning, Cancel vs Confirm) is for Chris on the preview.
 
 ## Visual verification
 
-Unit tests cover Field labels: `scheduled-off` → Scheduled Off; `sick`/`off` → Called Out; no assignment → blank Expected Job. Authenticated Crew Schedule (C / Off buttons, legend) and Field Exceptions chips are for Chris on the preview.
+Layout/CSS reviewed against existing Crew Scheduler modal language (sand card, uppercase title, `sch-btn`). Live click-through requires preview login.
 
 ## Deviations From Handoff
 
@@ -82,5 +94,6 @@ None.
 
 ## Issues / Follow-up
 
-- Existing `off` person-days (including Misa if her Sep 15 row is `off`) still display as Call In / Called Out until marked Scheduled Off in Crew Scheduler.
-- If a production CHECK rejects `scheduled-off`, do not remap `off`; add the new value to the constraint in `command-suite-db`.
+- Existing `off` person-days still display as Call In / Called Out until marked Scheduled Off.
+- If a production CHECK rejects `scheduled-off`, add that value additively in `command-suite-db`. Do not remap `off`.
+- Coexistence of assignment + `scheduled-off` is left for Field Command to surface operationally later. Not in this pass.

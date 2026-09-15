@@ -1886,6 +1886,98 @@
   justify-content: flex-end;
 }
 
+.schedule-root .sch-modal-soff {
+  min-width: 380px;
+  max-width: 460px;
+}
+
+.schedule-root .sch-soff-dates {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.schedule-root .sch-soff-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sand-dark);
+}
+
+.schedule-root .sch-soff-field input[type="date"] {
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink);
+  background: var(--bg, #c8bcaa);
+  border: 1.5px solid rgba(28, 24, 20, 0.22);
+  border-radius: 7px;
+  padding: 7px 8px;
+}
+
+.schedule-root .sch-soff-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.schedule-root .sch-soff-presets .sch-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+}
+
+.schedule-root .sch-soff-actions {
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.schedule-root .sch-soff-warn {
+  border: 1px solid var(--danger);
+  background: rgba(192, 57, 43, 0.08);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.schedule-root .sch-soff-warn strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.schedule-root .sch-soff-warn p {
+  margin: 0 0 6px;
+}
+
+.schedule-root .sch-soff-list {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.schedule-root .sch-soff-note {
+  font-size: 12px;
+  color: var(--sand-dark);
+  margin: 0 0 8px;
+}
+
+.schedule-root .sch-soff-error {
+  font-size: 12px;
+  color: var(--danger);
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
 /* Day detail modal */
 .schedule-root .sch-modal-detail {
   min-width: 360px;

@@ -1,0 +1,84 @@
+SC Handoff v278 — Midweek Update (PR61) — 2026-09-16
+
+SESSION SUMMARY
+This session inspected the temporary /crew weekly-send path, then shipped
+Midweek Update on PR61. Chris approved the Ready Vercel preview on the
+actual iPhone. Merge is fast-forward onto main.
+
+CHANGES SHIPPED
+/crew now has two modes:
+- Weekly send — existing Monday–Sunday long text, week picker, start
+  notes, Share week / Copy week. Unchanged.
+- Midweek Update — read-only compact remaining-week text from today
+  through Friday of the calendar week containing today. Week navigation
+  cannot send a past/future midweek range.
+
+Compact message:
+UPDATED CREW SCHEDULE — ABBREVIATED
+[employee display name]
+Current schedule from today forward. Schedule may change as jobs shift.
+Then remaining-day lines:
+TUE 9/15 — JOB #1842 — with Mike Jones
+THU 9/17 — (OFF — MAY CHANGE)
+
+Job # and coworkers come from live assignments + trip links (same
+authority as weekly send). Full crewDisplayName names. No coworkers
+omits the with … portion. Multiple assignments on one day get separate
+lines. Assignment wins over scheduled-off on the same day.
+
+(OFF — MAY CHANGE) only from stored crew_status.status === "scheduled-off".
+Do not infer Off from a blank assignment. Legacy off / Call In, Sick,
+No Show, and blank days are omitted.
+
+Desktop Schedules.jsx was not modified. No assignment writes. No
+crew_status writes. No remap of legacy off.
+
+DECISIONS
+Midweek remaining-week end is Friday, intentionally different from the
+weekly-send Monday–Sunday window and from the Crew Schedule Mon–Sat
+board. Midweek always uses the week containing today. Mobile /crew only.
+
+NEW/CLOSED BACKLOG ITEMS
+Touches F61: Midweek Update shipped on the existing temporary phone
+page (PR61 `31caa32`). F61’s original weekly-send release (PR50) stays
+as released. No new IDs filed. F56 leftover #2–#4, B118, F60, F62 not
+touched.
+
+VERIFICATION
+`node scripts/check-crew-week-text-model.mjs` passed (weekly builder
+unchanged). `node scripts/check-crew-midweek-text-model.mjs` passed.
+`node scripts/check-crew-phone.mjs` passed (weekly Copy/Share still
+exact; midweek Copy/Share compact; no API writes).
+`node scripts/check-crew-week-text.mjs` passed (desktop weekly send
+unchanged). `npm run build` passed. Focused eslint on changed app files
+clean.
+Chris accepted the Ready Vercel preview on the actual iPhone.
+Merge is fast-forward `1f737f3..31caa32` (PR61).
+
+NOT TOUCHED
+Desktop Weekly crew texts (`src/schedule/views/Schedules.jsx`).
+Crew Schedule board. F56 leftover polish. Sunday scheduling (F60).
+B118 eleven remaining Sales-link exceptions. Assignment writers.
+PTO/payroll/time-clock.
+
+NEXT SESSION POINTERS
+1. Start on main. Read BACKLOG + this handoff. Wait for Chris.
+2. Do not remap existing `off` rows to Scheduled Off.
+3. Do not infer Scheduled Off from a blank assignment.
+4. Midweek is today→Friday only; do not silently widen it to Sat/Sun
+   to match weekly send or the Mon–Sat board.
+5. F56 leftover #2–#4 only if Chris asks; they were latent polish.
+
+FILES TO KNOW
+src/schedule/lib/crewWeekText.js — weekly builder + midweek formatter
+src/schedule/views/CrewPhone.jsx — /crew Weekly send + Midweek Update
+scripts/check-crew-midweek-text-model.mjs — midweek model checks
+scripts/check-crew-phone.mjs — phone weekly + midweek Copy/Share
+docs/BACKLOG.md — PR61 banner
+docs/handoffs/SC_Handoff_v278.txt — this record
+
+GIT STATE
+On main at PR61 fast-forward merge `31caa32`, then this closeout
+commit, matching origin/main after push. Feature branch
+cursor/midweek-update-crew-texts-54b3 deleted local and remote.
+Next session starts on main with a clean tree.

@@ -1,5 +1,7 @@
 # Sales Command — Backlog
 
+**PR61 — merged 2026-09-16 (`31caa32`):** /crew Midweek Update — today through Friday compact text (JOB #, coworkers, canonical `scheduled-off` as `(OFF — MAY CHANGE)`). Weekly/Sunday send unchanged. Desktop Schedules.jsx unchanged. No assignment or `crew_status` writes. Chris accepted the actual iPhone Vercel preview. Handoff v278.
+
 **PR60 — merged 2026-09-15 (`3bc81ac`):** Field Command Crews reads Crew Scheduler `assignments` (no `job_crew`). Scheduled Off is stored `scheduled-off`, distinct from Call In `off`, with create/see/edit/remove. Chris accepted the Ready preview. Handoff v277. F56 leftover polish #2–#4 remain.
 
 **B123 — T2 · Closed 2026-09-13 (PR56 merged `d12cfef`):** Crew Schedule weekday/date labels only — capacity-strip `MON 14` charcoal pills in `#79CDE0`, stacked Job/Mo–Sa `MON` over `09/14`, then ~25% larger equal-circle free/off badges. Chris accepted the preview. Week-nav, scores, bars, JOB, grid, and date logic unchanged. Handoff v276.
